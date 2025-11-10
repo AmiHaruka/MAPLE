@@ -206,20 +206,21 @@ from ase import Atoms
 
 @dataclass
 class NEBParams:
-    n_images: int = 9                     # total images including endpoints
-    k_spring: float = 0.2                 # spring "stiffness" (same units as force * length^-1)
+    n_images: int = 10                     # total images including endpoints
+    k_spring: float = 0.095                # spring "stiffness" (same units as force * length^-1)
     max_iter: int = 256
-    lbfgs_m: int = 5                      # memory size for L-BFGS
-    step0: float = 0.2                    # initial step length on search direction
-    step_min: float = 5e-4
-    step_max: float = 1.0
+    lbfgs_m: int = 10                      # memory size for L-BFGS
+    step0: float = 5e-2                    # initial step length on search direction
     # ORCA-like convergence on projected forces
-    neb_f_max_th: float = 5.0e-3             # max(|Fp|) threshold
-    neb_f_rms_th: float = 1.0e-3             # RMS(Fp) threshold
-    cineb_f_max_th: float = 4.00e-03           # max(|Fp|) threshold for CINEB
-    cineb_f_rms_th: float = 2.00e-03           # RMS(Fp) threshold for CINEB
+    neb_f_max_th: float = 9.5e-3             # max(|Fp|) threshold
+    neb_f_rms_th: float = 5e-3             # RMS(Fp) threshold
     initial_opt: bool = False               # do initial relaxation of endpoints
     refine: Optional[str] = None            # 'cineb' or 'nebts' or None
+    # CINEB-specific
+    cineb_f_max_th: float = 9.5e-04           # max(|Fp|) threshold for CINEB
+    cineb_f_rms_th: float = 5e-04           # RMS(Fp) threshold for CINEB
+    cilbfgs_m: int = 5                    # memory size for L-BFGS in CINEB
+    cistep0: float = 5e-3                 # initial step length for CINEB
 
 def improved_tangent(Rm1, R, Rp1, Em1, E, Ep1):
     """
@@ -365,6 +366,27 @@ class LBFGSDriver:
         rms_f = np.sqrt(np.mean(grad ** 2))
         return (max_f < fmax_th) and (rms_f < frms_th)
 
+    def ci_should_stop(self, regular_Fp, ci_F):
+        """
+        ORCA-style dual convergence:
+        - regular images: projected forces Fp
+        - climbing image: true forces F
+        """
+        # regular images
+        maxFp = np.max(np.abs(regular_Fp))
+        rmsFp = np.sqrt(np.mean(regular_Fp ** 2))
+
+        # climbing image
+        maxF = np.max(np.abs(ci_F))
+        rmsF = np.sqrt(np.mean(ci_F ** 2))
+
+        return (
+            (maxFp < self.fmax_reg) and
+            (rmsFp < self.frms_reg) and
+            (maxF  < self.fmax_ci) and
+            (rmsF  < self.frms_ci)
+        )
+
 
 # =============================================================================
 # ------------------------------- NEB Class -----------------------------------
@@ -396,8 +418,10 @@ class NEB(JobABC):
             _update_dataclass_from_dict(self.params, neb_dict, log_prefix="NEB", output=self.output, logger=log_info)
 
         # Safety: minimal guard
-        if self.params.n_images < 2:
-            raise ValueError("n_images must be >= 2 (including endpoints)")
+        if self.params.n_images < 1:
+            raise ValueError("n_images must be >= 1")
+
+        self.params.n_images = int(self.params.n_images) + 2  # total images including endpoints
 
 
     def optimize_endpoints(self, atoms_R: Atoms, atoms_P: Atoms, 
@@ -519,19 +543,24 @@ class NEB(JobABC):
         """
         Continue from a converged NEB path and perform:
         - CINEB refinement (always)
-        - Optional TS refinement with RFO (if params.refine=True)
+        - Optional TS refinement with RFO (if params.refine == 'nebts')
         """
         if energies is None:
             energies = [float(at.get_potential_energy(force_consistent=True)) for at in images]
 
         traj_file = os.path.splitext(self.output)[0] + "_cineb_traj.xyz"
-        driver = LBFGSDriver(m=self.params.lbfgs_m, curvature=70.0, maxstep=self.params.step0)
+        driver = LBFGSDriver(m=self.params.lbfgs_m, curvature=70.0, maxstep=self.params.cistep0)
+        # set convergence thresholds
+        driver.fmax_reg = self.params.neb_f_max_th
+        driver.frms_reg = self.params.neb_f_rms_th
+        driver.fmax_ci  = self.params.cineb_f_max_th
+        driver.frms_ci  = self.params.cineb_f_rms_th
 
-        def eval_grad(x_flat):
+        def eval_grad(x_flat: np.ndarray) -> np.ndarray:
             self._unpack_internal(x_flat, images)
-            Es = [float(at.get_potential_energy(force_consistent=True)) for at in images]
-            Fp_list, _, _ = self.cineb_forces(images, Es, self.params.k_spring)
-            grads = [(-Fp_list[i]).reshape(-1) for i in range(1, len(images) - 1)]
+            Es_local = [float(at.get_potential_energy(force_consistent=True)) for at in images]
+            Fp_list_local, _, _ = self.cineb_forces(images, Es_local, self.params.k_spring)
+            grads = [(-Fp_list_local[i]).reshape(-1) for i in range(1, len(images) - 1)]
             return np.concatenate(grads) if grads else np.zeros_like(x_flat)
 
         x = self._pack_internal(images)
@@ -541,11 +570,23 @@ class NEB(JobABC):
         log_info([
             "\nStarting CINEB refinement:\n",
             "Optim.  Iteration  CI   E(CI)-E(0)   max(|Fp|)   RMS(Fp)   max(|FCI|)   RMS(FCI)\n",
-            f"Convergence thresholds         {self.params.neb_f_max_th: .6f}   {self.params.neb_f_rms_th: .6f}       0.002000    0.001000\n"
+            f"Convergence thresholds regular: {self.params.neb_f_max_th: .6f}/{self.params.neb_f_rms_th: .6f},  "
+            f"CI: {self.params.cineb_f_max_th: .6f}/{self.params.cineb_f_rms_th: .6f}\n"
         ], self.output)
 
-        # --- Stage 1: CINEB refinement ---
-        while iteration < self.params.max_iter and not driver.should_stop(g, self.params.neb_f_max_th, self.params.neb_f_rms_th):
+        # initial status
+        Es = [float(at.get_potential_energy(force_consistent=True)) for at in images]
+        Fp_list, maxfp, hei = self.cineb_forces(images, Es, self.params.k_spring)
+
+        while iteration < self.params.max_iter:
+            # compute regular Fp and climbing F
+            Fp_all = np.concatenate([Fp_list[i].reshape(-1) for i in range(1, len(images)-1) if i != hei])
+            F_CI = to_numpy_f64(images[hei].get_forces()).reshape(-1)
+
+            if driver.ci_should_stop(Fp_all, F_CI):
+                log_info([f"\nCINEB converged after {iteration} iterations.\n"], self.output)
+                break
+
             p = driver.two_loop(g)
             p = driver.step_limit(p)
             x_new = x + p
@@ -554,22 +595,21 @@ class NEB(JobABC):
             x = x_new
             g = g_new
 
+            # recalc energies and forces
             Es = [float(at.get_potential_energy(force_consistent=True)) for at in images]
             Fp_list, maxfp, hei = self.cineb_forces(images, Es, self.params.k_spring)
-            rmsfp = rms_force(Fp_list)
             F_CI = to_numpy_f64(images[hei].get_forces())
             maxF_CI = np.max(np.linalg.norm(F_CI, axis=1))
             rmsF_CI = np.sqrt(np.mean(np.linalg.norm(F_CI, axis=1) ** 2))
+            rmsfp = rms_force(Fp_list)
             dE_CI = Es[hei] - Es[0]
 
             write_all_images_xyz(traj_file, images, energies=Es, iteration=iteration)
-            log_info([f"   LBFGS {iteration:>4d} {hei:>6d} {dE_CI:>10.6f} {maxfp:>11.6f} {rmsfp:>10.6f}        {maxF_CI:>10.6f}   {rmsF_CI:>10.6f}\n"], self.output)
+            log_info([f"   LBFGS {iteration:>4d} {hei:>6d} {dE_CI:>10.6f} "
+                    f"{maxfp:>11.6f} {rmsfp:>10.6f} {maxF_CI:>10.6f} {rmsF_CI:>10.6f}\n"], self.output)
             iteration += 1
-
-        if iteration == self.params.max_iter:
-            log_info(["\nCINEB refinement reached maximum iterations.\n"], self.output)
         else:
-            log_info([f"\nCINEB refinement converged after {iteration} iterations.\n"], self.output)
+            log_info(["\nCINEB refinement reached maximum iterations.\n"], self.output)
 
         # --- Stage 1 summary: CI part ---
         base, _ = os.path.splitext(self.output)
@@ -737,6 +777,8 @@ class NEB(JobABC):
         x = self._pack_internal(images)
         g = eval_grad(x)
         iteration = 0
+
+        Es = [float(at.get_potential_energy(force_consistent=True)) for at in images]
 
         log_info([
             "\nStarting NEB iterations:\n",
