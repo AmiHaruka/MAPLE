@@ -224,34 +224,38 @@ class NEBParams:
 
 def improved_tangent(Rm1, R, Rp1, Em1, E, Ep1):
     """
-    Energy-weighted (improved) tangent vector as in standard NEB literature.
-    Returns a normalized vector of shape (3N,).
+    Energy-weighted (Henkelman-Jonsson) improved tangent.
+    Always returns a normalized (3N,) vector.
     """
     dm = vec1d(R - Rm1)
     dp = vec1d(Rp1 - R)
     Em, Ep = Em1, Ep1
 
-    # determine tangent per Henkelman-Jonsson scheme
+    # decide direction
     if Ep > E and E > Em:
         t = dp
     elif Ep < E and E < Em:
         t = dm
     else:
-        dE_plus = max(Ep - E, 0.0)
+        dE_plus  = max(Ep - E, 0.0)
         dE_minus = max(Em - E, 0.0)
         t = dE_plus * dp + dE_minus * dm
 
-    norm = float(np.linalg.norm(t))
+    # normalize
+    norm = np.linalg.norm(t)
+
     if norm < 1e-16:
-        # fall back to arithmetic average direction
+        # fallback 1
         t = dp + dm
-        norm = float(np.linalg.norm(t))
+        norm = np.linalg.norm(t)
         if norm < 1e-16:
-            # last resort
-            t = np.zeros_like(dp)
-            t[0] = 1.0
-            return t
+            # fallback 2: return any unit vector
+            unit = np.zeros_like(t)
+            unit[0] = 1.0
+            return unit
+    
     return t / norm
+
 
 def neb_forces(images: List[Atoms], energies: List[float], k_spring: float) -> Tuple[List[np.ndarray], float, int]:
     """
@@ -494,6 +498,31 @@ class NEB(JobABC):
             Xi = x[offset:offset + n].reshape(-1, 3)
             images[i].set_positions(Xi)
             offset += n
+            
+    def _align_path(self, images: List[Atoms], ref_mode: str = "reactant"):
+        """
+        Rigid alignment for all internal images each iteration.
+        ref_mode = "reactant"  → use images[0] as reference
+                 = "centroid"  → use centroid of all images as reference
+        Returns a list of RMSDs for internal images.
+        """
+        # choose reference coordinates
+        if ref_mode == "reactant":
+            ref = to_numpy_f64(images[0].get_positions())
+        elif ref_mode == "centroid":
+            coords = [to_numpy_f64(img.get_positions()) for img in images]
+            ref = np.mean(coords, axis=0)
+        else:
+            ref = to_numpy_f64(images[0].get_positions())
+
+        rmsds = []
+        # align internal images only (1..N-2)
+        for i in range(1, len(images) - 1):
+            Q = to_numpy_f64(images[i].get_positions())
+            Q_aligned, rmsd, _, _ = kabsch_align(ref, Q)
+            images[i].set_positions(Q_aligned)
+            rmsds.append(rmsd)
+        return rmsds
 
     # ---------------- Climbing Image NEB (CINEB) -------------------------------
     def cineb_forces(self, images: List[Atoms], energies: List[float], k_spring: float) -> Tuple[List[np.ndarray], float, int]:
@@ -558,6 +587,7 @@ class NEB(JobABC):
 
         def eval_grad(x_flat: np.ndarray) -> np.ndarray:
             self._unpack_internal(x_flat, images)
+            self._align_path(images, ref_mode="reactant")
             Es_local = [float(at.get_potential_energy(force_consistent=True)) for at in images]
             Fp_list_local, _, _ = self.cineb_forces(images, Es_local, self.params.k_spring)
             grads = [(-Fp_list_local[i]).reshape(-1) for i in range(1, len(images) - 1)]
@@ -689,6 +719,73 @@ class NEB(JobABC):
             ], self.output)
 
 
+    # ==============================================================
+    # IDPP smoothing for initial path
+    # ==============================================================
+    def _run_idpp_smoothing(self, images, idpp_params=IDPPParams()):
+        """
+        Smooth the initial linear path using IDPP.
+        Only optimizes internal images (1..N-2).
+        """
+
+        coords = [to_numpy_f64(img.get_positions()) for img in images]
+        R0 = coords[0]
+        R1 = coords[-1]
+
+        # build pair list and targets
+        n_atoms = R0.shape[0]
+        pairs = _pair_indices(n_atoms)
+        targets = _idpp_targets(R0, R1, len(images)-2)  # list length N-2
+
+        # flatten internal coords
+        x = np.concatenate([coords[i].reshape(-1) for i in range(1, len(images)-1)])
+        n_inner = len(images)-2
+        n_pair = pairs.shape[0]
+
+        step = idpp_params.step_size
+
+        for _ in range(idpp_params.max_steps):
+
+            grad = np.zeros_like(x)
+
+            # loop internal images
+            offset = 0
+            for k in range(n_inner):
+                Xi = x[offset:offset + n_atoms*3].reshape(n_atoms, 3)
+
+                # compute distances for this image
+                Rij = Xi[pairs[:,0]] - Xi[pairs[:,1]]      # (M,3)
+                dij = np.linalg.norm(Rij, axis=1) + 1e-12  # (M,)
+
+                inv = 1.0 / dij
+                diff = inv - targets[k]
+
+                # energy ~ (inv - inv_target)^2  (gradient in Cartesian space)
+                dE_dd = -2.0 * diff / (dij**2)
+
+                # ∂d/∂Xi = (Xi_i - Xi_j) / d
+                g_pair = (dE_dd[:, None] * (Rij / dij[:, None]))  # (M,3)
+
+                # accumulate force on atoms
+                g_atoms = np.zeros_like(Xi)
+                for p in range(n_pair):
+                    i, j = pairs[p]
+                    g_atoms[i] +=  g_pair[p]
+                    g_atoms[j] += -g_pair[p]
+
+                grad[offset:offset + n_atoms*3] = g_atoms.reshape(-1)
+                offset += n_atoms*3
+
+            # take step
+            x -= step * grad
+
+        # write positions back
+        offset = 0
+        for i in range(1, len(images)-1):
+            images[i].set_positions(x[offset:offset + n_atoms*3].reshape(n_atoms, 3))
+            offset += n_atoms*3
+
+        return images
 
 
     # ------------------------------- main flow --------------------------------
@@ -752,6 +849,9 @@ class NEB(JobABC):
             images.append(A)
         images.append(self.atoms_P)
 
+        images = self._run_idpp_smoothing(images)
+        self._align_path(images, ref_mode="reactant")
+        
         for img in images:
             if img.calc is None:
                 img.calc = self.atoms_R.calc
@@ -769,6 +869,7 @@ class NEB(JobABC):
 
         def eval_grad(x_flat):
             self._unpack_internal(x_flat, images)
+            self._align_path(images, ref_mode="reactant")
             Es = get_energies(images)
             Fp_list, _, _ = neb_forces(images, Es, self.params.k_spring)
             grads = [(-Fp_list[i]).reshape(-1) for i in range(1, len(images) - 1)]
