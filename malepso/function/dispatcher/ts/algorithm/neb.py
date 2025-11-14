@@ -5,6 +5,7 @@ NEB implementation with:
 - IDPP interpolation for robust initial path
 - Improved tangent NEB forces (true_perp + spring_parallel)
 - L-BFGS optimizer on projected NEB forces
+- ORCA-style dynamic spring constants
 """
 from __future__ import annotations
 from lib2to3.pgen2 import driver
@@ -207,20 +208,94 @@ from ase import Atoms
 @dataclass
 class NEBParams:
     n_images: int = 10                     # total images including endpoints
-    k_spring: float = 0.08                # spring "stiffness" (same units as force * length^-1)
+    k_min: float = 0.03                    # minimum spring constant
+    k_max: float = 0.3                     # maximum spring constant
+    use_dynamic_k: bool = True             # enable ORCA-style dynamic spring constants
+    k_decay: float = 0.5                   # decay factor for dynamic k (ORCA default: 0.5)
     max_iter: int = 256
     lbfgs_m: int = 20                      # memory size for L-BFGS
     step0: float = 2e-2                    # initial step length on search direction
     # ORCA-like convergence on projected forces
-    neb_f_max_th: float = 9.5e-3             # max(|Fp|) threshold
+    neb_f_max_th: float = 9.5e-3           # max(|Fp|) threshold
     neb_f_rms_th: float = 5e-3             # RMS(Fp) threshold
-    initial_opt: bool = False               # do initial relaxation of endpoints
-    refine: Optional[str] = None            # 'cineb' or 'nebts' or None
+    initial_opt: bool = False              # do initial relaxation of endpoints
+    refine: Optional[str] = None           # 'cineb' or 'nebts' or None
     # CINEB-specific
-    cineb_f_max_th: float = 3e-03           # max(|Fp|) threshold for CINEB
-    cineb_f_rms_th: float = 2e-03           # RMS(Fp) threshold for CINEB
+    cineb_f_max_th: float = 3e-03          # max(|Fp|) threshold for CINEB
+    cineb_f_rms_th: float = 2e-03          # RMS(Fp) threshold for CINEB
     cilbfgs_m: int = 20                    # memory size for L-BFGS in CINEB
-    cistep0: float = 5e-3                 # initial step length for CINEB
+    cistep0: float = 5e-3                  # initial step length for CINEB
+
+
+def compute_dynamic_k(energies: List[float], k_min: float, k_max: float, k_decay: float = 0.5) -> List[float]:
+    """
+    Compute ORCA-style dynamic spring constants for each internal image.
+    
+    The spring constant for image i is computed as:
+    k_i = k_max - (k_max - k_min) * exp(-decay * ΔE_i / ΔE_max)
+    
+    where:
+    - ΔE_i = max(E_i - E_ref, 0) with E_ref = max(E_{i-1}, E_{i+1})
+    - ΔE_max = max energy barrier along the path
+    
+    This ensures:
+    - Images near the barrier get weaker springs (closer to k_min)
+    - Images far from the barrier get stronger springs (closer to k_max)
+    
+    Parameters
+    ----------
+    energies : List[float]
+        Energies of all images (including endpoints)
+    k_min : float
+        Minimum spring constant (for barrier region)
+    k_max : float
+        Maximum spring constant (for flat regions)
+    k_decay : float
+        Decay factor controlling transition sharpness (ORCA default: 0.5)
+    
+    Returns
+    -------
+    List[float]
+        Spring constants for each image (length = len(energies))
+        Endpoints get k_max by convention (not used in force calculation)
+    """
+    n_img = len(energies)
+    k_springs = [k_max] * n_img  # initialize with k_max
+    
+    if n_img < 3:
+        return k_springs
+    
+    # Find global energy reference (typically reactant energy)
+    E_ref_global = min(energies[0], energies[-1])
+    
+    # Compute energy barriers for each internal image
+    delta_E = []
+    for i in range(1, n_img - 1):
+        # Local reference: max of neighboring energies
+        E_ref_local = max(energies[i-1], energies[i+1])
+        # Energy rise above local reference
+        dE = max(energies[i] - E_ref_local, 0.0)
+        delta_E.append(dE)
+    
+    # Find maximum barrier
+    delta_E_max = max(delta_E) if delta_E else 1.0
+    
+    # Avoid division by zero
+    if delta_E_max < 1e-10:
+        # Essentially flat path, use k_max everywhere
+        return k_springs
+    
+    # Compute dynamic k for each internal image
+    for idx, dE in enumerate(delta_E):
+        i = idx + 1  # actual image index
+        # Normalized energy barrier
+        dE_norm = dE / delta_E_max
+        # ORCA formula: k decreases exponentially as we approach the barrier
+        k_i = k_max - (k_max - k_min) * np.exp(-k_decay * dE_norm)
+        k_springs[i] = k_i
+    
+    return k_springs
+
 
 def improved_tangent(Rm1, R, Rp1, Em1, E, Ep1):
     """
@@ -310,11 +385,37 @@ def cineb_tangent(Rm1, R, Rp1, Em1, E, Ep1):
     return t / norm
 
 
-def neb_forces(images: List[Atoms], energies: List[float], k_spring: float) -> Tuple[List[np.ndarray], float, int]:
+def neb_forces(images: List[Atoms], energies: List[float], 
+               k_spring: float = None, k_springs: List[float] = None,
+               use_dynamic_k: bool = False, k_min: float = 0.03, 
+               k_max: float = 0.3, k_decay: float = 0.5) -> Tuple[List[np.ndarray], float, int]:
     """
     Compute NEB projected forces for internal images:
     F_NEB = F_true_perp + F_spring_parallel  (per image)
-    Returns: list of projected forces (cartesian shape (N,3)), max|Fp|, HEI_index
+    
+    Parameters
+    ----------
+    images : List[Atoms]
+        All images including endpoints
+    energies : List[float]
+        Energies of all images
+    k_spring : float, optional
+        Single spring constant (used if k_springs is None and use_dynamic_k=False)
+    k_springs : List[float], optional
+        Pre-computed spring constants for each image
+    use_dynamic_k : bool
+        If True and k_springs is None, compute dynamic spring constants
+    k_min, k_max, k_decay : float
+        Parameters for dynamic spring constant calculation
+    
+    Returns
+    -------
+    forces_proj : List[np.ndarray]
+        Projected forces (cartesian shape (N,3)) for each image
+    max_fp : float
+        Maximum force component among all internal images
+    hei_idx : int
+        Index of highest energy image
     """
     n_img = len(images)
     forces_proj = [None] * n_img
@@ -329,6 +430,14 @@ def neb_forces(images: List[Atoms], energies: List[float], k_spring: float) -> T
     # determine HEI
     inner_indices = list(range(1, n_img - 1))
     hei_idx = max(inner_indices, key=lambda i: Es[i])
+
+    # Determine spring constants
+    if k_springs is None:
+        if use_dynamic_k:
+            k_springs = compute_dynamic_k(Es, k_min, k_max, k_decay)
+        else:
+            # Use single spring constant for all images
+            k_springs = [k_spring if k_spring is not None else k_max] * n_img
 
     # loop over internal images
     for i in inner_indices:
@@ -348,10 +457,11 @@ def neb_forces(images: List[Atoms], energies: List[float], k_spring: float) -> T
         F_true_perp = F_true - c * tau
         F_true_perp = F_true_perp.reshape(-1, 3)
 
-        # spring force along tangent: ks * (|R_{i+1}-R_i| - |R_i - R_{i-1}|) * tau
+        # spring force along tangent with dynamic k
+        k_i = k_springs[i]
         d_next = float(np.linalg.norm(Rp1 - R))
         d_prev = float(np.linalg.norm(R - Rm1))
-        F_spring_par = k_spring * (d_next - d_prev) * tau_resh
+        F_spring_par = k_i * (d_next - d_prev) * tau_resh
 
         # total projected
         Fp = F_true_perp + F_spring_par
@@ -471,7 +581,7 @@ class NEB(JobABC):
                  atoms_R: Atoms,
                  atoms_P: Atoms,
                  params: Optional[NEBParams] = None,
-                 paras: Optional[dict] = None):   # <-- NEW
+                 paras: Optional[dict] = None):
         super().__init__(output)
         
         self.atoms_R = atoms_R
@@ -484,10 +594,7 @@ class NEB(JobABC):
 
         # 2) apply overrides from paras (if provided)
         if isinstance(paras, dict):
-            # support "neb"/"NEB"/top-level keys for NEBParams
             neb_dict = _select_subdict(paras, ("neb", "NEB"))
-            # if keys are flat at top-level (e.g., {"n_images": 11}), _select_subdict returns lowered top-level dict
-            # so we only take the fields that exist in NEBParams
             _update_dataclass_from_dict(self.params, neb_dict, log_prefix="NEB", output=self.output, logger=log_info)
 
         # Safety: minimal guard
@@ -596,6 +703,7 @@ class NEB(JobABC):
 
     def get_energies(self, imgs): 
         return [float(at.get_potential_energy(force_consistent=True)) for at in imgs]
+    
     # ---------------- Climbing Image NEB (CINEB) -------------------------------
     def cineb_forces(self, images: List[Atoms], energies: List[float], k_spring: float) -> Tuple[List[np.ndarray], float, int]:
             """
@@ -693,7 +801,7 @@ class NEB(JobABC):
             """Return gradient dE/dx (flattened) for all internal images using CINEB forces."""
             self._unpack_internal(x_flat, images)
             Es_local = [float(at.get_potential_energy(force_consistent=True)) for at in images]
-            Fp_list_local, _, _ = self.cineb_forces(images, Es_local, self.params.k_spring)
+            Fp_list_local, _, _ = self.cineb_forces(images, Es_local, self.params.k_max)
             grads = [(-Fp_list_local[i]).reshape(-1) for i in range(1, len(images) - 1)]
             return np.concatenate(grads) if grads else np.zeros_like(x_flat)
 
@@ -704,7 +812,7 @@ class NEB(JobABC):
 
         # initial energies / forces for logging & to freeze HEI
         Es = [float(at.get_potential_energy(force_consistent=True)) for at in images]
-        Fp_list, maxfp, hei = self.cineb_forces(images, Es, self.params.k_spring)
+        Fp_list, maxfp, hei = self.cineb_forces(images, Es, self.params.k_max)
 
         # freeze HEI index for the whole CINEB run
         self._cineb_fixed_hei = hei
@@ -716,7 +824,7 @@ class NEB(JobABC):
 
         log_info([
             "\nStarting CINEB refinement:\n",
-            "Optim.  Iteration  CI   E(CI)-E(0)   max(|Fp|)   RMS(Fp)   max(|FCI|)   RMS(FCI)\n",
+            "Optim.  Iteration  CI   E(CI)-E(0)   max(|Fp|)   RMS(Fp)   max(|FCI|)   RMS(|FCI|)\n",
             f"Convergence thresholds regular: {self.params.neb_f_max_th: .6f}/{self.params.neb_f_rms_th: .6f},  "
             f"CI: {self.params.cineb_f_max_th: .6f}/{self.params.cineb_f_rms_th: .6f}\n"
         ], self.output)
@@ -757,7 +865,7 @@ class NEB(JobABC):
 
             # ===== recompute energies / forces for next iteration & logging =====
             Es = [float(at.get_potential_energy(force_consistent=True)) for at in images]
-            Fp_list, maxfp, _ = self.cineb_forces(images, Es, self.params.k_spring)  # hei stays frozen via self._cineb_fixed_hei
+            Fp_list, maxfp, _ = self.cineb_forces(images, Es, self.params.k_max)
 
             F_CI_vec = to_numpy_f64(images[hei].get_forces())
             maxF_CI = float(np.max(np.linalg.norm(F_CI_vec, axis=1)))
@@ -773,7 +881,7 @@ class NEB(JobABC):
         else:
             log_info(["\nCINEB refinement reached maximum iterations.\n"], self.output)
 
-        # 清理 fixed HEI（可选）
+        # Clean up fixed HEI
         self._cineb_fixed_hei = None
 
         # --- Stage 1 summary: CI part ---
@@ -1001,8 +1109,8 @@ class NEB(JobABC):
         if self.params.initial_opt:
             self.atoms_R, self.atoms_P = self.optimize_endpoints(
                 self.atoms_R, self.atoms_P,
-                f_max_th=self.params.f_max_th,
-                f_rms_th=self.params.f_rms_th,
+                f_max_th=self.params.neb_f_max_th,
+                f_rms_th=self.params.neb_f_rms_th,
                 max_iter=self.params.max_iter
             )
 
@@ -1069,11 +1177,24 @@ class NEB(JobABC):
             maxstep=self.params.step0
         )
 
+        # Storage for dynamic k values (for logging)
+        self._k_springs_history = []
 
         def eval_grad(x_flat):
             self._unpack_internal(x_flat, images)
             Es = self.get_energies(images)
-            Fp_list, _, _ = neb_forces(images, Es, self.params.k_spring)
+            
+            # Compute forces with dynamic k if enabled
+            Fp_list, _, _ = neb_forces(
+                images, Es,
+                k_spring=None,
+                k_springs=None,
+                use_dynamic_k=self.params.use_dynamic_k,
+                k_min=self.params.k_min,
+                k_max=self.params.k_max,
+                k_decay=self.params.k_decay
+            )
+            
             grads = [(-Fp_list[i]).reshape(-1) for i in range(1, len(images) - 1)]
             return np.concatenate(grads) if grads else np.zeros_like(x_flat)
 
@@ -1083,43 +1204,73 @@ class NEB(JobABC):
 
         Es = [float(at.get_potential_energy(force_consistent=True)) for at in images]
 
-        log_info([
-            "\nStarting NEB iterations:\n",
-            "Optim.  Iteration  HEI  E(HEI)-E(0)  max(|Fp|)   RMS(Fp)\n",
-            f"Convergence thresholds         {self.params.neb_f_max_th: .6f}   {self.params.neb_f_rms_th: .6f}\n"
-        ], self.output)
+        # Log header
+        if self.params.use_dynamic_k:
+            log_info([
+                "\nStarting NEB iterations with ORCA-style dynamic spring constants:\n",
+                f"k_min = {self.params.k_min:.4f}, k_max = {self.params.k_max:.4f}, k_decay = {self.params.k_decay:.4f}\n",
+                "Optim.  Iteration  HEI  E(HEI)-E(0)  max(|Fp|)   RMS(Fp)   k(HEI)\n",
+                f"Convergence thresholds         {self.params.neb_f_max_th: .6f}   {self.params.neb_f_rms_th: .6f}\n"
+            ], self.output)
+        else:
+            log_info([
+                "\nStarting NEB iterations with fixed spring constant:\n",
+                f"k_spring = {self.params.k_max:.4f}\n",
+                "Optim.  Iteration  HEI  E(HEI)-E(0)  max(|Fp|)   RMS(Fp)\n",
+                f"Convergence thresholds         {self.params.neb_f_max_th: .6f}   {self.params.neb_f_rms_th: .6f}\n"
+            ], self.output)
 
         while iteration < self.params.max_iter and not driver.should_stop(g, self.params.neb_f_max_th, self.params.neb_f_rms_th):
-            # ===== L-BFGS step using CINEB gradient =====
+            # ===== L-BFGS step =====
             p = driver.two_loop(g)
             p = driver.step_limit(p)
 
-            # take full step (no line search)
+            # take full step
             x_new = x + p
 
             # evaluate new gradient
             g_new = eval_grad(x_new)
-
 
             driver.update(x_new - x, g_new - g)
 
             x = x_new
             g = g_new
 
+            # ===== Compute forces and energies for logging =====
             Es = self.get_energies(images)
-            Fp_list, maxfp, hei = neb_forces(images, Es, self.params.k_spring)
+            
+            # Compute spring constants for this iteration
+            if self.params.use_dynamic_k:
+                k_springs = compute_dynamic_k(Es, self.params.k_min, self.params.k_max, self.params.k_decay)
+                self._k_springs_history.append(k_springs.copy())
+            else:
+                k_springs = [self.params.k_max] * len(images)
+            
+            Fp_list, maxfp, hei = neb_forces(
+                images, Es,
+                k_spring=None,
+                k_springs=k_springs,
+                use_dynamic_k=False  # already computed k_springs
+            )
+            
             rmsfp = rms_force(Fp_list)
             dE_hei = Es[hei] - Es[0]
 
             write_all_images_xyz(traj_file, images, energies=Es, iteration=iteration)
 
-            log_info([f"   LBFGS {iteration:>4d} {hei:>6d} {dE_hei:>10.6f} {maxfp:>11.6f} {rmsfp:>10.6f}\n"], self.output)
+            if self.params.use_dynamic_k:
+                k_hei = k_springs[hei]
+                log_info([f"   LBFGS {iteration:>4d} {hei:>6d} {dE_hei:>10.6f} {maxfp:>11.6f} {rmsfp:>10.6f}   {k_hei:.4f}\n"], self.output)
+            else:
+                log_info([f"   LBFGS {iteration:>4d} {hei:>6d} {dE_hei:>10.6f} {maxfp:>11.6f} {rmsfp:>10.6f}\n"], self.output)
+            
             iteration += 1
         
         if iteration == self.params.max_iter:
             log_info(["\nNEB optimization reached maximum iterations.\n"], self.output)
         else:
             log_info([f"\nNEB optimization converged after {iteration} iterations.\n"], self.output)
+
 
         # ---------------------------------------------------------------
         #  Final path summary

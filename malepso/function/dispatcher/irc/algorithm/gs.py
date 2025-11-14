@@ -1,34 +1,40 @@
 # -*- coding: utf-8 -*-
 """
-Intrinsic Reaction Coordinate (IRC) integrator using:
-- A steepest-descent (SD) predictor in Cartesian coordinates
-- A perpendicular correction step in the subspace orthogonal to SD
-- Optional parabolic (quadratic) fit on SD or correction segment if uphill is detected
-- Adaptive update of SD length
-- Forward and backward paths from the transition-state (TS) geometry
-- Path merge with the lower-energy endpoint set as dE=0 and the TS marked at the maximum energy point
+Intrinsic Reaction Coordinate (IRC) integrator using Gonzalez–Schlegel (GS) scheme:
+
+- Mass-weighted coordinates and Hessian
+- Pivot step + constrained optimization on a hypersphere
+- Micro-cycles using a (quasi-)Newton step with a Lagrange multiplier λ
+  to enforce |p|^2 = (step_length/2)^2 in mass-weighted space
+- Hessian reuse with BFGS updates (optional periodic full recalculation)
+- Forward and backward paths from the TS geometry, starting along the
+  lowest negative eigenmode of the mass-weighted Hessian
+- Path merge with the lower-energy endpoint set as dE=0 and the TS
+  marked at the maximum energy point
 
 Units:
-- Coordinates: Å
+- Cartesian coordinates: Å
 - Forces: Eh/Å
 - Energies: Eh
-- dE: kcal/mol (for reporting)
+- Mass-weighted coordinates: sqrt(amu) * Å (via masses_D)
 """
 
 import os
 from dataclasses import dataclass, fields
 from typing import List, Optional, Dict, Tuple
+
 import numpy as np
 from ase import Atoms
 
 from .logger import log_info, log_error
 
-
 # =============================== Utilities ===============================
 BOHR_TO_ANG = 0.529177210903
 KCAL_PER_EH = 627.509474
 
+
 def to_f64(x):
+    """Convert input to float64 numpy array or scalar."""
     if isinstance(x, np.ndarray):
         return x.astype(np.float64, copy=False)
     try:
@@ -42,27 +48,35 @@ def to_f64(x):
         return float(x)
     return np.asarray(x, dtype=np.float64)
 
-def v1(x, n=None):
+
+def v1(x, n: Optional[int] = None) -> np.ndarray:
+    """Flatten to 1D float64 array, optionally enforcing size."""
     v = to_f64(x).reshape(-1)
     if n is not None and v.size != n:
         raise ValueError(f"Expected size {n}, got {v.size}")
     return v
 
+
 def masses_D(atoms: Atoms) -> np.ndarray:
-    """Return diagonal mass-weight scaling vector D with length 3N: q_mw = D * q_cart."""
+    """
+    Return diagonal scaling vector D (length 3N) for mass-weighted quantities.
+
+    Convention here (consistent with earlier code):
+
+        q_mw = q_cart / D       where D = 1/sqrt(m_i)
+
+    so that q_mw has units sqrt(amu) * Å, and the mass-weighted Hessian is
+
+        H_mw = D * H_cart * D
+
+    Gradients in MW coordinates follow
+
+        g_mw = D * g_cart
+    """
     m = to_f64(atoms.get_masses())
     m = np.where(m > 0.0, m, 1.0)
     return v1(1.0 / np.sqrt(np.repeat(m, 3)))
 
-def norm_cart(v):
-    return float(np.linalg.norm(v1(v)))
-
-def unit_cart(v, eps=1e-16):
-    v = v1(v)
-    n = np.linalg.norm(v)
-    if n < eps:
-        return np.zeros_like(v)
-    return v / n
 
 def write_xyz(path: str, atoms_list: List[Atoms], energies: Optional[List[float]] = None):
     """Write a list of structures to an XYZ file."""
@@ -79,37 +93,40 @@ def write_xyz(path: str, atoms_list: List[Atoms], energies: Optional[List[float]
                 f.write(f"{s:2s} {x: .10f} {y: .10f} {z: .10f}\n")
 
 
+def _norm(v: np.ndarray) -> float:
+    return float(np.linalg.norm(v))
+
+
+def _unit(v: np.ndarray, eps: float = 1e-16) -> np.ndarray:
+    n = _norm(v)
+    if n < eps:
+        return np.zeros_like(v)
+    return v / n
+
+
 # =============================== Parameters ===============================
 @dataclass
 class GSParams:
-    # Negative mode selection (1 = most negative)
+    # Which negative eigenmode (1 = most negative) to use for initial direction
     target_mode: int = 1
 
-    # Initial displacement using quadratic ΔE target (mEh → Eh)
-    init_delta_E_mEh: float = 2.0
-    use_quadratic_init: bool = True
+    # GS macro step length in mass-weighted coordinates (same units as q_mw)
+    # User-facing name kept in "Bohr" for compatibility with old inputs.
+    step_length_bohr: float = 0.30
 
-    # SD step configuration (given in bohr; converted to Å)
-    sd_len_bohr: float = 0.150
-    sd_len_min_bohr: float = 0.050
-    sd_len_max_bohr: float = 0.300
+    # Number of macro steps per direction
+    max_steps: int = 50
 
-    # Correction length relative to SD length
-    corr_scale: float = 1.0 / 3.0
+    # Micro-cycle controls
+    max_micro_cycles: int = 20
+    micro_step_thresh: float = 1e-3
 
-    # Adaptive update factors
-    grow: float = 1.20
-    shrink: float = 0.80
+    # Recalculate Hessian every N micro-steps (None = never, only BFGS updates)
+    hessian_recalc: Optional[int] = None
 
-    # Parabolic fit on uphill (interpolation only)
-    do_parabolic_fit: bool = True
-
-    # Convergence on forces (Eh/Å)
+    # Convergence on forces in Cartesian space (Eh/Å)
     tol_maxf: float = 2e-3
     tol_rmsf: float = 5e-4
-
-    # Maximum macro steps per side
-    max_points: int = 100
 
     # Output controls
     print_each: bool = True
@@ -119,16 +136,27 @@ class GSParams:
 # ================================== GS ===================================
 class GS:
     """
-    IRC integrator with SD predictor, perpendicular correction, parabolic interpolation,
-    adaptive step length, two-sided integration, and merged summary.
+    Gonzalez–Schlegel IRC integrator:
+
+    - Works in mass-weighted coordinates.
+    - Each macro step:
+        pivot half-step along negative gradient,
+        then constrained optimization on a hypersphere via micro-cycles.
+    - Uses BFGS updates of the mass-weighted Hessian, with optional
+      periodic full recalculation.
+    - Integrates forward and backward from the TS along the lowest
+      negative eigenmode of H_mw, then merges paths.
     """
 
-    def __init__(self, atoms: Atoms, output: str, params: Optional[GSParams] = None, paras: Optional[dict] = None):
+    def __init__(self, atoms: Atoms, output: str,
+                 params: Optional[GSParams] = None,
+                 paras: Optional[dict] = None):
         self.atoms = atoms
         self.output = output
         self.p = params if params is not None else GSParams()
 
-        # Optional dict override: accept {"gs": {...}} or flat dict of param names.
+        # Parse optional dict overrides, supporting both {"gs": {...}}
+        # and flat dict style. Keep backward compatibility aliases.
         if isinstance(paras, dict):
             low = {k.lower(): v for k, v in paras.items()}
             sub = None
@@ -138,22 +166,116 @@ class GS:
                     break
             if sub is None:
                 sub = low
-            fmap = {f.name.lower(): f.name for f in fields(self.p)}
-            for k, v in {k.lower(): v for k, v in sub.items()}.items():
-                if k in fmap:
-                    setattr(self.p, fmap[k], v)
+            sub_low = {k.lower(): v for k, v in sub.items()}
+
+            # Aliases / compatibility mapping
+            aliases = {
+                "sd_len_bohr": "step_length_bohr",
+                "steplength_bohr": "step_length_bohr",
+                "max_points": "max_steps",
+                "max_micro_cycles": "max_micro_cycles",
+                "micro_step_thresh": "micro_step_thresh",
+                "hessian_recalc": "hessian_recalc",
+                "target_mode": "target_mode",
+                "tol_maxf": "tol_maxf",
+                "tol_rmsf": "tol_rmsf",
+                "print_each": "print_each",
+                "write_traj": "write_traj",
+            }
+
+            for k, v in sub_low.items():
+                if k in aliases:
+                    setattr(self.p, aliases[k], v)
+                elif hasattr(self.p, k):
+                    setattr(self.p, k, v)
+
+        # Internal state for GS integration
+        self._D: Optional[np.ndarray] = None  # mass-weight scaling vector
+        self._step_len_mw: float = float(self.p.step_length_bohr)
+
+        self.mw_coords: Optional[np.ndarray] = None
+        self.mw_hessian: Optional[np.ndarray] = None
+        self.prev_coords: Optional[np.ndarray] = None
+        self.prev_grad: Optional[np.ndarray] = None
+        self.displacement: Optional[np.ndarray] = None
+
+        self.pivot_coords: List[np.ndarray] = []
+        self.micro_coords: List[np.ndarray] = []
+        self.micro_counter: int = 0
 
     # ------------------------------ Public API ------------------------------
     def run(self) -> Dict[str, any]:
-        """Compute both directions and produce a merged summary."""
-        try:
-            neg_mode_cart = self._get_negative_mode_cart()
-        except Exception as e:
-            log_error([f"[ERROR] Failed to obtain negative mode from Hessian: {e}\n"], self.output)
-            raise
+        """
+        Compute forward and backward GS IRC paths and produce a merged summary.
 
-        forward_log = self._one_side(True,  +1.0, neg_mode_cart)
-        backward_log = self._one_side(False, -1.0, neg_mode_cart)
+        Returns:
+            {
+                "forward": {...},
+                "backward": {...},
+                "summary": {...}
+            }
+        """
+        # Prepare mass weights once at TS geometry
+        self._D = masses_D(self.atoms)
+        self._step_len_mw = float(self.p.step_length_bohr)
+
+        # Diagonalize mass-weighted Hessian at TS to get negative mode
+        H_cart_ts = self._get_hessian_cart()
+        H_mw_ts = (self._D[:, None] * H_cart_ts) * self._D[None, :]
+        w, V = np.linalg.eigh(H_mw_ts)
+
+        neg_idx = np.where(w < 0.0)[0]
+        if len(neg_idx) == 0:
+            log_error(
+                ["[ERROR] GS-IRC: No negative eigenvalues found — "
+                 "starting geometry is not a saddle point.\n"],
+                self.output,
+            )
+            raise RuntimeError("GS-IRC: no negative eigenvalues at TS.")
+
+        if len(neg_idx) < self.p.target_mode:
+            log_error(
+                [f"[ERROR] GS-IRC: Requested mode {self.p.target_mode}, "
+                 f"but only {len(neg_idx)} negative modes found.\n"],
+                self.output,
+            )
+            raise RuntimeError("GS-IRC: requested negative mode does not exist.")
+
+        sorted_neg = neg_idx[np.argsort(w[neg_idx])]  # most negative first
+        idx = sorted_neg[self.p.target_mode - 1]
+        eigval = w[idx]
+        v_neg_mw = V[:, idx]
+
+        log_info(
+            [
+                "\n[INFO] GS-IRC: Selected negative eigenmode "
+                f"#{self.p.target_mode} with λ = {eigval:.6e} (MW basis)\n"
+            ],
+            self.output,
+        )
+
+        # Reference TS energy
+        E_ts = float(self.atoms.get_potential_energy(force_consistent=True))
+
+        # Store original TS Cartesian positions, reused for both directions
+        R_ts_cart = self.atoms.get_positions().copy().reshape(-1)
+
+        # Forward and backward GS-IRC
+        forward_log = self._one_side(
+            forward=True,
+            sign=+1.0,
+            q_ts_cart=R_ts_cart,
+            v_neg_mw=v_neg_mw,
+            E_ts=E_ts,
+        )
+        backward_log = self._one_side(
+            forward=False,
+            sign=-1.0,
+            q_ts_cart=R_ts_cart,
+            v_neg_mw=v_neg_mw,
+            E_ts=E_ts,
+        )
+
         merged = self._merge_and_mark_ts(forward_log, backward_log)
 
         if self.p.write_traj:
@@ -161,32 +283,22 @@ class GS:
 
         return {"forward": forward_log, "backward": backward_log, "summary": merged}
 
-    # --------------------------- Hessian & mode -----------------------------
-    def _get_negative_mode_cart(self) -> np.ndarray:
-        """Diagonalize the mass-weighted Hessian and return the chosen negative mode in Cartesian coordinates."""
-        H = self._get_hessian()
-        D = masses_D(self.atoms)
-        H_mw = (D[:, None] * H) * D[None, :]
-        w, V = np.linalg.eigh(H_mw)
+    # --------------------------- Low-level helpers --------------------------
+    def _cart_from_mw(self, q_mw: np.ndarray) -> np.ndarray:
+        """Convert mass-weighted coordinates back to Cartesian (Å)."""
+        return (q_mw * self._D).reshape(-1)
 
-        neg_idx = np.where(w < 0.0)[0]
-        if len(neg_idx) == 0:
-            log_error(["[ERROR] No negative eigenvalues found — the geometry is not a saddle point.\n"], self.output)
-            raise RuntimeError("No negative eigenvalues found.")
-        if len(neg_idx) < self.p.target_mode:
-            log_error([f"[ERROR] Requested mode {self.p.target_mode}, but only {len(neg_idx)} negative modes exist.\n"], self.output)
-            raise RuntimeError("Requested negative mode does not exist.")
+    def _mw_from_cart(self, q_cart: np.ndarray) -> np.ndarray:
+        """Convert Cartesian coordinates (Å) to mass-weighted coordinates."""
+        return (q_cart / self._D).reshape(-1)
 
-        sorted_neg = neg_idx[np.argsort(w[neg_idx])]   # ascending (most negative first)
-        idx = sorted_neg[self.p.target_mode - 1]
-        eigval = w[idx]
-        log_info([f"\nSelected eigenmode #{self.p.target_mode} (λ = {eigval:.6e} in MW basis)\n"], self.output)
+    def _get_hessian_cart(self) -> np.ndarray:
+        """
+        Get Cartesian Hessian (3N x 3N) from the calculator.
 
-        v_mw = V[:, idx]
-        v_cart = v_mw / D  # map back to Cartesian direction
-        return v1(v_cart)
-
-    def _get_hessian(self) -> np.ndarray:
+        Assumes atoms.calc implements get_hessian(atoms) and returns 3N x 3N
+        or shape (1, 3N, 3N).
+        """
         H = self.atoms.calc.get_hessian(self.atoms)
         H = to_f64(H)
         if H.ndim == 3 and H.shape[0] == 1:
@@ -195,183 +307,294 @@ class GS:
             raise ValueError(f"Hessian must be square 2D, got shape {H.shape}")
         return H
 
-    # --------------------------- Parabolic fit ------------------------------
+    def _energy_forces_from_mw(self, q_mw: np.ndarray) -> Tuple[float, np.ndarray]:
+        """
+        Set positions from MW coordinates, then return (E, F_cart).
+
+        E: Eh
+        F_cart: (3N,) Eh/Å
+        """
+        q_cart = self._cart_from_mw(q_mw)
+        self.atoms.set_positions(q_cart.reshape(-1, 3))
+        E = float(self.atoms.get_potential_energy(force_consistent=True))
+        F_cart = to_f64(self.atoms.get_forces()).reshape(-1)
+        return E, F_cart
+
+    def _gradient_mw_from_forces(self, F_cart: np.ndarray) -> np.ndarray:
+        """
+        Convert Cartesian forces (Eh/Å) to MW gradient:
+
+            g_cart = dE/dR = -F_cart
+            g_mw = D * g_cart
+        """
+        g_cart = -F_cart.reshape(-1)
+        return self._D * g_cart
+
     @staticmethod
-    def _parabolic_fit_interpolate(s0, E0, s1, E1, s2, E2) -> Tuple[bool, float]:
+    def _perp_component(vec: np.ndarray, perp_to: np.ndarray) -> np.ndarray:
+        """Return component of vec perpendicular to perp_to."""
+        denom = float(np.dot(perp_to, perp_to))
+        if denom <= 0.0:
+            return np.zeros_like(vec)
+        return vec - np.dot(perp_to, vec) * perp_to / denom
+
+    @staticmethod
+    def _bfgs_update(H: np.ndarray,
+                     s: np.ndarray,
+                     y: np.ndarray) -> np.ndarray:
         """
-        Fit E(s)=a s^2 + b s + c for three samples and return (ok, s_min) where s_min is strictly inside [s0,s2].
-        Only interpolation is allowed; extrapolation is rejected.
+        Symmetric BFGS update:
+
+            H_{k+1} = H_k + (y y^T)/(y·s) - (H s s^T H)/(s^T H s)
+
+        Safeguards if denominators are too small or curvature condition fails.
         """
-        try:
-            coeff = np.polyfit([s0, s1, s2], [E0, E1, E2], 2)  # returns a, b, c
-            a, b, c = coeff
-            if abs(a) < 1e-20:
-                return False, 0.0
-            s_min = -b / (2.0 * a)
-            s_lo, s_hi = (s0, s2) if s0 <= s2 else (s2, s0)
-            if s_min <= s_lo or s_min >= s_hi:
-                return False, 0.0
-            return True, float(s_min)
-        except Exception:
-            return False, 0.0
+        ys = float(np.dot(y, s))
+        if ys <= 1e-12:
+            return H
+
+        Hy = H.dot(s)
+        sTHs = float(np.dot(s, Hy))
+        if sTHs <= 1e-12:
+            return H
+
+        term1 = np.outer(y, y) / ys
+        term2 = np.outer(Hy, Hy) / sTHs
+        return H + term1 - term2
+
+    @staticmethod
+    def _newton_1d(on_sphere,
+                   lambda_0: float,
+                   maxiter: int = 50,
+                   tol: float = 1e-10) -> float:
+        """
+        Simple 1D Newton root finder with finite-difference derivative.
+        Used instead of scipy.optimize.newton to avoid extra dependency.
+        """
+        lam = float(lambda_0)
+        for _ in range(maxiter):
+            f = float(on_sphere(lam))
+            if abs(f) < tol:
+                break
+            h = 1e-4 * max(1.0, abs(lam))
+            f1 = float(on_sphere(lam + h))
+            df = (f1 - f) / h
+            if abs(df) < 1e-16:
+                lam *= 0.5
+                continue
+            lam -= f / df
+        return lam
+
+    # --------------------------- Micro-step (GS) ----------------------------
+    def _micro_step(self) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Perform one GS micro-step (constrained optimization on hypersphere).
+
+        Updates:
+            self.mw_coords, self.mw_hessian, self.prev_coords,
+            self.prev_grad, self.displacement, self.micro_counter
+
+        Returns:
+            dx: MW displacement for this micro-step
+            g_tan: gradient tangent to the hypersphere (MW)
+        """
+        # Gradient at current coordinates (MW)
+        _, F_cart = self._energy_forces_from_mw(self.mw_coords)
+        gradient = self._gradient_mw_from_forces(F_cart)
+
+        # BFGS update (or optional full Hessian recalculation)
+        gradient_diff = gradient - self.prev_grad
+        coords_diff = self.mw_coords - self.prev_coords
+
+        # Update "previous" values
+        self.prev_coords = self.mw_coords.copy()
+        self.prev_grad = gradient.copy()
+
+        recalc = (
+            self.p.hessian_recalc is not None
+            and self.p.hessian_recalc > 0
+            and (self.micro_counter % self.p.hessian_recalc == 0)
+        )
+        if recalc and self.micro_counter > 0:
+            H_cart = self._get_hessian_cart()
+            self.mw_hessian = (self._D[:, None] * H_cart) * self._D[None, :]
+        else:
+            self.mw_hessian = self._bfgs_update(self.mw_hessian, coords_diff, gradient_diff)
+
+        eigvals, eigvecs = np.linalg.eigh(self.mw_hessian)
+
+        # Constraint radius in MW space (half of the macro step length)
+        constraint = (0.5 * self._step_len_mw) ** 2
+
+        mask = np.abs(eigvals) > 1e-8
+        big_eigvals = eigvals[mask]
+        big_eigvecs = eigvecs[:, mask]
+
+        if big_eigvals.size == 0:
+            # Fallback: no "big" eigenvalues; skip constrained step
+            dx = np.zeros_like(self.mw_coords)
+            g_tan = np.zeros_like(self.mw_coords)
+            return dx, g_tan
+
+        grad_star = big_eigvecs.T.dot(gradient)
+        displ_star = big_eigvecs.T.dot(self.displacement)
+
+        def get_dx(lambda_):
+            """Return dx in eigenbasis for a given λ."""
+            return -(grad_star - lambda_ * displ_star) / (big_eigvals - lambda_)
+
+        def on_sphere(lambda_):
+            p = displ_star + get_dx(lambda_)
+            return p.dot(p) - constraint
+
+        # Initial guess for λ: scaled smallest eigenvalue
+        lambda_0 = float(big_eigvals[0])
+        lambda_0 *= 1.5 if (lambda_0 < 0.0) else 0.5
+
+        lambda_opt = self._newton_1d(on_sphere, lambda_0, maxiter=50, tol=1e-10)
+
+        dx_star = get_dx(lambda_opt)
+        dx = big_eigvecs.dot(dx_star)
+
+        # Update MW displacement and coordinates
+        self.displacement += dx
+        self.mw_coords += dx
+
+        # Gradient tangent to the sphere (MW)
+        g_tan = self._perp_component(gradient, self.displacement)
+
+        self.micro_counter += 1
+
+        return dx, g_tan
 
     # --------------------------- One direction ------------------------------
-    def _one_side(self, forward: bool, sign: float, neg_mode_cart: np.ndarray) -> Dict[str, any]:
+    def _one_side(self,
+                  forward: bool,
+                  sign: float,
+                  q_ts_cart: np.ndarray,
+                  v_neg_mw: np.ndarray,
+                  E_ts: float) -> Dict[str, any]:
         """
-        Single-sided path integration:
-        - Initial push along the chosen negative mode using a quadratic energy target.
-        - Per step: SD predictor -> optional parabolic interpolation if uphill -> perpendicular correction
-          -> optional parabolic interpolation if uphill -> adaptive SD length -> log and convergence check.
+        Single-sided GS IRC integration.
+
+        Args:
+            forward: True for forward path, False for backward.
+            sign: +1.0 or -1.0 to choose direction along the negative mode.
+            q_ts_cart: TS Cartesian coordinates (flattened, Å).
+            v_neg_mw: selected negative eigenmode in MW basis (3N, normalized later).
+            E_ts: TS reference energy (Eh).
         """
         p = self.p
-        title = "FORWARD IRC" if forward else "BACKWARD IRC"
+        title = "FORWARD GS-IRC" if forward else "BACKWARD GS-IRC"
 
         self._print_header(title)
         self._print_conv_thresholds(p.tol_maxf, p.tol_rmsf)
 
-        # Reference energy at TS
-        E_ts = float(self.atoms.get_potential_energy(force_consistent=True))
+        # Initial MW coordinates at TS
+        q_ts_mw = self._mw_from_cart(q_ts_cart)
 
-        # SD length bounds (Å)
-        sd_len = float(np.clip(p.sd_len_bohr, p.sd_len_min_bohr, p.sd_len_max_bohr)) * BOHR_TO_ANG
-        sd_min = p.sd_len_min_bohr * BOHR_TO_ANG
-        sd_max = p.sd_len_max_bohr * BOHR_TO_ANG
+        # Initial displacement along negative mode in MW
+        v_dir = _unit(v_neg_mw) * sign
+        q0_mw = q_ts_mw + 0.5 * self._step_len_mw * v_dir
 
-        # Initial displacement using quadratic ΔE target on the negative mode
-        D = masses_D(self.atoms)
-        if p.use_quadratic_init:
-            H = self._get_hessian()
-            H_mw = (D[:, None] * H) * D[None, :]
-            w_mw, _ = np.linalg.eigh(H_mw)
-            lam_min = float(np.min(w_mw))
-            if lam_min >= 0.0:
-                log_error([f"[ERROR] {title}: no negative eigenvalue at the starting geometry.\n"], self.output)
-                raise RuntimeError("No negative eigenvalue at start.")
-            dE = p.init_delta_E_mEh * 1e-3  # Eh
-            dq_mw = np.sqrt(2.0 * abs(dE) / abs(lam_min))
-            u0 = unit_cart(neg_mode_cart * sign)
-            alpha = dq_mw / (np.linalg.norm(D * u0) + 1e-16)  # ensures MW arc-length = dq_mw
-            dx0 = alpha * u0
-        else:
-            u0 = unit_cart(neg_mode_cart * sign)
-            dx0 = (sd_len) * u0
+        # Initial energy / forces / gradient at starting point
+        E0, F0_cart = self._energy_forces_from_mw(q0_mw)
+        g0_mw = self._gradient_mw_from_forces(F0_cart)
 
-        R0 = v1(self.atoms.get_positions())
-        self.atoms.set_positions((R0 + dx0).reshape(-1, 3))
-        E0 = float(self.atoms.get_potential_energy(force_consistent=True))
-        if E0 > E_ts + 1e-12:
-            log_info([f"[WARNING]: {title} initial push increased energy by {(E0 - E_ts):.6e} Eh. Continuing.\n"], self.output)
+        maxF0 = float(np.max(np.abs(F0_cart)))
+        rmsF0 = float(np.sqrt(np.mean(F0_cart ** 2)))
+
+        # Initial Hessian at starting point (MW)
+        H0_cart = self._get_hessian_cart()
+        H0_mw = (self._D[:, None] * H0_cart) * self._D[None, :]
+
+        # Initialize GS state
+        self.mw_coords = q0_mw.copy()
+        self.mw_hessian = H0_mw.copy()
+        self.prev_coords = q0_mw.copy()
+        self.prev_grad = g0_mw.copy()
+        self.displacement = np.zeros_like(q0_mw)
+        self.micro_counter = 0
+        self.pivot_coords = []
+        self.micro_coords = []
 
         # Iteration 0 logging
-        F0 = to_f64(self.atoms.get_forces()).reshape(-1)
-        maxF0 = float(np.max(np.abs(F0)))
-        rmsF0 = float(np.sqrt(np.mean(F0 ** 2)))
-        self._print_iter_line(0, E0, (E0 - E_ts) * KCAL_PER_EH, maxF0, rmsF0)
+        if p.print_each:
+            self._print_iter_line(0, E0, (E0 - E_ts) * KCAL_PER_EH, maxF0, rmsF0)
 
         records: List[Dict[str, any]] = []
-        records.append({"E": E0, "maxG": maxF0, "rmsG": rmsF0, "x": self.atoms.get_positions().copy()})
+        records.append(
+            {
+                "E": E0,
+                "maxG": maxF0,
+                "rmsG": rmsF0,
+                "x": self.atoms.get_positions().copy(),
+            }
+        )
 
-        F_prev = F0  # for adaptive rule reference
-        uphill_count = 0
+        # Macro steps
+        for it in range(1, p.max_steps + 1):
+            # Anchor gradient at current MW coordinates
+            E_anchor, F_anchor = self._energy_forces_from_mw(self.mw_coords)
+            g_anchor_mw = self._gradient_mw_from_forces(F_anchor)
+            g_norm = _norm(g_anchor_mw)
 
-        for it in range(1, p.max_points + 1):
-            # -------- SD predictor (Cartesian) --------
-            R_anchor = v1(self.atoms.get_positions())
-            E_anchor = float(self.atoms.get_potential_energy(force_consistent=True))
-            F = to_f64(self.atoms.get_forces()).reshape(-1)  # Eh/Å
-            t = unit_cart(F)  # SD direction = +F
-            if np.allclose(t, 0.0):
-                log_error([f"[ERROR] {title}: zero force encountered.\n"], self.output)
-                raise RuntimeError("Zero force encountered.")
+            if g_norm < 1e-12:
+                log_info(
+                    [f"[INFO] {title}: gradient norm ~ 0 at step {it}, stopping.\n"],
+                    self.output,
+                )
+                break
 
-            used_fit_on_sd = False
-            dx_sd = sd_len * t
-            R_sd = R_anchor + dx_sd
-            self.atoms.set_positions(R_sd.reshape(-1, 3))
-            E_sd = float(self.atoms.get_potential_energy(force_consistent=True))
+            # For BFGS in first micro-cycle
+            self.prev_coords = self.mw_coords.copy()
+            self.prev_grad = g_anchor_mw.copy()
 
-            if p.do_parabolic_fit and (E_sd > E_anchor + 1e-12):
-                # Parabolic interpolation on [0, sd_len] along t
-                R_mid = R_anchor + 0.5 * dx_sd
-                self.atoms.set_positions(R_mid.reshape(-1, 3))
-                E_mid = float(self.atoms.get_potential_energy(force_consistent=True))
-                ok, s_min = self._parabolic_fit_interpolate(0.0, E_anchor, 0.5 * sd_len, E_mid, sd_len, E_sd)
-                if ok:
-                    R_best = R_anchor + (s_min / sd_len) * dx_sd
-                    self.atoms.set_positions(R_best.reshape(-1, 3))
-                    E_sd = float(self.atoms.get_potential_energy(force_consistent=True))
-                    used_fit_on_sd = True
-                else:
-                    # Go back to SD end even if uphill; continue with warning
-                    self.atoms.set_positions(R_sd.reshape(-1, 3))
-                    log_info([f"[WARNING]: {title} step {it} SD uphill; parabolic fit failed to interpolate. Continuing.\n"], self.output)
+            # Pivot half-step in MW space: move downhill along -gradient
+            pivot_step = -0.5 * self._step_len_mw * g_anchor_mw / g_norm
+            pivot_coords = self.mw_coords + pivot_step
+            self.pivot_coords.append(pivot_coords.copy())
 
-            # -------- Perpendicular correction --------
-            # g = ∇E = -F; g_perp = g - (g·t)t; correction along -g_perp
-            F_now = to_f64(self.atoms.get_forces()).reshape(-1)
-            g_now = -F_now
-            g_perp = g_now - np.dot(g_now, t) * t
-            used_fit_on_corr = False
+            # Initial guess for new point: another half-step from the pivot
+            self.mw_coords = pivot_coords + pivot_step
+            self.displacement = pivot_step.copy()
 
-            if norm_cart(g_perp) > 0.0:
-                u_corr = unit_cart(-g_perp)
-                corr_len = self.p.corr_scale * sd_len
-                dx_corr = corr_len * u_corr
+            # Micro-cycles on hypersphere
+            micro_coords_side: List[np.ndarray] = []
+            for i_micro in range(p.max_micro_cycles):
+                dx, _ = self._micro_step()
+                micro_coords_side.append(self.mw_coords.copy())
+                if _norm(dx) <= p.micro_step_thresh:
+                    break
+            else:
+                log_info(
+                    [f"[WARNING] {title}: max micro cycles exceeded at macro step {it}.\n"],
+                    self.output,
+                )
 
-                R_sd_end = v1(self.atoms.get_positions())
-                R_corr_end = R_sd_end + dx_corr
-                self.atoms.set_positions(R_corr_end.reshape(-1, 3))
-                E_corr_end = float(self.atoms.get_potential_energy(force_consistent=True))
+            self.micro_coords.append(np.array(micro_coords_side))
 
-                if p.do_parabolic_fit and (E_corr_end > E_sd + 1e-12):
-                    # Interpolate along correction segment [0, corr_len]
-                    R_midc = R_sd_end + 0.5 * dx_corr
-                    self.atoms.set_positions(R_midc.reshape(-1, 3))
-                    E_midc = float(self.atoms.get_potential_energy(force_consistent=True))
-                    okc, s_min_c = self._parabolic_fit_interpolate(0.0, E_sd, 0.5 * corr_len, E_midc, corr_len, E_corr_end)
-                    if okc:
-                        R_bestc = R_sd_end + (s_min_c / corr_len) * dx_corr
-                        self.atoms.set_positions(R_bestc.reshape(-1, 3))
-                        E_corr_end = float(self.atoms.get_potential_energy(force_consistent=True))
-                        used_fit_on_corr = True
-                    else:
-                        # Keep correction end; continue with warning
-                        self.atoms.set_positions(R_corr_end.reshape(-1, 3))
-                        log_info([f"[WARNING]: {title} step {it} correction uphill; parabolic fit failed to interpolate. Continuing.\n"], self.output)
-            # else: no correction step if g_perp ~ 0
-
-            # -------- Accept & log --------
-            E_new = float(self.atoms.get_potential_energy(force_consistent=True))
-            F_new = to_f64(self.atoms.get_forces()).reshape(-1)
+            # Final energy / forces at new point
+            E_new, F_new = self._energy_forces_from_mw(self.mw_coords)
             maxF = float(np.max(np.abs(F_new)))
             rmsF = float(np.sqrt(np.mean(F_new ** 2)))
-
-            if E_new > records[-1]["E"] + 1e-12:
-                log_info([f"[WARNING]: {title} step {it} increased energy by {(E_new - records[-1]['E']):.6e} Eh. Continuing.\n"], self.output)
-                uphill_count += 1
-            else:
-                uphill_count = 0
 
             if p.print_each:
                 self._print_iter_line(it, E_new, (E_new - E_ts) * KCAL_PER_EH, maxF, rmsF)
 
-            records.append({"E": E_new, "maxG": maxF, "rmsG": rmsF, "x": self.atoms.get_positions().copy()})
+            records.append(
+                {
+                    "E": E_new,
+                    "maxG": maxF,
+                    "rmsG": rmsF,
+                    "x": self.atoms.get_positions().copy(),
+                }
+            )
 
-            # -------- Convergence check --------
+            # Convergence in terms of Cartesian forces
             if (maxF <= p.tol_maxf) and (rmsF <= p.tol_rmsf):
                 self._print_hurray()
                 break
-
-            # -------- Adaptive update of SD length --------
-            if used_fit_on_sd or used_fit_on_corr or uphill_count > 0:
-                sd_len = max(sd_min, sd_len * p.shrink)
-            else:
-                rmsF_prev = float(np.sqrt(np.mean(F_prev ** 2)))
-                # simple heuristic: if rmsF decreased sufficiently, grow a bit
-                if rmsF < 0.9 * rmsF_prev:
-                    sd_len = min(sd_max, sd_len * p.grow)
-
-            F_prev = F_new
 
         return {"title": title, "records": records, "E_ts": E_ts}
 
@@ -379,54 +602,59 @@ class GS:
     def _merge_and_mark_ts(self, f: Dict, b: Dict) -> Dict:
         fR, bR = f["records"], b["records"]
         if not fR or not bR:
-            log_error(["[ERROR] One IRC side is empty.\n"], self.output)
-            raise RuntimeError("One IRC side is empty.")
+            log_error(["[ERROR] GS-IRC: One path side is empty.\n"], self.output)
+            raise RuntimeError("GS-IRC: one path side is empty.")
 
         Ef_end, Eb_end = fR[-1]["E"], bR[-1]["E"]
         if Ef_end <= Eb_end:
-            first, second, chosen = fR, bR, "forward"
+            first, second = fR, bR
         else:
-            first, second, chosen = bR, fR, "backward"
+            first, second = bR, fR
 
         merged = []
+        # Reverse first (to go from minimum to TS), then append second
         for k in range(len(first) - 1, -1, -1):
             merged.append(first[k])
         for k in range(0, len(second)):
             merged.append(second[k])
 
-        # Mark TS at the maximum energy in the merged path
+        # Find TS index as maximum energy point
         E_list = [rec["E"] for rec in merged]
         ts_idx = int(np.argmax(E_list))
         E_ref = float(min(Ef_end, Eb_end))
 
-        log_info([
-            "\n---------------------------------------------------------------\n",
-            "                       IRC PATH SUMMARY              \n",
-            "---------------------------------------------------------------\n",
-            "All forces are in Eh/Å.\n\n",
-            "Step        E(Eh)      dE(kcal/mol)  max(|G|)   RMS(G) \n"
-        ], self.output)
+        log_info(
+            [
+                "\n---------------------------------------------------------------\n",
+                "                       GS-IRC PATH SUMMARY           \n",
+                "---------------------------------------------------------------\n",
+                "All forces are in Eh/Å.\n\n",
+                "Step        E(Eh)      dE(kcal/mol)  max(|G|)   RMS(G) \n",
+            ],
+            self.output,
+        )
 
         rows = []
         for i, rec in enumerate(merged, start=1):
             dE_kcal = (rec["E"] - E_ref) * KCAL_PER_EH
-            line = f"{i:4d}  {rec['E']:14.6f}  {dE_kcal:12.6f}    {rec['maxG']:8.6f}  {rec['rmsG']:8.6f}"
+            line = (
+                f"{i:4d}  {rec['E']:14.6f}  {dE_kcal:12.6f}    "
+                f"{rec['maxG']:8.6f}  {rec['rmsG']:8.6f}"
+            )
             if i - 1 == ts_idx:
                 line += " <= TS"
             rows.append(line + "\n")
         log_info(rows, self.output)
 
         return {
-            "chosen_forward": chosen,
             "E_ref": E_ref,
             "ts_index": ts_idx + 1,  # 1-based
-            "merged_rows": rows
+            "merged_rows": rows,
         }
 
     # --------------------------- Trajectories -----------------------------
-    # --------------------------- Trajectories -----------------------------
     def _write_trajs(self, f: Dict, b: Dict):
-        """Write full, forward, and backward trajectories as XYZ files with names derived from self.output."""
+        """Write full, forward, and backward trajectories as XYZ files."""
         base, _ = os.path.splitext(self.output)
         full_path = base + "_full.xyz"
         fwd_path = base + "_forward.xyz"
@@ -455,29 +683,52 @@ class GS:
         full_E = f_E + b_E
         write_xyz(full_path, full_atoms, full_E)
 
-        log_info([
-            f"\n[INFO] IRC forward trajectory written to: {fwd_path}\n",
-            f"[INFO] IRC backward trajectory written to: {bwd_path}\n",
-            f"[INFO] Full IRC trajectory written to: {full_path}\n"
-        ], self.output)
-
+        log_info(
+            [
+                f"\n[INFO] GS-IRC forward trajectory written to: {fwd_path}\n",
+                f"[INFO] GS-IRC backward trajectory written to: {bwd_path}\n",
+                f"[INFO] GS-IRC full trajectory written to: {full_path}\n",
+            ],
+            self.output,
+        )
 
     # ----------------------------- Printing ------------------------------
     def _print_header(self, title: str):
-        log_info([f"\n         {'*' * 61}\n",
-                  f"         *{title.center(59)}*\n",
-                  f"         {'*' * 61}\n\n"], self.output)
+        log_info(
+            [
+                f"\n         {'*' * 61}\n",
+                f"         *{title.center(59)}*\n",
+                f"         {'*' * 61}\n\n",
+            ],
+            self.output,
+        )
 
     def _print_conv_thresholds(self, tol_maxf: float, tol_rmsf: float):
-        log_info(["Iteration    E(Eh)      dE(kcal/mol)  max(|G|)   RMS(G) \n",
-                  f"Convergence thresholds                {tol_maxf:0.6f}  {tol_rmsf:0.6f}\n"], self.output)
+        log_info(
+            [
+                "Iteration    E(Eh)      dE(kcal/mol)  max(|G|)   RMS(G) \n",
+                f"Convergence thresholds                {tol_maxf:0.6f}  {tol_rmsf:0.6f}\n",
+            ],
+            self.output,
+        )
 
-    def _print_iter_line(self, i: int, E: float, dE_kcal: float, maxF: float, rmsF: float):
-        log_info([f"{i:5d}  {E:14.6f}  {dE_kcal:12.6f}    {maxF:8.6f}  {rmsF:8.6f}\n"], self.output)
+    def _print_iter_line(self,
+                         i: int,
+                         E: float,
+                         dE_kcal: float,
+                         maxF: float,
+                         rmsF: float):
+        log_info(
+            [f"{i:5d}  {E:14.6f}  {dE_kcal:12.6f}    {maxF:8.6f}  {rmsF:8.6f}\n"],
+            self.output,
+        )
 
     def _print_hurray(self):
-        log_info([
-            "\n                      ***********************HURRAY********************\n",
-            "                      ***            THE IRC HAS CONVERGED          ***\n",
-            "                      *************************************************\n\n"
-        ], self.output)
+        log_info(
+            [
+                "\n                      *************************************************\n",
+                "                      ***          THE GS-IRC HAS CONVERGED        ***\n",
+                "                      *************************************************\n\n",
+            ],
+            self.output,
+        )
