@@ -207,8 +207,8 @@ from ase import Atoms
 @dataclass
 class NEBParams:
     n_images: int = 10                     # total images including endpoints
-    k_spring: float = 0.2                # spring "stiffness" (same units as force * length^-1)
-    max_iter: int = 512
+    k_spring: float = 0.08                # spring "stiffness" (same units as force * length^-1)
+    max_iter: int = 256
     lbfgs_m: int = 20                      # memory size for L-BFGS
     step0: float = 2e-2                    # initial step length on search direction
     # ORCA-like convergence on projected forces
@@ -709,6 +709,11 @@ class NEB(JobABC):
         # freeze HEI index for the whole CINEB run
         self._cineb_fixed_hei = hei
 
+
+        F_CI_vec = to_numpy_f64(images[hei].get_forces())
+        maxF_CI = float(np.max(np.linalg.norm(F_CI_vec, axis=1)))
+        rmsF_CI = float(np.sqrt(np.mean(np.linalg.norm(F_CI_vec, axis=1) ** 2)))
+
         log_info([
             "\nStarting CINEB refinement:\n",
             "Optim.  Iteration  CI   E(CI)-E(0)   max(|Fp|)   RMS(Fp)   max(|FCI|)   RMS(FCI)\n",
@@ -738,32 +743,12 @@ class NEB(JobABC):
             p = driver.two_loop(g)
             p = driver.step_limit(p)
 
-            # --- try full step first ---
-            x_trial = x + p
-            g_trial = eval_grad(x_trial)
+            # take full step (no line search)
+            x_new = x + p
 
-            # compute forces on trial
-            Es_trial = self.get_energies(images)
-            Fp_trial, maxfp_trial, _ = neb_forces(images, Es_trial, self.params.k_spring)
+            # evaluate new gradient
+            g_new = eval_grad(x_new)
 
-            # if force increases too much, shrink step
-            max_shrink = 5   # at most shrink 5 times
-            shrink_factor = 0.5
-            attempt = 0
-
-            while (maxfp_trial > 1.2 * maxfp) and (attempt < max_shrink):
-                p *= shrink_factor
-                x_trial = x + p
-                g_trial = eval_grad(x_trial)
-                
-                Es_trial = self.get_energies(images)
-                Fp_trial, maxfp_trial, _ = neb_forces(images, Es_trial, self.params.k_spring)
-                
-                attempt += 1
-
-            # accept step
-            x_new = x_trial
-            g_new = g_trial
 
             driver.update(x_new - x, g_new - g)
 
@@ -1105,40 +1090,16 @@ class NEB(JobABC):
         ], self.output)
 
         while iteration < self.params.max_iter and not driver.should_stop(g, self.params.neb_f_max_th, self.params.neb_f_rms_th):
+            # ===== L-BFGS step using CINEB gradient =====
             p = driver.two_loop(g)
             p = driver.step_limit(p)
 
-            # --- try full step first ---
-            x_trial = x + p
-            g_trial = eval_grad(x_trial)
+            # take full step (no line search)
+            x_new = x + p
 
-            # compute forces on trial x_trial
-            Es_trial = self.get_energies(images)
-            Fp_trial, maxfp_trial, _ = neb_forces(images, Es_trial, self.params.k_spring)
+            # evaluate new gradient
+            g_new = eval_grad(x_new)
 
-            # old forces for comparison
-            Es_old = Es
-            Fp_old, maxfp_old, _ = neb_forces(images, Es_old, self.params.k_spring)
-
-            # line search parameters
-            max_shrink = 5
-            shrink_factor = 0.5
-            attempt = 0
-
-            while (maxfp_trial > 1.2 * maxfp_old) and (attempt < max_shrink):
-                p *= shrink_factor
-                x_trial = x + p
-                g_trial = eval_grad(x_trial)
-
-                Es_trial = self.get_energies(images)
-                Fp_trial, maxfp_trial, _ = neb_forces(images, Es_trial, self.params.k_spring)
-
-                attempt += 1
-
-
-            # accept step
-            x_new = x_trial
-            g_new = g_trial
 
             driver.update(x_new - x, g_new - g)
 
