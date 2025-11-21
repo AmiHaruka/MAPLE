@@ -16,6 +16,8 @@ IMPLEMENTATION_MODELs = [
             'egret',
             'aimnet2',
             'uma',
+            'maceomol',
+            'aimnet2nse',
         ]
 
 class SetClaculator():
@@ -45,17 +47,21 @@ class SetClaculator():
             return calculator
         else:
             if self.d4 == True : self.log_info([f"\n [WARNING:] D4 is not supported for model {self.model}. D4 will be ignored.\n"])
-            if self.model in ['maceoff23s', 'maceoff23m', 'maceoff23l','egret']:
+            if self.model in ['maceoff23s', 'maceoff23m', 'maceoff23l','egret','maceomol']:
                 from .mace._mace_calculator import MACECalculator
                 calculator = MACECalculator(model=self.model, device=self.device, implicit = self.implicit, solvent = self.solvent)
                 return calculator   
-            elif self.model in ['aimnet2']:
+            elif self.model in ['aimnet2', 'aimnet2nse']:
                 from .aimnet._aimnet2_calculator import AIMNet2Calculator
                 calculator = AIMNet2Calculator(model=self.model, device=self.device, implicit = self.implicit, solvent = self.solvent)
                 return calculator
             elif self.model in ['uma']:
                 from .uma._uma_calculator import UMACalculator
                 calculator = UMACalculator(model=self.model, device=self.device, implicit = self.implicit, solvent = self.solvent)
+                return calculator
+            elif self.model in ['maceomol']:
+                from .mace._mace_general_calculator import MACEModelCalculator
+                calculator = MACEModelCalculator(model=self.model, device=self.device, implicit = self.implicit, solvent = self.solvent)
                 return calculator
             else:
                 raise ValueError(f"Model '{self.model}' is not implemented yet.")

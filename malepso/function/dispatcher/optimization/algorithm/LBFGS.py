@@ -66,20 +66,18 @@ class LBFGSParams:
     memory: int = 5
     curvature: float = 70.0
     maxstep: float = 0.2
-    maxiteration: int = 128
+    maxiteration: int = 256
     write_traj: bool = False
     traj_every: int = 1
+    verbose: int = 1     
 
 
 # ==============================================
-# LBFGS Optimizer (NEB-style init)
+# LBFGS Optimizer
 # ==============================================
 class LBFGS:
     """
-    Classic L-BFGS optimizer with NEB-style init:
-    - All inputs defined in __init__
-    - run() requires no arguments
-    - Two-loop recursion, dynamic H0, step clipping
+    Classic L-BFGS optimizer.
     """
 
     def __init__(self,
@@ -90,10 +88,8 @@ class LBFGS:
         self.atoms = atoms
         self.output = output
 
-        # 1) built-in defaults
         self.params = params if params is not None else LBFGSParams()
 
-        # 2) override from external dict if provided
         if isinstance(paras, dict):
             lbfgs_dict = _select_subdict(paras, ("lbfgs", "LBFGS"))
             _update_dataclass_from_dict(self.params, lbfgs_dict)
@@ -102,8 +98,9 @@ class LBFGS:
         self.Y: List[np.ndarray] = []
         self.rhos: List[float] = []
 
-    # ----------------------------------------------------------
-    # two-loop recursion
+        # 用于最后一帧输出
+        self._last_iter_info = None
+
     # ----------------------------------------------------------
     def _two_loop(self, grad_flat: np.ndarray) -> np.ndarray:
         q = grad_flat.copy()
@@ -136,39 +133,54 @@ class LBFGS:
     def _update_history(self, s_vec: np.ndarray, y_vec: np.ndarray):
         rho_val = 1.0 / (np.dot(y_vec, s_vec) + 1e-20)
         if np.isfinite(rho_val):
-            self.S.append(s_vec.copy()); self.Y.append(y_vec.copy()); self.rhos.append(rho_val)
+            self.S.append(s_vec.copy())
+            self.Y.append(y_vec.copy())
+            self.rhos.append(rho_val)
         if len(self.S) > self.params.memory:
             self.S.pop(0); self.Y.pop(0); self.rhos.pop(0)
 
-    def _log_iter(self, iteration: int, e: float, step_cart: np.ndarray, f: np.ndarray):
+    # ----------------------------------------------------------
+    def _build_iter_message(self, iteration, e, step_cart, f):
+        """Build per-iteration info message (store even if verbose=0)."""
         atoms = self.atoms
         atoms.max_dp = np.abs(step_cart).max()
         atoms.rms_dp = np.sqrt((step_cart ** 2).sum() / step_cart.size * 3)
         atoms.max_f = np.abs(f).max()
         atoms.rms_f = np.sqrt((f ** 2).sum() / step_cart.size * 3)
 
-        iter_title = f"Iteration: {iteration}"
-        info_message = ['\n' + '-' * 70 + '\n', f'{iter_title.center(70)}\n\n']
-        info_message.append(f'\n{"Coordinates".center(70)}\n')
-        info_message.append('-' * 70 + '\n')
+        if self.params.verbose == 1:
+            title = f"Iteration: {iteration}"
+            info = ['\n' + '-' * 70 + '\n', f'{title.center(70)}\n\n']
+        else:
+            info = []
+            
+        info.append(f'\n{"Coordinates".center(70)}\n')
+        info.append('-' * 70 + '\n')
 
         for atom_index, atom in enumerate(atoms):
-            element_type = atom.symbol
             x, y, z = atom.position
-            info_message.append(f"{atom_index:<4} {element_type:<2} {x:>20.4f} {y:>20.4f} {z:>20.4f}\n")
+            info.append(f"{atom_index:<4} {atom.symbol:<2} {x:>20.4f} {y:>20.4f} {z:>20.4f}\n")
 
-        info_message.append(f"\n\nEnergy:                {e:>12.6f} Convergence criteria  Is converged \n")
-        info_message.append(f"Maximum Force:         {atoms.max_f:>12.6f} {atoms.f_max_th:>12.6f}                {'Yes' if atoms.max_f <= atoms.f_max_th else 'No'}\n")
-        info_message.append(f"RMS Force:             {atoms.rms_f:>12.6f} {atoms.f_rms_th:>12.6f}                {'Yes' if atoms.rms_f <= atoms.f_rms_th else 'No'}\n")
-        info_message.append(f"Maximum Displacement:  {atoms.max_dp:>12.6f} {atoms.dp_max_th:>12.6f}                {'Yes' if atoms.max_dp <= atoms.dp_max_th else 'No'}\n")
-        info_message.append(f"RMS Displacement:      {atoms.rms_dp:>12.6f} {atoms.dp_rms_th:>12.6f}                {'Yes' if atoms.rms_dp <= atoms.dp_rms_th else 'No'}\n")
+        info.append(f"\n\nEnergy:                {e:>12.6f} Convergence criteria  Is converged \n")
+        info.append(f"Maximum Force:         {atoms.max_f:>12.6f} {atoms.f_max_th:>12.6f}  "
+                    f"{'Yes' if atoms.max_f <= atoms.f_max_th else 'No'}\n")
+        info.append(f"RMS Force:             {atoms.rms_f:>12.6f} {atoms.f_rms_th:>12.6f}  "
+                    f"{'Yes' if atoms.rms_f <= atoms.f_rms_th else 'No'}\n")
+        info.append(f"Maximum Displacement:  {atoms.max_dp:>12.6f} {atoms.dp_max_th:>12.6f}  "
+                    f"{'Yes' if atoms.max_dp <= atoms.dp_max_th else 'No'}\n")
+        info.append(f"RMS Displacement:      {atoms.rms_dp:>12.6f} {atoms.dp_rms_th:>12.6f}  "
+                    f"{'Yes' if atoms.rms_dp <= atoms.dp_rms_th else 'No'}\n")
 
-        log_info(info_message, self.output)
+        return info
 
     # ----------------------------------------------------------
-    # run()
+    def _log_iter(self, info_message):
+        """Print iteration info only if verbose=1."""
+        if self.params.verbose == 1:
+            log_info(info_message, self.output)
+
     # ----------------------------------------------------------
-    def run(self) -> int:
+    def run(self):
         base, _ = os.path.splitext(self.output)
         traj_file = base + "_opt_traj.xyz"
 
@@ -178,7 +190,9 @@ class LBFGS:
         f = atoms.get_forces()
 
         iteration = 0
-        if self.params.write_traj and iteration % self.params.traj_every == 0:
+
+        # only write trajectory when verbose=1
+        if self.params.verbose == 1 and self.params.write_traj and iteration % self.params.traj_every == 0:
             write_xyz(traj_file, [atoms.copy()], energies=[e])
 
         while iteration < self.params.maxiteration:
@@ -199,31 +213,65 @@ class LBFGS:
             self._update_history(s_vec, y_vec)
 
             iteration += 1
-            self._log_iter(iteration, e, step_cart=step, f=f)
 
-            if self.params.write_traj and iteration % self.params.traj_every == 0:
+            # build & store last iteration info
+            last_info = self._build_iter_message(iteration, e, step_cart=step, f=f)
+            self._last_iter_info = last_info
+
+            # per-iteration log only when verbose=1
+            self._log_iter(last_info)
+
+            # trajectory only when verbose=1
+            if self.params.verbose == 1 and self.params.write_traj and iteration % self.params.traj_every == 0:
                 write_xyz(traj_file, [atoms.copy()], energies=[e])
 
+            # ---------- convergence check ----------
             if (
                 atoms.max_f <= atoms.f_max_th
                 and atoms.rms_f <= atoms.f_rms_th
                 and atoms.max_dp <= atoms.dp_max_th
                 and atoms.rms_dp <= atoms.dp_rms_th
             ):
-                opt_file = base + "_opt.xyz"
-                e_final = float(atoms.get_potential_energy(force_consistent=True))
-                write_xyz(opt_file, [atoms], energies=[e_final])
-                log_info([
-                    f"\nLBFGS optimization converged at iteration {iteration}.\n",
-                    f"\nFinal optimized structure written to: {opt_file}\n"
-                ], self.output)
-                return iteration
+                if self.params.verbose == 1:
+                    # normal mode: write opt.xyz + detailed message
+                    opt_file = base + "_opt.xyz"
+                    write_xyz(opt_file, [atoms], energies=[e])
 
-        opt_file = base + "_opt.xyz"
-        e_final = float(atoms.get_potential_energy(force_consistent=True))
-        write_xyz(opt_file, [atoms], energies=[e_final])
-        log_info([
-            f"\nLBFGS optimization reached max iterations ({self.params.maxiteration}).\n",
-            f"\nLast optimized structure written to: {opt_file}\n"
-        ], self.output)
-        return iteration
+                    log_info(self._last_iter_info, self.output)
+                    log_info(
+                        [f"\nLBFGS converged at iteration {iteration}. "
+                        f"Final frame written to {opt_file}\n"],
+                        self.output,
+                    )
+                else:
+                    # silent mode: no xyz, only final frame info + summary
+                    log_info(self._last_iter_info, self.output)
+                    log_info(
+                        [f"\nLBFGS converged at iteration {iteration}.\n"],
+                        self.output,
+                    )
+
+                return atoms
+
+        # -------------- NOT converged --------------
+        if self.params.verbose == 1:
+            opt_file = base + "_opt.xyz"
+            write_xyz(opt_file, [atoms], energies=[e])
+
+            log_info(self._last_iter_info, self.output)
+            log_info(
+                [f"\nLBFGS did NOT converge after {self.params.maxiteration} iterations. "
+                f"Final frame written to {opt_file}\n"],
+                self.output,
+            )
+        else:
+            # silent mode: no xyz, only final frame info + summary
+            log_info(self._last_iter_info, self.output)
+            log_info(
+                [f"\nLBFGS did NOT converge after {self.params.maxiteration} iterations.\n"],
+                self.output,
+            )
+
+        return atoms
+
+

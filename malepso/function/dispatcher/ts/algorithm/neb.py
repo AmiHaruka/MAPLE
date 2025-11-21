@@ -216,13 +216,13 @@ class NEBParams:
     lbfgs_m: int = 20                      # memory size for L-BFGS
     step0: float = 2e-2                    # initial step length on search direction
     # ORCA-like convergence on projected forces
-    neb_f_max_th: float = 9.5e-3           # max(|Fp|) threshold
-    neb_f_rms_th: float = 5e-3             # RMS(Fp) threshold
+    neb_f_max_th: float = 9.5e-3 #2e-2 #9.5e-3           # max(|Fp|) threshold
+    neb_f_rms_th: float = 5e-3 #1e-2 #5e-3             # RMS(Fp) threshold
     initial_opt: bool = False              # do initial relaxation of endpoints
     refine: Optional[str] = None           # 'cineb' or 'nebts' or None
     # CINEB-specific
-    cineb_f_max_th: float = 3e-03          # max(|Fp|) threshold for CINEB
-    cineb_f_rms_th: float = 2e-03          # RMS(Fp) threshold for CINEB
+    cineb_f_max_th: float = 3e-03 #1e-2 #3e-03          # max(|Fp|) threshold for CINEB
+    cineb_f_rms_th: float = 2e-03 #1e-2 #2e-03          # RMS(Fp) threshold for CINEB
     cilbfgs_m: int = 20                    # memory size for L-BFGS in CINEB
     cistep0: float = 5e-3                  # initial step length for CINEB
 

@@ -5,7 +5,7 @@ from malepso.function.engine import engine
 if __name__ == '__main__':
     engine = engine()
     
-    test_control = 1
+    test_control = 8
 
     software_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     
@@ -35,5 +35,9 @@ if __name__ == '__main__':
     # Frequency MW
     if test_control == 7:
         path = os.path.join(software_dir, 'example', 'freq', 'mw', 'inp1.inp')
+
+    # scan
+    if test_control == 8:
+        path = os.path.join(software_dir, 'example', 'scan', 'endo.inp')
 
     engine(path)

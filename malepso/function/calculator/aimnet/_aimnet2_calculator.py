@@ -130,11 +130,15 @@ class AIMNet2Calculator(CalcABC):
 
         N = coord.shape[0]
 
+        charge_val = float(self.atoms.info.get("charge", 0.0))
+        mult_val = float(self.atoms.info.get("mult", 1.0))
+
         nbmat = nblist_dense_padded(coord, self.cutoff)
         data: Dict[str, torch.Tensor] = {
             "coord": pad_dim0(coord, value=0.0),         # (N+1, 3)
             "numbers": pad_dim0(Z, value=0),             # (N+1,)
-            "charge": torch.tensor([0.0], dtype=torch.float32, device=self.device),
+            "charge": torch.tensor([charge_val], dtype=torch.float32, device=self.device),
+            "mult": torch.tensor([mult_val], dtype=torch.float32, device=self.device),
             "mol_idx": pad_dim0(mol_idx, value=mol_idx[-1].item() if N > 0 else 0),
             "nbmat": nbmat,
         }

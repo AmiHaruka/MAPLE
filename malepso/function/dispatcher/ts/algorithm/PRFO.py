@@ -418,7 +418,6 @@ def RFO(atoms: Atoms, output) -> Atoms:
                 info_message.append(f"Trust radius (MW): {trust_radius: .6f}  Step norm (MW): {norm_mw: .6f}  On boundary: {on_boundary}\n")
 
                 log_info(info_message, output)
-
                 # convergence check
                 if (atoms.max_f <= atoms.f_max_th and atoms.rms_f <= atoms.f_rms_th and
                     atoms.max_dp <= atoms.dp_max_th and atoms.rms_dp <= atoms.dp_rms_th):
@@ -430,7 +429,7 @@ def RFO(atoms: Atoms, output) -> Atoms:
         
         iteration += 1
 
-    log_info(output, [f'\n\n{"Maximum Iterations Reached".center(70)}\n\n'])
+    log_info([f'\n\n{"Maximum Iterations Reached".center(70)}\n\n'],output)
     return atoms
 
 # =========================================

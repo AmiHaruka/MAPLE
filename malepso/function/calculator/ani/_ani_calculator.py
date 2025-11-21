@@ -95,13 +95,102 @@ class ANICalculator(CalcABC):
             hessian[i, :] = grad2
         return hessian
 
-    def get_hessian(self, atoms=None):
+    """     def get_hessian(self, atoms=None):
         
         coordinates = torch.tensor(atoms.get_positions(), dtype=self.dtype, device=self.device, requires_grad=True).unsqueeze(0)
         
         energy = self.get_energy(atoms, coordinates)
 
-        return self.compute_hessian(coordinates, energy)
+        return self.compute_hessian(coordinates, energy) """
+
+    def get_hessian(
+        self,
+        atoms: ase.Atoms,
+        delta: float = 0.002,
+    ) -> torch.Tensor:
+        """
+        Compute the numerical Hessian using finite-difference forces from ANI.
+        Hessian is defined as:  H = d²E/dx_i dx_j = -∂F_i/∂x_j
+        Returns a (3N, 3N) torch.Tensor located on self.device.
+        """
+        import numpy as np
+        from ase.constraints import FixAtoms
+        from ase.calculators.calculator import all_changes
+
+        device = self.device
+        dtype = self.dtype
+
+        # ------------------------------------------------------
+        # Basic geometry setup
+        # ------------------------------------------------------
+        N = len(atoms)
+        pos0 = atoms.get_positions().copy()   # (N, 3) numpy array
+
+        # Identify frozen atoms from FixAtoms constraint
+        fixed = {
+            i for c in getattr(atoms, "constraints", [])
+            if isinstance(c, FixAtoms)
+            for i in c.get_indices()
+        }
+        movable = [i for i in range(N) if i not in fixed]
+
+        # Allocate Hessian on GPU
+        H = torch.zeros((3 * N, 3 * N), dtype=dtype, device=device)
+
+        # If everything is frozen, return zero Hessian
+        if len(movable) == 0:
+            return H
+
+        # ------------------------------------------------------
+        # Helper function: evaluate ANI forces at a displaced geometry
+        # ------------------------------------------------------
+        def ani_force_at(pos_numpy: np.ndarray) -> torch.Tensor:
+            """
+            Evaluate ANI forces at the given coordinates.
+            Returns a tensor of shape (N, 3) on the target device.
+            """
+            at = atoms.copy()
+            at.set_positions(pos_numpy)
+
+            # Preserve constraints if present
+            if getattr(atoms, "constraints", None):
+                at.set_constraint(atoms.constraints)
+
+            # Compute forces with the internal ANI calculator
+            self.calculate(at, properties=["forces"], system_changes=all_changes)
+            F_np = self.results["forces"]   # numpy (N,3)
+            return torch.tensor(F_np, dtype=dtype, device=device)
+
+        # ------------------------------------------------------
+        # Finite-difference second derivatives:
+        # H_ij = -∂F_i/∂x_j  ≈ -(F(+δ) - F(-δ)) / (2δ)
+        # ------------------------------------------------------
+        for a in movable:          # iterate over movable atoms
+            for k in range(3):     # iterate over x,y,z directions
+                row = 3 * a + k
+
+                # +delta displacement
+                pos_p = pos0.copy()
+                pos_p[a, k] += delta
+                Fp = ani_force_at(pos_p)
+
+                # -delta displacement
+                pos_m = pos0.copy()
+                pos_m[a, k] -= delta
+                Fm = ani_force_at(pos_m)
+
+                # Central difference derivative of force
+                # ∂F/∂x ≈ (F(+δ) - F(-δ)) / (2δ)
+                dF = (Fp - Fm) / (2.0 * delta)
+
+                # Hessian uses: H = -∂F/∂x
+                H[row, :] = (-dF).reshape(-1)
+
+        # Optional: symmetrize to reduce numerical noise
+        #H = 0.5 * (H + H.transpose(0, 1))
+
+        return H
+
 
     def dftd4(self, species, coordinates):
         import tad_dftd4 as d4

@@ -13,10 +13,6 @@ class engine():
         self.output:str = None
         self.gpuid:int = None
         self.model:int = None
-        # 1: ANI-2x
-        # 2: ANI-1x
-        # 3: ANI-1ccx
-        # 4: ANI-1xnr
 
         self.jobtype:int = None
         # 1: opt

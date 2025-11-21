@@ -87,9 +87,75 @@ class UMACalculator(FAIRChemCalculator):
 
         return torch.tensor(energy_value, dtype=torch.float32, device=self.device)
     
-    def get_hessian(self, atoms: Atoms) -> torch.Tensor:
-        # 1. Currently, Hessian calculation is not implemented for UMA model.
-        raise NotImplementedError("Hessian calculation is not implemented yet for UMA model. If your calculation requires Hessian, please consider using other calculator instead.")
+    def get_hessian(
+        self,
+        atoms: Atoms,
+        delta: float = 0.002,
+        dtype: torch.dtype = torch.float64,
+    ) -> torch.Tensor:
+        """
+        Compute Hessian by finite difference of UMA forces.
+        Returns a (3N, 3N) torch.Tensor on self.device.
+        """
+
+        # ------------------------------------------------------
+        # 1. Prepare
+        # ------------------------------------------------------
+        N = len(atoms)
+        pos0 = atoms.get_positions()
+        device = self.device
+
+        # Find fixed atoms
+        fixed = {
+            i for c in atoms.constraints if isinstance(c, FixAtoms)
+            for i in c.get_indices()
+        }
+        movable = [i for i in range(N) if i not in fixed]
+
+        # If all atoms are fixed
+        if len(movable) == 0:
+            return torch.zeros((3*N, 3*N), dtype=dtype, device=device)
+
+        # Output Hessian
+        H = torch.zeros((3*N, 3*N), dtype=dtype, device=device)
+
+        # Helper: get force using UMA (in Hartree/Å)
+        def eval_force(positions: np.ndarray) -> torch.Tensor:
+            atoms_tmp = atoms.copy()
+            atoms_tmp.set_positions(positions)
+            self.calculate(atoms_tmp, properties=["forces"], system_changes=all_changes)
+            F = torch.tensor(self.results["forces"], dtype=dtype, device=device)
+            return F
+
+        # ------------------------------------------------------
+        # 2. Finite difference: loop over movable atoms
+        # ------------------------------------------------------
+        for a in movable:
+            for k in range(3):      # x/y/z direction
+
+                # Displace +delta
+                pos_p = pos0.copy()
+                pos_p[a, k] += delta
+                Fp = eval_force(pos_p)
+
+                # Displace -delta
+                pos_m = pos0.copy()
+                pos_m[a, k] -= delta
+                Fm = eval_force(pos_m)
+
+                # central diff: H = -∂F/∂x
+                d2E = (Fm - Fp) / (2.0 * delta)  # shape (N, 3)
+
+                # Fill block for atom a
+                row = 3 * a + k
+                H[row, :] = d2E.reshape(-1)
+
+        # ------------------------------------------------------
+        # 3. Zero-pad fixed atoms (already zero)
+        # ------------------------------------------------------
+        # Nothing to do, fixed atoms remain zero
+
+        return H
 
 
 
