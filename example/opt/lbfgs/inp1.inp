@@ -1,4 +1,4 @@
-#model=uma
+#model=maceomol
 #opt(lbfgs)
 #device=gpu0
 

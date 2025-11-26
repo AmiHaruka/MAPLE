@@ -10,7 +10,7 @@ if __name__ == '__main__':
     software_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     
     if test_control == 1:
-        path = os.path.join(software_dir, 'example', 'irc', 'gs', 'inp1.inp')
+        path = os.path.join(software_dir, 'example', 'opt', 'lbfgs', 'inp1.inp')
         
     # TS: NEB
     if test_control == 2: 
@@ -38,6 +38,6 @@ if __name__ == '__main__':
 
     # scan
     if test_control == 8:
-        path = os.path.join(software_dir, 'example', 'scan', 'endo.inp')
+        path = os.path.join(software_dir, 'example', 'scan', 'exo.inp')
 
     engine(path)

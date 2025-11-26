@@ -1,5 +1,6 @@
-#model=ANI-1xnr
-#jobtype=scan
+#model=uma
+#scan
+#device=gpu0
 
  C                 -7.42760900   -1.79137400   -0.96445200
  O                 -7.80738800   -3.87743400    0.03613800

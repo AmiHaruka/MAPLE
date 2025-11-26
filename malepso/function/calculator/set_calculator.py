@@ -47,7 +47,7 @@ class SetClaculator():
             return calculator
         else:
             if self.d4 == True : self.log_info([f"\n [WARNING:] D4 is not supported for model {self.model}. D4 will be ignored.\n"])
-            if self.model in ['maceoff23s', 'maceoff23m', 'maceoff23l','egret','maceomol']:
+            if self.model in ['maceoff23s', 'maceoff23m', 'maceoff23l','egret']:
                 from .mace._mace_calculator import MACECalculator
                 calculator = MACECalculator(model=self.model, device=self.device, implicit = self.implicit, solvent = self.solvent)
                 return calculator   
