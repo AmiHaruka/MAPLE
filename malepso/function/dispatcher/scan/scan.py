@@ -32,12 +32,13 @@ class Scan(JobABC):
     """
 
     def __init__(self, output: str, atoms: Atoms, method: str = "lbfgs", 
-                 constraints: Optional[list] = None):
+                 constraints: Optional[list] = None, params: Optional[dict] = None):
         super().__init__(output)
         self.atoms = atoms
         self.initial_calc = atoms.calc
-        self.method = method.upper()
+        self.method = method.upper() if method is not None else "LBFGS"
         self.output = output
+        self.params = params if params is not None else {}
         
         if constraints is None:
             raise ValueError("Constraints must be provided for scan.")
@@ -166,9 +167,11 @@ class Scan(JobABC):
 
     def _run_optimizer(self, atoms: Atoms) -> Atoms:
         """Run geometry optimization."""
+        self.params["verbose"] = 0  # suppress optimizer output
+        
         if self.method == "LBFGS":
             from malepso.function.dispatcher.optimization.algorithm import LBFGS
-            run = LBFGS(atoms, output=self.output, paras={"verbose": 0})
+            run = LBFGS(atoms, output=self.output, paras=self.params)
             return run.run()
         else:
             raise ValueError(f"Only LBFGS is supported for scan, got: {self.method}")

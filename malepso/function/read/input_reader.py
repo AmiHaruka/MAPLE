@@ -7,6 +7,7 @@ import numpy as np
 import torch
 
 from .filereader import XYZReader
+from .filereader import PostReader
 from .command_control import CommandControl
 
 from .header.header import print_banner
@@ -40,6 +41,7 @@ class InputReader():
         Read the input file, parse settings, molecular coordinates, and post-processing commands.
         Support multiple coordinate groups separated by a blank line or '&'.
         Allow arbitrary blank lines between sections without breaking parsing.
+        Support POST file references for loading post-processing commands from external files.
 
         Args:
             input_file_name (str): Path to the input file.
@@ -82,6 +84,7 @@ class InputReader():
             #                  lines INSIDE this section are allowed.
             #                  The section ends at the first non-matching, non-blank line.
             #   3) POSTPROC  : everything after MOLECULES (blank lines ignored).
+            #                  Now also supports 'POST /abs/path/to/file.out' references.
             # ------------------------------------------------------------------
 
             with open(self.input, 'r') as f:
@@ -177,19 +180,69 @@ class InputReader():
         # === Step 2: Parse coordinate section ===
         atoms_or_list = self.element_and_coordinates(molecules)
 
-        # === Step 3: Apply post-processing if present ===
+        # === Step 3: Expand post-processing commands (handle POST references) ===
         if post_processing:
+            expanded_post_processing = self.expand_post_processing(post_processing)
+            
             if isinstance(atoms_or_list, list):
                 processed_list = []
                 for idx, atoms in enumerate(atoms_or_list, start=1):
                     self.log_info([f"\nApplying post-processing to group {idx}...\n"])
-                    processed_list.append(self.post_processing_command(post_processing, atoms))
+                    processed_list.append(self.post_processing_command(expanded_post_processing, atoms))
                 atoms_or_list = processed_list
             else:
-                atoms_or_list = self.post_processing_command(post_processing, atoms_or_list)
+                atoms_or_list = self.post_processing_command(expanded_post_processing, atoms_or_list)
 
         return atoms_or_list
 
+    def expand_post_processing(self, post_processing: List[str]) -> List[str]:
+        """
+        Expand post-processing commands by replacing POST file references with their contents.
+        
+        POST file references have the format:
+            POST /absolute/path/to/file.out
+        
+        Args:
+            post_processing (List[str]): List of post-processing commands and POST references.
+        
+        Returns:
+            List[str]: Expanded list of post-processing commands with POST references resolved.
+        """
+        expanded = []
+        info_message = []
+        
+        for line in post_processing:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            
+            # Check if this is a POST file reference
+            if stripped.upper().startswith('POST '):
+                parts = stripped.split(maxsplit=1)
+                if len(parts) != 2:
+                    raise ValueError(f"Invalid POST reference line: '{line}'")
+                
+                file_path = parts[1]
+                
+                # Log that we're loading from file
+                info_message.append(f"\nLoading post-processing commands from: {file_path}\n")
+                info_message.append('-' * 70 + '\n')
+                
+                try:
+                    # Use PostReader to load commands from file
+                    file_commands = PostReader(file_path)
+                    expanded.extend(file_commands)
+                    info_message.append(f"Loaded {len(file_commands)} commands from {os.path.basename(file_path)}\n")
+                except Exception as e:
+                    raise ValueError(f"Failed to read POST file '{file_path}': {e}")
+            else:
+                # Regular command, add directly
+                expanded.append(stripped)
+        
+        if info_message:
+            self.log_info(info_message)
+        
+        return expanded
 
     def log_error(self, error_message: str) -> None:
         """
@@ -526,4 +579,3 @@ class InputReader():
         except Exception as e:
             self.log_error(f"Unexpected error during post-processing: {str(e)}")
             raise
-

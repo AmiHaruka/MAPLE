@@ -8,7 +8,7 @@ class Dispatcher():
     def __init__(self):
         pass
 
-    def __call__(self, commandcontrol: dict, jobtype: int, atoms: Union[Atoms, List[Atoms]], output:str, extra:dict=None, ) -> None:
+    def __call__(self, commandcontrol: dict, jobtype: int, atoms: Union[Atoms, List[Atoms]], output:str, extra:dict=None) -> None:
 
         """
         Dispatches the job based on the job type.
@@ -52,7 +52,7 @@ class Dispatcher():
             if isinstance(atoms, list):
                 raise NotImplementedError('For scan job, only one Atoms object is allowed.')
 
-            scan = Scan(output=output, atoms=atoms, method=commandcontrol.params.get('method'), constraints=extra['scan'])
+            scan = Scan(output=output, atoms=atoms, method=commandcontrol.params.get('method'), constraints=extra['scan'], params=commandcontrol.params)
             scan.run()
             
         elif jobtype == 'freq':

@@ -66,7 +66,7 @@ class LBFGSParams:
     memory: int = 5
     curvature: float = 70.0
     maxstep: float = 0.2
-    maxiteration: int = 256
+    maxiter: int = 256
     write_traj: bool = False
     traj_every: int = 1
     verbose: int = 1     
@@ -88,17 +88,34 @@ class LBFGS:
         self.atoms = atoms
         self.output = output
 
+        # Step 1: Initialize with default parameters
         self.params = params if params is not None else LBFGSParams()
-
+        
+        # Step 2: Update from paras dict if provided
         if isinstance(paras, dict):
             lbfgs_dict = _select_subdict(paras, ("lbfgs", "LBFGS"))
             _update_dataclass_from_dict(self.params, lbfgs_dict)
+        
+        # Log the actual parameters being used
+        param_info = [
+            "\n" + "=" * 70 + "\n",
+            "LBFGS Parameters\n",
+            "=" * 70 + "\n",
+            f"memory:     {self.params.memory}\n",
+            f"curvature:  {self.params.curvature}\n",
+            f"maxstep:    {self.params.maxstep}\n",
+            f"maxiter:    {self.params.maxiter}\n",
+            f"write_traj: {self.params.write_traj}\n",
+            f"traj_every: {self.params.traj_every}\n",
+            f"verbose:    {self.params.verbose}\n",
+            "=" * 70 + "\n\n",
+        ]
+        log_info(param_info, self.output)
 
         self.S: List[np.ndarray] = []
         self.Y: List[np.ndarray] = []
         self.rhos: List[float] = []
 
-        # 用于最后一帧输出
         self._last_iter_info = None
 
     # ----------------------------------------------------------
@@ -183,6 +200,7 @@ class LBFGS:
     def run(self):
         base, _ = os.path.splitext(self.output)
         traj_file = base + "_opt_traj.xyz"
+        final_traj_file = base + "_traj.xyz"
 
         atoms = self.atoms
         r = atoms.get_positions()
@@ -190,12 +208,18 @@ class LBFGS:
         f = atoms.get_forces()
 
         iteration = 0
+        
+        # Initialize trajectory collection for _traj.xyz
+        traj_atoms_list = []
+        traj_energies_list = []
+        traj_atoms_list.append(atoms.copy())
+        traj_energies_list.append(e)
 
         # only write trajectory when verbose=1
         if self.params.verbose == 1 and self.params.write_traj and iteration % self.params.traj_every == 0:
             write_xyz(traj_file, [atoms.copy()], energies=[e])
 
-        while iteration < self.params.maxiteration:
+        while iteration < self.params.maxiter:
             grad = f.reshape(-1)
             step_flat = self._two_loop(grad)
             step = self._clip_step(step_flat.reshape(f.shape))
@@ -213,6 +237,10 @@ class LBFGS:
             self._update_history(s_vec, y_vec)
 
             iteration += 1
+
+            # Collect trajectory for _traj.xyz (always collect, regardless of verbose)
+            traj_atoms_list.append(atoms.copy())
+            traj_energies_list.append(e)
 
             # build & store last iteration info
             last_info = self._build_iter_message(iteration, e, step_cart=step, f=f)
@@ -232,46 +260,55 @@ class LBFGS:
                 and atoms.max_dp <= atoms.dp_max_th
                 and atoms.rms_dp <= atoms.dp_rms_th
             ):
+                # Write final _traj.xyz and _opt.xyz (always, regardless of verbose)
+                write_xyz(final_traj_file, traj_atoms_list, energies=traj_energies_list)
+                opt_file = base + "_opt.xyz"
+                write_xyz(opt_file, [atoms], energies=[e])
+                
                 if self.params.verbose == 1:
-                    # normal mode: write opt.xyz + detailed message
-                    opt_file = base + "_opt.xyz"
-                    write_xyz(opt_file, [atoms], energies=[e])
-
+                    # verbose mode: detailed message
                     log_info(self._last_iter_info, self.output)
                     log_info(
                         [f"\nLBFGS converged at iteration {iteration}. "
-                        f"Final frame written to {opt_file}\n"],
+                        f"Final frame written to {opt_file}\n"
+                        f"Complete trajectory written to {final_traj_file}\n"],
                         self.output,
                     )
                 else:
-                    # silent mode: no xyz, only final frame info + summary
+                    # silent mode: only final frame info + summary
                     log_info(self._last_iter_info, self.output)
                     log_info(
-                        [f"\nLBFGS converged at iteration {iteration}.\n"],
+                        [f"\nLBFGS converged at iteration {iteration}.\n"
+                        f"Final frame written to {opt_file}\n"
+                        f"Complete trajectory written to {final_traj_file}\n"],
                         self.output,
                     )
 
                 return atoms
 
         # -------------- NOT converged --------------
+        # Write final _traj.xyz and _opt.xyz (always, regardless of verbose)
+        write_xyz(final_traj_file, traj_atoms_list, energies=traj_energies_list)
+        opt_file = base + "_opt.xyz"
+        write_xyz(opt_file, [atoms], energies=[e])
+        
         if self.params.verbose == 1:
-            opt_file = base + "_opt.xyz"
-            write_xyz(opt_file, [atoms], energies=[e])
-
+            # verbose mode: detailed message
             log_info(self._last_iter_info, self.output)
             log_info(
-                [f"\nLBFGS did NOT converge after {self.params.maxiteration} iterations. "
-                f"Final frame written to {opt_file}\n"],
+                [f"\nLBFGS did NOT converge after {self.params.maxiter} iterations. "
+                f"Final frame written to {opt_file}\n"
+                f"Complete trajectory written to {final_traj_file}\n"],
                 self.output,
             )
         else:
-            # silent mode: no xyz, only final frame info + summary
+            # silent mode: only final frame info + summary
             log_info(self._last_iter_info, self.output)
             log_info(
-                [f"\nLBFGS did NOT converge after {self.params.maxiteration} iterations.\n"],
+                [f"\nLBFGS did NOT converge after {self.params.maxiter} iterations.\n"
+                f"Final frame written to {opt_file}\n"
+                f"Complete trajectory written to {final_traj_file}\n"],
                 self.output,
             )
 
         return atoms
-
-

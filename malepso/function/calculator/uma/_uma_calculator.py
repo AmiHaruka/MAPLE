@@ -187,7 +187,6 @@ class UMACalculator(FAIRChemCalculator):
             atoms.atomic_charges = self.chargecalc(atoms)
             solvent_energy, solvent_force = self.solvent_correction.get_energy_and_force(atoms)
             solvent_force = solvent_force.detach().cpu().numpy()
-            print(solvent_energy)
             self.results["energy"] += solvent_energy.item()
             self.results["free_energy"] += solvent_energy.item()
 

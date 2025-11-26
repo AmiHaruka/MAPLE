@@ -24,9 +24,9 @@ class CommandControl:
         "device": None,
         "d4": False,
         "sp": {},
-        "opt": {"method": "lbfgs", "maxiter": 200, "convergence": 1e-5},
-        "ts": {"method": "prfo", "maxiter": 200, "neb_images": 7, "level": "medium", "refine": None},
-        "scan": {"method": "lbfgs"},
+        "opt": {},
+        "ts": {},
+        "scan": {},
         "freq": {
             "method": "mw",
             "temperature": 298.15,

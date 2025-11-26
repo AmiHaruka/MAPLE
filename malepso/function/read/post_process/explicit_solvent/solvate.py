@@ -210,3 +210,26 @@ class ExplicitSolv():
 
         if len(fix_indices) > 0:
             self.atoms.set_constraint(FixAtoms(indices=list(fix_indices)))
+            
+            # ---- NEW: Output constraint file ----
+            self._write_constraint_file(fix_indices)
+
+    def _write_constraint_file(self, fix_indices):
+        """
+        Write constrained atoms to a separate output file.
+        
+        Args:
+            fix_indices: Array of atom indices that are constrained
+        """
+        # Generate constraint output filename
+        base_name = os.path.splitext(self.output)[0]  # Remove .out extension
+        constraint_file = f"{base_name}_constraint.out"
+        
+        # Write constraint information
+        with open(constraint_file, 'w') as f:
+            for idx in sorted(fix_indices):
+                # C means coordinate fix (fixed atom)
+                f.write(f"C {idx}\n")
+        
+        self.log_info([f"Constraint information written to: {constraint_file}\n"])
+        self.log_info([f"Total constrained atoms: {len(fix_indices)}\n"])
