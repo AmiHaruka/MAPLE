@@ -7,28 +7,10 @@ from ase.constraints import FixInternals
 from ..jobABC import JobABC
 
 
-def write_scan_xyz(filename: str,
-                   atoms_list: List[Atoms],
-                   coords_list: List[List[float]],
-                   energies: List[float]):
-    """Write relaxed scan XYZ file."""
-    with open(filename, "w") as f:
-        for i, (at, coord, e) in enumerate(zip(atoms_list, coords_list, energies)):
-            pos = at.get_positions()
-            symbols = at.get_chemical_symbols()
-
-            f.write(f"{len(symbols)}\n")
-            coord_str = "[" + ", ".join(f"{v:.4f}" for v in coord) + "]"
-            f.write(f"Scanning combination {i+1}: {coord_str}  Energy = {e:.10f}\n")
-
-            for s, (x, y, z) in zip(symbols, pos):
-                f.write(f"{s:2s} {x: .10f} {y: .10f} {z: .10f}\n")
-
-
 class Scan(JobABC):
     """
     N-dimensional relaxed scan (supports 1D, 2D, 3D).
-    Uses hierarchical continuous scanning strategy.
+    Uses hierarchical continuous scanning strategy with streaming output.
     """
 
     def __init__(self, output: str, atoms: Atoms, method: str = "lbfgs", 
@@ -49,6 +31,9 @@ class Scan(JobABC):
         self._initial_thresholds = {}
         for attr in self._threshold_attrs:
             self._initial_thresholds[attr] = getattr(self.atoms, attr, 1e10)
+        
+        # Initialize XYZ file handle
+        self.xyz_file = None
 
     def _convert_constraints(self, original_constraints: list) -> list:
         """Normalize constraint definitions."""
@@ -150,7 +135,6 @@ class Scan(JobABC):
         self.log_info("-" * 70)
         self.log_info(f"\n            Scanning combination {idx}/{total}: {coord_str}\n")
 
-
     def _apply_constraints(self, atoms: Atoms, coord: List[float]) -> Atoms:
         """
         Apply FixInternals constraint to atoms (in-place modification).
@@ -177,17 +161,32 @@ class Scan(JobABC):
             raise ValueError(f"Only LBFGS is supported for scan, got: {self.method}")
 
     def _record_result(self, atoms: Atoms, coord: List[float],
-                       results: list, coords_list: list, energies: list):
-        """Record a scan point result."""
-        res = self._safe_copy(atoms)
-        results.append(res)
-        coords_list.append(coord[:])  # copy coordinate list
-        energies.append(float(res.get_potential_energy(force_consistent=True)))
+                       coords_list: list, energies: list):
+        """Record a scan point result by streaming to file."""
+        # Get energy and structure info
+        e = float(atoms.get_potential_energy(force_consistent=True))
+        pos = atoms.get_positions()
+        symbols = atoms.get_chemical_symbols()
+        
+        # Write to XYZ file immediately
+        self.xyz_file.write(f"{len(symbols)}\n")
+        coord_str = "[" + ", ".join(f"{v:.4f}" for v in coord) + "]"
+        self.xyz_file.write(
+            f"Scanning combination {self._current_index}/{self._total_combinations}: "
+            f"{coord_str}  Energy = {e:.10f}\n"
+        )
+        for s, (x, y, z) in zip(symbols, pos):
+            self.xyz_file.write(f"{s:2s} {x: .10f} {y: .10f} {z: .10f}\n")
+        self.xyz_file.flush()  # Ensure data is written
+        
+        # Store lightweight data
+        coords_list.append(coord[:])
+        energies.append(e)
 
     def _scan_1d(self, scan_values: List[List[float]]):
         """Execute 1D scan."""
         x_values = scan_values[0]
-        results, coords_list, energies = [], [], []
+        coords_list, energies = [], []
         
         atoms_current = self._safe_copy(self.atoms)
 
@@ -197,17 +196,17 @@ class Scan(JobABC):
             self._print_progress(self._current_index, self._total_combinations, coord)
             atoms_current = self._apply_constraints(atoms_current, coord)
             atoms_current = self._run_optimizer(atoms_current)
-            self._record_result(atoms_current, coord, results, coords_list, energies)
+            self._record_result(atoms_current, coord, coords_list, energies)
 
-        return results, coords_list, energies
+        return coords_list, energies
 
     def _scan_2d(self, scan_values: List[List[float]]):
         """Execute 2D scan using hierarchical strategy."""
         x_values, y_values = scan_values[0], scan_values[1]
-        results, coords_list, energies = [], [], []
+        coords_list, energies = [], []
         grid_xy = {}
 
-        # Step 1: scan along X (y = y0)
+        # Step 1: scan along X (y = y0) - keep this initial line
         atoms_current = self._safe_copy(self.atoms)
         for ix, xv in enumerate(x_values):
             coord = [xv, y_values[0]]
@@ -217,10 +216,10 @@ class Scan(JobABC):
             atoms_current = self._apply_constraints(atoms_current, coord)
             atoms_current = self._run_optimizer(atoms_current)
             
-            grid_xy[(ix, 0)] = self._safe_copy(atoms_current)
-            self._record_result(atoms_current, coord, results, coords_list, energies)
+            grid_xy[(ix, 0)] = self._safe_copy(atoms_current)  # Keep initial line
+            self._record_result(atoms_current, coord, coords_list, energies)
 
-        # Step 2: for each X, scan along Y
+        # Step 2: for each X, scan along Y (no need to keep these)
         for ix, xv in enumerate(x_values):
             atoms_current = self._safe_copy(grid_xy[(ix, 0)])
             
@@ -230,16 +229,14 @@ class Scan(JobABC):
                 self._print_progress(self._current_index, self._total_combinations, coord)
                 atoms_current = self._apply_constraints(atoms_current, coord)
                 atoms_current = self._run_optimizer(atoms_current)
-                
-                grid_xy[(ix, iy)] = self._safe_copy(atoms_current)
-                self._record_result(atoms_current, coord, results, coords_list, energies)
+                self._record_result(atoms_current, coord, coords_list, energies)
 
-        return results, coords_list, energies
+        return coords_list, energies
 
     def _scan_3d(self, scan_values: List[List[float]]):
         """Execute 3D scan using hierarchical strategy."""
         x_values, y_values, z_values = scan_values[0], scan_values[1], scan_values[2]
-        results, coords_list, energies = [], [], []
+        coords_list, energies = [], []
         grid_xy = {}
 
         # Step 1: scan along X (y=y0, z=z0)
@@ -253,9 +250,9 @@ class Scan(JobABC):
             atoms_current = self._run_optimizer(atoms_current)
             
             grid_xy[(ix, 0)] = self._safe_copy(atoms_current)
-            self._record_result(atoms_current, coord, results, coords_list, energies)
+            self._record_result(atoms_current, coord, coords_list, energies)
 
-        # Step 2: scan along Y (z=z0) for each X
+        # Step 2: scan along Y (z=z0) for each X - build the initial plane
         for ix, xv in enumerate(x_values):
             atoms_current = self._safe_copy(grid_xy[(ix, 0)])
             
@@ -266,8 +263,11 @@ class Scan(JobABC):
                 atoms_current = self._apply_constraints(atoms_current, coord)
                 atoms_current = self._run_optimizer(atoms_current)
                 
-                grid_xy[(ix, iy)] = self._safe_copy(atoms_current)
-                self._record_result(atoms_current, coord, results, coords_list, energies)
+                grid_xy[(ix, iy)] = self._safe_copy(atoms_current)  # Keep initial plane
+                self._record_result(atoms_current, coord, coords_list, energies)
+            
+            # Can delete the first line point now (initial plane is complete)
+            del grid_xy[(ix, 0)]
 
         # Step 3: scan along Z for each (X, Y)
         for ix, xv in enumerate(x_values):
@@ -284,9 +284,12 @@ class Scan(JobABC):
                     self._print_progress(self._current_index, self._total_combinations, coord)
                     atoms_current = self._apply_constraints(atoms_current, coord)
                     atoms_current = self._run_optimizer(atoms_current)
-                    self._record_result(atoms_current, coord, results, coords_list, energies)
+                    self._record_result(atoms_current, coord, coords_list, energies)
+                
+                # Delete this (x,y) plane point after finishing its z-scan
+                del grid_xy[(ix, iy)]
 
-        return results, coords_list, energies
+        return coords_list, energies
 
     def run_scan(self):
         """Main scan entry point."""
@@ -299,17 +302,31 @@ class Scan(JobABC):
         self._total_combinations = total
         self._current_index = 0
 
-        if dim == 1:
-            results, coords_list, energies = self._scan_1d(scan_values)
-        elif dim == 2:
-            results, coords_list, energies = self._scan_2d(scan_values)
-        elif dim == 3:
-            results, coords_list, energies = self._scan_3d(scan_values)
-        else:
-            raise ValueError(f"Only 1D, 2D, 3D scans are supported, got {dim}D")
-
+        # Open output XYZ file for streaming
         base, _ = os.path.splitext(self.output)
-        write_scan_xyz(base + "_scan_final.xyz", results, coords_list, energies)
+        xyz_filename = base + "_scan_final.xyz"
+        
+        try:
+            self.xyz_file = open(xyz_filename, "w")
+            
+            if dim == 1:
+                coords_list, energies = self._scan_1d(scan_values)
+            elif dim == 2:
+                coords_list, energies = self._scan_2d(scan_values)
+            elif dim == 3:
+                coords_list, energies = self._scan_3d(scan_values)
+            else:
+                raise ValueError(f"Only 1D, 2D, 3D scans are supported, got {dim}D")
+            
+            self.log_info("\n")
+            self.log_info("=" * 70)
+            self.log_info(f"\nScan completed! Total points: {len(energies)}")
+            self.log_info(f"Results saved to: {xyz_filename}")
+            self.log_info(f"Energy range: {min(energies):.6f} to {max(energies):.6f} eV\n")
+            
+        finally:
+            if self.xyz_file is not None:
+                self.xyz_file.close()
 
     def run(self):
         """JobABC interface."""
