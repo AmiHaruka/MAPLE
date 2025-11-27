@@ -237,7 +237,7 @@ class FrequencyBase(JobABC):
             3) Compute thermochemistry.
             4) Write all results to the output file.
         """
-        self.log_info(["Starting frequency analysis calculation", f"Number of atoms: {len(self.atoms)}"])
+        self.log_info([f"Starting frequency analysis calculation, Number of atoms: {len(self.atoms)}"])
 
         try:
             hessian = self.get_hessian()
@@ -349,88 +349,147 @@ class FrequencyBase(JobABC):
      
         raise NotImplementedError("Subclasses must implement compute_frequencies().")
 
+    def _build_translation_rotation_basis(self, masses: np.ndarray, positions: np.ndarray) -> np.ndarray:
+        """
+        Construct orthogonal basis for translations and rotations (mass-weighted).
+        
+        Args:
+            masses: Atomic masses (N,)
+            positions: Atomic positions (N, 3) in Angstrom
+        
+        Returns:
+            D: Translation + rotation basis vectors (3N, 6) in mass-weighted space
+        """
+        n_atoms = len(masses)
+        D = np.zeros((3 * n_atoms, 6))
+        
+        # Center of mass
+        total_mass = np.sum(masses)
+        com = np.sum(positions * masses[:, None], axis=0) / total_mass
+        
+        # Translation modes (columns 0-2)
+        for i in range(n_atoms):
+            sqrt_m = np.sqrt(masses[i])
+            D[3*i:3*i+3, 0] = [sqrt_m, 0, 0]      # x-translation
+            D[3*i:3*i+3, 1] = [0, sqrt_m, 0]      # y-translation
+            D[3*i:3*i+3, 2] = [0, 0, sqrt_m]      # z-translation
+        
+        # Rotation modes (columns 3-5)
+        # δr = ω × r, where r is position relative to COM
+        for i in range(n_atoms):
+            r = positions[i] - com
+            sqrt_m = np.sqrt(masses[i])
+            
+            # Rotation around x-axis: δr = (0, r_z, -r_y)
+            D[3*i:3*i+3, 3] = sqrt_m * np.array([0, r[2], -r[1]])
+            
+            # Rotation around y-axis: δr = (-r_z, 0, r_x)
+            D[3*i:3*i+3, 4] = sqrt_m * np.array([-r[2], 0, r[0]])
+            
+            # Rotation around z-axis: δr = (r_y, -r_x, 0)
+            D[3*i:3*i+3, 5] = sqrt_m * np.array([r[1], -r[0], 0])
+        
+        return D
+        
+    def _project_hessian(self, hessian: np.ndarray) -> np.ndarray:
+        """
+        Project out translation and rotation components from Hessian.
+        
+        Principle:
+            H_proj = P^T @ H @ P
+            where P = I - Q @ Q^T, Q is orthonormal translation-rotation basis
+        
+        Args:
+            hessian: Cartesian Hessian (3N, 3N) in Hartree/Angstrom²
+        
+        Returns:
+            Projected Hessian (3N, 3N)
+        """
+        masses = self.atoms.get_masses()
+        positions = self.atoms.get_positions()
+        
+        # Step 1: Build translation-rotation basis
+        D = self._build_translation_rotation_basis(masses, positions)
+        
+        # Step 2: Orthonormalize via QR decomposition
+        Q, _ = np.linalg.qr(D)
+        
+        # Step 3: Construct projection operator
+        # P = I - Q @ Q^T projects onto the subspace orthogonal to translations/rotations
+        n_dof = len(hessian)
+        P = np.eye(n_dof) - Q @ Q.T
+        
+        # Step 4: Project Hessian
+        H_projected = P @ hessian @ P
+        
+        # Step 5: Symmetrize to eliminate floating-point asymmetry
+        H_projected = 0.5 * (H_projected + H_projected.T)
+        
+        return H_projected
+
     def compute_thermo(self, frequencies_cm1: np.ndarray) -> ThermoResults:
         """
-        Compute gas-phase thermochemical properties from vibrational data.
-
-        Args:
-            frequencies_cm1: All (signed) vibrational frequencies in cm⁻¹.
-
-        Returns:
-            ThermoResults: Aggregated enthalpies, entropies, and free-energy correction.
-
-        Notes:
-            - ZPE is always evaluated from |ν|.
-            - `ilowfreq` controls low-frequency handling:
-              0=RRHO; 1=Truhlar(S-only cap); 2=Grimme(S interpolation);
-              3=Minenkov/MRRHO(S+U interpolation).
+        Compute gas-phase thermochemical properties.
+        Only real vibrational modes are used (skip zeros and imaginary).
         """
         T = self.temperature
         n_atoms = len(self.atoms)
-        n_vib = 3 * n_atoms - (5 if n_atoms == 2 else 6)
-
-        # Zero-point energy from |ν|.
-        zpe_j_per_mol = 0.5 * H * C * NA * np.sum(np.abs(frequencies_cm1[:n_vib])) / CM_TO_M
+        
+        # Identify real vibrational modes (skip zeros and imaginary)
+        zero_tol = 5.0
+        vib_mask = frequencies_cm1 > zero_tol
+        vib_freqs = frequencies_cm1[vib_mask]
+        
+        # Zero-point energy from all real modes
+        zpe_j_per_mol = 0.5 * H * C * NA * np.sum(vib_freqs) / CM_TO_M
         zpe_kjmol = zpe_j_per_mol * 1e-3
-
-        # Effective frequencies for thermochemistry (abs + floor).
-        nu_eff = np.maximum(np.abs(frequencies_cm1[:n_vib]), self.nu_floor_cm1)
+        
+        # Apply frequency floor
+        nu_eff = np.maximum(vib_freqs, self.nu_floor_cm1)
         theta_v = (H * C * (nu_eff / CM_TO_M)) / K_B
-
+        
         s_vib_total, u_vib_total_J = 0.0, 0.0
-
+        
         for nu_e, theta_i in zip(nu_eff, theta_v):
             x = theta_i / max(T, 1e-12)
-
-            # Harmonic reference per mode.
+            
+            # Harmonic entropy and internal energy
             s_harmonic = R_GAS * (x / (np.exp(x) - 1 + 1e-300) - np.log(1 - np.exp(-x) + 1e-300))
             u_harmonic_J = R_GAS * T * (x / (np.exp(x) - 1 + 1e-300))
-
-            # Select low-frequency model.
-            if self.ilowfreq == 0:  # Harmonic (RRHO)
+            
+            # Low-frequency corrections (same as before)
+            if self.ilowfreq == 0:
                 s_mode = s_harmonic
                 u_mode_J = u_harmonic_J
-            elif self.ilowfreq == 1:  # Truhlar (S-only cap)
+            elif self.ilowfreq == 1:
                 s_mode = self._truhlar_entropy(nu_e, T, s_harmonic)
                 u_mode_J = u_harmonic_J
-            elif self.ilowfreq == 2:  # Grimme (S interpolation)
+            elif self.ilowfreq == 2:
                 s_mode = self._grimme_entropy(nu_e, T, s_harmonic)
                 u_mode_J = u_harmonic_J
-            elif self.ilowfreq == 3:  # Minenkov / MRRHO (S+U interpolation)
-                # Weight w = 1 / (1 + (omega0/nu)^alpha).
-                w = self._headgordon_weight(
-                    nu_cm1=abs(nu_e),
-                    omega0_cm1=getattr(self, "omega0_cm1", 100.0),
-                    alpha=getattr(self, "alpha", 4),
-                )
-                # Free-rotor entropy (per mode).
-                s_rotor = self._free_rotor_entropy(
-                    nu_cm1=abs(nu_e),
-                    T=T,
-                    Bav_amuA2=getattr(self, "Bav_amuA2", None)
-                )
-                # Entropy interpolation: S = w*S_HO + (1-w)*S_rotor.
+            elif self.ilowfreq == 3:
+                w = self._headgordon_weight(nu_e, getattr(self, "omega0_cm1", 100.0), getattr(self, "alpha", 4))
+                s_rotor = self._free_rotor_entropy(nu_e, T, getattr(self, "Bav_amuA2", None))
                 s_mode = w * s_harmonic + (1.0 - w) * s_rotor
-                # Thermal internal energy interpolation (no ZPE): U_th = w*U_HO + (1-w)*0.5*R*T.
                 R_local = 8.314462618
                 u_rotor_J = 0.5 * R_local * T
                 u_mode_J = w * u_harmonic_J + (1.0 - w) * u_rotor_J
-
+            
             s_vib_total += s_mode
             u_vib_total_J += u_mode_J
-
-        # Thermal contributions.
+        
+        # Thermal contributions
         h_vib_thermal_kjmol = u_vib_total_J * 1e-3
         h_trans_kjmol = 2.5 * R_GAS * T * 1e-3
-
+        
         is_linear = self._is_linear_molecule()
         rot_dof = 2 if is_linear else 3
         h_rot_kjmol = (rot_dof / 2) * R_GAS * T * 1e-3
-
-        # Entropies.
+        
+        # Entropies
         s_trans, s_rot = self._trans_rot_entropy()
         s_vib = s_vib_total
-
+        
         thermo = ThermoResults(
             zpe_kjmol=zpe_kjmol,
             h_trans_kjmol=h_trans_kjmol,
@@ -440,11 +499,10 @@ class FrequencyBase(JobABC):
             s_rot_jmolK=s_rot,
             s_vib_jmolK=s_vib,
         )
-
-        # Gibbs correction (H - T*S).
+        
         s_total = s_trans + s_rot + s_vib
         thermo.g_correction_kjmol = thermo.h_total_kjmol - T * s_total * 1e-3
-
+        
         return thermo
 
     def _truhlar_entropy(self, nu_cm1: float, T: float, s_harmonic: float) -> float:
@@ -624,188 +682,198 @@ class FrequencyBase(JobABC):
     # ---------------------- writers ----------------------
     def _write_output(self, freqs: np.ndarray, modes: np.ndarray, thermo: ThermoResults) -> None:
         """
-        Write the full analysis report to the output file.
-
-        Args:
-            freqs: Vibrational frequencies (cm⁻¹).
-            modes: Normal modes in Cartesian components.
-            thermo: ThermoResults instance with aggregated properties.
+        Write full analysis report in ORCA-style order.
+        Order: Header → Frequencies → Thermodynamics → Normal Modes
+        Uses log_info to append to existing output file.
         """
-        with open(self.output, 'w', encoding='utf-8') as f:
-            self._write_header(f)
-            self._write_thermochemistry(f, thermo)
-            self._write_frequencies(f, freqs)
-            self._write_normal_modes(f, freqs, modes)
+        
+        # 1. Frequencies
+        self._write_frequencies(freqs)
+        
+        # 2. Thermodynamics
+        self._write_thermochemistry(thermo)
+        
+        # 3. Normal modes (with zeros masked)
+        self._write_normal_modes(freqs, modes)
 
-    def _write_header(self, f) -> None:
+    def _write_thermochemistry(self, thermo: ThermoResults) -> None:
         """
-        Print the job header and coordinates section.
-
-        Args:
-            f: An opened text IO handle.
-        """
-        f.write("Preprocessing the settings ...\n")
-        f.write("Model: ANI-1ccx.\n")
-        f.write("Job type: freq.\n")
-   
-        if self.device.startswith("cuda"):
-            f.write("GPU ID is set. Using GPU to calculate.\n\n")
-        else:
-            f.write("GPU ID is not set. Using CPU to calculate.\n\n")
-        f.write("                             Coordinates                              \n")
-        f.write("**********************************************************************\n")
-
-        # Atomic coordinates.
-        symbols = self.atoms.get_chemical_symbols()
-        positions = self.atoms.get_positions()
-        for i, (symbol, pos) in enumerate(zip(symbols, positions), 1):
-            f.write(f"{i:2d}    {symbol:2s}               {pos[0]:8.4f}              {pos[1]:8.4f}               {pos[2]:8.4f}\n")
-
-        f.write("\nLoading the Machine Learning Potential Model...\n")
-        f.write("Loading ANI model (ANI-1ccx) successfully.\n")
-        if self.device.startswith("cuda"):
-            f.write(f"Using GPU for calculation ({self.device}).\n\n")
-        else:
-            f.write("Using CPU for calculation.\n\n")
-
-    def _write_thermochemistry(self, f, thermo: ThermoResults) -> None:
-        """
-        Print thermochemistry summary block.
-        —— Main unit: kcal/mol (or /K); when verbosity>=2, also print Hartree. ——
-
-        Args:
-            f: An opened text IO handle.
-            thermo: ThermoResults with enthalpies, entropies, and free-energy.
+        Print thermochemistry summary in ORCA-inspired format.
         """
         T = self.temperature
-
-        # Convert to kcal/mol and Hartree (conditionally).
+        
+        # Convert units
         zpe_kcal = Units.kj_to_kcal(thermo.zpe_kjmol)
         h_trans_kcal = Units.kj_to_kcal(thermo.h_trans_kjmol)
         h_rot_kcal = Units.kj_to_kcal(thermo.h_rot_kjmol)
         h_vib_kcal = Units.kj_to_kcal(thermo.h_vib_thermal_kjmol)
         h_total_kcal = Units.kj_to_kcal(thermo.h_total_kjmol)
         g_corr_kcal = Units.kj_to_kcal(thermo.g_correction_kjmol)
-
-        # Entropy to kcal/mol·K
-        s_trans_kcalK = thermo.s_trans_jmolK * 1e-3 * KJ_PER_MOL_TO_KCAL
-        s_rot_kcalK   = thermo.s_rot_jmolK   * 1e-3 * KJ_PER_MOL_TO_KCAL
-        s_vib_kcalK   = thermo.s_vib_jmolK   * 1e-3 * KJ_PER_MOL_TO_KCAL
-        s_total_kcalK = s_trans_kcalK + s_rot_kcalK + s_vib_kcalK
-
-        # Provide Hartree as a secondary unit when desired.
-        if self.verbosity >= 2:
-            zpe_ha = Units.kj_to_ha(thermo.zpe_kjmol)
-            h_trans_ha = Units.kj_to_ha(thermo.h_trans_kjmol)
-            h_rot_ha = Units.kj_to_ha(thermo.h_rot_kjmol)
-            h_vib_ha = Units.kj_to_ha(thermo.h_vib_thermal_kjmol)
-            h_total_ha = Units.kj_to_ha(thermo.h_total_kjmol)
-            g_corr_ha = Units.kj_to_ha(thermo.g_correction_kjmol)
-
-        f.write("Thermochemistry Summary\n")
-        f.write("="*60 + "\n")
-        f.write(f"Working pressure: {self.pressure_kpa:.3f} kPa\n")
-
-        # Main outputs in kcal/mol
-        f.write(f"Zero-point vibrational energy:        {zpe_kcal:12.6f} kcal/mol\n")
-        f.write(f"Translational enthalpy at {T:.0f} K:    {h_trans_kcal:12.6f} kcal/mol\n")
-        f.write(f"Rotational enthalpy at {T:.0f} K:       {h_rot_kcal:12.6f} kcal/mol\n")
-        f.write(f"Vibrational thermal enthalpy at {T:.0f} K: {h_vib_kcal:12.6f} kcal/mol\n")
-        f.write(f"Total enthalpy correction at {T:.0f} K:  {h_total_kcal:12.6f} kcal/mol\n")
-        f.write("\n")
-        f.write(f"Gibbs free energy correction at {T:.0f} K: {g_corr_kcal:12.6f} kcal/mol\n")
-        f.write("\n")
-
-        # Secondary outputs in Hartree when verbosity>=2
-        if self.verbosity >= 2:
-            f.write(" (Hartree)\n")
-            f.write(f"   ZPE:       {zpe_ha:12.8f} Ha   |  H_trans: {h_trans_ha:12.8f}  H_rot: {h_rot_ha:12.8f}  H_vib: {h_vib_ha:12.8f}  H_total: {h_total_ha:12.8f}\n")
-            f.write(f"   G_corr:    {g_corr_ha:12.8f} Ha\n\n")
-
-        f.write("Entropy components (kcal/mol·K):\n")
-        f.write(f"  S_trans: {s_trans_kcalK:10.6f}\n")
-        f.write(f"  S_rot:   {s_rot_kcalK:10.6f}\n")
-        f.write(f"  S_vib:   {s_vib_kcalK:10.6f}\n")
-        f.write(f"  S_total: {s_total_kcalK:10.6f}\n")
-        f.write("="*60 + "\n\n")
-
-    def _write_frequencies(self, f, freqs: np.ndarray) -> None:
-        """
-        Print an aligned table of vibrational frequencies.
-
-        Rules:
-            verbosity = 0/1 -> print first 10 (sorted ascending)
-            verbosity >= 2  -> print first 100 (sorted ascending; cap by available)
-        """
-        f.write("Vibrational Frequencies (cm⁻¹)\n")
-        f.write("-" * 60 + "\n")
-
-        n_freqs = len(freqs)
-        n_imag = int(np.sum(freqs < 0))
-        n_real = n_freqs - n_imag
-        f.write(f"Imaginary frequencies: {n_imag:3d}\n")
-        f.write(f"Real frequencies:     {n_real:3d}\n")
-        f.write("-" * 60 + "\n")
-
-        # Sort ascending (negative first for diagnostics)
-        arr = np.sort(freqs.copy())
-
-        v = int(getattr(self, "verbosity", 1))
-        limit = 100 if v >= 2 else 10
-        n_to_print = min(limit, len(arr))
-        arr = arr[:n_to_print]
-
-        # 6 columns; imaginary marked with 'i'
-        for i in range(0, n_to_print, 6):
-            line = ""
-            for j in range(6):
-                idx = i + j
-                if idx < n_to_print:
-                    vval = arr[idx]
-                    tag = "i" if vval < 0 else " "
-                    line += f"{vval:10.2f}{tag}  "
-            f.write(line + "\n")
-        f.write("\n")
         
-    def _write_normal_modes(self, f, freqs: np.ndarray, modes: np.ndarray) -> None:
-        """
-        Print a compact listing of normal modes (Cartesian components).
+        s_trans_kcalK = thermo.s_trans_jmolK * 1e-3 * KJ_PER_MOL_TO_KCAL
+        s_rot_kcalK = thermo.s_rot_jmolK * 1e-3 * KJ_PER_MOL_TO_KCAL
+        s_vib_kcalK = thermo.s_vib_jmolK * 1e-3 * KJ_PER_MOL_TO_KCAL
+        s_total_kcalK = s_trans_kcalK + s_rot_kcalK + s_vib_kcalK
+        
+        self.log_info(["\n"])
+        self.log_info(["-" * 60 + "\n"])
+        self.log_info([f"THERMOCHEMISTRY AT {T:.2f}K\n"])
+        self.log_info(["-" * 60 + "\n\n"])
+        
+        self.log_info([f"Temperature         ...   {T:.2f} K\n"])
+        self.log_info([f"Pressure            ...   {self.pressure_kpa / 101.325:.2f} atm\n"])
+        self.log_info([f"Total Mass          ...   {np.sum(self.atoms.get_masses()):.2f} AMU\n\n"])
+        
+        # Zero point energy and corrections
+        self.log_info(["-" * 60 + "\n"])
+        self.log_info(["INNER ENERGY\n"])
+        self.log_info(["-" * 60 + "\n\n"])
+        
+        self.log_info([f"Zero point energy                ...   {zpe_kcal:10.2f} kcal/mol\n"])
+        self.log_info([f"Thermal vibrational correction   ...   {h_vib_kcal:10.2f} kcal/mol\n"])
+        self.log_info([f"Thermal rotational correction    ...   {h_rot_kcal:10.2f} kcal/mol\n"])
+        self.log_info([f"Thermal translational correction ...   {h_trans_kcal:10.2f} kcal/mol\n"])
+        self.log_info(["-" * 60 + "\n"])
+        self.log_info([f"Total thermal correction         ...   {h_total_kcal:10.2f} kcal/mol\n\n"])
+        
+        # Entropy
+        self.log_info(["-" * 60 + "\n"])
+        self.log_info(["ENTROPY\n"])
+        self.log_info(["-" * 60 + "\n\n"])
+        
+        self.log_info([f"Translational entropy            ...   {s_trans_kcalK:10.6f} kcal/(mol*K)\n"])
+        self.log_info([f"Rotational entropy               ...   {s_rot_kcalK:10.6f} kcal/(mol*K)\n"])
+        self.log_info([f"Vibrational entropy              ...   {s_vib_kcalK:10.6f} kcal/(mol*K)\n"])
+        self.log_info(["-" * 60 + "\n"])
+        self.log_info([f"Total entropy                    ...   {s_total_kcalK:10.6f} kcal/(mol*K)\n\n"])
+        
+        # Gibbs free energy
+        self.log_info(["-" * 60 + "\n"])
+        self.log_info(["GIBBS FREE ENERGY\n"])
+        self.log_info(["-" * 60 + "\n\n"])
+        self.log_info([f"Total enthalpy correction        ...   {h_total_kcal:10.2f} kcal/mol\n"])
+        self.log_info([f"Total entropy correction         ...   {-T * s_total_kcalK * 1e-3:10.2f} kcal/mol\n"])
+        self.log_info(["-" * 60 + "\n"])
+        self.log_info([f"Final Gibbs free energy corr.    ...   {g_corr_kcal:10.2f} kcal/mol\n\n"])
 
-        Rules:
-            verbosity == 0: print nothing
-            verbosity == 1: print 10 modes (ascending by frequency)
-            verbosity >= 2: print 100 modes (ascending; cap by available)
+    def _write_frequencies(self, freqs: np.ndarray) -> None:
         """
-        # 1) Coarse verbosity gating
+        Print vibrational frequencies in ORCA style.
+        Output control:
+            - Always show all zero frequencies (typically 6)
+            - Then show N non-zero frequencies based on verbosity:
+            verbosity=0: show 0 non-zero
+            verbosity=1: show 10 non-zero (default)
+            verbosity>=2: show all non-zero
+        """
+        self.log_info(["-" * 60 + "\n"])
+        self.log_info(["VIBRATIONAL FREQUENCIES\n"])
+        self.log_info(["-" * 60 + "\n\n"])
+        
+        # Count frequency types
+        zero_tol = 5.0
+        n_zero = int(np.sum(np.abs(freqs) < zero_tol))
+        n_imag = int(np.sum(freqs < -zero_tol))
+        n_real = len(freqs) - n_zero - n_imag
+        
+        self.log_info(["Scaling factor for frequencies = 1.000000000 (already applied!)\n\n"])
+        
+        # Determine how many non-zero frequencies to print
+        v = int(getattr(self, "verbosity", 1))
+        if v == 0:
+            n_nonzero_to_print = 0
+        elif v == 1:
+            n_nonzero_to_print = 10  # default: 10 non-zero modes
+        else:  # v >= 2
+            n_nonzero_to_print = len(freqs) - n_zero  # all non-zero modes
+        
+        # Total to print: all zeros + limited non-zeros
+        n_to_print = min(n_zero + n_nonzero_to_print, len(freqs))
+        
+        # Print frequencies in ORCA format
+        for i in range(n_to_print):
+            freq_val = freqs[i]
+            
+            # Determine display value and tag
+            if np.abs(freq_val) < zero_tol:
+                display_val = 0.00
+                tag = ""
+            elif freq_val < -zero_tol:
+                display_val = freq_val
+                tag = "  ***imaginary mode***"
+            else:
+                display_val = freq_val
+                tag = ""
+            
+            self.log_info([f"{i:6d}:  {display_val:10.2f} cm**-1{tag}\n"])
+        
+        self.log_info(["\n\n"])
+        
+    def _write_normal_modes(self, freqs: np.ndarray, modes: np.ndarray) -> None:
+        """
+        Print normal modes in ORCA column format.
+        Output control matches frequency output:
+            - Always show all zero-frequency modes
+            - Then show N non-zero modes based on verbosity
+        Zero-frequency modes are displayed as all zeros (ORCA convention).
+        """
         v = int(getattr(self, "verbosity", 1))
         if v <= 0:
             return
-
-        # 2) How many to print?
-        total_modes = int(modes.shape[0])
-        n_to_print = min(100 if v >= 2 else 10, total_modes)
+        
+        # Count zero frequencies
+        zero_tol = 5.0
+        n_zero = int(np.sum(np.abs(freqs) < zero_tol))
+        
+        # Determine how many non-zero modes to print
+        if v == 1:
+            n_nonzero_to_print = 10  # default: 10 non-zero modes
+        else:  # v >= 2
+            n_nonzero_to_print = len(freqs) - n_zero  # all non-zero modes
+        
+        # Total to print: all zeros + limited non-zeros
+        n_to_print = min(n_zero + n_nonzero_to_print, len(freqs))
+        
         if n_to_print <= 0:
             return
-
-        # 3) Pick modes by ascending frequency (imag first helps debugging)
-        order = np.argsort(freqs[:total_modes])
-        sel_idx = order[:n_to_print]
-
-        # 4) Print
-        f.write("Normal Modes (Cartesian displacements)\n")
-        f.write("=" * 60 + "\n")
-
+        
+        self.log_info(["\n"])
+        self.log_info(["-" * 60 + "\n"])
+        self.log_info(["NORMAL MODES\n"])
+        self.log_info(["-" * 60 + "\n\n"])
+        self.log_info(["These modes are the Cartesian displacements weighted by the diagonal matrix\n"])
+        self.log_info(["M(i,i)=1/sqrt(m[i]) where m[i] is the mass of the displaced atom\n"])
+        self.log_info(["Thus, these vectors are normalized but *not* orthogonal\n\n"])
+        
         n_atoms = len(self.atoms)
-        for rank, mode_idx in enumerate(sel_idx, start=1):
-            f.write(f"Frequency {mode_idx + 1:3d}: {freqs[mode_idx]:10.2f} cm⁻¹\n")
-            f.write("Eigenvectors       X          Y          Z\n")
-
-            mode_vector = modes[mode_idx].reshape(n_atoms, 3)
-            for atom_idx in range(n_atoms):
-                dx, dy, dz = mode_vector[atom_idx]
-                f.write(f"Atom {atom_idx + 1:3d}:   {dx:10.6f}  {dy:10.6f}  {dz:10.6f}\n")
-
-            f.write("\n")
+        n_coords = 3 * n_atoms
+        
+        # Mask zero-frequency modes (ORCA convention: display as zeros)
+        modes_display = modes.copy()
+        for i in range(n_to_print):
+            if np.abs(freqs[i]) < zero_tol:
+                modes_display[i, :] = 0.0
+        
+        # Print in blocks of 6 columns (ORCA style)
+        block_size = 6
+        for block_start in range(0, n_to_print, block_size):
+            block_end = min(block_start + block_size, n_to_print)
+            
+            # Header line with mode indices
+            header = "            "
+            for col in range(block_start, block_end):
+                header += f"{col:11d}    "
+            self.log_info([header + "\n"])
+            
+            # Print each Cartesian coordinate (3N rows)
+            for coord_idx in range(n_coords):
+                line = f"{coord_idx:6d}  "
+                for mode_idx in range(block_start, block_end):
+                    value = modes_display[mode_idx].flatten()[coord_idx]
+                    line += f"{value:13.6f}  "
+                self.log_info([line + "\n"])
+            
+            self.log_info(["\n"])
 
 # ======================================================================
 # Concrete implementations
@@ -819,28 +887,72 @@ class MWFrequency(FrequencyBase):
 
     def compute_frequencies(self, hessian_matrix: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Diagonalize the mass-weighted Hessian to get frequencies and modes.
-
+        Diagonalize mass-weighted Hessian to get frequencies and modes.
+        Translations and rotations are projected out first.
+        
         Args:
-            hessian_matrix: Cartesian Hessian (3N, 3N).
-
+            hessian_matrix: Cartesian Hessian (3N, 3N) in Hartree/Angstrom²
+        
         Returns:
-            Tuple[np.ndarray, np.ndarray]: (frequencies_cm1, modes_in_cartesian).
+            Tuple[np.ndarray, np.ndarray]: (frequencies_cm1, modes_in_cartesian)
+                Sorted: zeros first, then imaginary (negative), then real (positive)
         """
         masses = np.asarray(self.atoms.get_masses())
+        
+        # Project out translations and rotations
+        if self.verbosity >= 2:
+            self.log_info(["Projecting out translations and rotations..."])
+        
+        hessian_proj = self._project_hessian(hessian_matrix)
+        
+        # Mass-weighting: H_mw = M^{-1/2} H M^{-1/2}
         inv_sqrt_m = np.repeat(1.0 / np.sqrt(masses), 3)
-
-        h_m = hessian_matrix * inv_sqrt_m[None, :] * inv_sqrt_m[:, None]
-        evals, evecs_mw = self._eigh(h_m)
-
-        # Convert eigenvalues to signed frequencies in cm⁻¹.
-        conversion = 5140.484
+        h_mw = hessian_proj * inv_sqrt_m[None, :] * inv_sqrt_m[:, None]
+        
+        # Diagonalize
+        evals, evecs_mw = self._eigh(h_mw)
+        
+        # Convert eigenvalues to frequencies (cm⁻¹)
+        conversion = 5140.4867
         freqs_cm1 = np.sign(evals) * np.sqrt(np.abs(evals)) * conversion
-
-        # Transform modes back to Cartesian coordinates.
+        
+        # Transform modes back to Cartesian coordinates
         modes_cart = evecs_mw.T * inv_sqrt_m[None, :]
-
-        return freqs_cm1, modes_cart
+        
+        # Sort frequencies: zeros first, then imaginary, then real
+        # ORCA-style ordering: |freq| < 5 → zero, freq < -5 → imaginary, freq > 5 → real
+        zero_tol = 5.0
+        
+        zero_mask = np.abs(freqs_cm1) < zero_tol
+        imag_mask = (freqs_cm1 < -zero_tol)
+        real_mask = (freqs_cm1 > zero_tol)
+        
+        zero_indices = np.where(zero_mask)[0]
+        imag_indices = np.where(imag_mask)[0]
+        real_indices = np.where(real_mask)[0]
+        
+        # Sort within each category
+        zero_indices = zero_indices[np.argsort(np.abs(freqs_cm1[zero_indices]))]
+        imag_indices = imag_indices[np.argsort(freqs_cm1[imag_indices])]  # most negative first
+        real_indices = real_indices[np.argsort(freqs_cm1[real_indices])]  # ascending
+        
+        # Concatenate: zeros + imaginary + real
+        sorted_indices = np.concatenate([zero_indices, imag_indices, real_indices])
+        
+        freqs_sorted = freqs_cm1[sorted_indices]
+        modes_sorted = modes_cart[sorted_indices]
+        
+        # Diagnostic output
+        if self.verbosity >= 1:
+            n_zero = len(zero_indices)
+            n_imag = len(imag_indices)
+            n_real = len(real_indices)
+            self.log_info([
+                f"\nImaginary frequencies: {n_imag}\n",
+                f"Real frequencies: {n_real}\n\n",
+            ])
+        
+        return freqs_sorted, modes_sorted
 
 class NonMWFrequency(FrequencyBase):
     """

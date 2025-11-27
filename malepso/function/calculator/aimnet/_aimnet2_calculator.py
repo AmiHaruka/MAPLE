@@ -181,7 +181,37 @@ class AIMNet2Calculator(CalcABC):
         return out["energy"].sum()
 
     # ------------------------ get_hessian ------------------------
-    def get_hessian(self, atoms) -> np.ndarray:
+    def get_hessian(
+        self, 
+        atoms,
+        delta: float = 0.002,
+    ) -> np.ndarray:
+        """
+        Compute the Hessian matrix using either analytic or numerical method.
+        
+        Method is determined by self.hessian:
+        - 'analytic': Use automatic differentiation (faster, exact)
+        - 'numerical': Use finite-difference forces (slower, approximate)
+        
+        Returns a (3N, 3N) numpy array.
+        
+        Args:
+            atoms: ASE Atoms object
+            delta: Step size for numerical differentiation (only used if method='numerical')
+        """
+        if self.hessian == 'analytic':
+            return self._get_hessian_analytic(atoms)
+        elif self.hessian == 'numerical':
+            return self._get_hessian_numerical(atoms, delta)
+        else:
+            raise ValueError(f"Unknown hessian method: {self.hessian}. Must be 'analytic' or 'numerical'")
+
+
+    def _get_hessian_analytic(self, atoms: ase.Atoms) -> np.ndarray:
+        """
+        Compute Hessian using automatic differentiation.
+        Fast and exact, but requires energy to be differentiable w.r.t. coordinates.
+        """
         coord = torch.tensor(
             atoms.get_positions(),
             dtype=torch.float32,
@@ -193,18 +223,19 @@ class AIMNet2Calculator(CalcABC):
 
         N = coord.shape[0]
         nbmat = nblist_dense_padded(coord, self.cutoff)
-        charge_val = float(self.atoms.info.get("charge", 0.0))
-        mult_val = float(self.atoms.info.get("mult", 1.0))
+        charge_val = float(atoms.info.get("charge", 0.0))
+        mult_val = float(atoms.info.get("mult", 1.0))
 
         data = {
             "coord": pad_dim0(coord, value=0.0),
             "numbers": pad_dim0(Z, value=0),
             "charge": torch.tensor([charge_val], dtype=torch.float32, device=self.device),
-            "mult": torch.tensor([mult_val], dtype=torch.float32, device=self.device),  # <-- ADD THIS
+            "mult": torch.tensor([mult_val], dtype=torch.float32, device=self.device),
             "mol_idx": pad_dim0(mol_idx, value=mol_idx[-1].item() if N > 0 else 0),
             "nbmat": nbmat,
         }
-        # CHANGED: ALWAYS provide nbmat_lr + cutoff_lr
+        
+        # ALWAYS provide nbmat_lr + cutoff_lr
         lr_cutoff = self.cutoff_lr if np.isfinite(self.cutoff_lr) else self.cutoff
         data["nbmat_lr"] = nblist_dense_padded(coord, lr_cutoff)
         data["cutoff_lr"] = torch.tensor(lr_cutoff, device=self.device)
@@ -222,3 +253,86 @@ class AIMNet2Calculator(CalcABC):
         ]).view(-1, 3, N + 1, 3)[:, :, :N, :]  # slice out the padded row on atom-axis
 
         return hessian.detach().cpu().numpy().reshape(3 * N, 3 * N)
+
+
+    def _get_hessian_numerical(
+        self, 
+        atoms, 
+        delta: float = 0.002
+    ) -> np.ndarray:
+        """
+        Compute Hessian using finite-difference forces.
+        Hessian is defined as: H = d²E/dx_i dx_j = -∂F_i/∂x_j
+        
+        Args:
+            atoms: ASE Atoms object
+            delta: Step size for finite difference
+        """
+        import numpy as np
+        from ase.constraints import FixAtoms
+        from ase.calculators.calculator import all_changes
+
+        # Basic geometry setup
+        N = len(atoms)
+        pos0 = atoms.get_positions().copy()  # (N, 3) numpy array
+
+        # Identify frozen atoms from FixAtoms constraint
+        fixed = {
+            i for c in getattr(atoms, "constraints", [])
+            if isinstance(c, FixAtoms)
+            for i in c.get_indices()
+        }
+        movable = [i for i in range(N) if i not in fixed]
+
+        # Allocate Hessian as numpy array
+        H = np.zeros((3 * N, 3 * N), dtype=np.float64)
+
+        # If everything is frozen, return zero Hessian
+        if len(movable) == 0:
+            return H
+
+        # Helper function: evaluate AIMNet forces at a displaced geometry
+        def aimnet_force_at(pos_numpy: np.ndarray) -> np.ndarray:
+            """
+            Evaluate AIMNet forces at the given coordinates.
+            Returns a numpy array of shape (N, 3).
+            """
+            at = atoms.copy()
+            at.set_positions(pos_numpy)
+
+            # Preserve constraints if present
+            if getattr(atoms, "constraints", None):
+                at.set_constraint(atoms.constraints)
+
+            # Compute forces with the internal AIMNet calculator
+            self.calculate(at, properties=["forces"], system_changes=all_changes)
+            F_np = self.results["forces"]  # numpy (N, 3)
+            return F_np
+
+        # Finite-difference second derivatives:
+        # H_ij = -∂F_i/∂x_j ≈ -(F(+δ) - F(-δ)) / (2δ)
+        for a in movable:      # iterate over movable atoms
+            for k in range(3):  # iterate over x, y, z directions
+                row = 3 * a + k
+
+                # +delta displacement
+                pos_p = pos0.copy()
+                pos_p[a, k] += delta
+                Fp = aimnet_force_at(pos_p)
+
+                # -delta displacement
+                pos_m = pos0.copy()
+                pos_m[a, k] -= delta
+                Fm = aimnet_force_at(pos_m)
+
+                # Central difference derivative of force
+                # ∂F/∂x ≈ (F(+δ) - F(-δ)) / (2δ)
+                dF = (Fp - Fm) / (2.0 * delta)
+
+                # Hessian uses: H = -∂F/∂x
+                H[row, :] = (-dF).reshape(-1)
+
+        # Optional: symmetrize to reduce numerical noise
+        # H = 0.5 * (H + H.T)
+
+        return H
