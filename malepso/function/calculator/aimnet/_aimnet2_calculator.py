@@ -84,6 +84,7 @@ class AIMNet2Calculator(CalcABC):
         self.cutoff_lr = float(getattr(self.model, "cutoff_lr", float("inf")))
         # keep a flag (optional); but we will always provide nbmat_lr anyway
         self.lr = True  # CHANGED: force-true to avoid conditional omission
+        self.hessian: str = 'analytic'  # 'analytic' or 'numerical'
 
         # Coulomb settings (keep original behavior)
         self._set_lrcoulomb_method(coulomb_method)
@@ -207,7 +208,7 @@ class AIMNet2Calculator(CalcABC):
             raise ValueError(f"Unknown hessian method: {self.hessian}. Must be 'analytic' or 'numerical'")
 
 
-    def _get_hessian_analytic(self, atoms: ase.Atoms) -> np.ndarray:
+    def _get_hessian_analytic(self, atoms) -> np.ndarray:
         """
         Compute Hessian using automatic differentiation.
         Fast and exact, but requires energy to be differentiable w.r.t. coordinates.
