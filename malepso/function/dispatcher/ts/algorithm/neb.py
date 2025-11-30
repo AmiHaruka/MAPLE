@@ -1241,54 +1241,85 @@ class NEB(JobABC):
         self.atoms_R = self.input_images[0]
         self.atoms_P = self.input_images[-1]
         
-        # Case 1: Exact number of images - use directly
+        # ===================================================================
+        # CRITICAL: Align all input images BEFORE any interpolation/processing
+        # This ensures interpolation happens in the correct coordinate system
+        # ===================================================================
+        log_info(["\nAligning input images to reactant reference...\n"], self.output)
+        
+        # Align product endpoint to reactant
+        R_ref = to_numpy_f64(self.atoms_R.get_positions())
+        P = to_numpy_f64(self.atoms_P.get_positions())
+        P_aligned, rmsd_product, _, _ = kabsch_align(R_ref, P)
+        self.atoms_P.set_positions(P_aligned)
+        self.input_images[-1] = self.atoms_P  # Update in input list
+        
+        log_info([f"Product aligned to reactant. RMSD: {rmsd_product:.6f} Angstrom\n"], self.output)
+        
+        # Align all intermediate input images (if any exist)
+        if n_input > 2:
+            log_info([f"Aligning {n_input - 2} intermediate input image(s)...\n"], self.output)
+            for i in range(1, n_input - 1):
+                Q = to_numpy_f64(self.input_images[i].get_positions())
+                Q_aligned, rmsd_i, _, _ = kabsch_align(R_ref, Q)
+                self.input_images[i].set_positions(Q_aligned)
+                log_info([f"  Image {i} aligned. RMSD: {rmsd_i:.6f} Angstrom\n"], self.output)
+        
+        log_info(["Input alignment completed.\n"], self.output)
+        
+        # ===================================================================
+        # Determine if interpolation is needed
+        # ===================================================================
+        
+        # Case 1: Exact number of images - use directly (already aligned)
         if n_input == n_required:
-            log_info([f"Exact number of images provided. Using input directly.\n"], self.output)
+            log_info([f"\nExact number of images provided. Using input directly.\n"], self.output)
             images = self.input_images
             
-        # Case 2: Need to insert additional images
+        # Case 2: Need to insert additional images via interpolation
         else:
             n_to_insert = n_required - n_input
             log_info([
-                f"Need to insert {n_to_insert} additional images.\n",
+                f"\nNeed to insert {n_to_insert} additional image(s).\n",
                 f"Analyzing distances to determine optimal insertion points...\n"
             ], self.output)
             
-            # Compute distances between consecutive input images
+            # Compute straight-line distances between consecutive input images
             distances = self._compute_distances(self.input_images)
             
-            log_info(["\nDistances between input images:\n"], self.output)
+            log_info(["\nDistances between consecutive input images:\n"], self.output)
             for i, d in enumerate(distances):
                 log_info([f"  Image {i} -> {i+1}: {d:.4f} Angstrom\n"], self.output)
             
-            # Determine insertion plan
+            # Determine optimal insertion plan (prioritize largest gaps)
             insertion_plan = self._determine_insertion_plan(distances, n_to_insert)
             
             log_info(["\nInsertion plan:\n"], self.output)
             for seg_idx, count in sorted(insertion_plan, key=lambda x: x[0]):
                 log_info([f"  Insert {count} image(s) between image {seg_idx} and {seg_idx+1}\n"], self.output)
             
-            # Perform insertion
+            # Perform linear interpolation according to plan
             images = self._insert_images_by_plan(self.input_images, insertion_plan)
             
             log_info([f"\nTotal images after insertion: {len(images)}\n"], self.output)
             
-            # Apply IDPP smoothing to newly inserted images (controlled by ifidpp)
+            # Apply IDPP smoothing to refine interpolated path (optional)
             if self.params.ifidpp == 1:
                 log_info(["\nApplying IDPP smoothing to interpolated images...\n"], self.output)
                 images = self._run_idpp_smoothing(images)
+                log_info(["IDPP smoothing completed.\n"], self.output)
             else:
-                log_info(["\nIDPP smoothing is disabled (ifidpp=0). Using linear interpolation only.\n"], self.output)
+                log_info(["\nIDPP smoothing disabled (ifidpp=0). Using linear interpolation only.\n"], self.output)
+        
+        # ===================================================================
+        # CRITICAL: Re-align entire path after interpolation/IDPP
+        # This ensures the complete path is properly aligned before NEB starts
+        # ===================================================================
+        log_info(["\nPerforming final Kabsch alignment of all images to reactant...\n"], self.output)
+        self._align_path(images, ref_mode="reactant")
+        log_info(["Final alignment completed.\n"], self.output)
         
 
-        # ===================================================================
-        # CRITICAL: Alignment must be done for ALL cases before NEB loop
-        # ===================================================================
-        log_info(["\nPerforming Kabsch alignment of all images to reactant...\n"], self.output)
-        self._align_path(images, ref_mode="reactant")
-        log_info(["Alignment completed.\n"], self.output)
-        
-        
         # ===================================================================
         # Step 1: Optional endpoint optimization
         # ===================================================================
