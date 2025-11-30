@@ -22,9 +22,6 @@ Parsed configuration:
 ----------------------------------------
 Task: opt
 model          : maceomol
-method         : lbfgs
-maxiter        : 200
-convergence    : 1e-05
 lbfgs          : True
 device         : gpu0
 

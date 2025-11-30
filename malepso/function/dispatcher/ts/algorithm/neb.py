@@ -23,6 +23,8 @@ from ase import Atoms
 from .logger import log_info
 from ...jobABC import JobABC
 
+from malepso.function.utility import Molecules
+
 # =============================================================================
 # ------------------------------ Utilities ------------------------------------
 # =============================================================================
@@ -207,7 +209,7 @@ from ase import Atoms
 
 @dataclass
 class NEBParams:
-    n_images: int = 10                     # total images including endpoints
+    n_images: int = 10                     # total images excluding endpoints
     k_min: float = 0.03                    # minimum spring constant
     k_max: float = 0.3                     # maximum spring constant
     use_dynamic_k: bool = True             # enable ORCA-style dynamic spring constants
@@ -215,7 +217,9 @@ class NEBParams:
     max_iter: int = 256
     lbfgs_m: int = 20                      # memory size for L-BFGS
     step0: float = 2e-2                    # initial step length on search direction
-    # ORCA-like convergence on projected forces
+    # IDPP control
+    ifidpp: int = 1                     # 1: use IDPP for initial path, 0: linear interp.
+    # Convergence on projected forces
     neb_f_max_th: float = 2e-2 #9.5e-3           # max(|Fp|) threshold
     neb_f_rms_th: float = 1e-2 #5e-3             # RMS(Fp) threshold
     initial_opt: bool = False              # do initial relaxation of endpoints
@@ -577,22 +581,26 @@ class LBFGSDriver:
 
 class NEB(JobABC):
     def __init__(self,
-                 output: str,
-                 atoms_R: Atoms,
-                 atoms_P: Atoms,
-                 params: Optional[NEBParams] = None,
-                 paras: Optional[dict] = None):
+                output: str,
+                atoms_or_molecules,  # Accept either Atoms or Molecules
+                params: Optional[NEBParams] = None,
+                paras: Optional[dict] = None):
         super().__init__(output)
         
-        self.atoms_R = atoms_R
-        self.atoms_P = atoms_P
-        self.atoms_R.calc = atoms_R.calc
-        self.atoms_P.calc = atoms_P.calc
-
-        # 1) start from built-in defaults
+        # 1) Handle Molecules input
+        if isinstance(atoms_or_molecules, Molecules):
+            self.input_images = atoms_or_molecules.multiatoms
+            self.atoms_R = None
+            self.atoms_P = None
+        else:
+            # Legacy: two separate Atoms objects (atoms_R, atoms_P)
+            # Keep backward compatibility if needed
+            raise ValueError("Please provide Molecules object containing all images")
+        
+        # 2) Start from built-in defaults
         self.params = params if params is not None else NEBParams()
 
-        # 2) apply overrides from paras (if provided)
+        # 3) Apply overrides from paras (if provided)
         if isinstance(paras, dict):
             neb_dict = _select_subdict(paras, ("neb", "NEB"))
             _update_dataclass_from_dict(self.params, neb_dict, log_prefix="NEB", output=self.output, logger=log_info)
@@ -703,6 +711,106 @@ class NEB(JobABC):
 
     def get_energies(self, imgs): 
         return [float(at.get_potential_energy(force_consistent=True)) for at in imgs]
+    
+    def _compute_distances(self, images: List[Atoms]) -> List[float]:
+        """
+        Compute straight-line distances between consecutive images.
+        Returns list of distances with length = len(images) - 1
+        """
+        distances = []
+        for i in range(len(images) - 1):
+            pos1 = to_numpy_f64(images[i].get_positions())
+            pos2 = to_numpy_f64(images[i+1].get_positions())
+            dist = np.linalg.norm(pos2 - pos1)
+            distances.append(dist)
+        return distances
+
+    def _determine_insertion_plan(self, distances: List[float], n_to_insert: int) -> List[Tuple[int, int]]:
+        """
+        Determine where to insert new images based on distances.
+        
+        Parameters
+        ----------
+        distances : List[float]
+            Distances between consecutive images
+        n_to_insert : int
+            Total number of images to insert
+        
+        Returns
+        -------
+        List[Tuple[int, int]]
+            List of (segment_index, count) indicating how many images to insert after segment_index
+            
+        Example: if distances = [4.0, 2.0, 1.0] and n_to_insert = 3
+                largest gaps are at index 0 (4.0) and 1 (2.0)
+                return [(0, 2), (1, 1)] means insert 2 after segment 0, 1 after segment 1
+        """
+        # Create list of (index, distance) and sort by distance (descending)
+        indexed_distances = [(i, d) for i, d in enumerate(distances)]
+        indexed_distances.sort(key=lambda x: x[1], reverse=True)
+        
+        # Distribute insertions proportionally to gap size
+        insertion_counts = [0] * len(distances)
+        
+        for k in range(n_to_insert):
+            # Insert in the largest remaining gap
+            # Find segment with largest distance/insertions ratio
+            max_ratio = -1
+            max_idx = 0
+            for i, d in enumerate(distances):
+                ratio = d / (insertion_counts[i] + 1)
+                if ratio > max_ratio:
+                    max_ratio = ratio
+                    max_idx = i
+            insertion_counts[max_idx] += 1
+        
+        # Convert to list of (index, count) tuples
+        plan = [(i, count) for i, count in enumerate(insertion_counts) if count > 0]
+        return plan
+
+    def _insert_images_by_plan(self, images: List[Atoms], plan: List[Tuple[int, int]]) -> List[Atoms]:
+        """
+        Insert interpolated images according to the insertion plan.
+        
+        Parameters
+        ----------
+        images : List[Atoms]
+            Current list of images
+        plan : List[Tuple[int, int]]
+            Insertion plan from _determine_insertion_plan
+        
+        Returns
+        -------
+        List[Atoms]
+            New list with interpolated images inserted
+        """
+        # Sort plan by index (descending) to insert from back to front
+        plan_sorted = sorted(plan, key=lambda x: x[0], reverse=True)
+        
+        new_images = images.copy()
+        
+        for seg_idx, count in plan_sorted:
+            # Insert 'count' images between new_images[seg_idx] and new_images[seg_idx+1]
+            pos1 = to_numpy_f64(new_images[seg_idx].get_positions())
+            pos2 = to_numpy_f64(new_images[seg_idx + 1].get_positions())
+            
+            inserted = []
+            for k in range(1, count + 1):
+                # Linear interpolation
+                lam = k / (count + 1)
+                new_pos = (1.0 - lam) * pos1 + lam * pos2
+                
+                # Copy atoms object and set new positions
+                new_atom = new_images[seg_idx].copy()
+                new_atom.set_positions(new_pos)
+                new_atom.calc = new_images[seg_idx].calc  # Inherit calculator
+                inserted.append(new_atom)
+            
+            # Insert all new images after seg_idx
+            for idx, img in enumerate(inserted):
+                new_images.insert(seg_idx + 1 + idx, img)
+        
+        return new_images
     
     # ---------------- Climbing Image NEB (CINEB) -------------------------------
     def cineb_forces(self, images: List[Atoms], energies: List[float], k_spring: float) -> Tuple[List[np.ndarray], float, int]:
@@ -1104,29 +1212,109 @@ class NEB(JobABC):
     # ------------------------------- main flow --------------------------------
 
     def run(self):
+        # ===================================================================
+        # Step 0: Process input images and determine if interpolation needed
+        # ===================================================================
+        n_input = len(self.input_images)
+        n_required = self.params.n_images  # This is already n_images + 2
+        
+        log_info([
+            f"\n{'='*70}\n",
+            f"NEB Initialization\n",
+            f"{'='*70}\n",
+            f"Input images:    {n_input}\n",
+            f"Required images: {n_required} (including endpoints)\n"
+        ], self.output)
+        
+        # Check input validity
+        if n_input < 2:
+            raise ValueError(f"Need at least 2 images (reactant + product), got {n_input}")
+        
+        if n_input > n_required:
+            raise ValueError(
+                f"Too many input images: got {n_input}, but n_images={self.params.n_images-2} "
+                f"requires exactly {n_required} images (including endpoints). "
+                f"Please reduce input images or increase n_images parameter."
+            )
+        
+        # Assign endpoints
+        self.atoms_R = self.input_images[0]
+        self.atoms_P = self.input_images[-1]
+        
+        # Case 1: Exact number of images - use directly
+        if n_input == n_required:
+            log_info([f"Exact number of images provided. Using input directly.\n"], self.output)
+            images = self.input_images
+            
+        # Case 2: Need to insert additional images
+        else:
+            n_to_insert = n_required - n_input
+            log_info([
+                f"Need to insert {n_to_insert} additional images.\n",
+                f"Analyzing distances to determine optimal insertion points...\n"
+            ], self.output)
+            
+            # Compute distances between consecutive input images
+            distances = self._compute_distances(self.input_images)
+            
+            log_info(["\nDistances between input images:\n"], self.output)
+            for i, d in enumerate(distances):
+                log_info([f"  Image {i} -> {i+1}: {d:.4f} Angstrom\n"], self.output)
+            
+            # Determine insertion plan
+            insertion_plan = self._determine_insertion_plan(distances, n_to_insert)
+            
+            log_info(["\nInsertion plan:\n"], self.output)
+            for seg_idx, count in sorted(insertion_plan, key=lambda x: x[0]):
+                log_info([f"  Insert {count} image(s) between image {seg_idx} and {seg_idx+1}\n"], self.output)
+            
+            # Perform insertion
+            images = self._insert_images_by_plan(self.input_images, insertion_plan)
+            
+            log_info([f"\nTotal images after insertion: {len(images)}\n"], self.output)
+            
+            # Apply IDPP smoothing to newly inserted images (controlled by ifidpp)
+            if self.params.ifidpp == 1:
+                log_info(["\nApplying IDPP smoothing to interpolated images...\n"], self.output)
+                images = self._run_idpp_smoothing(images)
+            else:
+                log_info(["\nIDPP smoothing is disabled (ifidpp=0). Using linear interpolation only.\n"], self.output)
+        
 
-        # 0) Optional: Optimize endpoints before NEB
+        # ===================================================================
+        # CRITICAL: Alignment must be done for ALL cases before NEB loop
+        # ===================================================================
+        log_info(["\nPerforming Kabsch alignment of all images to reactant...\n"], self.output)
+        self._align_path(images, ref_mode="reactant")
+        log_info(["Alignment completed.\n"], self.output)
+        
+        
+        # ===================================================================
+        # Step 1: Optional endpoint optimization
+        # ===================================================================
         if self.params.initial_opt:
             self.atoms_R, self.atoms_P = self.optimize_endpoints(
-                self.atoms_R, self.atoms_P,
+                images[0], images[-1],
                 f_max_th=self.params.neb_f_max_th,
                 f_rms_th=self.params.neb_f_rms_th,
                 max_iter=self.params.max_iter
             )
-
-        # ---------------------------------------------------------------
-        #  Print endpoint properties and XYZ
-        # ---------------------------------------------------------------
+            images[0] = self.atoms_R
+            images[-1] = self.atoms_P
+        
+        # ===================================================================
+        # Step 2: Endpoint properties and alignment
+        # ===================================================================
         def forces_info(atoms):
             F = atoms.get_forces()
             maxF = np.max(np.linalg.norm(F, axis=1))            
             rmsF = np.sqrt(np.mean(np.linalg.norm(F, axis=1) ** 2))
             return maxF, rmsF
 
-        E_R = self.atoms_R.get_potential_energy(force_consistent=True)
-        E_P = self.atoms_P.get_potential_energy(force_consistent=True)
-        maxF_R, rmsF_R = forces_info(self.atoms_R)
-        maxF_P, rmsF_P = forces_info(self.atoms_P)
+        E_R = images[0].get_potential_energy(force_consistent=True)
+        E_P = images[-1].get_potential_energy(force_consistent=True)
+        maxF_R, rmsF_R = forces_info(images[0])
+        maxF_P, rmsF_P = forces_info(images[-1])
 
         log_info([
             "\nProperties of fixed NEB end points:\n",
@@ -1139,35 +1327,25 @@ class NEB(JobABC):
             f"                         RMS(F)          ....   {rmsF_P: .6f} Eh/Angstrom\n",
             f"                         MAX(|F|)        ....   {maxF_P: .6f} Eh/Angstrom\n",
             "\nReactant XYZ (Angstrom):\n",
-            self.atoms_to_xyz(self.atoms_R),
+            self.atoms_to_xyz(images[0]),
             "\nProduct XYZ (Angstrom):\n",
-            self.atoms_to_xyz(self.atoms_P),
+            self.atoms_to_xyz(images[-1]),
             "\n"
         ], self.output)
 
-        # 1) Alignment (Kabsch)
-        R = to_numpy_f64(self.atoms_R.get_positions())
-        P = to_numpy_f64(self.atoms_P.get_positions())
-        P_aligned, rmsd, _, _ = kabsch_align(R, P)
-        self.atoms_P.set_positions(P_aligned)
-        log_info([f"Alignment done. RMSD: {rmsd:.6f} (Angstrom) \n "], self.output)
-
-        # 2) Build linear path
-        n_img = self.params.n_images
-        images = [self.atoms_R]
-        for k in range(1, n_img - 1):
-            lam = k / (n_img - 1)
-            A = self.atoms_R.copy()
-            A.set_positions((1.0 - lam) * R + lam * P_aligned)
-            images.append(A)
-        images.append(self.atoms_P)
-
-        images = self._run_idpp_smoothing(images)
+        # Alignment
+        log_info(["\nPerforming Kabsch alignment of all images...\n"], self.output)
         self._align_path(images, ref_mode="reactant")
+        log_info(["Alignment completed.\n"], self.output)
         
+        # Ensure all images have calculators
         for img in images:
             if img.calc is None:
                 img.calc = self.atoms_R.calc
+
+        # ===================================================================
+        # Step 3: Normal NEB optimization loop...
+        # ===================================================================
 
         traj_file = os.path.splitext(self.output)[0] + "_image_traj.xyz"
 

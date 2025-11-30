@@ -8,9 +8,12 @@ import torch
 
 from .filereader import XYZReader
 from .filereader import PostReader
+from .filereader import XYZTrajReader
 from .command_control import CommandControl
 
 from .header.header import print_banner
+
+from malepso.function.utility import Molecules
 
 class InputReader():
     def __init__(self):
@@ -36,7 +39,7 @@ class InputReader():
 
         self.scan = False
 
-    def __call__(self, input_file_name: str, output_file_name: str = None) -> Union[Atoms, List[Atoms]]:
+    def __call__(self, input_file_name: str, output_file_name: str = None) -> Union[Atoms, Molecules]:
         """
         Read the input file, parse settings, molecular coordinates, and post-processing commands.
         Support multiple coordinate groups separated by a blank line or '&'.
@@ -48,8 +51,8 @@ class InputReader():
             output_file_name (str, optional): Path to the output file. Defaults to None.
 
         Returns:
-            Atoms or List[Atoms]: ASE Atoms object if a single group is present,
-                                  or a list of ASE Atoms objects if multiple groups are present.
+            Atoms or Molecules: ASE Atoms object if a single structure is present,
+                            or Molecules object if multiple structures are present.
         """
 
         try:
@@ -102,7 +105,8 @@ class InputReader():
                 return s.lstrip().startswith('#')
 
             def is_xyz_ref(s: str) -> bool:
-                return s.upper().startswith('XYZ ') and len(s.split(maxsplit=1)) == 2
+                upper = s.upper()
+                return (upper.startswith('XYZ ') or upper.startswith('XYZTRAJ ')) and len(s.split(maxsplit=1)) == 2
 
             def is_coord_like(s: str) -> bool:
                 if s == '' or s == '&':
@@ -179,7 +183,7 @@ class InputReader():
 
         # === Step 2: Parse coordinate section ===
         atoms_or_list = self.element_and_coordinates(molecules)
-
+        
         # === Step 3: Expand post-processing commands (handle POST references) ===
         if post_processing:
             expanded_post_processing = self.expand_post_processing(post_processing)
@@ -193,7 +197,11 @@ class InputReader():
             else:
                 atoms_or_list = self.post_processing_command(expanded_post_processing, atoms_or_list)
 
-        return atoms_or_list
+        # Return Atoms if single structure, Molecules if multiple
+        if isinstance(atoms_or_list, list):
+            return Molecules(atoms_or_list)
+        else:
+            return atoms_or_list
 
     def expand_post_processing(self, post_processing: List[str]) -> List[str]:
         """
@@ -333,7 +341,7 @@ class InputReader():
 
         Returns:
             Atoms: if only one structure is present
-            List[Atoms]: if multiple structures are present
+            List[Atoms]: if multiple structures are present (will be converted to Molecules in __call__)
         """
 
         # Regex for atomic line: element + 3 floats (supports scientific notation)
@@ -378,18 +386,33 @@ class InputReader():
                 if not tokens:
                     continue
 
-                # Case 1: the block contains only XYZ file references
-                all_xyz = all(t.upper().startswith("XYZ ") for t in tokens)
-                any_xyz = any(t.upper().startswith("XYZ ") for t in tokens)
+                # Case 1: the block contains only XYZ/XYZTRAJ file references
+                all_xyz = all(t.upper().startswith("XYZ ") or t.upper().startswith("XYZTRAJ ") for t in tokens)
+                any_xyz = any(t.upper().startswith("XYZ ") or t.upper().startswith("XYZTRAJ ") for t in tokens)
 
                 if all_xyz:
                     for xyz_line in tokens:
                         parts = xyz_line.split(maxsplit=1)
                         if len(parts) != 2:
                             raise ValueError(f"Invalid XYZ reference line: '{xyz_line}'")
+                        
+                        # Check if this is XYZTRAJ or XYZ
+                        keyword = parts[0].upper()
                         file_path = parts[1]
-                        atoms = XYZReader(file_path)  # robust reader
-                        atoms_list.append(atoms)
+                        
+                        if keyword == 'XYZTRAJ':
+                            # Read trajectory file, returns Molecules object
+                            molecules_obj = XYZTrajReader(file_path)
+                            # Add all frames from the trajectory to atoms_list
+                            atoms_list.extend(molecules_obj.multiatoms)
+                            
+                            group_counter += len(molecules_obj.multiatoms)
+                            info_message.append(f"\nLoaded {len(molecules_obj.multiatoms)} frames from trajectory: {file_path}\n")
+                            info_message.append('-' * 20 + '\n')
+                        elif keyword == 'XYZ':
+                            # Regular XYZ file
+                            atoms = XYZReader(file_path)
+                            atoms_list.append(atoms)
 
                         # Multiple structures from multiple files
 

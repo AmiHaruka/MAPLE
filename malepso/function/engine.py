@@ -6,6 +6,7 @@ import torch
 
 from ..function.read import InputReader
 from ..function.dispatcher import Dispatcher
+from ..function.utility import Molecules
 
 class engine():
     def __init__(self):
@@ -39,7 +40,12 @@ class engine():
 
         if isinstance(self.atoms, Atoms):       
             self.atoms.calc = self.calulator
-        elif isinstance(self.atoms, list):     
+        elif isinstance(self.atoms, Molecules):
+            # For Molecules object, set calculator for all atoms in multiatoms
+            for atom in self.atoms.multiatoms:
+                atom.calc = self.calulator
+        elif isinstance(self.atoms, list):
+            # Legacy support for list of Atoms (though now should be Molecules)
             for atom in self.atoms:
                 atom.calc = self.calulator
                 
@@ -99,14 +105,15 @@ class engine():
                         d4=self.d4, implicit=implicit_method, solvent=solvent)
         self.calulator = setcalculator.set_calculator()
     
-    def _jobtype_dispatcher(self, commandcontrol, jobtype:int, atoms:Union[Atoms,List[Atoms]], output:str, extra:dict=None) -> None:
+    def _jobtype_dispatcher(self, commandcontrol, jobtype:int, atoms:Union[Atoms, Molecules, List[Atoms]], output:str, extra:dict=None) -> None:
         """
             This function dispatches the job type.
 
             Args:
                 commandcontrol: CommandControl object
                 jobtype(int): The type of job to be performed.
-                atoms(Atoms): The ASE Atoms object, it can also be a list of Atoms objects.
+                atoms(Union[Atoms, Molecules, List[Atoms]]): The ASE Atoms object, Molecules object, 
+                                                            or a list of Atoms objects.
                 output(str): The path to the output file.
                 method(str): The optimization method to be used. (Default: LBFGS)
                 extra(dict): Extra parameters to be passed to the job.
