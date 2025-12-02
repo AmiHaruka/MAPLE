@@ -14,6 +14,8 @@ from typing import Tuple, Optional, Dict, Tuple as Tup, Literal
 from ase import Atoms
 from ..jobABC import JobABC
 
+from malepso.function.timer import timer
+
 # ------------------ optional torch (GPU) ------------------
 try:
     import torch
@@ -1148,29 +1150,30 @@ class Frequency:
   
 
     def run(self) -> None:
-        method = self.params.method.lower()
+        with timer("Frequency Calculation"):
+            method = self.params.method.lower()
 
-        common_kwargs = dict(
-            output=self.output,
-            atoms=self.atoms,
-            temperature=self.params.temperature,
-            pressure_kpa=self.params.pressure_kpa,
-            ilowfreq=self.params.ilowfreq,
-            device=self.params.device
-        )
+            common_kwargs = dict(
+                output=self.output,
+                atoms=self.atoms,
+                temperature=self.params.temperature,
+                pressure_kpa=self.params.pressure_kpa,
+                ilowfreq=self.params.ilowfreq,
+                device=self.params.device
+            )
 
-        if method == "both":
-            job = BothFrequency(**common_kwargs)
-        elif method == "nonmw":
-            job = NonMWFrequency(**common_kwargs)
-        else:  # "mw"
-            job = MWFrequency(**common_kwargs)
-        job.verbosity = int(self.params.verbosity)
-        job.treat_imag_as_real = bool(self.params.treat_imag_as_real)
-        # pass print-layer params if available
-        if hasattr(self, "print_params"):
-            job._print = self.print_params
-        job.run()
+            if method == "both":
+                job = BothFrequency(**common_kwargs)
+            elif method == "nonmw":
+                job = NonMWFrequency(**common_kwargs)
+            else:  # "mw"
+                job = MWFrequency(**common_kwargs)
+            job.verbosity = int(self.params.verbosity)
+            job.treat_imag_as_real = bool(self.params.treat_imag_as_real)
+            # pass print-layer params if available
+            if hasattr(self, "print_params"):
+                job._print = self.print_params
+            job.run()
 
 # Public API
 __all__ = [

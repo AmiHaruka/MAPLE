@@ -14,6 +14,7 @@ from .command_control import CommandControl
 from .header.header import print_banner
 
 from malepso.function.utility import Molecules
+from malepso.function.timer import timer
 
 class InputReader():
     def __init__(self):
@@ -179,23 +180,26 @@ class InputReader():
             raise
 
         # === Step 1: Parse settings ===
-        self.settings_command(settings)
+        with timer("Settings Parsing"):
+            self.settings_command(settings)
 
         # === Step 2: Parse coordinate section ===
-        atoms_or_list = self.element_and_coordinates(molecules)
+        with timer("Coordinate Section Parsing"):
+            atoms_or_list = self.element_and_coordinates(molecules)
         
         # === Step 3: Expand post-processing commands (handle POST references) ===
-        if post_processing:
-            expanded_post_processing = self.expand_post_processing(post_processing)
-            
-            if isinstance(atoms_or_list, list):
-                processed_list = []
-                for idx, atoms in enumerate(atoms_or_list, start=1):
-                    self.log_info([f"\nApplying post-processing to group {idx}...\n"])
-                    processed_list.append(self.post_processing_command(expanded_post_processing, atoms))
-                atoms_or_list = processed_list
-            else:
-                atoms_or_list = self.post_processing_command(expanded_post_processing, atoms_or_list)
+        with timer("Post-Processing Expansion"):
+            if post_processing:
+                expanded_post_processing = self.expand_post_processing(post_processing)
+                
+                if isinstance(atoms_or_list, list):
+                    processed_list = []
+                    for idx, atoms in enumerate(atoms_or_list, start=1):
+                        self.log_info([f"\nApplying post-processing to group {idx}...\n"])
+                        processed_list.append(self.post_processing_command(expanded_post_processing, atoms))
+                    atoms_or_list = processed_list
+                else:
+                    atoms_or_list = self.post_processing_command(expanded_post_processing, atoms_or_list)
 
         # Return Atoms if single structure, Molecules if multiple
         if isinstance(atoms_or_list, list):

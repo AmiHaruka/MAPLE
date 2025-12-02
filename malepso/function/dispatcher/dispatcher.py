@@ -3,6 +3,8 @@ from typing import List, Union
 from ase import Atoms
 from ..utility import Molecules
 
+from malepso.function.timer import timer
+
 class Dispatcher():
     def __init__(self):
         pass
@@ -22,7 +24,6 @@ class Dispatcher():
         self.output = output
         self.commandcontrol = commandcontrol
         self.set_throshould(atoms)
-
         if jobtype == 'opt':
             from .optimization import Optmization
 
