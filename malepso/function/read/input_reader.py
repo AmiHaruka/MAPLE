@@ -473,7 +473,7 @@ class InputReader():
             B i j         -> Fix bond between atoms i and j
             A i j k       -> Fix angle between atoms i, j, k
             D i j k l     -> Fix dihedral between atoms i, j, k, l
-            S ...         -> Scan command (only valid when jobtype == 3)
+            S ...         -> Scan command (only valid when jobtype == 'scan')
 
         Args:
             post_processing (list): List of post-processing commands from the input file.
@@ -494,7 +494,16 @@ class InputReader():
         # Import ASE constraints here to avoid import errors if ASE is not installed globally
         from ase.constraints import FixAtoms, FixInternals
 
-        info_message = ['\nApplying constraints and restraints ...\n']
+        # Initialize constraint counters
+        constraint_counts = {
+            'fixed_atoms': 0,
+            'fixed_bonds': 0,
+            'fixed_angles': 0,
+            'fixed_dihedrals': 0,
+            'scans': 0
+        }
+
+        info_message = []
         constraints = []
 
         try:
@@ -516,7 +525,7 @@ class InputReader():
                     if index < 1 or index > len(atoms):
                         raise ValueError(f"Atom index {index} out of range for C command.")
                     constraints.append(FixAtoms(indices=[index - 1]))
-                    info_message.append(f"Fixing atom {index}.\n")
+                    constraint_counts['fixed_atoms'] += 1
 
                 # ---- Fix bond ----
                 elif cmd == 'B':
@@ -527,7 +536,7 @@ class InputReader():
                         raise ValueError(f"Atom index out of range for B command: {line.strip()}")
                     distance = atoms.get_distance(i1 - 1, i2 - 1)
                     constraints.append(FixInternals(bonds=[[distance, [i1 - 1, i2 - 1]]]))
-                    info_message.append(f"Fixing bond between atoms {i1} and {i2} (distance = {distance:.4f}).\n")
+                    constraint_counts['fixed_bonds'] += 1
 
                 # ---- Fix angle ----
                 elif cmd == 'A':
@@ -539,9 +548,7 @@ class InputReader():
                             raise ValueError(f"Atom index {i} out of range for A command.")
                     angle = atoms.get_angle(i1 - 1, i2 - 1, i3 - 1)
                     constraints.append(FixInternals(angles_deg=[[angle, [i1 - 1, i2 - 1, i3 - 1]]]))
-                    info_message.append(
-                        f"Fixing angle between atoms {i1}-{i2}-{i3} (angle = {angle:.4f} deg).\n"
-                    )
+                    constraint_counts['fixed_angles'] += 1
 
                 # ---- Fix dihedral ----
                 elif cmd == 'D':
@@ -555,14 +562,12 @@ class InputReader():
                     constraints.append(
                         FixInternals(dihedrals_deg=[[dihedral, [i1 - 1, i2 - 1, i3 - 1, i4 - 1]]])
                     )
-                    info_message.append(
-                        f"Fixing dihedral between atoms {i1}-{i2}-{i3}-{i4} (dihedral = {dihedral:.4f} deg).\n"
-                    )
+                    constraint_counts['fixed_dihedrals'] += 1
 
                 # ---- Scan command ----
                 elif cmd == 'S':
                     if self.jobtype != 'scan':
-                        raise ValueError("Scan command is only available for jobtype=3 (scan).")
+                        raise ValueError("Scan command is only available for jobtype='scan'.")
 
                     # Parse numeric parameters, last two are step size and steps
                     try:
@@ -579,13 +584,28 @@ class InputReader():
                     if not hasattr(self, 'scan_constraints'):
                         self.scan_constraints = []
                     self.scan_constraints.append(params)
+                    constraint_counts['scans'] += 1
 
-                    scan_type = {4: "dihedral", 3: "angle", 2: "bond"}.get(len(params) - 2, "unknown")
-                    steps = int(params[-1])
-                    atom_indices = params[:-2]
-                    info_message.append(
-                        f"Defined scan of type {scan_type} on atoms {atom_indices} for {steps} steps.\n"
-                    )
+            # ---- Print summary ----
+            info_message.append('\n' + '='*70 + '\n')
+            info_message.append('Constraints and Restraints Summary'.center(70) + '\n')
+            info_message.append('='*70 + '\n')
+
+            if constraint_counts['fixed_atoms'] > 0:
+                info_message.append(f"Fixed atoms:      {constraint_counts['fixed_atoms']}\n")
+            if constraint_counts['fixed_bonds'] > 0:
+                info_message.append(f"Fixed bonds:      {constraint_counts['fixed_bonds']}\n")
+            if constraint_counts['fixed_angles'] > 0:
+                info_message.append(f"Fixed angles:     {constraint_counts['fixed_angles']}\n")
+            if constraint_counts['fixed_dihedrals'] > 0:
+                info_message.append(f"Fixed dihedrals:  {constraint_counts['fixed_dihedrals']}\n")
+            if constraint_counts['scans'] > 0:
+                info_message.append(f"Scan coordinates: {constraint_counts['scans']}\n")
+
+            if sum(constraint_counts.values()) == 0:
+                info_message.append("No constraints applied.\n")
+
+            info_message.append('='*70 + '\n')
 
             # ---- Apply all constraints at once (important!) ----
             if constraints:
