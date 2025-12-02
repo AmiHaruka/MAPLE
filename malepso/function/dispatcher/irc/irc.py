@@ -3,6 +3,8 @@ from ase import Atoms
 
 from ..jobABC import JobABC
 
+from malepso.function.timer import timer
+
 class IRC(JobABC):
     def __init__(self, params: dict, output:str, atoms:Atoms, method:str='gs'):
         super().__init__(output)
@@ -12,9 +14,10 @@ class IRC(JobABC):
         self.commandcontrol = params
 
     def run(self):
-        if self.method == 'gs':
-            from .algorithm import GS
-            irc = GS(self.atoms, output=self.output, paras=self.commandcontrol)
-            irc.run()
-        else:
-            raise NotImplementedError(f'IRC method {self.method} not implemented yet.')
+        with timer("IRC Calculation"):
+            if self.method == 'gs':
+                from .algorithm import GS
+                irc = GS(self.atoms, output=self.output, paras=self.commandcontrol)
+                irc.run()
+            else:
+                raise NotImplementedError(f'IRC method {self.method} not implemented yet.')

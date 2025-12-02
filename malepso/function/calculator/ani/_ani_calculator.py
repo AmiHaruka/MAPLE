@@ -47,6 +47,7 @@ class ANICalculator(CalcABC):
         self.dtype = torch.float32
         self.overwrite = overwrite
         self.d4 = d4
+        self.hessian: str = 'numerical'  # 'analytic' or 'numerical'
 
         # Initialize implicit solvent
         self.implicit_solv_init(implicit=implicit, solvent=solvent)
@@ -95,23 +96,61 @@ class ANICalculator(CalcABC):
             hessian[i, :] = grad2
         return hessian
 
-    """     def get_hessian(self, atoms=None):
-        
-        coordinates = torch.tensor(atoms.get_positions(), dtype=self.dtype, device=self.device, requires_grad=True).unsqueeze(0)
-        
-        energy = self.get_energy(atoms, coordinates)
-
-        return self.compute_hessian(coordinates, energy) """
-
     def get_hessian(
         self,
         atoms: ase.Atoms,
         delta: float = 0.002,
     ) -> torch.Tensor:
         """
-        Compute the numerical Hessian using finite-difference forces from ANI.
-        Hessian is defined as:  H = d²E/dx_i dx_j = -∂F_i/∂x_j
-        Returns a (3N, 3N) torch.Tensor located on self.device.
+        Compute the Hessian matrix using either analytic or numerical method.
+        
+        Method is determined by self.hessian:
+        - 'analytic': Use automatic differentiation (faster, exact)
+        - 'numerical': Use finite-difference forces (slower, approximate)
+        
+        Returns a (3N, 3N) torch.Tensor on self.device.
+        
+        Args:
+            atoms: ASE Atoms object
+            delta: Step size for numerical differentiation (only used if method='numerical')
+        """
+        if self.hessian == 'analytic':
+            return self._get_hessian_analytic(atoms)
+        elif self.hessian == 'numerical':
+            return self._get_hessian_numerical(atoms, delta)
+        else:
+            raise ValueError(f"Unknown hessian method: {self.hessian}. Must be 'analytic' or 'numerical'")
+
+
+    def _get_hessian_analytic(self, atoms: ase.Atoms) -> torch.Tensor:
+        """
+        Compute Hessian using automatic differentiation.
+        Fast and exact, but requires energy to be differentiable w.r.t. coordinates.
+        """
+        coordinates = torch.tensor(
+            atoms.get_positions(), 
+            dtype=self.dtype, 
+            device=self.device, 
+            requires_grad=True
+        ).unsqueeze(0)
+        
+        energy = self.get_energy(atoms, coordinates)
+        
+        return self.compute_hessian(coordinates, energy)
+
+
+    def _get_hessian_numerical(
+        self, 
+        atoms: ase.Atoms, 
+        delta: float = 0.002
+    ) -> torch.Tensor:
+        """
+        Compute Hessian using finite-difference forces.
+        Hessian is defined as: H = d²E/dx_i dx_j = -∂F_i/∂x_j
+        
+        Args:
+            atoms: ASE Atoms object
+            delta: Step size for finite difference
         """
         import numpy as np
         from ase.constraints import FixAtoms
@@ -120,11 +159,9 @@ class ANICalculator(CalcABC):
         device = self.device
         dtype = self.dtype
 
-        # ------------------------------------------------------
         # Basic geometry setup
-        # ------------------------------------------------------
         N = len(atoms)
-        pos0 = atoms.get_positions().copy()   # (N, 3) numpy array
+        pos0 = atoms.get_positions().copy()  # (N, 3) numpy array
 
         # Identify frozen atoms from FixAtoms constraint
         fixed = {
@@ -134,16 +171,14 @@ class ANICalculator(CalcABC):
         }
         movable = [i for i in range(N) if i not in fixed]
 
-        # Allocate Hessian on GPU
+        # Allocate Hessian on device
         H = torch.zeros((3 * N, 3 * N), dtype=dtype, device=device)
 
         # If everything is frozen, return zero Hessian
         if len(movable) == 0:
             return H
 
-        # ------------------------------------------------------
         # Helper function: evaluate ANI forces at a displaced geometry
-        # ------------------------------------------------------
         def ani_force_at(pos_numpy: np.ndarray) -> torch.Tensor:
             """
             Evaluate ANI forces at the given coordinates.
@@ -158,15 +193,13 @@ class ANICalculator(CalcABC):
 
             # Compute forces with the internal ANI calculator
             self.calculate(at, properties=["forces"], system_changes=all_changes)
-            F_np = self.results["forces"]   # numpy (N,3)
+            F_np = self.results["forces"]  # numpy (N, 3)
             return torch.tensor(F_np, dtype=dtype, device=device)
 
-        # ------------------------------------------------------
         # Finite-difference second derivatives:
-        # H_ij = -∂F_i/∂x_j  ≈ -(F(+δ) - F(-δ)) / (2δ)
-        # ------------------------------------------------------
-        for a in movable:          # iterate over movable atoms
-            for k in range(3):     # iterate over x,y,z directions
+        # H_ij = -∂F_i/∂x_j ≈ -(F(+δ) - F(-δ)) / (2δ)
+        for a in movable:      # iterate over movable atoms
+            for k in range(3):  # iterate over x, y, z directions
                 row = 3 * a + k
 
                 # +delta displacement
@@ -187,7 +220,7 @@ class ANICalculator(CalcABC):
                 H[row, :] = (-dF).reshape(-1)
 
         # Optional: symmetrize to reduce numerical noise
-        #H = 0.5 * (H + H.transpose(0, 1))
+        # H = 0.5 * (H + H.transpose(0, 1))
 
         return H
 

@@ -6,6 +6,7 @@ from ase.constraints import FixInternals
 
 from ..jobABC import JobABC
 
+from malepso.function.timer import timer
 
 class Scan(JobABC):
     """
@@ -330,4 +331,5 @@ class Scan(JobABC):
 
     def run(self):
         """JobABC interface."""
-        self.run_scan()
+        with timer("Scan"):
+            self.run_scan()

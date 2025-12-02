@@ -90,7 +90,6 @@ class LBFGS:
 
         # Step 1: Initialize with default parameters
         self.params = params if params is not None else LBFGSParams()
-        
         # Step 2: Update from paras dict if provided
         if isinstance(paras, dict):
             lbfgs_dict = _select_subdict(paras, ("lbfgs", "LBFGS"))

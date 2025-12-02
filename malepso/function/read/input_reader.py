@@ -8,9 +8,13 @@ import torch
 
 from .filereader import XYZReader
 from .filereader import PostReader
+from .filereader import XYZTrajReader
 from .command_control import CommandControl
 
 from .header.header import print_banner
+
+from malepso.function.utility import Molecules
+from malepso.function.timer import timer
 
 class InputReader():
     def __init__(self):
@@ -36,7 +40,7 @@ class InputReader():
 
         self.scan = False
 
-    def __call__(self, input_file_name: str, output_file_name: str = None) -> Union[Atoms, List[Atoms]]:
+    def __call__(self, input_file_name: str, output_file_name: str = None) -> Union[Atoms, Molecules]:
         """
         Read the input file, parse settings, molecular coordinates, and post-processing commands.
         Support multiple coordinate groups separated by a blank line or '&'.
@@ -48,8 +52,8 @@ class InputReader():
             output_file_name (str, optional): Path to the output file. Defaults to None.
 
         Returns:
-            Atoms or List[Atoms]: ASE Atoms object if a single group is present,
-                                  or a list of ASE Atoms objects if multiple groups are present.
+            Atoms or Molecules: ASE Atoms object if a single structure is present,
+                            or Molecules object if multiple structures are present.
         """
 
         try:
@@ -102,7 +106,8 @@ class InputReader():
                 return s.lstrip().startswith('#')
 
             def is_xyz_ref(s: str) -> bool:
-                return s.upper().startswith('XYZ ') and len(s.split(maxsplit=1)) == 2
+                upper = s.upper()
+                return (upper.startswith('XYZ ') or upper.startswith('XYZTRAJ ')) and len(s.split(maxsplit=1)) == 2
 
             def is_coord_like(s: str) -> bool:
                 if s == '' or s == '&':
@@ -175,25 +180,32 @@ class InputReader():
             raise
 
         # === Step 1: Parse settings ===
-        self.settings_command(settings)
+        with timer("Settings Parsing"):
+            self.settings_command(settings)
 
         # === Step 2: Parse coordinate section ===
-        atoms_or_list = self.element_and_coordinates(molecules)
-
+        with timer("Coordinate Section Parsing"):
+            atoms_or_list = self.element_and_coordinates(molecules)
+        
         # === Step 3: Expand post-processing commands (handle POST references) ===
-        if post_processing:
-            expanded_post_processing = self.expand_post_processing(post_processing)
-            
-            if isinstance(atoms_or_list, list):
-                processed_list = []
-                for idx, atoms in enumerate(atoms_or_list, start=1):
-                    self.log_info([f"\nApplying post-processing to group {idx}...\n"])
-                    processed_list.append(self.post_processing_command(expanded_post_processing, atoms))
-                atoms_or_list = processed_list
-            else:
-                atoms_or_list = self.post_processing_command(expanded_post_processing, atoms_or_list)
+        with timer("Post-Processing Expansion"):
+            if post_processing:
+                expanded_post_processing = self.expand_post_processing(post_processing)
+                
+                if isinstance(atoms_or_list, list):
+                    processed_list = []
+                    for idx, atoms in enumerate(atoms_or_list, start=1):
+                        self.log_info([f"\nApplying post-processing to group {idx}...\n"])
+                        processed_list.append(self.post_processing_command(expanded_post_processing, atoms))
+                    atoms_or_list = processed_list
+                else:
+                    atoms_or_list = self.post_processing_command(expanded_post_processing, atoms_or_list)
 
-        return atoms_or_list
+        # Return Atoms if single structure, Molecules if multiple
+        if isinstance(atoms_or_list, list):
+            return Molecules(atoms_or_list)
+        else:
+            return atoms_or_list
 
     def expand_post_processing(self, post_processing: List[str]) -> List[str]:
         """
@@ -333,7 +345,7 @@ class InputReader():
 
         Returns:
             Atoms: if only one structure is present
-            List[Atoms]: if multiple structures are present
+            List[Atoms]: if multiple structures are present (will be converted to Molecules in __call__)
         """
 
         # Regex for atomic line: element + 3 floats (supports scientific notation)
@@ -378,18 +390,33 @@ class InputReader():
                 if not tokens:
                     continue
 
-                # Case 1: the block contains only XYZ file references
-                all_xyz = all(t.upper().startswith("XYZ ") for t in tokens)
-                any_xyz = any(t.upper().startswith("XYZ ") for t in tokens)
+                # Case 1: the block contains only XYZ/XYZTRAJ file references
+                all_xyz = all(t.upper().startswith("XYZ ") or t.upper().startswith("XYZTRAJ ") for t in tokens)
+                any_xyz = any(t.upper().startswith("XYZ ") or t.upper().startswith("XYZTRAJ ") for t in tokens)
 
                 if all_xyz:
                     for xyz_line in tokens:
                         parts = xyz_line.split(maxsplit=1)
                         if len(parts) != 2:
                             raise ValueError(f"Invalid XYZ reference line: '{xyz_line}'")
+                        
+                        # Check if this is XYZTRAJ or XYZ
+                        keyword = parts[0].upper()
                         file_path = parts[1]
-                        atoms = XYZReader(file_path)  # robust reader
-                        atoms_list.append(atoms)
+                        
+                        if keyword == 'XYZTRAJ':
+                            # Read trajectory file, returns Molecules object
+                            molecules_obj = XYZTrajReader(file_path)
+                            # Add all frames from the trajectory to atoms_list
+                            atoms_list.extend(molecules_obj.multiatoms)
+                            
+                            group_counter += len(molecules_obj.multiatoms)
+                            info_message.append(f"\nLoaded {len(molecules_obj.multiatoms)} frames from trajectory: {file_path}\n")
+                            info_message.append('-' * 20 + '\n')
+                        elif keyword == 'XYZ':
+                            # Regular XYZ file
+                            atoms = XYZReader(file_path)
+                            atoms_list.append(atoms)
 
                         # Multiple structures from multiple files
 
@@ -450,7 +477,7 @@ class InputReader():
             B i j         -> Fix bond between atoms i and j
             A i j k       -> Fix angle between atoms i, j, k
             D i j k l     -> Fix dihedral between atoms i, j, k, l
-            S ...         -> Scan command (only valid when jobtype == 3)
+            S ...         -> Scan command (only valid when jobtype == 'scan')
 
         Args:
             post_processing (list): List of post-processing commands from the input file.
@@ -471,7 +498,16 @@ class InputReader():
         # Import ASE constraints here to avoid import errors if ASE is not installed globally
         from ase.constraints import FixAtoms, FixInternals
 
-        info_message = ['\nApplying constraints and restraints ...\n']
+        # Initialize constraint counters
+        constraint_counts = {
+            'fixed_atoms': 0,
+            'fixed_bonds': 0,
+            'fixed_angles': 0,
+            'fixed_dihedrals': 0,
+            'scans': 0
+        }
+
+        info_message = []
         constraints = []
 
         try:
@@ -493,7 +529,7 @@ class InputReader():
                     if index < 1 or index > len(atoms):
                         raise ValueError(f"Atom index {index} out of range for C command.")
                     constraints.append(FixAtoms(indices=[index - 1]))
-                    info_message.append(f"Fixing atom {index}.\n")
+                    constraint_counts['fixed_atoms'] += 1
 
                 # ---- Fix bond ----
                 elif cmd == 'B':
@@ -504,7 +540,7 @@ class InputReader():
                         raise ValueError(f"Atom index out of range for B command: {line.strip()}")
                     distance = atoms.get_distance(i1 - 1, i2 - 1)
                     constraints.append(FixInternals(bonds=[[distance, [i1 - 1, i2 - 1]]]))
-                    info_message.append(f"Fixing bond between atoms {i1} and {i2} (distance = {distance:.4f}).\n")
+                    constraint_counts['fixed_bonds'] += 1
 
                 # ---- Fix angle ----
                 elif cmd == 'A':
@@ -516,9 +552,7 @@ class InputReader():
                             raise ValueError(f"Atom index {i} out of range for A command.")
                     angle = atoms.get_angle(i1 - 1, i2 - 1, i3 - 1)
                     constraints.append(FixInternals(angles_deg=[[angle, [i1 - 1, i2 - 1, i3 - 1]]]))
-                    info_message.append(
-                        f"Fixing angle between atoms {i1}-{i2}-{i3} (angle = {angle:.4f} deg).\n"
-                    )
+                    constraint_counts['fixed_angles'] += 1
 
                 # ---- Fix dihedral ----
                 elif cmd == 'D':
@@ -532,14 +566,12 @@ class InputReader():
                     constraints.append(
                         FixInternals(dihedrals_deg=[[dihedral, [i1 - 1, i2 - 1, i3 - 1, i4 - 1]]])
                     )
-                    info_message.append(
-                        f"Fixing dihedral between atoms {i1}-{i2}-{i3}-{i4} (dihedral = {dihedral:.4f} deg).\n"
-                    )
+                    constraint_counts['fixed_dihedrals'] += 1
 
                 # ---- Scan command ----
                 elif cmd == 'S':
                     if self.jobtype != 'scan':
-                        raise ValueError("Scan command is only available for jobtype=3 (scan).")
+                        raise ValueError("Scan command is only available for jobtype='scan'.")
 
                     # Parse numeric parameters, last two are step size and steps
                     try:
@@ -556,13 +588,28 @@ class InputReader():
                     if not hasattr(self, 'scan_constraints'):
                         self.scan_constraints = []
                     self.scan_constraints.append(params)
+                    constraint_counts['scans'] += 1
 
-                    scan_type = {4: "dihedral", 3: "angle", 2: "bond"}.get(len(params) - 2, "unknown")
-                    steps = int(params[-1])
-                    atom_indices = params[:-2]
-                    info_message.append(
-                        f"Defined scan of type {scan_type} on atoms {atom_indices} for {steps} steps.\n"
-                    )
+            # ---- Print summary ----
+            info_message.append('\n' + '='*70 + '\n')
+            info_message.append('Constraints and Restraints Summary'.center(70) + '\n')
+            info_message.append('='*70 + '\n')
+
+            if constraint_counts['fixed_atoms'] > 0:
+                info_message.append(f"Fixed atoms:      {constraint_counts['fixed_atoms']}\n")
+            if constraint_counts['fixed_bonds'] > 0:
+                info_message.append(f"Fixed bonds:      {constraint_counts['fixed_bonds']}\n")
+            if constraint_counts['fixed_angles'] > 0:
+                info_message.append(f"Fixed angles:     {constraint_counts['fixed_angles']}\n")
+            if constraint_counts['fixed_dihedrals'] > 0:
+                info_message.append(f"Fixed dihedrals:  {constraint_counts['fixed_dihedrals']}\n")
+            if constraint_counts['scans'] > 0:
+                info_message.append(f"Scan coordinates: {constraint_counts['scans']}\n")
+
+            if sum(constraint_counts.values()) == 0:
+                info_message.append("No constraints applied.\n")
+
+            info_message.append('='*70 + '\n')
 
             # ---- Apply all constraints at once (important!) ----
             if constraints:

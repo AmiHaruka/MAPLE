@@ -1,41 +1,41 @@
-
-
-from typing import List,Union
+from typing import List, Union
 
 from ase import Atoms
+from ..utility import Molecules
+
+from malepso.function.timer import timer
 
 class Dispatcher():
     def __init__(self):
         pass
 
-    def __call__(self, commandcontrol: dict, jobtype: int, atoms: Union[Atoms, List[Atoms]], output:str, extra:dict=None) -> None:
+    def __call__(self, commandcontrol: dict, jobtype: int, atoms: Union[Atoms, Molecules, List[Atoms]], output:str, extra:dict=None) -> None:
 
         """
         Dispatches the job based on the job type.
         Args:
+            commandcontrol: CommandControl object
             jobtype: The type of job to be performed.
-            atoms: The ASE Atoms object, it can also be a list of Atoms objects.
+            atoms: The ASE Atoms object, Molecules object, or a list of Atoms objects.
             output: The path to the output file.
-            method: The optimization method to be used. (Default: LBFGS)
             extra: Extra parameters to be passed to the job.
         """
 
         self.output = output
         self.commandcontrol = commandcontrol
         self.set_throshould(atoms)
-
         if jobtype == 'opt':
             from .optimization import Optmization
 
-            if isinstance(atoms, list):
+            if isinstance(atoms, (list, Molecules)):
                 raise NotImplementedError('For optimization job, only one Atoms object is allowed.')
-            opt = Optmization(output=output, atoms=atoms, method=commandcontrol.params.get('method'),params=commandcontrol.params)
+            opt = Optmization(output=output, atoms=atoms, method=commandcontrol.params.get('method'), params=commandcontrol.params)
             opt.run()
             
         elif jobtype == 'sp':
             from .sp import SinglePoint
 
-            if isinstance(atoms, list):
+            if isinstance(atoms, (list, Molecules)):
                 raise NotImplementedError('For single point energy job, only one Atoms object is allowed.')
             sp = SinglePoint(output=output, atoms=atoms)
             sp.run()
@@ -49,7 +49,7 @@ class Dispatcher():
             else:
                 raise ValueError('Constraints not provided for scan job')
             
-            if isinstance(atoms, list):
+            if isinstance(atoms, (list, Molecules)):
                 raise NotImplementedError('For scan job, only one Atoms object is allowed.')
 
             scan = Scan(output=output, atoms=atoms, method=commandcontrol.params.get('method'), constraints=extra['scan'], params=commandcontrol.params)
@@ -57,28 +57,36 @@ class Dispatcher():
             
         elif jobtype == 'freq':
             from .frequency import Frequency
-            if isinstance(atoms, list):
+            if isinstance(atoms, (list, Molecules)):
                 raise NotImplementedError('For frequency job, only one Atoms object is allowed.')
             freq = Frequency(output=output, atoms=atoms, paras=commandcontrol.params)
             freq.run()
             
         elif jobtype == 'ts':
             from .ts import TransitionState
-            if isinstance(atoms, list):
-                if commandcontrol.params.get('method') in ['neb', 'string', 'dimer']:
-                    ts = TransitionState(output=output, atoms=atoms, method=commandcontrol.params.get('method'), params=commandcontrol.params)
+            
+            # TS job allows Molecules object for methods like NEB, STRING, DIMER
+            if isinstance(atoms, (list, Molecules)):
+                method = commandcontrol.params.get('method')
+                if method in ['neb', 'string', 'dimer']:
+                    # Convert Molecules to its internal list if needed
+                    atoms_input = atoms.multiatoms if isinstance(atoms, Molecules) else atoms
+                    ts = TransitionState(output=output, atoms=atoms_input, method=method, params=commandcontrol.params)
                     ts.run()
                     return
-                elif commandcontrol.params.get('method') in ['prfo', 'newton']:
-                    raise NotImplementedError('For transition state search job, only one Atoms object is allowed for PRFO or Newton method.')
+                elif method in ['prfo', 'newton']:
+                    raise NotImplementedError('For transition state search job with PRFO or Newton method, only one Atoms object is allowed.')
+                else:
+                    raise ValueError(f'Unknown TS method: {method}')
 
+            # Single Atoms object
             ts = TransitionState(output=output, atoms=atoms, method=commandcontrol.params.get('method'), params=commandcontrol.params)
             ts.run()
         
         elif jobtype == 'irc':
             from .irc import IRC
 
-            if isinstance(atoms, list):
+            if isinstance(atoms, (list, Molecules)):
                 raise NotImplementedError('For IRC job, only one Atoms object is allowed.')
             irc = IRC(output=output, atoms=atoms, method=commandcontrol.params.get('method'), params=commandcontrol.params)
             irc.run()
@@ -95,7 +103,7 @@ class Dispatcher():
         Sets the convergence throshould for the atoms object.
 
         Args:
-            atoms: The ASE Atoms object.
+            atoms: The ASE Atoms object, Molecules object, or list of Atoms.
         """
         
         # Geometry optimization convergence thresholds (Eh/Å and Å), Gaussian-style
@@ -142,18 +150,27 @@ class Dispatcher():
             self.commandcontrol.params['dp_max_th'] = 0.00315
             self.commandcontrol.params['dp_rms_th'] = 0.00210
 
-
-        if isinstance(atoms, list):
+        # Apply thresholds to atoms
+        if isinstance(atoms, Molecules):
+            # Apply to all atoms in Molecules object
+            for atom in atoms.multiatoms:
+                atom.f_max_th = self.commandcontrol.params['f_max_th']
+                atom.f_rms_th = self.commandcontrol.params['f_rms_th']
+                atom.dp_max_th = self.commandcontrol.params['dp_max_th']   
+                atom.dp_rms_th = self.commandcontrol.params['dp_rms_th']
+        elif isinstance(atoms, list):
+            # Apply to all atoms in list
             for atom in atoms:
-                atom.f_max_th=self.commandcontrol.params['f_max_th']
-                atom.f_rms_th=self.commandcontrol.params['f_rms_th']
-                atom.dp_max_th=self.commandcontrol.params['dp_max_th']   
-                atom.dp_rms_th=self.commandcontrol.params['dp_rms_th']
+                atom.f_max_th = self.commandcontrol.params['f_max_th']
+                atom.f_rms_th = self.commandcontrol.params['f_rms_th']
+                atom.dp_max_th = self.commandcontrol.params['dp_max_th']   
+                atom.dp_rms_th = self.commandcontrol.params['dp_rms_th']
         else:
-            atoms.f_max_th=self.commandcontrol.params['f_max_th']
-            atoms.f_rms_th=self.commandcontrol.params['f_rms_th']
-            atoms.dp_max_th=self.commandcontrol.params['dp_max_th']   
-            atoms.dp_rms_th=self.commandcontrol.params['dp_rms_th']
+            # Single Atoms object
+            atoms.f_max_th = self.commandcontrol.params['f_max_th']
+            atoms.f_rms_th = self.commandcontrol.params['f_rms_th']
+            atoms.dp_max_th = self.commandcontrol.params['dp_max_th']   
+            atoms.dp_rms_th = self.commandcontrol.params['dp_rms_th']
 
 
 
