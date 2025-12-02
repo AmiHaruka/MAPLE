@@ -1,6 +1,6 @@
 #########################################################################
 # This module is currently decrepted and will be removed in future versions. #
-# Please use malepso.function.calculator.ani instead.                     #
+# Please use maple.function.calculator.ani instead.                     #
 #########################################################################
 
 

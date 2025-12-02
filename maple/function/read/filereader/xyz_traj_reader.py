@@ -6,7 +6,7 @@ from ase import Atoms
 import numpy as np
 import re
 
-from malepso.function.utility import Molecules
+from maple.function.utility import Molecules
 
 _COORD_RE = re.compile(
     r'^\s*([A-Za-z][a-z]?)\s+'

@@ -14,7 +14,7 @@ from typing import Tuple, Optional, Dict, Tuple as Tup, Literal
 from ase import Atoms
 from ..jobABC import JobABC
 
-from malepso.function.timer import timer
+from maple.function.timer import timer
 
 # ------------------ optional torch (GPU) ------------------
 try:

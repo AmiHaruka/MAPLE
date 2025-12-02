@@ -3,7 +3,7 @@ from typing import List, Union
 from ase import Atoms
 from ..utility import Molecules
 
-from malepso.function.timer import timer
+from maple.function.timer import timer
 
 class Dispatcher():
     def __init__(self):

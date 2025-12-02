@@ -8,7 +8,7 @@ from ..function.read import InputReader
 from ..function.dispatcher import Dispatcher
 from ..function.utility import Molecules
 
-from malepso.function.timer import timer
+from maple.function.timer import timer
 
 class engine():
     def __init__(self):

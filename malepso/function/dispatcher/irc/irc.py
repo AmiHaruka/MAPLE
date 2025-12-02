@@ -3,7 +3,7 @@ from ase import Atoms
 
 from ..jobABC import JobABC
 
-from malepso.function.timer import timer
+from maple.function.timer import timer
 
 class IRC(JobABC):
     def __init__(self, params: dict, output:str, atoms:Atoms, method:str='gs'):

@@ -1,7 +1,7 @@
 import sys
 import os
 import argparse
-from malepso.function.engine import engine
+from maple.function.engine import engine
 
 
 def main():
@@ -27,8 +27,8 @@ Examples:
     # Test mode
     if args.test:
         # Get the package directory
-        import malepso
-        package_dir = os.path.dirname(os.path.dirname(malepso.__file__))
+        import maple
+        package_dir = os.path.dirname(os.path.dirname(maple.__file__))
         
         test_cases = {
             1: ('opt/lbfgs', 'inp1.inp', 'LBFGS Optimization'),

@@ -13,8 +13,8 @@ from .command_control import CommandControl
 
 from .header.header import print_banner
 
-from malepso.function.utility import Molecules
-from malepso.function.timer import timer
+from maple.function.utility import Molecules
+from maple.function.timer import timer
 
 class InputReader():
     def __init__(self):

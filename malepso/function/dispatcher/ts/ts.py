@@ -6,8 +6,8 @@ from ase import Atoms
 
 from ..jobABC import JobABC
 
-from malepso.function.utility import Molecules
-from malepso.function.timer import timer
+from maple.function.utility import Molecules
+from maple.function.timer import timer
 
 class TransitionState(JobABC):
 

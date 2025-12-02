@@ -1,4 +1,4 @@
-#model=aimnet2
+#model=uma
 #opt(method=lbfgs)
 #device=gpu0
 

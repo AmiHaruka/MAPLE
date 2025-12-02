@@ -23,7 +23,7 @@ from ase import Atoms
 from .logger import log_info
 from ...jobABC import JobABC
 
-from malepso.function.utility import Molecules
+from maple.function.utility import Molecules
 
 # =============================================================================
 # ------------------------------ Utilities ------------------------------------

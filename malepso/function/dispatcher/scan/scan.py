@@ -6,7 +6,7 @@ from ase.constraints import FixInternals
 
 from ..jobABC import JobABC
 
-from malepso.function.timer import timer
+from maple.function.timer import timer
 
 class Scan(JobABC):
     """
@@ -155,7 +155,7 @@ class Scan(JobABC):
         self.params["verbose"] = 0  # suppress optimizer output
         
         if self.method == "LBFGS":
-            from malepso.function.dispatcher.optimization.algorithm import LBFGS
+            from maple.function.dispatcher.optimization.algorithm import LBFGS
             run = LBFGS(atoms, output=self.output, paras=self.params)
             return run.run()
         else:
