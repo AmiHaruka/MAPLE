@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=45"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "maple"
+version = "0.1.0"
+description = "MAPLE: MAchine-learning Potential for Landscape Exploration"
+requires-python = ">=3.9"
+dependencies = []  # No required dependencies
+
+[project.scripts]
+maple = "malepso.main:main"
+
+# Optional dependencies - user can choose what to install
+[project.optional-dependencies]
+# Full installation with all features
+full = [
+    "numpy>=1.20",
+    "scipy>=1.7",
+    "matplotlib>=3.3",
+    "torch>=2.0",
+    "fairchem-core>=1.0",
+]
+
+# Minimal scientific computing
+minimal = [
+    "numpy>=1.20",
+    "scipy>=1.7",
+]
+
+# Development tools
+dev = [
+    "pytest>=7.0",
+    "black>=23.0",
+]
+
+[tool.setuptools]
+packages = ["malepso"]
