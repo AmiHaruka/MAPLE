@@ -146,9 +146,9 @@ H        0.789383      -0.259377       1.055969
 H        1.076754      -1.290375      -0.958489
 H        2.297340      -0.733113       0.340484
 
-Wrote MEP to: /home/user/software/MaLePSO/example/ts/neb/inp1_mep.xyz
-Wrote HEI to: /home/user/software/MaLePSO/example/ts/neb/inp1_hei.xyz
-Wrote trajectory to: /home/user/software/MaLePSO/example/ts/neb/inp1_image_traj.xyz
+Wrote MEP to: /home/user/software/maple/example/ts/neb/inp1_mep.xyz
+Wrote HEI to: /home/user/software/maple/example/ts/neb/inp1_hei.xyz
+Wrote trajectory to: /home/user/software/maple/example/ts/neb/inp1_image_traj.xyz
 
 Starting CINEB refinement:
 Optim.  Iteration  CI   E(CI)-E(0)   max(|Fp|)   RMS(Fp)   max(|FCI|)   RMS(FCI)
@@ -286,5 +286,5 @@ H        0.818677      -0.225048       1.087054
 H        1.022252      -1.346667      -0.885697
 H        2.321679      -0.702170       0.297472
 
-Wrote NEB-TS MEP to: /home/user/software/MaLePSO/example/ts/neb/inp1_nebts_mep.xyz
-Wrote TS structure to: /home/user/software/MaLePSO/example/ts/neb/inp1_nebts_ts.xyz
+Wrote NEB-TS MEP to: /home/user/software/maple/example/ts/neb/inp1_nebts_mep.xyz
+Wrote TS structure to: /home/user/software/maple/example/ts/neb/inp1_nebts_ts.xyz

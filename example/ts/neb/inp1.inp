@@ -2,9 +2,9 @@
 #ts(method=neb,refine=nebts)
 #device=gpu0
 
-XYZ /home/user/software/MaLePSO/example/ts/neb/react.xyz
+XYZ /home/user/software/maple/example/ts/neb/react.xyz
 
-XYZ /home/user/software/MaLePSO/example/ts/neb/prod.xyz
+XYZ /home/user/software/maple/example/ts/neb/prod.xyz
 
 
 

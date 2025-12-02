@@ -260,6 +260,6 @@ Step        E(Eh)      dE(kcal/mol)  max(|G|)   RMS(G)
  101      -29.623259     33.559019    0.498206  0.224398
  102      -29.623259     33.559019    0.498206  0.224398
 
-[INFO] GS-IRC forward trajectory written to: /home/user/software/MaLePSO/example/irc/gs/inp1_forward.xyz
-[INFO] GS-IRC backward trajectory written to: /home/user/software/MaLePSO/example/irc/gs/inp1_backward.xyz
-[INFO] GS-IRC full trajectory written to: /home/user/software/MaLePSO/example/irc/gs/inp1_full.xyz
+[INFO] GS-IRC forward trajectory written to: /home/user/software/maple/example/irc/gs/inp1_forward.xyz
+[INFO] GS-IRC backward trajectory written to: /home/user/software/maple/example/irc/gs/inp1_backward.xyz
+[INFO] GS-IRC full trajectory written to: /home/user/software/maple/example/irc/gs/inp1_full.xyz

@@ -49,7 +49,7 @@ def write_xyz(filename, trajectory, elements):
 
 def main():
     # 读取文件内容
-    with open('./MaLePSO/freq.out', 'r') as file:
+    with open('./maple/freq.out', 'r') as file:
         lines = file.readlines()
 
     # 解析坐标部分

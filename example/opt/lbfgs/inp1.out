@@ -1830,8 +1830,8 @@ RMS Force:                 0.001149     0.001900  Yes
 Maximum Displacement:      0.002079     0.003150  Yes
 RMS Displacement:          0.001045     0.002100  Yes
 
-LBFGS converged at iteration 48. Final frame written to /home/user/software/MaLePSO/example/opt/lbfgs/inp1_opt.xyz
-Complete trajectory written to /home/user/software/MaLePSO/example/opt/lbfgs/inp1_traj.xyz
+LBFGS converged at iteration 48. Final frame written to /home/user/software/maple/example/opt/lbfgs/inp1_opt.xyz
+Complete trajectory written to /home/user/software/maple/example/opt/lbfgs/inp1_traj.xyz
 
 
 

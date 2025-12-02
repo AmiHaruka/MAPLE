@@ -4552,5 +4552,5 @@ Energy (final)                           ....  -29.60734434 Eh
 5    H            1.0643           -1.3080           -0.9409
 6    H            2.3050           -0.7139            0.3284
 
-Wrote Dimer trajectory to: /home/user/software/MaLePSO/example/ts/dimer/inp1_dimer_traj.xyz
-Wrote TS guess to:         /home/user/software/MaLePSO/example/ts/dimer/inp1_dimer_ts.xyz
+Wrote Dimer trajectory to: /home/user/software/maple/example/ts/dimer/inp1_dimer_traj.xyz
+Wrote TS guess to:         /home/user/software/maple/example/ts/dimer/inp1_dimer_ts.xyz

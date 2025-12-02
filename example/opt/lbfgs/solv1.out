@@ -1894,4 +1894,4 @@ RMS Displacement:          0.000588     0.002100                Yes
 
 LBFGS optimization converged at iteration 51.
 
-Final optimized structure written to: /home/user/software/MaLePSO/example/opt/lbfgs/solv1_opt.xyz
+Final optimized structure written to: /home/user/software/maple/example/opt/lbfgs/solv1_opt.xyz

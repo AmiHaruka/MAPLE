@@ -149,9 +149,9 @@ GrowIter   d_min(Ang)      thr   |L|  |R|   dsL    dsR   max|F_perp|_L  max|F_pe
 
 GSM growth reached maximum iterations; proceeding to merge.
 
-Wrote GSM grow-final path to: /home/user/software/MaLePSO/example/ts/string/inp1_gsm_grow_final.xyz
-Wrote GSM MEP (equal-arc) to: /home/user/software/MaLePSO/example/ts/string/inp1_gsm_mep.xyz
-Wrote HEI to:                 /home/user/software/MaLePSO/example/ts/string/inp1_gsm_hei.xyz
+Wrote GSM grow-final path to: /home/user/software/maple/example/ts/string/inp1_gsm_grow_final.xyz
+Wrote GSM MEP (equal-arc) to: /home/user/software/maple/example/ts/string/inp1_gsm_mep.xyz
+Wrote HEI to:                 /home/user/software/maple/example/ts/string/inp1_gsm_hei.xyz
 
 Starting Transition State Search (TS) with RS-PRFO...
 
@@ -1796,5 +1796,5 @@ H      0.705654    -0.091537     1.104727
 H      1.076018    -1.359337    -0.751811
 H      2.271594    -0.595911     0.469482
 
-Wrote STRING-TS MEP to: /home/user/software/MaLePSO/example/ts/string/inp1_stringts_mep.xyz
-Wrote TS structure to:  /home/user/software/MaLePSO/example/ts/string/inp1_stringts_ts.xyz
+Wrote STRING-TS MEP to: /home/user/software/maple/example/ts/string/inp1_stringts_mep.xyz
+Wrote TS structure to:  /home/user/software/maple/example/ts/string/inp1_stringts_ts.xyz

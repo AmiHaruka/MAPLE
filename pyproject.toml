@@ -10,7 +10,7 @@ requires-python = ">=3.9"
 dependencies = []  # No required dependencies
 
 [project.scripts]
-maple = "malepso.main:main"
+maple = "maple.main:main"
 
 # Optional dependencies - user can choose what to install
 [project.optional-dependencies]
@@ -36,4 +36,4 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["malepso"]
+packages = ["maple"]
