@@ -1375,25 +1375,23 @@ class NEB(JobABC):
                 img.calc = self.atoms_R.calc
 
         # ===================================================================
-        # Step 3: Normal NEB optimization loop...
+        # Step 3: Normal NEB optimization loop
         # ===================================================================
-
+        
         traj_file = os.path.splitext(self.output)[0] + "_image_traj.xyz"
-
+        
         driver = LBFGSDriver(
             m=self.params.lbfgs_m,
             curvature=70.0,
             maxstep=self.params.step0
         )
-
-        # Storage for dynamic k values (for logging)
+        
         self._k_springs_history = []
-
+        
         def eval_grad(x_flat):
             self._unpack_internal(x_flat, images)
             Es = self.get_energies(images)
             
-            # Compute forces with dynamic k if enabled
             Fp_list, _, _ = neb_forces(
                 images, Es,
                 k_spring=None,
@@ -1406,49 +1404,69 @@ class NEB(JobABC):
             
             grads = [(-Fp_list[i]).reshape(-1) for i in range(1, len(images) - 1)]
             return np.concatenate(grads) if grads else np.zeros_like(x_flat)
-
+        
         x = self._pack_internal(images)
         g = eval_grad(x)
         iteration = 0
-
-        Es = [float(at.get_potential_energy(force_consistent=True)) for at in images]
-
-        # Log header
+        
+        Es = self.get_energies(images)
+        
         if self.params.use_dynamic_k:
+            k_springs = compute_dynamic_k(Es, self.params.k_min, self.params.k_max, self.params.k_decay)
+            self._k_springs_history.append(k_springs.copy())
+        else:
+            k_springs = [self.params.k_max] * len(images)
+        
+        Fp_list, maxfp, hei = neb_forces(
+            images, Es,
+            k_spring=None,
+            k_springs=k_springs,
+            use_dynamic_k=False
+        )
+        rmsfp = rms_force(Fp_list)
+        dE_hei = Es[hei] - Es[0]
+        
+        # Log header with initial state
+        if self.params.use_dynamic_k:
+            k_hei = k_springs[hei]
             log_info([
                 "\nStarting NEB iterations with ORCA-style dynamic spring constants:\n",
                 f"k_min = {self.params.k_min:.4f}, k_max = {self.params.k_max:.4f}, k_decay = {self.params.k_decay:.4f}\n",
                 "Optim.  Iteration  HEI  E(HEI)-E(0)  max(|Fp|)   RMS(Fp)   k(HEI)\n",
-                f"Convergence thresholds         {self.params.neb_f_max_th: .6f}   {self.params.neb_f_rms_th: .6f}\n"
+                f"Convergence thresholds         {self.params.neb_f_max_th: .6f}   {self.params.neb_f_rms_th: .6f}\n",
+                f"Initial {iteration:>4d} {hei:>6d} {dE_hei:>10.6f} {maxfp:>11.6f} {rmsfp:>10.6f}   {k_hei:.4f}\n"
             ], self.output)
         else:
             log_info([
                 "\nStarting NEB iterations with fixed spring constant:\n",
                 f"k_spring = {self.params.k_max:.4f}\n",
                 "Optim.  Iteration  HEI  E(HEI)-E(0)  max(|Fp|)   RMS(Fp)\n",
-                f"Convergence thresholds         {self.params.neb_f_max_th: .6f}   {self.params.neb_f_rms_th: .6f}\n"
+                f"Convergence thresholds         {self.params.neb_f_max_th: .6f}   {self.params.neb_f_rms_th: .6f}\n",
+                f"Initial {iteration:>4d} {hei:>6d} {dE_hei:>10.6f} {maxfp:>11.6f} {rmsfp:>10.6f}\n"
             ], self.output)
-
+        
+        # Write initial trajectory
+        write_all_images_xyz(traj_file, images, energies=Es, iteration=iteration)
+        
+        # ===== Main optimization loop =====
         while iteration < self.params.max_iter and not driver.should_stop(g, self.params.neb_f_max_th, self.params.neb_f_rms_th):
-            # ===== L-BFGS step =====
+            iteration += 1  # Increment at start to avoid confusion
+            
+            # L-BFGS step
             p = driver.two_loop(g)
             p = driver.step_limit(p)
-
-            # take full step
+            
             x_new = x + p
-
-            # evaluate new gradient
             g_new = eval_grad(x_new)
-
+            
             driver.update(x_new - x, g_new - g)
-
+            
             x = x_new
             g = g_new
-
-            # ===== Compute forces and energies for logging =====
+            
+            # Compute forces and energies for logging
             Es = self.get_energies(images)
             
-            # Compute spring constants for this iteration
             if self.params.use_dynamic_k:
                 k_springs = compute_dynamic_k(Es, self.params.k_min, self.params.k_max, self.params.k_decay)
                 self._k_springs_history.append(k_springs.copy())
@@ -1459,23 +1477,23 @@ class NEB(JobABC):
                 images, Es,
                 k_spring=None,
                 k_springs=k_springs,
-                use_dynamic_k=False  # already computed k_springs
+                use_dynamic_k=False
             )
             
             rmsfp = rms_force(Fp_list)
             dE_hei = Es[hei] - Es[0]
-
+            
             write_all_images_xyz(traj_file, images, energies=Es, iteration=iteration)
-
+            
             if self.params.use_dynamic_k:
                 k_hei = k_springs[hei]
                 log_info([f"   LBFGS {iteration:>4d} {hei:>6d} {dE_hei:>10.6f} {maxfp:>11.6f} {rmsfp:>10.6f}   {k_hei:.4f}\n"], self.output)
             else:
                 log_info([f"   LBFGS {iteration:>4d} {hei:>6d} {dE_hei:>10.6f} {maxfp:>11.6f} {rmsfp:>10.6f}\n"], self.output)
-            
-            iteration += 1
         
-        if iteration == self.params.max_iter:
+        if iteration == 0:
+            log_info(["\nNEB already converged at initial geometry (iteration 0).\n"], self.output)
+        elif iteration == self.params.max_iter:
             log_info(["\nNEB optimization reached maximum iterations.\n"], self.output)
         else:
             log_info([f"\nNEB optimization converged after {iteration} iterations.\n"], self.output)
