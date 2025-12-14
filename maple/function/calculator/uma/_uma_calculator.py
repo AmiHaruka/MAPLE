@@ -97,6 +97,8 @@ class UMACalculator(FAIRChemCalculator):
         Compute Hessian by finite difference of UMA forces.
         Returns a (3N, 3N) torch.Tensor on self.device.
         """
+        from ase.constraints import FixAtoms  # 已经添加了这个导入
+        from ase.calculators.calculator import all_changes
 
         # ------------------------------------------------------
         # 1. Prepare
@@ -119,13 +121,13 @@ class UMACalculator(FAIRChemCalculator):
         # Output Hessian
         H = torch.zeros((3*N, 3*N), dtype=dtype, device=device)
 
-        # Helper: get force using UMA (in Hartree/Å)
+        # Helper: get force using UMA (returns numpy array)
         def eval_force(positions: np.ndarray) -> torch.Tensor:
             atoms_tmp = atoms.copy()
             atoms_tmp.set_positions(positions)
             self.calculate(atoms_tmp, properties=["forces"], system_changes=all_changes)
-            F = torch.tensor(self.results["forces"], dtype=dtype, device=device)
-            return F
+            F = self.results["forces"]  # numpy (N, 3)
+            return torch.tensor(F, dtype=dtype, device=device)
 
         # ------------------------------------------------------
         # 2. Finite difference: loop over movable atoms
@@ -143,17 +145,12 @@ class UMACalculator(FAIRChemCalculator):
                 pos_m[a, k] -= delta
                 Fm = eval_force(pos_m)
 
-                # central diff: H = -∂F/∂x
-                d2E = (Fm - Fp) / (2.0 * delta)  # shape (N, 3)
-
-                # Fill block for atom a
+                # Hessian: H = -∂F/∂x ≈ -(F(+δ) - F(-δ)) / (2δ)
+                dF = (Fp - Fm) / (2.0 * delta)  # (N, 3)
+                
+                # Fill row for this DOF
                 row = 3 * a + k
-                H[row, :] = d2E.reshape(-1)
-
-        # ------------------------------------------------------
-        # 3. Zero-pad fixed atoms (already zero)
-        # ------------------------------------------------------
-        # Nothing to do, fixed atoms remain zero
+                H[row, :] = (-dF).reshape(-1)  # 明确添加负号，与ANI一致
 
         return H
 

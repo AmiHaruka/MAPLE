@@ -15,14 +15,14 @@ class Optmization(JobABC):
         
     def run(self):
         with timer("Optimization"):
-            if self.method == 'lbfgs':
+            if self.commandcontrol.get('method', 'lbfgs').lower() == 'lbfgs':
                 from .algorithm import LBFGS
                 opt = LBFGS(self.atoms, output=self.output, paras=self.commandcontrol)
                 opt.run()
-            elif self.method == 'rfo':
+            elif self.commandcontrol.get('method').lower() == 'rfo':
                 from .algorithm import RFO
                 opt = RFO(self.atoms, output=self.output, paras=self.commandcontrol)
                 opt.run()
-            elif self.method == 'sd':
+            elif self.commandcontrol.get('method').lower() == 'sd':
                 from .algorithm import SD
                 SD(self.atoms, output=self.output)
