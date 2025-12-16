@@ -227,7 +227,7 @@ class ANICalculator(CalcABC):
 
     def dftd4(self, species, coordinates):
         import tad_dftd4 as d4
-        charge = torch.tensor(0.0)
+        charge = torch.tensor(0.0, device=self.device)
         param = {
             "s6": coordinates.new_tensor(1.0),
             "s8": coordinates.new_tensor(0.34783580),
@@ -235,7 +235,8 @@ class ANICalculator(CalcABC):
             "a1": coordinates.new_tensor(0.57488291),
             "a2": coordinates.new_tensor(6.41921802),
         }
-        bohr_coords = coordinates[0] * 1.8897259886
+        # Å → Bohr 转换
+        bohr_coords = coordinates[0] * 1.8897261245864
         return torch.sum(d4.dftd4(species[0], bohr_coords, charge, param))
 
 
