@@ -20,5 +20,4 @@ class SinglePoint(JobABC):
         
         with timer("Single Point Energy Calculation"):
             energy = self.atoms.get_potential_energy()
-            energy *= self.eV2Hartree
             self.log_info([f"\nEnergy: {energy}"])
