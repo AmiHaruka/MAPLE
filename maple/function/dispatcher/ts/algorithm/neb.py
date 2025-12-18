@@ -214,7 +214,7 @@ class NEBParams:
     k_max: float = 0.3                     # maximum spring constant
     use_dynamic_k: bool = True             # enable ORCA-style dynamic spring constants
     k_decay: float = 0.5                   # decay factor for dynamic k (ORCA default: 0.5)
-    max_iter: int = 256
+    max_iter: int = 500 #256
     lbfgs_m: int = 20                      # memory size for L-BFGS
     step0: float = 2e-2                    # initial step length on search direction
     # IDPP control

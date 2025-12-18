@@ -97,7 +97,7 @@ class UMACalculator(FAIRChemCalculator):
         Compute Hessian by finite difference of UMA forces.
         Returns a (3N, 3N) torch.Tensor on self.device.
         """
-        from ase.constraints import FixAtoms  # 已经添加了这个导入
+        from ase.constraints import FixAtoms  
         from ase.calculators.calculator import all_changes
 
         # ------------------------------------------------------

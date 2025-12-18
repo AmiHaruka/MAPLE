@@ -28,8 +28,13 @@ class TransitionState(JobABC):
                 Newton(self.atoms, output=self.output)
                 
             elif self.method == 'prfo':
-                from .algorithm import RFO
-                RFO(self.atoms, output=self.output)
+                from .algorithm import PRFO
+                prfo = PRFO(
+                    atoms=self.atoms,
+                    output=self.output,
+                    paras=self.params,
+                )
+                prfo.run()
                 
             elif self.method == 'neb':
                 # NEB now accepts Molecules object
