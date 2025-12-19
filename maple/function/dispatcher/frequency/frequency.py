@@ -9,6 +9,7 @@ produces clean, diagnostic-rich outputs.
 
 from __future__ import annotations
 import numpy as np
+import os
 from dataclasses import dataclass, fields
 from typing import Tuple, Optional, Dict, Tuple as Tup, Literal
 from ase import Atoms
@@ -238,6 +239,7 @@ class FrequencyBase(JobABC):
             2) Diagonalize to obtain frequencies and modes.
             3) Compute thermochemistry.
             4) Write all results to the output file.
+            5) If verbosity=10, also write a summary file with XYZ trajectory.
         """
         self.log_info([f"Starting frequency analysis calculation, Number of atoms: {len(self.atoms)}"])
 
@@ -254,6 +256,10 @@ class FrequencyBase(JobABC):
 
             self._write_output(freqs_cm1, modes_cart, thermo)
             self.log_info(["Frequency analysis completed", f"Output file: {self.output}"])
+
+            # verbosity=10: additional summary output with XYZ trajectory
+            if self.verbosity == 10:
+                self._write_summary(freqs_cm1, modes_cart, thermo)
 
         except Exception as e:
             self.log_error(f"Frequency analysis failed: {str(e)}")
@@ -786,7 +792,7 @@ class FrequencyBase(JobABC):
             n_nonzero_to_print = 0
         elif v == 1:
             n_nonzero_to_print = 10  # default: 10 non-zero modes
-        else:  # v >= 2
+        else:  # v >= 2 (including v == 10)
             n_nonzero_to_print = len(freqs) - n_zero  # all non-zero modes
         
         # Total to print: all zeros + limited non-zeros
@@ -830,7 +836,7 @@ class FrequencyBase(JobABC):
         # Determine how many non-zero modes to print
         if v == 1:
             n_nonzero_to_print = 10  # default: 10 non-zero modes
-        else:  # v >= 2
+        else:  # v >= 2 (including v == 10)
             n_nonzero_to_print = len(freqs) - n_zero  # all non-zero modes
         
         # Total to print: all zeros + limited non-zeros
@@ -876,6 +882,125 @@ class FrequencyBase(JobABC):
                 self.log_info([line + "\n"])
             
             self.log_info(["\n"])
+
+    # ---------------------- verbosity=10 summary writer ----------------------
+    def _write_summary(self, freqs: np.ndarray, modes: np.ndarray, thermo: ThermoResults) -> None:
+        """
+        Write a concise summary file (*_summary.out) for verbosity=10.
+        
+        Contents:
+            1. Thermodynamic properties summary (concise)
+            2. All non-zero vibrational frequencies
+            3. Normal modes in XYZ trajectory format
+        
+        The first 6 zero frequencies (translations/rotations) are excluded.
+        """
+        # Determine summary file path
+        base, ext = os.path.splitext(self.output)
+        summary_path = f"{base}.sum"
+        
+        # Filter out zero frequencies (first 6 for nonlinear, 5 for linear)
+        zero_tol = 5.0
+        nonzero_mask = np.abs(freqs) >= zero_tol
+        nonzero_freqs = freqs[nonzero_mask]
+        nonzero_modes = modes[nonzero_mask]
+        
+        # Get atomic information
+        symbols = self.atoms.get_chemical_symbols()
+        positions = self.atoms.get_positions()
+        n_atoms = len(self.atoms)
+        T = self.temperature
+        
+        with open(summary_path, 'w', encoding='utf-8') as f:
+            # ==================== Section 1: Thermodynamic Summary ====================
+            f.write("=" * 70 + "\n")
+            f.write("THERMODYNAMIC SUMMARY\n")
+            f.write("=" * 70 + "\n\n")
+            
+            f.write(f"Temperature:            {T:.2f} K\n")
+            f.write(f"Pressure:               {self.pressure_kpa:.3f} kPa ({self.pressure_kpa / 101.325:.3f} atm)\n")
+            f.write(f"Total Mass:             {np.sum(self.atoms.get_masses()):.4f} amu\n")
+            f.write(f"Number of Atoms:        {n_atoms}\n")
+            f.write(f"Number of Vib. Modes:   {len(nonzero_freqs)}\n\n")
+            
+            # Convert units for display
+            zpe_kcal = Units.kj_to_kcal(thermo.zpe_kjmol)
+            h_total_kcal = Units.kj_to_kcal(thermo.h_total_kjmol)
+            g_corr_kcal = Units.kj_to_kcal(thermo.g_correction_kjmol)
+            s_total_calK = thermo.s_total_jmolK / 4.184  # J/mol/K -> cal/mol/K
+            
+            f.write("-" * 40 + "\n")
+            f.write("Key Thermodynamic Values\n")
+            f.write("-" * 40 + "\n")
+            f.write(f"ZPE:                    {thermo.zpe_kjmol:12.4f} kJ/mol  ({zpe_kcal:10.4f} kcal/mol)\n")
+            f.write(f"H_corr (total):         {thermo.h_total_kjmol:12.4f} kJ/mol  ({h_total_kcal:10.4f} kcal/mol)\n")
+            f.write(f"G_corr (total):         {thermo.g_correction_kjmol:12.4f} kJ/mol  ({g_corr_kcal:10.4f} kcal/mol)\n")
+            f.write(f"S_total:                {thermo.s_total_jmolK:12.4f} J/mol/K ({s_total_calK:10.4f} cal/mol/K)\n\n")
+            
+            f.write("-" * 40 + "\n")
+            f.write("Enthalpy Contributions (kJ/mol)\n")
+            f.write("-" * 40 + "\n")
+            f.write(f"  H_trans:              {thermo.h_trans_kjmol:12.4f}\n")
+            f.write(f"  H_rot:                {thermo.h_rot_kjmol:12.4f}\n")
+            f.write(f"  H_vib (thermal):      {thermo.h_vib_thermal_kjmol:12.4f}\n")
+            f.write(f"  ZPE:                  {thermo.zpe_kjmol:12.4f}\n\n")
+            
+            f.write("-" * 40 + "\n")
+            f.write("Entropy Contributions (J/mol/K)\n")
+            f.write("-" * 40 + "\n")
+            f.write(f"  S_trans:              {thermo.s_trans_jmolK:12.4f}\n")
+            f.write(f"  S_rot:                {thermo.s_rot_jmolK:12.4f}\n")
+            f.write(f"  S_vib:                {thermo.s_vib_jmolK:12.4f}\n\n")
+            
+            # ==================== Section 2: All Frequencies ====================
+            f.write("=" * 70 + "\n")
+            f.write("VIBRATIONAL FREQUENCIES (cm^-1)\n")
+            f.write("=" * 70 + "\n\n")
+            
+            f.write(f"{'Mode':>6}  {'Frequency':>12}  {'Type':<15}\n")
+            f.write("-" * 40 + "\n")
+            
+            for i, freq in enumerate(nonzero_freqs):
+                mode_type = "imaginary" if freq < -zero_tol else "real"
+                f.write(f"{i+1:>6}  {freq:>12.2f}  {mode_type:<15}\n")
+            
+            f.write("\n")
+            
+            # ==================== Section 3: Normal Modes as XYZ Trajectory ====================
+            f.write("=" * 70 + "\n")
+            f.write("NORMAL MODES (XYZ Trajectory Format)\n")
+            f.write("=" * 70 + "\n")
+            f.write("# Each frame represents one vibrational mode\n")
+            f.write("# Coordinates show equilibrium position + displacement (scaled for visualization)\n\n")
+            
+            # Scale factor for visualization (adjustable)
+            disp_scale = 1.0  # Can be adjusted for visualization purposes
+            
+            for mode_idx, (freq, mode) in enumerate(zip(nonzero_freqs, nonzero_modes)):
+                # Reshape mode to (N, 3)
+                mode_3d = mode.reshape(n_atoms, 3)
+                
+                # XYZ frame header
+                f.write(f"{n_atoms}\n")
+                mode_type = "imag" if freq < 0 else "real"
+                f.write(f"Mode {mode_idx + 1}: {freq:.2f} cm^-1 ({mode_type})\n")
+                
+                # Write atomic positions with displacement
+                for atom_idx in range(n_atoms):
+                    symbol = symbols[atom_idx]
+                    # Equilibrium position
+                    x0, y0, z0 = positions[atom_idx]
+                    # Displacement (eigenvector component)
+                    dx, dy, dz = mode_3d[atom_idx] * disp_scale
+                    
+                    # Write: symbol, equilibrium coords, displacement vector
+                    f.write(f"{symbol:2s}  {x0:12.6f}  {y0:12.6f}  {z0:12.6f}  "
+                            f"{dx:12.6f}  {dy:12.6f}  {dz:12.6f}\n")
+            
+            f.write("\n# End of normal modes trajectory\n")
+        
+        self.log_info([f"Summary file written: {summary_path}\n"])
+
 
 # ======================================================================
 # Concrete implementations
