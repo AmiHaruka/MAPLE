@@ -1,19 +1,67 @@
-# MAPLE
+# **MA**chine-learning **P**otential for **L**andscape **E**xploration (**MAPLE**)
 
-**MA**chine Learning **P**otential for **L**andscape **E**xploration (**MAPLE**)
+![MAPLE Concept](./maple.jpg)
 
-MAPLE is a powerful computational chemistry toolkit that leverages machine learning potentials for efficient structure optimization, transition state searching, and reaction pathway analysis.
+MAPLE is a **machine-learning force-field (MLFF)–native molecular modeling platform**
+designed for efficient and scalable exploration of potential energy landscapes, with a
+particular focus on **geometry optimization, transition-state localization, and reaction
+pathway analysis** under GPU-accelerated and parallel workflows.
 
-## Overview
+---
 
-MAPLE integrates state-of-the-art machine learning models (AIMNet2, ANI) with classical optimization algorithms to enable:
+## Core Capabilities
 
-- **Structure Optimization**: LBFGS, RFO algorithms for finding energy minima
-- **Transition State Search**: NEB (Nudged Elastic Band), CI-NEB, String Method, Dimer Method
-- **Reaction Path Analysis**: IRC (Intrinsic Reaction Coordinate) calculations
-- **Vibrational Analysis**: Frequency calculations with mass-weighted Hessian
+### Geometry Optimization
+- Energy minimization using **batch-parallel L-BFGS**
+- Saddle-point optimization via **partitioned RFO variants (DS-P-RFO)**
 
-The software is designed for computational chemists who need fast, accurate quantum-mechanical calculations without the computational cost of traditional ab initio methods.
+### Transition-State and Reaction Path Search
+- **NEB / CI-NEB** for minimum-energy pathway construction
+- String-based and dimer-style TS localization (where applicable)
+- Stable handling of non-equilibrium and reactive structures
+
+### Reaction Pathway Analysis
+- **Intrinsic Reaction Coordinate (IRC)** calculations
+- Extraction and refinement of highest-energy images (HEI)
+- Mechanistic descriptor analysis along reaction coordinates
+
+### Vibrational and Hessian Analysis
+- Mass-weighted Hessian construction
+- Harmonic frequency analysis
+- Imaginary-mode validation for transition-state characterization
+
+---
+
+## Machine-Learning Force Fields
+
+MAPLE interfaces with multiple **general-purpose reactive ML force fields**, including:
+
+- **ANI family**
+- **AIMNet2 family**
+- **Universal MLFFs (e.g., UMA)**
+
+These models are treated as **interchangeable computational backends**.  
+MAPLE itself remains **model-agnostic**, focusing on algorithmic robustness, physical
+consistency, and scalable execution.
+
+> MAPLE does **not** conceptually depend on any specific MLFF ecosystem.  
+> Model providers and implementations are modular and replaceable by design.
+
+---
+
+## Installation
+
+### Requirements
+
+- Python ≥ 3.9
+- CUDA-capable GPU strongly recommended for production workloads
+
+### Install MAPLE
+
+```bash
+git clone https://github.com/ClickFF/MAPLE.git
+cd MAPLE
+pip install -e .
 
 ## Installation
 
@@ -100,15 +148,7 @@ Contributions are welcome! Please:
 
 For questions, bug reports, or feature requests:
 - Open an issue on GitHub
-- Contact: [Contact information]
-
-## Acknowledgments
-
-MAPLE leverages several excellent open-source projects:
-- ASE (Atomic Simulation Environment)
-- PyTorch
-- AIMNet2 / ANI models
-- fair-chem
+- Contact: xuw74@pitt.edu
 
 ---
 
