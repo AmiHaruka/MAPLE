@@ -9,7 +9,10 @@ class Optmization(JobABC):
     def __init__(self, params: dict, output:str, atoms:Atoms, method:str='LBFGS'):
         super().__init__(output)
         self.atoms = atoms
-        self.method = method
+        if method is None:
+            self.method = 'LBFGS'
+        else:
+            self.method = method
         self.output = output
         self.commandcontrol = params
         
