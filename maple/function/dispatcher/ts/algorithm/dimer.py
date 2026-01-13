@@ -92,8 +92,8 @@ class DimerParams:
     delta: float = 0.005                 # Angstrom; used only if not use_hvp
     rot_max_iter: int = 5               # rotation inner iterations per outer step
     rot_alpha: float = 0.5              # rotation step factor on F_rot (unitless); small ~ (0.1~1)
-    rot_fmax_th: float = 1.0e-3         # convergence threshold on max|F_rot| (Eh/Ang)
-    rot_frms_th: float = 5.0e-4         # convergence threshold on RMS(F_rot)
+    rot_f_max_th: float = 1.0e-3        # convergence threshold on max|F_rot| (Eh/Ang)
+    rot_f_rms_th: float = 5.0e-4        # convergence threshold on RMS(F_rot)
 
     # Translation / trust region
     step0: float = 0.2                  # initial step scaling on search direction
@@ -101,8 +101,8 @@ class DimerParams:
     trust_radius: float = 0.15          # same role as max_step; kept both for clarity
 
     # Convergence (translation forces)
-    fmax_th: float = 5.0e-3             # max(|F_trans|) Eh/Ang
-    frms_th: float = 1.0e-3             # RMS(F_trans) Eh/Ang
+    f_max_th: float = 5.0e-3            # max(|F_trans|) Eh/Ang
+    f_rms_th: float = 1.0e-3            # RMS(F_trans) Eh/Ang
     kappa_to_flip: float = 0.0          # if kappa < this value, flip parallel component
 
     # Iterations
@@ -307,7 +307,7 @@ class Dimer(JobABC):
             rms_frot = float(math.sqrt(np.mean(F_rot * F_rot)))
 
             # convergence of rotation
-            if (max_frot < p.rot_fmax_th) and (rms_frot < p.rot_frms_th):
+            if (max_frot < p.rot_f_max_th) and (rms_frot < p.rot_f_rms_th):
                 return n_cur, max_frot, rms_frot
 
             # gradient descent on kappa: n <- n - α * F_rot (and renormalize)
@@ -370,8 +370,8 @@ class Dimer(JobABC):
         ], self.output)
 
         # ------------------ ensure PRFO-style thresholds exist ------------------
-        if not hasattr(self.atoms, "f_max_th"):  self.atoms.f_max_th  = p.fmax_th
-        if not hasattr(self.atoms, "f_rms_th"):  self.atoms.f_rms_th  = p.frms_th
+        if not hasattr(self.atoms, "f_max_th"):  self.atoms.f_max_th  = p.f_max_th
+        if not hasattr(self.atoms, "f_rms_th"):  self.atoms.f_rms_th  = p.f_rms_th
         if not hasattr(self.atoms, "dp_max_th"): self.atoms.dp_max_th = 1.8e-3
         if not hasattr(self.atoms, "dp_rms_th"): self.atoms.dp_rms_th = 1.2e-3
 
@@ -406,7 +406,7 @@ class Dimer(JobABC):
                 rms_frot = float(torch.sqrt(torch.mean(F_rot_t * F_rot_t)).detach().cpu().item())
 
                 # convergence of rotation
-                if (max_frot <= p.rot_fmax_th) and (rms_frot <= p.rot_frms_th):
+                if (max_frot <= p.rot_f_max_th) and (rms_frot <= p.rot_f_rms_th):
                     break
 
                 # gradient descent on kappa in orientation space, then re-normalize (and rigid-body remove if requested)

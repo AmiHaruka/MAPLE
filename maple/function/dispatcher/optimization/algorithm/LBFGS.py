@@ -34,8 +34,8 @@ def write_xyz(filename: str, atoms_list: List[Atoms], energies: List[float] | No
 class LBFGSParams:
     memory: int = 5
     curvature: float = 70.0
-    maxstep: float = 0.2
-    maxiter: int = 256
+    max_step: float = 0.2
+    max_iter: int = 256
     write_traj: bool = False
     traj_every: int = 1
     verbose: int = 1     
@@ -62,8 +62,8 @@ class LBFGS(JobABC):
             "=" * 70 + "\n",
             f"memory:     {self.params.memory}\n",
             f"curvature:  {self.params.curvature}\n",
-            f"maxstep:    {self.params.maxstep}\n",
-            f"maxiter:    {self.params.maxiter}\n",
+            f"max_step:   {self.params.max_step}\n",
+            f"max_iter:   {self.params.max_iter}\n",
             f"write_traj: {self.params.write_traj}\n",
             f"traj_every: {self.params.traj_every}\n",
             f"verbose:    {self.params.verbose}\n",
@@ -102,8 +102,8 @@ class LBFGS(JobABC):
 
     def _clip_step(self, step_cart: np.ndarray) -> np.ndarray:
         max_disp = float(np.max(np.abs(step_cart)))
-        if max_disp > self.params.maxstep:
-            step_cart *= self.params.maxstep / max_disp
+        if max_disp > self.params.max_step:
+            step_cart *= self.params.max_step / max_disp
         return step_cart
 
     def _update_history(self, s_vec: np.ndarray, y_vec: np.ndarray):
@@ -178,7 +178,7 @@ class LBFGS(JobABC):
         if self.params.verbose == 1 and self.params.write_traj and iteration % self.params.traj_every == 0:
             write_xyz(traj_file, [atoms.copy()], energies=[e])
 
-        while iteration < self.params.maxiter:
+        while iteration < self.params.max_iter:
             grad = f.reshape(-1)
             step_flat = self._two_loop(grad)
             step = self._clip_step(step_flat.reshape(f.shape))
@@ -255,7 +255,7 @@ class LBFGS(JobABC):
             # verbose mode: detailed message
             log_info(self._last_iter_info, self.output)
             log_info(
-                [f"\nLBFGS did NOT converge after {self.params.maxiter} iterations. "
+                [f"\nLBFGS did NOT converge after {self.params.max_iter} iterations. "
                 f"Final frame written to {opt_file}\n"
                 f"Complete trajectory written to {final_traj_file}\n"],
                 self.output,
@@ -264,7 +264,7 @@ class LBFGS(JobABC):
             # silent mode: only final frame info + summary
             log_info(self._last_iter_info, self.output)
             log_info(
-                [f"\nLBFGS did NOT converge after {self.params.maxiter} iterations.\n"
+                [f"\nLBFGS did NOT converge after {self.params.max_iter} iterations.\n"
                 f"Final frame written to {opt_file}\n"
                 f"Complete trajectory written to {final_traj_file}\n"],
                 self.output,
