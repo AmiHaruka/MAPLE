@@ -18,7 +18,7 @@ Units:
 from __future__ import annotations
 import os
 import copy
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from typing import List, Tuple, Optional
 
 import numpy as np
@@ -341,19 +341,16 @@ class GSM(JobABC):
     """
 
     def __init__(self, output: str, atoms_R: Atoms, atoms_P: Atoms,
-                 params: Optional[GSMParams] = None, paras: Optional[dict] = None):
+                 paras: Optional[dict] = None):
         super().__init__(output)
         self.atoms_R = atoms_R
         self.atoms_P = atoms_P
         self.atoms_R.calc = atoms_R.calc
         self.atoms_P.calc = atoms_P.calc
-        self.params = params if params is not None else GSMParams()
-        if isinstance(paras, dict):
-            low = {(k.lower() if isinstance(k, str) else k): v for k, v in paras.items()}
-            for f in fields(self.params):
-                name = f.name.lower()
-                if name in low:
-                    setattr(self.params, f.name, low[name])
+
+        # Initialize params from paras dict
+        self.params = self._init_params(GSMParams, paras, ("gsm", "GSM", "string", "STRING", "ts"))
+
         if self.params.n_images < 2:
             raise ValueError("n_images must be >= 2")
 

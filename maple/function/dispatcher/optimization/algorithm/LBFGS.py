@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 import os
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from typing import List, Optional
 
 import numpy as np
 from ase import Atoms
 from .logger import log_info
+from ...jobABC import JobABC
 
 
 # ==============================================
@@ -27,38 +28,6 @@ def write_xyz(filename: str, atoms_list: List[Atoms], energies: List[float] | No
 
 
 # ==============================================
-# Dict helpers (same as NEB)
-# ==============================================
-def _lower_keys(d):
-    """Return a copy of dict with all string keys lowercased."""
-    if not isinstance(d, dict):
-        return {}
-    return {(k.lower() if isinstance(k, str) else k): v for k, v in d.items()}
-
-def _select_subdict(paras: dict, name_aliases: tuple[str, ...]) -> dict:
-    """Extract a sub-dict using aliases (e.g., 'lbfgs', 'LBFGS')."""
-    if not isinstance(paras, dict):
-        return {}
-    low = _lower_keys(paras)
-    for alias in name_aliases:
-        key = alias.lower()
-        if key in low and isinstance(low[key], dict):
-            return low[key]
-    return low
-
-def _update_dataclass_from_dict(dc_obj, d: dict):
-    """Update a dataclass instance from a dict (case-insensitive keys)."""
-    if not isinstance(d, dict):
-        return dc_obj
-    low = _lower_keys(d)
-    field_map = {f.name.lower(): f.name for f in fields(dc_obj)}
-    for k_low, v in low.items():
-        if k_low in field_map:
-            setattr(dc_obj, field_map[k_low], v)
-    return dc_obj
-
-
-# ==============================================
 # LBFGS Parameters
 # ==============================================
 @dataclass
@@ -75,25 +44,16 @@ class LBFGSParams:
 # ==============================================
 # LBFGS Optimizer
 # ==============================================
-class LBFGS:
-    """
-    Classic L-BFGS optimizer.
-    """
+class LBFGS(JobABC):
+    """Classic L-BFGS optimizer."""
 
     def __init__(self,
                  atoms: Atoms,
                  output: str,
-                 params: Optional[LBFGSParams] = None,
                  paras: Optional[dict] = None):
+        super().__init__(output)
         self.atoms = atoms
-        self.output = output
-
-        # Step 1: Initialize with default parameters
-        self.params = params if params is not None else LBFGSParams()
-        # Step 2: Update from paras dict if provided
-        if isinstance(paras, dict):
-            lbfgs_dict = _select_subdict(paras, ("lbfgs", "LBFGS"))
-            _update_dataclass_from_dict(self.params, lbfgs_dict)
+        self.params = self._init_params(LBFGSParams, paras, ("lbfgs", "LBFGS", "opt"))
         
         # Log the actual parameters being used
         param_info = [

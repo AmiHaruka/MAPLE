@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 import math
 import torch
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from typing import Optional, Callable, List, Tuple
 
 import numpy as np
@@ -80,33 +80,6 @@ def write_all_images_xyz(filename: str, atoms: Atoms, energy: Optional[float] = 
             f.write(f"Iter {iteration}\n")
         for s, (x, y, z) in zip(symbols, pos):
             f.write(f"{s:2s} {x: .10f} {y: .10f} {z: .10f}\n")
-
-# --- small helpers to update dataclass from dict (compatible with your NEB) ---
-
-def _lower_keys(d):
-    if not isinstance(d, dict):
-        return {}
-    return { (k.lower() if isinstance(k, str) else k): v for k, v in d.items() }
-
-def _select_subdict(paras: dict, name_aliases: tuple[str, ...]) -> dict:
-    if not isinstance(paras, dict):
-        return {}
-    low = _lower_keys(paras)
-    for alias in name_aliases:
-        key = alias.lower()
-        if key in low and isinstance(low[key], dict):
-            return low[key]
-    return low
-
-def _update_dataclass_from_dict(dc_obj, d: dict):
-    if not isinstance(d, dict):
-        return dc_obj
-    low = _lower_keys(d)
-    fld_names = {f.name.lower(): f.name for f in fields(dc_obj)}
-    for k_low, v in low.items():
-        if k_low in fld_names:
-            setattr(dc_obj, fld_names[k_low], v)
-    return dc_obj
 
 # =============================================================================
 # ------------------------------ Dimer Params ---------------------------------
@@ -230,7 +203,6 @@ class Dimer(JobABC):
     def __init__(self,
                  output: str,
                  atoms_init: Atoms,
-                 params: Optional[DimerParams] = None,
                  paras: Optional[dict] = None,
                  hvp_fn: Optional[Callable[[Atoms, np.ndarray], np.ndarray]] = None):
         super().__init__(output)
@@ -239,10 +211,8 @@ class Dimer(JobABC):
         if self.atoms.calc is None:
             raise ValueError("atoms_init must have a working calculator set (atoms.calc).")
 
-        self.params = params if params is not None else DimerParams()
-        if isinstance(paras, dict):
-            dimer_dict = _select_subdict(paras, ("dimer", "DIMER"))
-            _update_dataclass_from_dict(self.params, dimer_dict)
+        # Initialize params from paras dict
+        self.params = self._init_params(DimerParams, paras, ("dimer", "DIMER", "ts"))
 
         self.hvp_fn = hvp_fn if self.params.use_hvp else None
 
