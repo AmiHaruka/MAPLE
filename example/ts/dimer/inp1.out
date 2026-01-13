@@ -37,7 +37,3 @@ Group 1 (inline)
 5    H              0.782899            -0.242979             1.066332
 6    H              1.076497            -1.294332            -0.958363
 7    H              2.295125            -0.729381             0.339772
- [INFO] Model ani1xnr.pt not found locally.
- [INFO] Downloading from: https://huggingface.co/Wayne7815/MAPLE_model/resolve/main/ani1xnr.pt
- [INFO] File size: 19.83 MB
- [INFO] Download complete: /home/user/software/MAPLE/maple/function/calculator/model/ani1xnr.pt

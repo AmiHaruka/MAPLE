@@ -71,8 +71,9 @@ LUP path: /home/user/software/MAPLE/example/ts/afir/inp1_lup_path.xyz
 
 Found 1 TS, 0 intermediates
 
-TS 0 (point 2): E = -153.78090169 Eh
-  PRFO not converged: -153.70846345 Eh
+TS 0 (point 2): E = -153.78090171 Eh
+    PRFO failed: PRFO.__init__() got an unexpected keyword argument 'params'
+  PRFO not converged: -153.78090171 Eh
 
 ======================================================================
                                Results                                
@@ -89,7 +90,7 @@ TS List:
 ----------------------------------------------------------------------
  Idx     Connects          E(Eh)     dE(kcal)      Barrier
 ----------------------------------------------------------------------
-   0      EQ0-EQ1  -153.70846345       129.74       139.71
+   0      EQ0-EQ1  -153.78090171        84.29        94.26
 
 Output: /home/user/software/MAPLE/example/ts/afir/inp1_eq_list.xyz
         /home/user/software/MAPLE/example/ts/afir/inp1_ts_list.xyz
@@ -100,22 +101,22 @@ Output: /home/user/software/MAPLE/example/ts/afir/inp1_eq_list.xyz
 
 
 
-Program started: 2026-01-06 16:07:24
+Program started: 2026-01-13 14:29:37
 
 ======================================================================
                       TIMING SUMMARY
 ======================================================================
-Input Reading.......................................   0.121 s  (   0.2 %)
-  Settings Parsing....................................   0.120 s  (  99.2 %)
-  Coordinate Section Parsing..........................   0.000 s  (   0.3 %)
+Input Reading.......................................   0.159 s  (   1.9 %)
+  Settings Parsing....................................   0.158 s  (  99.5 %)
+  Coordinate Section Parsing..........................   0.000 s  (   0.2 %)
   Post-Processing Expansion...........................   0.000 s  (   0.0 %)
-MLP Initialization..................................   0.179 s  (   0.3 %)
-Job Dispatching.....................................  58.795 s  (  99.5 %)
-  Transition State Optimization.......................  58.794 s  ( 100.0 %)
+MLP Initialization..................................   0.189 s  (   2.2 %)
+Job Dispatching.....................................   8.241 s  (  95.9 %)
+  Transition State Optimization.......................   8.241 s  ( 100.0 %)
 ======================================================================
-Total wall time: 59.095 s
-Total CPU time: 59.039 s
+Total wall time: 8.590 s
+Total CPU time: 8.509 s
 ======================================================================
 
-Program ended: 2026-01-06 16:08:24
-TOTAL RUN TIME: 0 days 0 hours 0 minutes 59 seconds 95 msec
+Program ended: 2026-01-13 14:29:46
+TOTAL RUN TIME: 0 days 0 hours 0 minutes 8 seconds 589 msec
