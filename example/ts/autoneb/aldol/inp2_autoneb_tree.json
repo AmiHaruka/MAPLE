@@ -1,0 +1,74 @@
+{
+  "root": {
+    "status": "split",
+    "depth": 0,
+    "n_images": 52,
+    "parent": null,
+    "children": [
+      "root_L",
+      "root_R"
+    ],
+    "hei_idx": 50,
+    "iteration": 50
+  },
+  "root_L": {
+    "status": "split",
+    "depth": 1,
+    "n_images": 19,
+    "parent": "root",
+    "children": [
+      "root_L_L",
+      "root_L_R"
+    ],
+    "hei_idx": 1,
+    "iteration": 100
+  },
+  "root_R": {
+    "status": "split",
+    "depth": 1,
+    "n_images": 42,
+    "parent": "root",
+    "children": [
+      "root_R_L",
+      "root_R_R"
+    ],
+    "hei_idx": 31,
+    "iteration": 50
+  },
+  "root_L_L": {
+    "status": "converged",
+    "depth": 2,
+    "n_images": 7,
+    "parent": "root_L",
+    "children": [],
+    "hei_idx": 1,
+    "iteration": 18
+  },
+  "root_L_R": {
+    "status": "converged",
+    "depth": 2,
+    "n_images": 13,
+    "parent": "root_L",
+    "children": [],
+    "hei_idx": 2,
+    "iteration": 17
+  },
+  "root_R_L": {
+    "status": "converged",
+    "depth": 2,
+    "n_images": 34,
+    "parent": "root_R",
+    "children": [],
+    "hei_idx": 17,
+    "iteration": 42
+  },
+  "root_R_R": {
+    "status": "converged",
+    "depth": 2,
+    "n_images": 22,
+    "parent": "root_R",
+    "children": [],
+    "hei_idx": 12,
+    "iteration": 92
+  }
+}

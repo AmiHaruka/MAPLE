@@ -5,3 +5,4 @@ from .string import GSM
 from .dimer import Dimer
 from .afir import DSAFIR
 from .descafir import DESCAFIR
+from .autoneb import AutoNEB

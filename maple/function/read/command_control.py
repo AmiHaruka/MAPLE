@@ -42,7 +42,7 @@ class CommandControl:
     IMPLEMENTATION_MAP = {
         "opt": {"lbfgs", "rfo", "cg", ""},
         "scan": {"lbfgs", "cg"},
-        "ts": {"prfo", "string", "neb", "dimer", "afir", "descafir"},
+        "ts": {"prfo", "string", "neb", "dimer", "afir", "descafir", "autoneb",},
         "freq": {"mw", "nonmw", "both"},
         "sp": set(),
         "irc": {"gs"},
