@@ -1,117 +1,228 @@
 # MAPLE
 
-**MA**chine Learning **P**otential for **L**andscape **E**xploration (**MAPLE**)
+**MA**chine Learning **P**otential for **L**andscape **E**xploration
 
-MAPLE is a powerful computational chemistry toolkit that leverages machine learning potentials for efficient structure optimization, transition state searching, and reaction pathway analysis.
+MAPLE is a computational chemistry toolkit that leverages machine learning potentials for efficient molecular simulations, including structure optimization, transition state searching, and reaction pathway analysis.
 
-## Overview
+---
 
-MAPLE integrates state-of-the-art machine learning models (AIMNet2, ANI) with classical optimization algorithms to enable:
+## Features
 
-- **Structure Optimization**: LBFGS, RFO algorithms for finding energy minima
-- **Transition State Search**: NEB (Nudged Elastic Band), CI-NEB, String Method, Dimer Method
-- **Reaction Path Analysis**: IRC (Intrinsic Reaction Coordinate) calculations
-- **Vibrational Analysis**: Frequency calculations with mass-weighted Hessian
+| Category | Methods |
+|----------|---------|
+| **Optimization** | LBFGS, RFO |
+| **Transition State** | NEB, CI-NEB, PRFO, Dimer, String (GSM), AFIR |
+| **Reaction Path** | IRC (GS method) |
+| **Analysis** | Frequency, PES Scan, Single Point |
+| **ML Potentials** | AIMNet2, ANI, MACE, UMA |
+| **Corrections** | DFT-D4 dispersion, GBSA solvation |
 
-The software is designed for computational chemists who need fast, accurate quantum-mechanical calculations without the computational cost of traditional ab initio methods.
+---
 
 ## Installation
 
 ### Requirements
 
-- Python ≥ 3.9
-- CUDA-capable GPU (recommended for ML models)
+- Python >= 3.9
+- PyTorch >= 2.0
+- CUDA-capable GPU (recommended)
 
-### Install MAPLE
+### Install
 
 ```bash
-# Clone the repository
 git clone https://github.com/ClickFF/maple.git
 cd maple
-
-# Install in development mode
 pip install -e .
 ```
 
-### Install Dependencies
-
-MAPLE requires several scientific computing and machine learning packages:
+### Dependencies
 
 ```bash
-# Core dependencies (required)
-conda install -c conda-forge numpy scipy matplotlib ase
+# Core
+pip install numpy scipy ase
 
-# PyTorch (adjust for your CUDA version)
-# For CUDA 11.8:
+# PyTorch (CUDA 11.8)
 pip install torch --index-url https://download.pytorch.org/whl/cu118
 
-# For CPU only:
+# PyTorch (CPU only)
 pip install torch --index-url https://download.pytorch.org/whl/cpu
 
-# Machine learning potentials
-pip install fairchem-core  # For AIMNet2 and ANI models
+# ML potentials
+pip install fairchem-core
 ```
 
-## Quick Start
+---
 
-### Basic Usage
+## Usage
+
+### Command Line
 
 ```bash
-# Run optimization
-maple input.inp
-
-# Specify output file
-maple input.inp output.out
+maple input.inp              # Output: input.out
+maple input.inp result.out   # Custom output file
+maple --test 1               # Run test case
 ```
 
-### Example Input File
+### Test Cases
+
+```bash
+maple --test 1   # LBFGS optimization
+maple --test 2   # NEB transition state
+maple --test 3   # String method
+maple --test 4   # Dimer method
+maple --test 5   # RFO optimization
+maple --test 6   # IRC
+maple --test 7   # Frequency
+maple --test 8   # PES Scan
+```
+
+---
+
+## Input File Format
+
+### Header Options
+
+```
+#model=<model>           # ML potential: uma, aimnet2, ani, mace
+#<jobtype>(options)      # Job type with optional parameters
+#device=<device>         # gpu0, gpu1, cpu
+```
+
+### Coordinates
+
+Two ways to specify coordinates:
+
+1. **Inline XYZ** - directly in input file:
+```
+#model=uma
+#opt(method=lbfgs)
+#device=gpu0
+
+C   0.000   0.000   0.000
+H   1.089   0.000   0.000
+...
+```
+
+2. **External XYZ file** - reference path:
+```
+#model=uma
+#opt(method=lbfgs)
+#device=gpu0
+
+XYZ /path/to/molecule.xyz
+```
+
+For multi-structure jobs (NEB, etc.), use multiple XYZ lines:
+```
+XYZ /path/to/reactant.xyz
+XYZ /path/to/product.xyz
+```
+
+### Job Types
+
+| Header | Description |
+|--------|-------------|
+| `#opt(method=lbfgs)` | Geometry optimization |
+| `#sp` | Single point energy |
+| `#ts(method=neb)` | Transition state search |
+| `#freq` | Frequency analysis |
+| `#irc` | Intrinsic reaction coordinate |
+| `#scan` | PES scan |
+
+### ML Models
+
+| Model | Description |
+|-------|-------------|
+| `uma` | UMA (universal materials) |
+| `aimnet2` | AIMNet2 (general organic) |
+| `ANI-1xnr` | ANI (CHNO molecules) |
+| `mace` | MACE (universal potential) |
+
+---
+
+## Examples
+
+### Geometry Optimization
+
+```
+#model=uma
+#opt(method=lbfgs)
+#device=gpu0
+
+C      -0.77812600     -1.06756100      0.32105900
+C       1.30255300      0.05212000     -0.02829900
+...
+```
+
+### NEB Transition State
 
 ```
 #model=ANI-1xnr
 #ts(method=neb,refine=nebts)
 #device=gpu0
 
-C  0.000  0.000  0.000
-H  1.089  0.000  0.000
-H -0.363  1.028  0.000
-H -0.363 -0.514  0.890
-H -0.363 -0.514 -0.890
+XYZ /path/to/reactant.xyz
+XYZ /path/to/product.xyz
 ```
 
+### Frequency Calculation
+
+```
+#model=ANI-1xnr
+#freq
+#device=gpu0
+
+XYZ /path/to/optimized.xyz
+```
+
+### PES Scan
+
+```
+#model=uma
+#scan
+#device=gpu0
+
+C   0.000   0.000   0.000
+...
+
+S 15 31 -0.05 50
+S 13 34 -0.05 50
+```
+
+Scan format: `S <atom1> <atom2> <step_size> <n_steps>`
+
+---
+
+## Documentation
+
+For detailed architecture and algorithm documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
+
+---
 
 ## Citation
-
-If you use MAPLE in your research, please cite:
 
 ```
 https://github.com/ClickFF/MAPLE
 ```
 
-## Contributing
+---
 
-Contributions are welcome! Please:
+## Contributing
 
 1. Fork the repository
 2. Create a feature branch
-3. Make your changes with clear commit messages
+3. Make changes with clear commit messages
 4. Submit a pull request
-
-## Support
-
-For questions, bug reports, or feature requests:
-- Open an issue on GitHub
-- Contact: [Contact information]
-
-## Acknowledgments
-
-MAPLE leverages several excellent open-source projects:
-- ASE (Atomic Simulation Environment)
-- PyTorch
-- AIMNet2 / ANI models
-- fair-chem
 
 ---
 
-**Version**: 0.1.0  
-**Status**: Active Development  
-**Last Updated**: December 2025
+## Acknowledgments
+
+- [ASE](https://wiki.fysik.dtu.dk/ase/) - Atomic Simulation Environment
+- [PyTorch](https://pytorch.org/)
+- [AIMNet2](https://github.com/isayevlab/AIMNet2)
+- [fair-chem](https://github.com/FAIR-Chem/fairchem)
+
+---
+
+**Version**: 0.1.0 | **Status**: Active Development | **Updated**: January 2026
