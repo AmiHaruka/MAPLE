@@ -35,10 +35,18 @@ class Dispatcher():
         elif jobtype == 'sp':
             from .sp import SinglePoint
 
-            if isinstance(atoms, (list, Molecules)):
-                raise NotImplementedError('For single point energy job, only one Atoms object is allowed.')
-            sp = SinglePoint(output=output, atoms=atoms)
-            sp.run()
+            # Handle trajectory/multiple structures
+            if isinstance(atoms, Molecules):
+                atoms_input = atoms.multiatoms
+                sp = SinglePoint(output=output, atoms=atoms_input, paras=commandcontrol)
+                sp.run()
+            elif isinstance(atoms, list):
+                sp = SinglePoint(output=output, atoms=atoms, paras=commandcontrol)
+                sp.run()
+            else:
+                # Single structure (backward compatibility)
+                sp = SinglePoint(output=output, atoms=atoms, paras=commandcontrol)
+                sp.run()
 
         elif jobtype == 'scan':
             from .scan import Scan

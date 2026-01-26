@@ -68,6 +68,12 @@ class AutoNEBParams:
     max_depth: int = 5                     # Maximum recursion depth
     max_paths: int = 10                    # Maximum number of paths
 
+    # ===== Final global refinement =====
+    do_final_refine: bool = True           # Run final global NEB refinement
+    final_refine_factor: float = 2.0       # Convergence threshold multiplier (looser)
+    final_refine_max_iter: int = 200       # Max iterations for final refinement
+    final_refine_ep_iter: int = 20         # Endpoint check interval in final refinement
+
     # ===== Output control =====
     verbose: int = 1                       # Verbosity level
 
@@ -146,17 +152,20 @@ class AutoNEB(JobABC):
             "\n" + "=" * 70 + "\n",
             "AutoNEB Parameters\n",
             "=" * 70 + "\n",
-            f"n_images:         {p.n_images}\n",
-            f"ang_max:          {p.ang_max} Angstrom\n",
-            f"ang_iter:         {p.ang_iter}\n",
-            f"path_iter:        {p.path_iter}\n",
-            f"min_e_drop:       {p.min_e_drop} Eh\n",
-            f"ep_iter:          {p.ep_iter}\n",
-            f"ep_e_drop:        {p.ep_e_drop} Eh\n",
-            f"autoneb_f_max_th: {p.autoneb_f_max_th}\n",
-            f"autoneb_f_rms_th: {p.autoneb_f_rms_th}\n",
-            f"max_depth:        {p.max_depth}\n",
-            f"max_paths:        {p.max_paths}\n",
+            f"n_images:            {p.n_images}\n",
+            f"ang_max:             {p.ang_max} Angstrom\n",
+            f"ang_iter:            {p.ang_iter}\n",
+            f"path_iter:           {p.path_iter}\n",
+            f"min_e_drop:          {p.min_e_drop} Eh\n",
+            f"ep_iter:             {p.ep_iter}\n",
+            f"ep_e_drop:           {p.ep_e_drop} Eh\n",
+            f"autoneb_f_max_th:    {p.autoneb_f_max_th}\n",
+            f"autoneb_f_rms_th:    {p.autoneb_f_rms_th}\n",
+            f"max_depth:           {p.max_depth}\n",
+            f"max_paths:           {p.max_paths}\n",
+            f"do_final_refine:     {p.do_final_refine}\n",
+            f"final_refine_factor: {p.final_refine_factor}\n",
+            f"final_refine_max_iter: {p.final_refine_max_iter}\n",
             "=" * 70 + "\n\n",
         ]
         log_info(info, self.output)
@@ -589,39 +598,66 @@ class AutoNEB(JobABC):
 
     def _check_endpoint_updates(self, path_id: str) -> Tuple[Optional[int], Optional[int]]:
         """
-        Check if endpoints need to be updated.
+        Check if endpoints need to be updated based on local monotonic trend.
         Returns (new_start_idx, new_end_idx), None if no update needed.
+
+        Only looks at 3 points near each endpoint (A-X-Y):
+        - A = current endpoint
+        - X = 1st neighbor toward HEI
+        - Y = 2nd neighbor toward HEI
+
+        Update rules:
+        - If A → X → Y continuously decreases, update to Y
+        - If A → X decreases but Y > A, only update to X
+        - If A → X decreases but Y is between A and X, update to X
+        - Never cross an energy rise
         """
         node = self.path_tree[path_id]
         energies = node.energies
         p = self.params
+        n = len(energies)
 
         new_start = None
         new_end = None
 
-        # Find HEI
-        inner_idx = list(range(1, len(energies) - 1))
-        if not inner_idx:
+        if n < 4:  # Need at least 4 points to judge
             return None, None
-        hei_idx = max(inner_idx, key=lambda i: energies[i])
 
-        # Check start side: look for lower energy before HEI
-        E_start = energies[0]
-        for i in range(1, hei_idx):
-            if energies[i] < E_start - p.ep_e_drop:
-                # Check if this is a local minimum (energy rises after)
-                if i + 1 < len(energies) and energies[i+1] > energies[i]:
-                    new_start = i
-                    break
+        # ========== Start side ==========
+        # A=0, X=1, Y=2 (looking right toward HEI)
+        E_A = energies[0]
+        E_X = energies[1]
+        E_Y = energies[2]
 
-        # Check end side: look for lower energy after HEI
-        E_end = energies[-1]
-        for i in range(len(energies) - 2, hei_idx, -1):
-            if energies[i] < E_end - p.ep_e_drop:
-                # Check if this is a local minimum (energy rises before)
-                if i - 1 >= 0 and energies[i-1] > energies[i]:
-                    new_end = i
-                    break
+        if E_X < E_A - p.ep_e_drop:
+            # X is lower than A, check Y
+            if E_Y < E_X - p.ep_e_drop:
+                # Y also decreases, update to Y
+                new_start = 2
+            elif E_Y > E_A:
+                # Y rises above A, only update to X
+                new_start = 1
+            else:
+                # Y is between A and X (or equal), update to X
+                new_start = 1
+
+        # ========== End side ==========
+        # A=n-1, X=n-2, Y=n-3 (looking left toward HEI)
+        E_A = energies[-1]
+        E_X = energies[-2]
+        E_Y = energies[-3]
+
+        if E_X < E_A - p.ep_e_drop:
+            # X is lower than A, check Y
+            if E_Y < E_X - p.ep_e_drop:
+                # Y also decreases, update to Y
+                new_end = n - 3
+            elif E_Y > E_A:
+                # Y rises above A, only update to X
+                new_end = n - 2
+            else:
+                # Y is between A and X (or equal), update to X
+                new_end = n - 2
 
         return new_start, new_end
 
@@ -763,6 +799,188 @@ class AutoNEB(JobABC):
 
         return global_images, global_energies
 
+    def _run_final_refinement(self, images: List[Atoms], energies: List[float]) -> Tuple[List[Atoms], List[float]]:
+        """
+        Run final global NEB refinement on the merged MEP.
+
+        This phase:
+        - Uses looser convergence thresholds (2x the normal thresholds)
+        - Performs endpoint optimization (no path splitting)
+        - Smooths out the entire path
+        """
+        p = self.params
+        n_images = len(images)
+
+        if n_images < 4:
+            return images, energies
+
+        # Copy images to avoid modifying originals
+        ref_images = [self._copy_atoms_with_calc(img) for img in images]
+
+        # Looser convergence thresholds
+        f_max_th = p.autoneb_f_max_th * p.final_refine_factor
+        f_rms_th = p.autoneb_f_rms_th * p.final_refine_factor
+
+        log_info([
+            f"Final refinement: {n_images} images\n",
+            f"Convergence: f_max < {f_max_th:.6f}, f_rms < {f_rms_th:.6f}\n",
+            f"Max iterations: {p.final_refine_max_iter}\n",
+        ], self.output)
+
+        # Initialize L-BFGS driver
+        driver = LBFGSDriver(m=p.lbfgs_m, curvature=70.0, maxstep=p.step0)
+
+        converged = False
+        for iteration in range(1, p.final_refine_max_iter + 1):
+            # Get current energies
+            energies = self._get_energies(ref_images)
+            n_images = len(ref_images)
+
+            # Compute spring constants
+            if p.use_dynamic_k:
+                k_springs = compute_dynamic_k(energies, p.k_min, p.k_max, p.k_decay)
+            else:
+                k_springs = [p.k_max] * n_images
+
+            # Compute NEB forces
+            Fp_list, maxfp, hei_idx = neb_forces(
+                ref_images, energies,
+                k_springs=k_springs,
+                use_dynamic_k=False
+            )
+            rmsfp = rms_force(Fp_list)
+
+            # Log progress
+            if iteration % 10 == 0 or iteration == 1:
+                dE = energies[hei_idx] - energies[0]
+                log_info([
+                    f"  Refine Iter {iteration:4d}  HEI={hei_idx}  dE={dE:.6f}  "
+                    f"max|Fp|={maxfp:.6f}  RMS(Fp)={rmsfp:.6f}\n"
+                ], self.output)
+
+            # Check convergence
+            if maxfp < f_max_th and rmsfp < f_rms_th:
+                log_info([
+                    f"\nFinal refinement converged after {iteration} iterations.\n"
+                ], self.output)
+                converged = True
+                break
+
+            # Pack internal images to gradient vector
+            grads = []
+            for i in range(1, n_images - 1):
+                grads.append((-Fp_list[i]).reshape(-1))
+            g = np.concatenate(grads) if grads else np.zeros(0)
+
+            # L-BFGS step
+            step = driver.two_loop(g)
+            step = driver.step_limit(step)
+
+            # Pack current positions
+            x = np.concatenate([to_numpy_f64(ref_images[i].get_positions()).reshape(-1)
+                               for i in range(1, n_images - 1)])
+
+            # Update positions
+            x_new = x + step
+
+            # Unpack to images
+            offset = 0
+            for i in range(1, n_images - 1):
+                n_atoms_3 = len(ref_images[i]) * 3
+                Xi = x_new[offset:offset + n_atoms_3].reshape(-1, 3)
+                ref_images[i].set_positions(Xi)
+                offset += n_atoms_3
+
+            # Compute new gradient for L-BFGS update
+            new_energies = self._get_energies(ref_images)
+
+            if p.use_dynamic_k:
+                k_springs = compute_dynamic_k(new_energies, p.k_min, p.k_max, p.k_decay)
+
+            new_Fp_list, _, _ = neb_forces(ref_images, new_energies, k_springs=k_springs)
+
+            new_grads = []
+            for i in range(1, n_images - 1):
+                new_grads.append((-new_Fp_list[i]).reshape(-1))
+            g_new = np.concatenate(new_grads) if new_grads else np.zeros(0)
+
+            # Update L-BFGS history
+            if len(g) > 0:
+                driver.update(x_new - x, g_new - g)
+
+            # Check for endpoint updates periodically
+            if iteration % p.final_refine_ep_iter == 0:
+                new_start, new_end = self._check_endpoint_updates_global(ref_images, new_energies)
+                if new_start is not None:
+                    log_info([
+                        f"\n[Final Refine] Updated start to index {new_start}, "
+                        f"energy: {new_energies[new_start]:.6f} Eh\n"
+                    ], self.output)
+                    ref_images = ref_images[new_start:]
+                    n_images = len(ref_images)
+                    driver = LBFGSDriver(m=p.lbfgs_m, curvature=70.0, maxstep=p.step0)
+
+                if new_end is not None:
+                    log_info([
+                        f"\n[Final Refine] Updated end to index {new_end}, "
+                        f"energy: {new_energies[new_end]:.6f} Eh\n"
+                    ], self.output)
+                    ref_images = ref_images[:new_end + 1]
+                    n_images = len(ref_images)
+                    driver = LBFGSDriver(m=p.lbfgs_m, curvature=70.0, maxstep=p.step0)
+
+        if not converged:
+            log_info([
+                f"\nFinal refinement reached max iterations ({p.final_refine_max_iter}).\n"
+            ], self.output)
+
+        # Get final energies
+        final_energies = self._get_energies(ref_images)
+
+        return ref_images, final_energies
+
+    def _check_endpoint_updates_global(self, images: List[Atoms], energies: List[float]) -> Tuple[Optional[int], Optional[int]]:
+        """
+        Check endpoint updates for global MEP (used in final refinement).
+        Same local 3-point logic as _check_endpoint_updates.
+        """
+        p = self.params
+        n = len(energies)
+
+        new_start = None
+        new_end = None
+
+        if n < 4:
+            return None, None
+
+        # ========== Start side ==========
+        E_A = energies[0]
+        E_X = energies[1]
+        E_Y = energies[2]
+
+        if E_X < E_A - p.ep_e_drop:
+            if E_Y < E_X - p.ep_e_drop:
+                new_start = 2
+            elif E_Y > E_A:
+                new_start = 1
+            else:
+                new_start = 1
+
+        # ========== End side ==========
+        E_A = energies[-1]
+        E_X = energies[-2]
+        E_Y = energies[-3]
+
+        if E_X < E_A - p.ep_e_drop:
+            if E_Y < E_X - p.ep_e_drop:
+                new_end = n - 3
+            elif E_Y > E_A:
+                new_end = n - 2
+            else:
+                new_end = n - 2
+
+        return new_start, new_end
+
     def _collect_all_ts(self):
         """Collect all transition states from converged paths."""
         self.all_ts = []
@@ -781,8 +999,13 @@ class AutoNEB(JobABC):
         """Write all output files."""
         base, _ = os.path.splitext(self.output)
 
-        # Global MEP
-        global_images, global_energies = self._merge_global_mep()
+        # Global MEP (use final refined images if available)
+        if hasattr(self, 'final_images') and self.final_images:
+            global_images = self.final_images
+            global_energies = self.final_energies
+        else:
+            global_images, global_energies = self._merge_global_mep()
+
         mep_file = base + "_autoneb_global_mep.xyz"
         write_xyz(mep_file, global_images, energies=global_energies)
         log_info([f"\nWrote global MEP to: {mep_file}\n"], self.output)
@@ -949,20 +1172,35 @@ class AutoNEB(JobABC):
                 node.status = 'converged'  # Mark as done even if not fully converged
                 self._print_path_summary(path_id)
 
-        # Final output
+        # Final output before refinement
         log_info([
             "\n" + "=" * 70 + "\n",
-            "AutoNEB Optimization Complete\n",
+            "AutoNEB Tree Optimization Complete\n",
             "=" * 70 + "\n",
             f"Total global iterations: {self.global_iteration}\n",
             f"Total paths: {len(self.path_tree)}\n",
             f"Intermediates found: {len(self.all_intermediates)}\n",
         ], self.output)
 
+        # Merge global MEP
+        global_images, global_energies = self._merge_global_mep()
+
+        # Final global refinement
+        if p.do_final_refine and len(global_images) > 3:
+            log_info([
+                "\n" + "=" * 70 + "\n",
+                "Starting Final Global MEP Refinement\n",
+                "=" * 70 + "\n",
+            ], self.output)
+            global_images, global_energies = self._run_final_refinement(global_images, global_energies)
+
+        # Store final results for output
+        self.final_images = global_images
+        self.final_energies = global_energies
+
         self._write_outputs()
 
         # Print global MEP summary
-        global_images, global_energies = self._merge_global_mep()
         kcal = 627.509
         log_info([
             "\nGlobal MEP Summary:\n",

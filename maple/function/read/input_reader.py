@@ -356,6 +356,9 @@ class InputReader():
             r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*$'
         )
 
+        # Regex for charge and multiplicity line: two integers (charge can be negative)
+        charge_mult_pattern = re.compile(r'^\s*([+-]?\d+)\s+(\d+)\s*$')
+
         info_message = [f'\n{"Coordinates".center(70)}\n', '*' * 70 + '\n']
 
         blocks: List[List[str]] = []
@@ -439,6 +442,22 @@ class InputReader():
                 # Case 3: inline coordinates
                 elements: List[str] = []
                 coords: List[tuple] = []
+                charge = None
+                mult = None
+
+                # Check if first line contains charge and multiplicity
+                if tokens:
+                    first_line_match = charge_mult_pattern.match(tokens[0])
+                    if first_line_match:
+                        charge = int(first_line_match.group(1))
+                        mult = int(first_line_match.group(2))
+                        tokens = tokens[1:]  # Remove charge/mult line from processing
+
+                        # Validate multiplicity
+                        if mult < 1:
+                            raise ValueError(f"Invalid multiplicity: {mult}. Must be >= 1")
+
+                # Parse atomic coordinates
                 for line in tokens:
                     m = atom_pattern.match(line)
                     if not m:
@@ -450,11 +469,22 @@ class InputReader():
                     elements.append(elem)
                     coords.append((x, y, z))
 
+                # Create Atoms object
                 atoms = Atoms(symbols=elements, positions=np.array(coords, dtype=np.float64))
+
+                # Store charge and multiplicity if provided
+                if charge is not None:
+                    atoms.info['charge'] = charge
+                if mult is not None:
+                    atoms.info['mult'] = mult
+                    atoms.info['spin'] = (mult - 1) / 2
+
                 atoms_list.append(atoms)
 
                 group_counter += 1
                 info_message.append(f"\nGroup {group_counter} (inline)\n")
+                if charge is not None and mult is not None:
+                    info_message.append(f"Charge: {charge}, Multiplicity: {mult}\n")
                 info_message.append('-' * 20 + '\n')
                 for i, (e, (x, y, z)) in enumerate(zip(elements, coords), start=1):
                     info_message.append(f"{i:<4} {e:<2} {x:>20.6f} {y:>20.6f} {z:>20.6f}\n")

@@ -62,4 +62,4 @@ def plot_neb_energy(filename, output='neb_energy.png'):
     print(f"\nBarrier: {e_max:.2f} kcal/mol")
 
 if __name__ == '__main__':
-    plot_neb_energy('inp1_autoneb_global_mep.xyz',output='inp1.png')
+    plot_neb_energy('inp2_lup_path.xyz',output='inp2.png')
