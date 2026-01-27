@@ -1,5 +1,5 @@
 #model=ANI-1xnr
-#irc(method=gs,step_length_bohr=0.1)
+#irc(method=hpc,step_length_bohr=0.1)
 #device=gpu0
 
 XYZ /home/user/software/MAPLE/example/ts/neb/inp1_nebts_ts.xyz

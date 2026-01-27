@@ -45,7 +45,7 @@ class CommandControl:
         "ts": {"prfo", "string", "neb", "dimer", "afir", "descafir", "autoneb",},
         "freq": {"mw", "nonmw", "both"},
         "sp": set(),
-        "irc": {"gs"},
+        "irc": {"gs", "hpc", "eulerpc","lqa"},
     }
 
     def __init__(self, params: Dict[str, Any], task: str, output_path: Optional[str] = None):
