@@ -29,6 +29,8 @@ class UMACalculator(FAIRChemCalculator):
         overrides: dict | None = None,
         implicit: Literal["gbsa", "none"] = "gbsa",
         solvent: str = 'none',
+        task: str | None = None,
+        size: str | None = None,
     ):
         """
         Initialize UMA Calculator.
@@ -37,9 +39,28 @@ class UMACalculator(FAIRChemCalculator):
             device (torch.device): Target device ('cuda' or 'cpu').
             model (str): UMA model name or local checkpoint path.
             overrides (dict, optional): Additional inference configuration overrides.
+            implicit (Literal["gbsa", "none"]): Implicit solvent model.
+            solvent (str): Solvent name for GBSA correction.
+            task (str | None): UMA task type (omol, oc20, omat, omc, odac). Default: omol.
+            size (str | None): UMA model size (uma-s-1p1, uma-m-1p1). Default: uma-s-1p1.
         """
-        UMA_MODELS_MAP = {"uma": "uma-s-1p1"}
-        model = UMA_MODELS_MAP.get(model)
+        # Determine model size
+        if size is not None:
+            model_name = size
+        else:
+            # Use default mapping
+            UMA_MODELS_MAP = {
+                "uma-s-1p1": "uma-s-1p1",
+                "uma-m-1p1": "uma-m-1p1",
+                "uma": "uma-s-1p1"  # default
+            }
+            model_name = UMA_MODELS_MAP.get(model, "uma-s-1p1")
+
+        # Determine task name
+        if task is not None:
+            task_name = task
+        else:
+            task_name = "omol"  # default
 
         device = str(device)
         device = "cuda" if device.startswith("cuda") else "cpu"
@@ -48,12 +69,14 @@ class UMACalculator(FAIRChemCalculator):
             raise ImportError("fairchem-core is not installed. Please install it first.")
 
         predictor = pretrained_mlip.get_predict_unit(
-            model,
+            model_name,
             inference_settings="default",
             overrides=overrides,
             device=device,
         )
-        super().__init__(predict_unit=predictor, task_name="omol")
+        super().__init__(predict_unit=predictor, task_name=task_name)
+
+        # Store device for internal use
         self.device = torch.device(device)
         
         if implicit == "gbsa" and solvent != 'none':

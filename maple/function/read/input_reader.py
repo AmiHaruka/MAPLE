@@ -287,7 +287,14 @@ class InputReader():
             params = cc.as_dict()
 
             # Assign key parameters
-            self.model = params.get("model").lower()
+            # Extract model name (handle both string and dict formats)
+            model_val = params.get("model")
+            if isinstance(model_val, dict):
+                self.model = model_val.get('name', '').lower()
+                self.model_params = model_val
+            else:
+                self.model = model_val.lower() if model_val else None
+                self.model_params = None
 
             dev_str: str = params.get("device", "cpu").lower()
 
@@ -307,9 +314,10 @@ class InputReader():
                     self.log_info("\nWARNING: Unrecognized device. Falling back to CPU.\n")
                     self.device = torch.device('cpu')
 
-            
+
             self.d4 = params.get("d4", False)
             self.jobtype = params.get("task")  # ← now replaces jobtype
+            self.pbc = params.get("pbc", None)  # PBC cell dimensions [X, Y, Z]
 
 
             self.log_info([cc.summary()])
@@ -410,15 +418,34 @@ class InputReader():
                         if keyword == 'XYZTRAJ':
                             # Read trajectory file, returns Molecules object
                             molecules_obj = XYZTrajReader(file_path)
+
+                            # Apply PBC to all frames if specified
+                            if self.pbc is not None:
+                                from ase.cell import Cell
+                                for traj_atoms in molecules_obj.multiatoms:
+                                    traj_atoms.set_pbc([True, True, True])
+                                    # PBC format: [a, b, c, alpha, beta, gamma]
+                                    traj_atoms.set_cell(Cell.fromcellpar(self.pbc))
+
                             # Add all frames from the trajectory to atoms_list
                             atoms_list.extend(molecules_obj.multiatoms)
-                            
+
                             group_counter += len(molecules_obj.multiatoms)
                             info_message.append(f"\nLoaded {len(molecules_obj.multiatoms)} frames from trajectory: {file_path}\n")
+                            if self.pbc is not None:
+                                info_message.append(f"PBC applied to trajectory: cell = [{self.pbc[0]:.3f}, {self.pbc[1]:.3f}, {self.pbc[2]:.3f}] Angstrom\n")
                             info_message.append('-' * 20 + '\n')
                         elif keyword == 'XYZ':
                             # Regular XYZ file
                             atoms = XYZReader(file_path)
+
+                            # Apply PBC if specified
+                            if self.pbc is not None:
+                                from ase.cell import Cell
+                                atoms.set_pbc([True, True, True])
+                                # PBC format: [a, b, c, alpha, beta, gamma]
+                                atoms.set_cell(Cell.fromcellpar(self.pbc))
+
                             atoms_list.append(atoms)
 
                         # Multiple structures from multiple files
@@ -478,6 +505,13 @@ class InputReader():
                 if mult is not None:
                     atoms.info['mult'] = mult
                     atoms.info['spin'] = (mult - 1) / 2
+
+                # Apply PBC if specified
+                if self.pbc is not None:
+                    from ase.cell import Cell
+                    atoms.set_pbc([True, True, True])
+                    # PBC format: [a, b, c, alpha, beta, gamma]
+                    atoms.set_cell(Cell.fromcellpar(self.pbc))
 
                 atoms_list.append(atoms)
 

@@ -30,7 +30,8 @@ class SetClaculator():
             atoms: Optional[Atoms] = None,
             d4:bool=False,
             implicit:str = 'None',
-            solvent: str = 'None') -> None:
+            solvent: str = 'None',
+            model_params: Optional[dict] = None) -> None:
         self.output = output
         self.model = model
         self.d4 = d4
@@ -39,6 +40,7 @@ class SetClaculator():
         self.atoms = atoms
         self.implicit = implicit
         self.solvent = solvent
+        self.model_params = model_params
 
     def set_calculator(self) -> ase.calculators.calculator.Calculator:
         if self.model not in IMPLEMENTATION_MODELs:
@@ -59,7 +61,20 @@ class SetClaculator():
                 calculator = AIMNet2Calculator(model=self.model, device=self.device, implicit = self.implicit, solvent = self.solvent)
             elif self.model in ['uma']:
                 from .uma._uma_calculator import UMACalculator
-                calculator = UMACalculator(model=self.model, device=self.device, implicit = self.implicit, solvent = self.solvent)
+                # Extract UMA-specific parameters if model_params exists
+                uma_task = None
+                uma_size = None
+                if self.model_params is not None:
+                    uma_task = self.model_params.get('task', 'omol')
+                    uma_size = self.model_params.get('size', 'uma-s-1p1')
+                calculator = UMACalculator(
+                    model=self.model,
+                    device=self.device,
+                    implicit=self.implicit,
+                    solvent=self.solvent,
+                    task=uma_task,
+                    size=uma_size
+                )
             elif self.model in ['maceomol']:
                 from .mace._mace_general_calculator import MACEModelCalculator
                 calculator = MACEModelCalculator(model=self.model, device=self.device, implicit = self.implicit, solvent = self.solvent)
