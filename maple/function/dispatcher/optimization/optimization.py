@@ -23,6 +23,7 @@ class Optmization(JobABC):
                 from .algorithm import RFO
                 opt = RFO(self.atoms, output=self.output, paras=self.commandcontrol)
                 opt.run()
-            elif self.commandcontrol.get('method').lower() == 'sd':
-                from .algorithm import SD
-                SD(self.atoms, output=self.output)
+            elif self.commandcontrol.get('method', '').lower() in ('sd', 'sdcg', 'cg'):
+                from .algorithm import SDCG
+                opt = SDCG(self.atoms, output=self.output, paras=self.commandcontrol)
+                return opt.run()
