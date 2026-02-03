@@ -1618,7 +1618,7 @@ RMS Displacement:          0.003968     0.002100  No
 
 
 Energy:                 -383.577509 Convergence criteria  Is converged 
-Maximum Force:             0.050113     0.002850  No
+Maximum Force:             0.050114     0.002850  No
 RMS Force:                 0.020164     0.001900  No
 Maximum Displacement:      0.009932     0.003150  No
 RMS Displacement:          0.004002     0.002100  No
@@ -4246,7 +4246,7 @@ RMS Displacement:          0.001131     0.002100  Yes
 
 
 Energy:                 -383.639069 Convergence criteria  Is converged 
-Maximum Force:             0.008394     0.002850  No
+Maximum Force:             0.008393     0.002850  No
 RMS Force:                 0.005500     0.001900  No
 Maximum Displacement:      0.001728     0.003150  Yes
 RMS Displacement:          0.001115     0.002100  Yes
@@ -6145,7 +6145,7 @@ RMS Displacement:          0.000720     0.002100  Yes
 13   H               -1.8634              -1.4562              -1.1033
 14   H               -0.4098               1.5444               1.0500
 15   H               -1.9659               0.9738               1.6046
-16   H                2.8642               0.2545               1.5542
+16   H                2.8641               0.2545               1.5542
 17   H                1.8024               0.6774              -2.0703
 18   H                2.4646              -1.4062               1.0609
 19   H                1.3409              -0.4705               2.0474
@@ -6910,7 +6910,7 @@ RMS Displacement:          0.000651     0.002100  Yes
 
 
 Energy:                 -383.644540 Convergence criteria  Is converged 
-Maximum Force:             0.005796     0.002850  No
+Maximum Force:             0.005795     0.002850  No
 RMS Force:                 0.003226     0.001900  No
 Maximum Displacement:      0.001162     0.003150  Yes
 RMS Displacement:          0.000648     0.002100  Yes
@@ -6960,7 +6960,7 @@ RMS Displacement:          0.000645     0.002100  Yes
 0    C               -0.9107              -0.5151               0.4591
 1    C                1.4015               0.1545              -0.0244
 2    C               -1.2843               0.9448               0.7620
-3    C                2.0651              -0.4036               1.2264
+3    C                2.0651              -0.4036               1.2265
 4    C                2.3621               0.3648              -1.1823
 5    N                0.2612              -0.6840              -0.4050
 6    N               -2.0839              -1.1227              -0.1792
@@ -7162,7 +7162,7 @@ RMS Displacement:          0.000632     0.002100  Yes
 
 
 Energy:                 -383.644851 Convergence criteria  Is converged 
-Maximum Force:             0.005692     0.002850  No
+Maximum Force:             0.005691     0.002850  No
 RMS Force:                 0.003132     0.001900  No
 Maximum Displacement:      0.001141     0.003150  Yes
 RMS Displacement:          0.000629     0.002100  Yes
@@ -7630,7 +7630,7 @@ RMS Displacement:          0.000599     0.002100  Yes
 
 
 Energy:                 -383.645385 Convergence criteria  Is converged 
-Maximum Force:             0.005506     0.002850  No
+Maximum Force:             0.005507     0.002850  No
 RMS Force:                 0.002974     0.001900  No
 Maximum Displacement:      0.001104     0.003150  Yes
 RMS Displacement:          0.000597     0.002100  Yes
@@ -9285,7 +9285,7 @@ RMS Displacement:          0.000511     0.002100  Yes
 21   H                2.9335              -0.5549              -1.4107
 
 
-Energy:                 -383.646915 Convergence criteria  Is converged 
+Energy:                 -383.646914 Convergence criteria  Is converged 
 Maximum Force:             0.004917     0.002850  No
 RMS Force:                 0.002540     0.001900  No
 Maximum Displacement:      0.000986     0.003150  Yes
@@ -9321,7 +9321,7 @@ RMS Displacement:          0.000510     0.002100  Yes
 21   H                2.9335              -0.5549              -1.4107
 
 
-Energy:                 -383.646915 Convergence criteria  Is converged 
+Energy:                 -383.646914 Convergence criteria  Is converged 
 Maximum Force:             0.004917     0.002850  No
 RMS Force:                 0.002540     0.001900  No
 Maximum Displacement:      0.000986     0.003150  Yes
@@ -9332,25 +9332,25 @@ Complete trajectory written to /home/user/software/MAPLE/example/opt/sd/inp_nodi
 
 
 
-Program started: 2026-02-02 22:34:32
+Program started: 2026-02-03 13:16:40
 
 ======================================================================
                       TIMING SUMMARY
 ======================================================================
-Input Reading (×26).................................   0.039 s  (   0.3 %)
-  Settings Parsing (×26)..............................   0.003 s  (   6.8 %)
-  Coordinate Section Parsing (×26)....................   0.005 s  (  12.5 %)
-  Post-Processing Expansion (×26).....................   0.000 s  (   0.3 %)
-MLP Initialization (×26)............................  14.971 s  ( 101.6 %)
-Job Dispatching (×26)............................... 475.137 s  (3223.4 %)
-  Single Point Energy Calculation (×7)................   2.237 s  (   0.5 %)
-  Frequency Calculation (×7)..........................   9.962 s  (   2.1 %)
-  IRC Calculation (×4)................................  21.166 s  (   4.5 %)
-  Optimization (×8)................................... 441.758 s  (  93.0 %)
+Input Reading (×19).................................   0.224 s  (   1.5 %)
+  Settings Parsing (×19)..............................   0.191 s  (  84.9 %)
+  Coordinate Section Parsing (×19)....................   0.004 s  (   1.9 %)
+  Post-Processing Expansion (×19).....................   0.000 s  (   0.0 %)
+MLP Initialization (×19)............................  13.462 s  (  91.2 %)
+Job Dispatching (×19)............................... 430.150 s  (2913.2 %)
+  Frequency Calculation (×6)..........................   1.983 s  (   0.5 %)
+  IRC Calculation (×4)................................  18.715 s  (   4.4 %)
+  Single Point Energy Calculation.....................   1.246 s  (   0.3 %)
+  Optimization (×8)................................... 408.195 s  (  94.9 %)
 ======================================================================
-Total wall time: 14.740 s
-Total CPU time: 303.882 s
+Total wall time: 14.765 s
+Total CPU time: 301.972 s
 ======================================================================
 
-Program ended: 2026-02-02 22:34:46
-TOTAL RUN TIME: 0 days 0 hours 0 minutes 14 seconds 740 msec
+Program ended: 2026-02-03 13:16:55
+TOTAL RUN TIME: 0 days 0 hours 0 minutes 14 seconds 765 msec

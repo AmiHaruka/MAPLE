@@ -16,14 +16,14 @@
 
 Parsing # commands...
 Global parameter: model = uma
-Global nested parameter: md = {'ensemble': 'nve', 'timestep': 1.0, 'steps': 100, 'temperature': 300}
+Global nested parameter: md = {'ensemble': 'nve', 'timestep': 1.0, 'steps': 10, 'temperature': 300}
 Global parameter: device = cpu
 No task specified. Defaulting to 'sp'.
 Parsed configuration:
 ----------------------------------------
 Task: sp
 model          : uma
-md             : {'ensemble': 'nve', 'timestep': 1.0, 'steps': 100, 'temperature': 300}
+md             : {'ensemble': 'nve', 'timestep': 1.0, 'steps': 10, 'temperature': 300}
 device         : cpu
 
                              Coordinates                              
@@ -33,24 +33,24 @@ Energy: -11031.0841371487 Hartree
 
 
 
-Program started: 2026-02-02 22:27:09
+Program started: 2026-02-03 13:09:53
 
 ======================================================================
                       TIMING SUMMARY
 ======================================================================
-Input Reading (×15).................................   0.008 s  (   0.2 %)
-  Settings Parsing (×15)..............................   0.002 s  (  20.9 %)
-  Coordinate Section Parsing (×15)....................   0.003 s  (  39.1 %)
-  Post-Processing Expansion (×15).....................   0.000 s  (   0.4 %)
-MLP Initialization (×15)............................   4.894 s  (  99.8 %)
-Job Dispatching (×15)...............................  33.059 s  ( 673.9 %)
-  Single Point Energy Calculation (×4)................   1.923 s  (   5.8 %)
-  Frequency Calculation (×7)..........................   9.962 s  (  30.1 %)
-  IRC Calculation (×4)................................  21.166 s  (  64.0 %)
+Input Reading (×11).................................   0.195 s  (   4.4 %)
+  Settings Parsing (×11)..............................   0.190 s  (  97.4 %)
+  Coordinate Section Parsing (×11)....................   0.003 s  (   1.5 %)
+  Post-Processing Expansion (×11).....................   0.000 s  (   0.0 %)
+MLP Initialization (×11)............................   4.099 s  (  92.2 %)
+Job Dispatching (×11)...............................  21.953 s  ( 493.8 %)
+  Frequency Calculation (×6)..........................   1.983 s  (   9.0 %)
+  IRC Calculation (×4)................................  18.715 s  (  85.2 %)
+  Single Point Energy Calculation.....................   1.246 s  (   5.7 %)
 ======================================================================
-Total wall time: 4.906 s
-Total CPU time: 42.721 s
+Total wall time: 4.446 s
+Total CPU time: 40.089 s
 ======================================================================
 
-Program ended: 2026-02-02 22:27:14
-TOTAL RUN TIME: 0 days 0 hours 0 minutes 4 seconds 905 msec
+Program ended: 2026-02-03 13:09:58
+TOTAL RUN TIME: 0 days 0 hours 0 minutes 4 seconds 446 msec

@@ -78,13 +78,15 @@ class TransitionState(JobABC):
                 string.run()
                 
             elif self.method == 'dimer':
-                # TODO: Update Dimer to accept Molecules object instead of list
-                if not isinstance(self.atoms, list):
-                    raise ValueError('For Dimer method, you should provide a list of structures.')
                 from .algorithm import Dimer
+                # Dimer takes a single Atoms as TS guess
+                if isinstance(self.atoms, list):
+                    atoms_input = self.atoms[0]
+                else:
+                    atoms_input = self.atoms
                 dimer = Dimer(
                     output=self.output,
-                    atoms_init=self.atoms,
+                    atoms_init=atoms_input,
                     paras=self.params
                 )
                 dimer.run()

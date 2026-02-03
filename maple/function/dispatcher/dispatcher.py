@@ -73,10 +73,10 @@ class Dispatcher():
         elif jobtype == 'ts':
             from .ts import TransitionState
             
-            # TS job allows Molecules object for methods like NEB, STRING, DIMER
+            # TS job allows Molecules object for methods like NEB, STRING
             if isinstance(atoms, (list, Molecules)):
                 method = commandcontrol.params.get('method')
-                if method in ['neb', 'string', 'dimer', 'autoneb']:
+                if method in ['neb', 'string', 'autoneb']:
                     # Convert Molecules to its internal list if needed
                     atoms_input = atoms.multiatoms if isinstance(atoms, Molecules) else atoms
                     ts = TransitionState(output=output, atoms=atoms_input, method=method, params=commandcontrol.params)
