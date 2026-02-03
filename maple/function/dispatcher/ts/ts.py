@@ -89,25 +89,6 @@ class TransitionState(JobABC):
                 )
                 dimer.run()
                 
-            elif self.method == 'afir':
-                from .algorithm import DSAFIR
-                afir = DSAFIR(
-                    output=self.output,
-                    atoms_R=self.atoms[0],
-                    atoms_P=self.atoms[-1],
-                    paras=self.params
-                )
-                afir.run()
-            elif self.method == 'descafir':
-                from .algorithm import DESCAFIR
-                descafir = DESCAFIR(
-                    output=self.output,
-                    atoms_R=self.atoms[0],
-                    atoms_P=self.atoms[-1],
-                    paras=self.params
-                )
-                descafir.run()
-
             elif self.method == 'autoneb':
                 # AutoNEB: automated multi-step reaction pathway exploration
                 if isinstance(self.atoms, Molecules):
