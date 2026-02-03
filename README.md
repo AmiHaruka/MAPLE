@@ -1,4 +1,4 @@
-# MAPLE
+# **MA**chine-learning **P**otential for **L**andscape **E**xploration (**MAPLE**)
 
 **MA**chine Learning **P**otential for **L**andscape **E**xploration
 
