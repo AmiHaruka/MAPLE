@@ -1,0 +1,121 @@
+
+**********************************************************************
+*                                                                    *
+*                        M   A   P   L   E                           *
+*                                                                    *
+*      MAchine-learning Potential for Landscape Exploration          *
+*                                                                    *
+*                                                                    *
+*      © 2025 University of Pittsburgh. All rights reserved.         *
+*      Licensed under CC BY 4.0 for academic use.                    *
+*                                                                    *
+*      Principal Developer:  Xujian Wang                             *
+*                                                                    *
+**********************************************************************
+
+
+Parsing # commands...
+Global parameter: model = uma
+Task set to 'md'
+Global parameter: device = cpu
+Parsed configuration:
+----------------------------------------
+Task: md
+model          : uma
+ensemble       : nve
+timestep       : 1.0
+steps          : 100
+temperature    : 300
+thermostat     : langevin
+friction       : 0.01
+tau_t          : 100.0
+traj_every     : 10
+log_every      : 100
+verbose        : 1
+device         : cpu
+
+                             Coordinates                              
+**********************************************************************
+
+================================================================================
+                               NVE MD PARAMETERS                                
+================================================================================
+Ensemble:           NVE (microcanonical)
+Timestep:           1.000 fs
+Total steps:        100
+Initial temp:       300.00 K
+
+Output frequencies:
+  Log every:        100 steps
+  Traj every:       10 steps
+
+Velocity init:      True
+Remove COM motion:  True
+================================================================================
+
+Initializing velocities at 300.00 K...
+Initial temperature: 353.71 K
+
+================================================================================
+                                 MD SIMULATION                                  
+================================================================================
+Ensemble:        NVE
+Timestep:        1.000 fs
+Total steps:     100
+Simulation time: 100.00 fs
+
+System:
+  Atoms:         245
+  Formula:       Cu180O65
+  Charge:        0
+  Multiplicity:  1
+
+================================================================================
+
+Starting NVE simulation...
+
+Step    100 | Time:   100.00 fs | T: 1063.82 K | E: -11029.881386 Ha
+
+================================================================================
+                            MD SIMULATION COMPLETED                             
+================================================================================
+
+Energy Statistics:
+  Mean total energy:     -11029.94980337 Hartree
+  Std deviation:              0.29087878 Hartree
+  Energy drift:               0.79191870 Hartree
+  Relative drift:            0.007180 %
+
+Temperature Statistics:
+  Mean temperature:              1002.53 K
+  Std deviation:                  260.54 K
+
+Output Files:
+  Thermodynamics:        inp1_md_thermo.dat
+  Trajectory:            inp1_md_traj.xyz
+  Summary:               inp1_md_summary.txt
+================================================================================
+
+NVE simulation completed successfully.
+
+
+
+Program started: 2026-01-30 21:52:32
+
+======================================================================
+                      TIMING SUMMARY
+======================================================================
+Input Reading.......................................   0.001 s  (   0.0 %)
+  Settings Parsing....................................   0.000 s  (  15.1 %)
+  Coordinate Section Parsing..........................   0.001 s  (  54.4 %)
+  Post-Processing Expansion...........................   0.000 s  (   0.3 %)
+MLP Initialization..................................   3.004 s  (   1.9 %)
+Job Dispatching..................................... 155.595 s  (  98.1 %)
+  MD Simulation (NVE)................................. 155.591 s  ( 100.0 %)
+======================================================================
+Total wall time: 158.600 s
+Total CPU time: 3730.080 s
+======================================================================
+
+Program ended: 2026-01-30 21:55:11
+TOTAL RUN TIME: 0 days 0 hours 2 minutes 38 seconds 599 msec
