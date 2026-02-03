@@ -1,11 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Intrinsic Reaction Coordinate (IRC) integrator using Gonzalez–Schlegel (GS) scheme:
+Intrinsic Reaction Coordinate (IRC) integrator using Local Quadratic Approximation (LQA):
 
 - Mass-weighted coordinates and Hessian
-- Pivot step + constrained optimization on a hypersphere
-- Micro-cycles using a (quasi-)Newton step with a Lagrange multiplier λ
-  to enforce |p|^2 = (step_length/2)^2 in mass-weighted space
+- One LQA propagation step per macro step
 - Hessian updated by BFGS/Bofill (optional periodic full recalculation)
 - Forward and backward paths from the TS geometry, starting along the
   lowest negative eigenmode of the mass-weighted Hessian
@@ -106,20 +104,19 @@ def _unit(v: np.ndarray, eps: float = 1e-16) -> np.ndarray:
 
 # =============================== Parameters ===============================
 @dataclass
-class GSParams:
+class LQAParams:
     # Which negative eigenmode (1 = most negative) to use for initial direction
     target_mode: int = 1
 
-    # GS macro step length in mass-weighted coordinates (same units as q_mw)
+    # LQA step length in unweighted coordinates (Å).
     # User-facing name kept in "Bohr" for compatibility with old inputs.
     step_length_bohr: float = 0.10
 
     # Number of macro steps per direction
     max_steps: int = 50
 
-    # Micro-cycle controls
-    max_micro_cycles: int = 20
-    micro_step_thresh: float = 1e-3
+    # Euler integration sub-steps to estimate the LQA propagation parameter
+    n_euler: int = 5000
 
     # Recalculate Hessian every N micro-steps (None = never)
     hessian_recalc: Optional[int] = None
@@ -136,34 +133,32 @@ class GSParams:
     write_traj: bool = True
 
 
-# ================================== GS ===================================
-class GS:
+# ================================== LQA ===================================
+class LQA:
     """
-    Gonzalez–Schlegel IRC integrator:
+    Local quadratic approximation IRC integrator:
 
     - Works in mass-weighted coordinates.
-    - Each macro step:
-        pivot half-step along negative gradient,
-        then constrained optimization on a hypersphere via micro-cycles.
-    - Uses BFGS/Bofill updates of the mass-weighted Hessian, with optional
-      periodic full recalculation.
+    - Each macro step uses a local quadratic approximation.
+    - Uses BFGS/Bofill updates of the mass-weighted Hessian, with optional periodic
+      full recalculation.
     - Integrates forward and backward from the TS along the lowest
       negative eigenmode of H_mw, then merges paths.
     """
 
     def __init__(self, atoms: Atoms, output: str,
-                 params: Optional[GSParams] = None,
+                 params: Optional[LQAParams] = None,
                  paras: Optional[dict] = None):
         self.atoms = atoms
         self.output = output
-        self.p = params if params is not None else GSParams()
+        self.p = params if params is not None else LQAParams()
 
-        # Parse optional dict overrides, supporting both {"gs": {...}}
+        # Parse optional dict overrides, supporting both {"lqa": {...}}
         # and flat dict style. Keep backward compatibility aliases.
         if isinstance(paras, dict):
             low = {k.lower(): v for k, v in paras.items()}
             sub = None
-            for key in ("gs", "irc"):
+            for key in ("lqa", "irc"):
                 if key in low and isinstance(low[key], dict):
                     sub = low[key]
                     break
@@ -177,8 +172,9 @@ class GS:
                 "steplength_bohr": "step_length_bohr",
                 "max_points": "max_steps",
                 "hessian_update": "hessian_update",
-                "max_micro_cycles": "max_micro_cycles",
-                "micro_step_thresh": "micro_step_thresh",
+                "n_euler": "n_euler",
+                "neuler": "n_euler",
+                "euler_steps": "n_euler",
                 "hessian_recalc": "hessian_recalc",
                 "target_mode": "target_mode",
                 "f_max_th": "f_max_th",
@@ -195,24 +191,20 @@ class GS:
                 elif hasattr(self.p, k):
                     setattr(self.p, k, v)
 
-        # Internal state for GS integration
+        # Internal state for LQA integration
         self._D: Optional[np.ndarray] = None  # mass-weight scaling vector
-        self._step_len_mw: float = float(self.p.step_length_bohr)
+        self._step_len_umw: float = float(self.p.step_length_bohr)
 
         self.mw_coords: Optional[np.ndarray] = None
         self.mw_hessian: Optional[np.ndarray] = None
         self.prev_coords: Optional[np.ndarray] = None
         self.prev_grad: Optional[np.ndarray] = None
-        self.displacement: Optional[np.ndarray] = None
-
-        self.pivot_coords: List[np.ndarray] = []
-        self.micro_coords: List[np.ndarray] = []
         self.micro_counter: int = 0
 
     # ------------------------------ Public API ------------------------------
     def run(self) -> Dict[str, any]:
         """
-        Compute forward and backward GS IRC paths and produce a merged summary.
+        Compute forward and backward LQA IRC paths and produce a merged summary.
 
         Returns:
             {
@@ -223,7 +215,7 @@ class GS:
         """
         # Prepare mass weights once at TS geometry
         self._D = masses_D(self.atoms)
-        self._step_len_mw = float(self.p.step_length_bohr)
+        self._step_len_umw = float(self.p.step_length_bohr)
 
         # Diagonalize mass-weighted Hessian at TS to get negative mode
         H_cart_ts = self._get_hessian_cart()
@@ -233,19 +225,19 @@ class GS:
         neg_idx = np.where(w < 0.0)[0]
         if len(neg_idx) == 0:
             log_error(
-                ["[ERROR] GS-IRC: No negative eigenvalues found — "
+                ["[ERROR] LQA-IRC: No negative eigenvalues found — "
                  "starting geometry is not a saddle point.\n"],
                 self.output,
             )
-            raise RuntimeError("GS-IRC: no negative eigenvalues at TS.")
+            raise RuntimeError("LQA-IRC: no negative eigenvalues at TS.")
 
         if len(neg_idx) < self.p.target_mode:
             log_error(
-                [f"[ERROR] GS-IRC: Requested mode {self.p.target_mode}, "
+                [f"[ERROR] LQA-IRC: Requested mode {self.p.target_mode}, "
                  f"but only {len(neg_idx)} negative modes found.\n"],
                 self.output,
             )
-            raise RuntimeError("GS-IRC: requested negative mode does not exist.")
+            raise RuntimeError("LQA-IRC: requested negative mode does not exist.")
 
         sorted_neg = neg_idx[np.argsort(w[neg_idx])]  # most negative first
         idx = sorted_neg[self.p.target_mode - 1]
@@ -254,7 +246,7 @@ class GS:
 
         log_info(
             [
-                "\n[INFO] GS-IRC: Selected negative eigenmode "
+                "\n[INFO] LQA-IRC: Selected negative eigenmode "
                 f"#{self.p.target_mode} with λ = {eigval:.6e} (MW basis)\n"
             ],
             self.output,
@@ -266,7 +258,7 @@ class GS:
         # Store original TS Cartesian positions, reused for both directions
         R_ts_cart = self.atoms.get_positions().copy().reshape(-1)
 
-        # Forward and backward GS-IRC
+        # Forward and backward LQA-IRC
         forward_log = self._one_side(
             forward=True,
             sign=+1.0,
@@ -297,6 +289,17 @@ class GS:
     def _mw_from_cart(self, q_cart: np.ndarray) -> np.ndarray:
         """Convert Cartesian coordinates (Å) to mass-weighted coordinates."""
         return (q_cart / self._D).reshape(-1)
+
+    def _unweight_len(self, dq_mw: np.ndarray) -> float:
+        """Return unweighted length of a MW displacement."""
+        return _norm(dq_mw * self._D)
+
+    def _scale_mw_step(self, direction_mw: np.ndarray, step_umw: float) -> np.ndarray:
+        """Scale a MW direction to a target unweighted step length."""
+        denom = self._unweight_len(direction_mw)
+        if denom <= 1e-16:
+            return np.zeros_like(direction_mw)
+        return direction_mw * (step_umw / denom)
 
     def _get_hessian_cart(self) -> np.ndarray:
         """
@@ -413,31 +416,29 @@ class GS:
             lam -= f / df
         return lam
 
-    # --------------------------- Micro-step (GS) ----------------------------
+    # --------------------------- Micro-step (LQA) ----------------------------
     def _micro_step(self) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Perform one GS micro-step (constrained optimization on hypersphere).
+        Perform one LQA propagation step in mass-weighted coordinates.
 
         Updates:
             self.mw_coords, self.mw_hessian, self.prev_coords,
-            self.prev_grad, self.displacement, self.micro_counter
+            self.prev_grad, self.micro_counter
 
         Returns:
-            dx: MW displacement for this micro-step
-            g_tan: gradient tangent to the hypersphere (MW)
+            dx: MW displacement for this step
+            g_curr: current MW gradient (for diagnostics)
         """
-        # Gradient at current coordinates (MW)
+        # Current gradient at MW coordinates
         _, F_cart = self._energy_forces_from_mw(self.mw_coords)
-        gradient = self._gradient_mw_from_forces(F_cart)
+        g_curr = self._gradient_mw_from_forces(F_cart)
+        g_norm = _norm(g_curr)
+        if g_norm < 1e-12:
+            return np.zeros_like(g_curr), g_curr
 
-        # BFGS update (or optional full Hessian recalculation)
-        gradient_diff = gradient - self.prev_grad
-        coords_diff = self.mw_coords - self.prev_coords
+        coords_curr = self.mw_coords.copy()
 
-        # Update "previous" values
-        self.prev_coords = self.mw_coords.copy()
-        self.prev_grad = gradient.copy()
-
+        # Update Hessian (or optionally recalc)
         recalc = (
             self.p.hessian_recalc is not None
             and self.p.hessian_recalc > 0
@@ -446,56 +447,46 @@ class GS:
         if recalc and self.micro_counter > 0:
             H_cart = self._get_hessian_cart()
             self.mw_hessian = (self._D[:, None] * H_cart) * self._D[None, :]
-        else:
+        elif (self.prev_coords is not None) and (self.prev_grad is not None):
+            gradient_diff = g_curr - self.prev_grad
+            coords_diff = coords_curr - self.prev_coords
             if str(self.p.hessian_update).lower() == "bofill":
                 self.mw_hessian = self._bofill_update(self.mw_hessian, coords_diff, gradient_diff)
             else:
                 self.mw_hessian = self._bfgs_update(self.mw_hessian, coords_diff, gradient_diff)
+
+        # Store for next update
+        self.prev_coords = coords_curr
+        self.prev_grad = g_curr
+
+        # LQA propagation (Eigen-decomposition of MW Hessian)
         eigvals, eigvecs = np.linalg.eigh(self.mw_hessian)
-
-        # Constraint radius in MW space (half of the macro step length)
-        constraint = (0.5 * self._step_len_mw) ** 2
-
         mask = np.abs(eigvals) > 1e-8
-        big_eigvals = eigvals[mask]
-        big_eigvecs = eigvecs[:, mask]
+        if not np.any(mask):
+            return np.zeros_like(g_curr), g_curr
 
-        if big_eigvals.size == 0:
-            # Fallback: no "big" eigenvalues; skip constrained step
-            dx = np.zeros_like(self.mw_coords)
-            g_tan = np.zeros_like(self.mw_coords)
-            return dx, g_tan
+        eigvals = eigvals[mask]
+        eigvecs = eigvecs[:, mask]
 
-        grad_star = big_eigvecs.T.dot(gradient)
-        displ_star = big_eigvecs.T.dot(self.displacement)
+        g_star = eigvecs.T.dot(g_curr)
 
-        def get_dx(lambda_):
-            """Return dx in eigenbasis for a given λ."""
-            return -(grad_star - lambda_ * displ_star) / (big_eigvals - lambda_)
+        dt = self._step_len_umw / (float(self.p.n_euler) * g_norm)
+        t = dt
+        cur_length = 0.0
+        for _ in range(int(self.p.n_euler)):
+            dsdt = np.sqrt(np.sum((g_star ** 2) * np.exp(-2.0 * eigvals * t)))
+            cur_length += dsdt * dt
+            if cur_length >= self._step_len_umw:
+                break
+            t += dt
 
-        def on_sphere(lambda_):
-            p = displ_star + get_dx(lambda_)
-            return p.dot(p) - constraint
+        alphas = (np.exp(-eigvals * t) - 1.0) / eigvals
+        dx = eigvecs.dot(alphas * g_star)
 
-        # Initial guess for λ: scaled smallest eigenvalue
-        lambda_0 = float(big_eigvals[0])
-        lambda_0 *= 1.5 if (lambda_0 < 0.0) else 0.5
-
-        lambda_opt = self._newton_1d(on_sphere, lambda_0, maxiter=50, tol=1e-10)
-
-        dx_star = get_dx(lambda_opt)
-        dx = big_eigvecs.dot(dx_star)
-
-        # Update MW displacement and coordinates
-        self.displacement += dx
-        self.mw_coords += dx
-
-        # Gradient tangent to the sphere (MW)
-        g_tan = self._perp_component(gradient, self.displacement)
-
+        self.mw_coords = self.mw_coords + dx
         self.micro_counter += 1
 
-        return dx, g_tan
+        return dx, g_curr
 
     # --------------------------- One direction ------------------------------
     def _one_side(self,
@@ -505,7 +496,7 @@ class GS:
                   v_neg_mw: np.ndarray,
                   E_ts: float) -> Dict[str, any]:
         """
-        Single-sided GS IRC integration.
+        Single-sided LQA IRC integration.
 
         Args:
             forward: True for forward path, False for backward.
@@ -515,7 +506,7 @@ class GS:
             E_ts: TS reference energy (Eh).
         """
         p = self.p
-        title = "FORWARD GS-IRC" if forward else "BACKWARD GS-IRC"
+        title = "FORWARD LQA-IRC" if forward else "BACKWARD LQA-IRC"
 
         self._print_header(title)
         self._print_conv_thresholds(p.f_max_th, p.f_rms_th)
@@ -525,7 +516,7 @@ class GS:
 
         # Initial displacement along negative mode in MW
         v_dir = _unit(v_neg_mw) * sign
-        q0_mw = q_ts_mw + 0.5 * self._step_len_mw * v_dir
+        q0_mw = q_ts_mw + self._scale_mw_step(v_dir, 0.5 * self._step_len_umw)
 
         # Initial energy / forces / gradient at starting point
         E0, F0_cart = self._energy_forces_from_mw(q0_mw)
@@ -538,15 +529,12 @@ class GS:
         H0_cart = self._get_hessian_cart()
         H0_mw = (self._D[:, None] * H0_cart) * self._D[None, :]
 
-        # Initialize GS state
+        # Initialize LQA state
         self.mw_coords = q0_mw.copy()
         self.mw_hessian = H0_mw.copy()
-        self.prev_coords = q0_mw.copy()
-        self.prev_grad = g0_mw.copy()
-        self.displacement = np.zeros_like(q0_mw)
+        self.prev_coords = None
+        self.prev_grad = None
         self.micro_counter = 0
-        self.pivot_coords = []
-        self.micro_coords = []
 
         # Iteration 0 logging
         if p.print_each:
@@ -564,47 +552,15 @@ class GS:
 
         # Macro steps
         for it in range(1, p.max_steps + 1):
-            # Anchor gradient at current MW coordinates
-            E_anchor, F_anchor = self._energy_forces_from_mw(self.mw_coords)
-            g_anchor_mw = self._gradient_mw_from_forces(F_anchor)
-            g_norm = _norm(g_anchor_mw)
-
-            if g_norm < 1e-12:
+            dx, _ = self._micro_step()
+            if _norm(dx) <= 1e-12:
                 log_info(
-                    [f"[INFO] {title}: gradient norm ~ 0 at step {it}, stopping.\n"],
+                    [f"[INFO] {title}: step too small at step {it}, stopping.\n"],
                     self.output,
                 )
                 break
 
-            # For BFGS in first micro-cycle
-            self.prev_coords = self.mw_coords.copy()
-            self.prev_grad = g_anchor_mw.copy()
-
-            # Pivot half-step in MW space: move downhill along -gradient
-            pivot_step = -0.5 * self._step_len_mw * g_anchor_mw / g_norm
-            pivot_coords = self.mw_coords + pivot_step
-            self.pivot_coords.append(pivot_coords.copy())
-
-            # Initial guess for new point: another half-step from the pivot
-            self.mw_coords = pivot_coords + pivot_step
-            self.displacement = pivot_step.copy()
-
-            # Micro-cycles on hypersphere
-            micro_coords_side: List[np.ndarray] = []
-            for i_micro in range(p.max_micro_cycles):
-                dx, _ = self._micro_step()
-                micro_coords_side.append(self.mw_coords.copy())
-                if _norm(dx) <= p.micro_step_thresh:
-                    break
-            else:
-                log_info(
-                    [f"[WARNING] {title}: max micro cycles exceeded at macro step {it}.\n"],
-                    self.output,
-                )
-
-            self.micro_coords.append(np.array(micro_coords_side))
-
-            # Final energy / forces at new point
+            # Energy / forces at new point
             E_new, F_new = self._energy_forces_from_mw(self.mw_coords)
             maxF = float(np.max(np.abs(F_new)))
             rmsF = float(np.sqrt(np.mean(F_new ** 2)))
@@ -632,8 +588,8 @@ class GS:
     def _merge_and_mark_ts(self, f: Dict, b: Dict) -> Dict:
         fR, bR = f["records"], b["records"]
         if not fR or not bR:
-            log_error(["[ERROR] GS-IRC: One path side is empty.\n"], self.output)
-            raise RuntimeError("GS-IRC: one path side is empty.")
+            log_error(["[ERROR] LQA-IRC: One path side is empty.\n"], self.output)
+            raise RuntimeError("LQA-IRC: one path side is empty.")
 
         Ef_end, Eb_end = fR[-1]["E"], bR[-1]["E"]
         if Ef_end <= Eb_end:
@@ -656,7 +612,7 @@ class GS:
         log_info(
             [
                 "\n---------------------------------------------------------------\n",
-                "                       GS-IRC PATH SUMMARY           \n",
+                "                       LQA-IRC PATH SUMMARY           \n",
                 "---------------------------------------------------------------\n",
                 "All forces are in Eh/Å.\n\n",
                 "Step        E(Eh)      dE(kcal/mol)  max(|G|)   RMS(G) \n",
@@ -715,9 +671,9 @@ class GS:
 
         log_info(
             [
-                f"\n[INFO] GS-IRC forward trajectory written to: {fwd_path}\n",
-                f"[INFO] GS-IRC backward trajectory written to: {bwd_path}\n",
-                f"[INFO] GS-IRC full trajectory written to: {full_path}\n",
+                f"\n[INFO] LQA-IRC forward trajectory written to: {fwd_path}\n",
+                f"[INFO] LQA-IRC backward trajectory written to: {bwd_path}\n",
+                f"[INFO] LQA-IRC full trajectory written to: {full_path}\n",
             ],
             self.output,
         )
@@ -757,7 +713,7 @@ class GS:
         log_info(
             [
                 "\n                      *************************************************\n",
-                "                      ***          THE GS-IRC HAS CONVERGED        ***\n",
+                "                      ***          THE LQA-IRC HAS CONVERGED        ***\n",
                 "                      *************************************************\n\n",
             ],
             self.output,

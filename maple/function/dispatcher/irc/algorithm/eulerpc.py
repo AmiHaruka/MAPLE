@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Intrinsic Reaction Coordinate (IRC) integrator using Gonzalez–Schlegel (GS) scheme:
+Intrinsic Reaction Coordinate (IRC) integrator using Euler integration with a Hessian-based Predictor-Corrector(EulerPC):
 
 - Mass-weighted coordinates and Hessian
-- Pivot step + constrained optimization on a hypersphere
-- Micro-cycles using a (quasi-)Newton step with a Lagrange multiplier λ
-  to enforce |p|^2 = (step_length/2)^2 in mass-weighted space
+- Predictor Euler integration with a Hessian-based gradient model
+- DWI surface fitting and mBS (modified Bulirsch–Stoer) corrector integration
 - Hessian updated by BFGS/Bofill (optional periodic full recalculation)
 - Forward and backward paths from the TS geometry, starting along the
   lowest negative eigenmode of the mass-weighted Hessian
@@ -20,6 +19,7 @@ Units:
 """
 
 import os
+from collections import deque
 from dataclasses import dataclass, fields
 from typing import List, Optional, Dict, Tuple
 
@@ -104,28 +104,118 @@ def _unit(v: np.ndarray, eps: float = 1e-16) -> np.ndarray:
     return v / n
 
 
+def _taylor_energy(energy: float, gradient: np.ndarray, hessian: np.ndarray, step: np.ndarray) -> float:
+    """Second-order Taylor energy expansion."""
+    return float(energy + step @ gradient + 0.5 * step @ hessian @ step)
+
+
+def _taylor_grad(gradient: np.ndarray, hessian: np.ndarray, step: np.ndarray) -> np.ndarray:
+    """Gradient of the second-order Taylor expansion."""
+    return gradient + hessian @ step
+
+
+class DWI:
+    """
+    Distance-weighted interpolation (DWI) of a local quadratic PES.
+    Keeps the most recent two points (coords, energy, gradient, hessian).
+    """
+
+    def __init__(self, n: int = 4, maxlen: int = 2):
+        self.n = int(n)
+        if self.n <= 0 or (self.n % 2) != 0:
+            raise ValueError("DWI n must be a positive even integer.")
+        self.maxlen = int(maxlen)
+        if self.maxlen != 2:
+            raise ValueError("DWI currently supports maxlen=2 only.")
+
+        self.coords = deque(maxlen=self.maxlen)
+        self.energies = deque(maxlen=self.maxlen)
+        self.gradients = deque(maxlen=self.maxlen)
+        self.hessians = deque(maxlen=self.maxlen)
+
+    def update(self, coords: np.ndarray, energy: float, gradient: np.ndarray, hessian: np.ndarray) -> None:
+        self.coords.append(coords)
+        self.energies.append(float(energy))
+        self.gradients.append(gradient)
+        self.hessians.append(hessian)
+
+        if not (len(self.coords) == len(self.energies) == len(self.gradients) == len(self.hessians)):
+            raise RuntimeError("DWI internal buffers are inconsistent.")
+
+    def interpolate(self, at_coords: np.ndarray, gradient: bool = False):
+        """Distance-weighted interpolation of energy (and optionally gradient)."""
+        if len(self.coords) < 2:
+            raise RuntimeError("DWI requires two points before interpolation.")
+
+        c1, c2 = self.coords
+        dx1 = at_coords - c1
+        dx2 = at_coords - c2
+
+        dx1_norm = _norm(dx1)
+        dx2_norm = _norm(dx2)
+        dx1_norm_n = dx1_norm ** self.n
+        dx2_norm_n = dx2_norm ** self.n
+
+        denom = dx1_norm_n + dx2_norm_n
+        if denom <= 0.0:
+            raise RuntimeError("DWI interpolation denominator is zero.")
+
+        w1 = dx2_norm_n / denom
+        w2 = dx1_norm_n / denom
+
+        e1, e2 = self.energies
+        g1, g2 = self.gradients
+        h1, h2 = self.hessians
+
+        t1 = _taylor_energy(e1, g1, h1, dx1)
+        t2 = _taylor_energy(e2, g2, h2, dx2)
+        e_dwi = w1 * t1 + w2 * t2
+
+        if not gradient:
+            return e_dwi
+
+        t1_grad = _taylor_grad(g1, h1, dx1)
+        t2_grad = _taylor_grad(g2, h2, dx2)
+
+        n_2 = self.n // 2
+        dx1_norm_n_grad = 2 * n_2 * (dx1_norm ** (2 * n_2 - 2)) * dx1
+        dx2_norm_n_grad = 2 * n_2 * (dx2_norm ** (2 * n_2 - 2)) * dx2
+        w1_grad = (dx2_norm_n_grad * dx1_norm_n - dx1_norm_n_grad * dx2_norm_n) / (denom ** 2)
+        w2_grad = -w1_grad
+
+        g_dwi = w1_grad * t1 + w1 * t1_grad + w2_grad * t2 + w2 * t2_grad
+        return e_dwi, g_dwi
+
+
 # =============================== Parameters ===============================
 @dataclass
-class GSParams:
+class EulerPCParams:
     # Which negative eigenmode (1 = most negative) to use for initial direction
     target_mode: int = 1
 
-    # GS macro step length in mass-weighted coordinates (same units as q_mw)
+    # EulerPC step length in unweighted coordinates (Å).
     # User-facing name kept in "Bohr" for compatibility with old inputs.
     step_length_bohr: float = 0.10
 
     # Number of macro steps per direction
     max_steps: int = 50
 
-    # Micro-cycle controls
-    max_micro_cycles: int = 20
-    micro_step_thresh: float = 1e-3
+    # Predictor Euler integration sub-steps
+    max_pred_steps: int = 500
+    loose_cycles: int = 3
 
     # Recalculate Hessian every N micro-steps (None = never)
     hessian_recalc: Optional[int] = None
 
     # Hessian update method: "bfgs" or "bofill"
     hessian_update: str = "bofill"
+
+    # DWI / mBS corrector controls
+    dwi_n: int = 4
+    dwi_maxlen: int = 2
+    mbs_max_k: int = 15
+    mbs_points: int = 20
+    mbs_tol: float = 1e-5
 
     # Convergence on forces in Cartesian space (Eh/Å)
     f_max_th: float = 2e-3
@@ -136,15 +226,14 @@ class GSParams:
     write_traj: bool = True
 
 
-# ================================== GS ===================================
-class GS:
+# ================================== EulerPC ===================================
+class EulerPC:
     """
-    Gonzalez–Schlegel IRC integrator:
+    Euler integration with a Hessian-based Predictor-Corrector:
 
     - Works in mass-weighted coordinates.
-    - Each macro step:
-        pivot half-step along negative gradient,
-        then constrained optimization on a hypersphere via micro-cycles.
+    - Each macro step uses Euler predictor integration followed by a
+      simple corrector update based on the new gradient direction.
     - Uses BFGS/Bofill updates of the mass-weighted Hessian, with optional
       periodic full recalculation.
     - Integrates forward and backward from the TS along the lowest
@@ -152,18 +241,18 @@ class GS:
     """
 
     def __init__(self, atoms: Atoms, output: str,
-                 params: Optional[GSParams] = None,
+                 params: Optional[EulerPCParams] = None,
                  paras: Optional[dict] = None):
         self.atoms = atoms
         self.output = output
-        self.p = params if params is not None else GSParams()
+        self.p = params if params is not None else EulerPCParams()
 
-        # Parse optional dict overrides, supporting both {"gs": {...}}
+        # Parse optional dict overrides, supporting both {"EulerPC": {...}}
         # and flat dict style. Keep backward compatibility aliases.
         if isinstance(paras, dict):
             low = {k.lower(): v for k, v in paras.items()}
             sub = None
-            for key in ("gs", "irc"):
+            for key in ("EulerPC", "irc"):
                 if key in low and isinstance(low[key], dict):
                     sub = low[key]
                     break
@@ -176,9 +265,16 @@ class GS:
                 "sd_len_bohr": "step_length_bohr",
                 "steplength_bohr": "step_length_bohr",
                 "max_points": "max_steps",
+                "max_pred_steps": "max_pred_steps",
+                "pred_steps": "max_pred_steps",
+                "n_pred_steps": "max_pred_steps",
+                "loose_cycles": "loose_cycles",
                 "hessian_update": "hessian_update",
-                "max_micro_cycles": "max_micro_cycles",
-                "micro_step_thresh": "micro_step_thresh",
+                "dwi_n": "dwi_n",
+                "dwi_maxlen": "dwi_maxlen",
+                "mbs_max_k": "mbs_max_k",
+                "mbs_points": "mbs_points",
+                "mbs_tol": "mbs_tol",
                 "hessian_recalc": "hessian_recalc",
                 "target_mode": "target_mode",
                 "f_max_th": "f_max_th",
@@ -195,24 +291,23 @@ class GS:
                 elif hasattr(self.p, k):
                     setattr(self.p, k, v)
 
-        # Internal state for GS integration
+        # Internal state for EulerPC integration
         self._D: Optional[np.ndarray] = None  # mass-weight scaling vector
-        self._step_len_mw: float = float(self.p.step_length_bohr)
+        self._step_len_umw: float = float(self.p.step_length_bohr)
 
         self.mw_coords: Optional[np.ndarray] = None
         self.mw_hessian: Optional[np.ndarray] = None
         self.prev_coords: Optional[np.ndarray] = None
         self.prev_grad: Optional[np.ndarray] = None
-        self.displacement: Optional[np.ndarray] = None
-
-        self.pivot_coords: List[np.ndarray] = []
-        self.micro_coords: List[np.ndarray] = []
         self.micro_counter: int = 0
+        self._dwi: Optional[DWI] = None
+        self.cur_cycle: int = 0
+        self._early_converged: bool = False
 
     # ------------------------------ Public API ------------------------------
     def run(self) -> Dict[str, any]:
         """
-        Compute forward and backward GS IRC paths and produce a merged summary.
+        Compute forward and backward EulerPC IRC paths and produce a merged summary.
 
         Returns:
             {
@@ -223,7 +318,7 @@ class GS:
         """
         # Prepare mass weights once at TS geometry
         self._D = masses_D(self.atoms)
-        self._step_len_mw = float(self.p.step_length_bohr)
+        self._step_len_umw = float(self.p.step_length_bohr)
 
         # Diagonalize mass-weighted Hessian at TS to get negative mode
         H_cart_ts = self._get_hessian_cart()
@@ -233,19 +328,19 @@ class GS:
         neg_idx = np.where(w < 0.0)[0]
         if len(neg_idx) == 0:
             log_error(
-                ["[ERROR] GS-IRC: No negative eigenvalues found — "
+                ["[ERROR] EulerPC-IRC: No negative eigenvalues found — "
                  "starting geometry is not a saddle point.\n"],
                 self.output,
             )
-            raise RuntimeError("GS-IRC: no negative eigenvalues at TS.")
+            raise RuntimeError("EulerPC-IRC: no negative eigenvalues at TS.")
 
         if len(neg_idx) < self.p.target_mode:
             log_error(
-                [f"[ERROR] GS-IRC: Requested mode {self.p.target_mode}, "
+                [f"[ERROR] EulerPC-IRC: Requested mode {self.p.target_mode}, "
                  f"but only {len(neg_idx)} negative modes found.\n"],
                 self.output,
             )
-            raise RuntimeError("GS-IRC: requested negative mode does not exist.")
+            raise RuntimeError("EulerPC-IRC: requested negative mode does not exist.")
 
         sorted_neg = neg_idx[np.argsort(w[neg_idx])]  # most negative first
         idx = sorted_neg[self.p.target_mode - 1]
@@ -254,7 +349,7 @@ class GS:
 
         log_info(
             [
-                "\n[INFO] GS-IRC: Selected negative eigenmode "
+                "\n[INFO] EulerPC-IRC: Selected negative eigenmode "
                 f"#{self.p.target_mode} with λ = {eigval:.6e} (MW basis)\n"
             ],
             self.output,
@@ -266,7 +361,7 @@ class GS:
         # Store original TS Cartesian positions, reused for both directions
         R_ts_cart = self.atoms.get_positions().copy().reshape(-1)
 
-        # Forward and backward GS-IRC
+        # Forward and backward EulerPC-IRC
         forward_log = self._one_side(
             forward=True,
             sign=+1.0,
@@ -297,6 +392,29 @@ class GS:
     def _mw_from_cart(self, q_cart: np.ndarray) -> np.ndarray:
         """Convert Cartesian coordinates (Å) to mass-weighted coordinates."""
         return (q_cart / self._D).reshape(-1)
+
+    def _unweight_len(self, dq_mw: np.ndarray) -> float:
+        """Return unweighted length of a MW displacement."""
+        return _norm(dq_mw * self._D)
+
+    def _scale_mw_step(self, direction_mw: np.ndarray, step_umw: float) -> np.ndarray:
+        """Scale a MW direction to a target unweighted step length."""
+        denom = self._unweight_len(direction_mw)
+        if denom <= 1e-16:
+            return np.zeros_like(direction_mw)
+        return direction_mw * (step_umw / denom)
+
+    def _unweight_grad(self, g_mw: np.ndarray) -> np.ndarray:
+        """Convert MW gradient to Cartesian gradient."""
+        return g_mw / self._D
+
+    def _get_conv_fact(self, g_mw: np.ndarray, min_fact: float = 2.0) -> float:
+        """Estimate MW-to-unweighted conversion factor for step length."""
+        norm_mw = _norm(g_mw)
+        if norm_mw <= 1e-16:
+            return min_fact
+        norm_cart = _norm(self._unweight_grad(g_mw))
+        return max(min_fact, norm_cart / norm_mw)
 
     def _get_hessian_cart(self) -> np.ndarray:
         """
@@ -413,31 +531,28 @@ class GS:
             lam -= f / df
         return lam
 
-    # --------------------------- Micro-step (GS) ----------------------------
+    # --------------------------- Micro-step (EulerPC) ----------------------------
     def _micro_step(self) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Perform one GS micro-step (constrained optimization on hypersphere).
+        Perform one EulerPC step using DWI + mBS corrector.
 
         Updates:
             self.mw_coords, self.mw_hessian, self.prev_coords,
-            self.prev_grad, self.displacement, self.micro_counter
+            self.prev_grad, self.micro_counter
 
         Returns:
-            dx: MW displacement for this micro-step
-            g_tan: gradient tangent to the hypersphere (MW)
+            dx: MW displacement for this step
+            g_pred: predicted MW gradient (for diagnostics)
         """
-        # Gradient at current coordinates (MW)
-        _, F_cart = self._energy_forces_from_mw(self.mw_coords)
-        gradient = self._gradient_mw_from_forces(F_cart)
+        init_mw = self.mw_coords.copy()
 
-        # BFGS update (or optional full Hessian recalculation)
-        gradient_diff = gradient - self.prev_grad
-        coords_diff = self.mw_coords - self.prev_coords
+        # Current energy / gradient
+        e_curr, F_cart = self._energy_forces_from_mw(init_mw)
+        g_curr = self._gradient_mw_from_forces(F_cart)
+        if _norm(g_curr) < 1e-12:
+            return np.zeros_like(g_curr), g_curr
 
-        # Update "previous" values
-        self.prev_coords = self.mw_coords.copy()
-        self.prev_grad = gradient.copy()
-
+        # Update Hessian (or optionally recalc)
         recalc = (
             self.p.hessian_recalc is not None
             and self.p.hessian_recalc > 0
@@ -446,56 +561,142 @@ class GS:
         if recalc and self.micro_counter > 0:
             H_cart = self._get_hessian_cart()
             self.mw_hessian = (self._D[:, None] * H_cart) * self._D[None, :]
-        else:
+        elif (self.prev_coords is not None) and (self.prev_grad is not None):
+            gradient_diff = g_curr - self.prev_grad
+            coords_diff = init_mw - self.prev_coords
             if str(self.p.hessian_update).lower() == "bofill":
                 self.mw_hessian = self._bofill_update(self.mw_hessian, coords_diff, gradient_diff)
             else:
                 self.mw_hessian = self._bfgs_update(self.mw_hessian, coords_diff, gradient_diff)
-        eigvals, eigvecs = np.linalg.eigh(self.mw_hessian)
 
-        # Constraint radius in MW space (half of the macro step length)
-        constraint = (0.5 * self._step_len_mw) ** 2
+        # Store for next update
+        self.prev_coords = init_mw
+        self.prev_grad = g_curr
 
-        mask = np.abs(eigvals) > 1e-8
-        big_eigvals = eigvals[mask]
-        big_eigvecs = eigvecs[:, mask]
+        # Update DWI with current point (skip the very first step)
+        if self._dwi is not None and self.micro_counter > 0:
+            self._dwi.update(init_mw.copy(), e_curr, g_curr, self.mw_hessian.copy())
 
-        if big_eigvals.size == 0:
-            # Fallback: no "big" eigenvalues; skip constrained step
-            dx = np.zeros_like(self.mw_coords)
-            g_tan = np.zeros_like(self.mw_coords)
-            return dx, g_tan
+        # Predictor: Euler integration with Hessian-based gradient model
+        conv_fact = self._get_conv_fact(g_curr)
+        euler_step_len = self._step_len_umw / (float(self.p.max_pred_steps) / conv_fact)
 
-        grad_star = big_eigvecs.T.dot(gradient)
-        displ_star = big_eigvecs.T.dot(self.displacement)
+        euler_mw = init_mw.copy()
+        euler_grad = g_curr.copy()
+        pred_converged = False
+        for _ in range(int(self.p.max_pred_steps)):
+            if self._unweight_len(euler_mw - init_mw) >= self._step_len_umw:
+                pred_converged = True
+                break
+            grad_norm = _norm(euler_grad)
+            if grad_norm < 1e-12:
+                break
+            step = euler_step_len * (-euler_grad) / grad_norm
+            euler_mw = euler_mw + step
+            euler_step = euler_mw - init_mw
+            euler_grad = g_curr + self.mw_hessian.dot(euler_step)
 
-        def get_dx(lambda_):
-            """Return dx in eigenbasis for a given λ."""
-            return -(grad_star - lambda_ * displ_star) / (big_eigvals - lambda_)
+        pred_mw = euler_mw
 
-        def on_sphere(lambda_):
-            p = displ_star + get_dx(lambda_)
-            return p.dot(p) - constraint
+        if not pred_converged:
+            euler_grad_cart = self._unweight_grad(euler_grad)
+            rms_grad = float(np.sqrt(np.mean(euler_grad_cart ** 2)))
+            if self.cur_cycle < int(self.p.loose_cycles):
+                log_info(
+                    [
+                        "[INFO] EulerPC-IRC: Predictor did not reach target length; "
+                        "entering loose-cycle mode (relaxed convergence).\n"
+                    ],
+                    self.output,
+                )
+            elif rms_grad <= float(self.p.f_rms_th):
+                self._early_converged = True
+                self.mw_coords = pred_mw
+                dx = self.mw_coords - init_mw
+                return dx, euler_grad
+            else:
+                log_info(
+                    [
+                        "[INFO] EulerPC-IRC: Predictor did not converge within max_pred_steps; "
+                        f"rms_grad={rms_grad:.6e} > tol={float(self.p.f_rms_th):.6e}. "
+                        "Continuing with corrector.\n"
+                    ],
+                    self.output,
+                )
 
-        # Initial guess for λ: scaled smallest eigenvalue
-        lambda_0 = float(big_eigvals[0])
-        lambda_0 *= 1.5 if (lambda_0 < 0.0) else 0.5
+        # Evaluate predicted point and update Hessian
+        E_pred, F_pred = self._energy_forces_from_mw(pred_mw)
+        g_pred = self._gradient_mw_from_forces(F_pred)
 
-        lambda_opt = self._newton_1d(on_sphere, lambda_0, maxiter=50, tol=1e-10)
+        dx_pred = pred_mw - init_mw
+        dg_pred = g_pred - g_curr
+        if str(self.p.hessian_update).lower() == "bofill":
+            self.mw_hessian = self._bofill_update(self.mw_hessian, dx_pred, dg_pred)
+        else:
+            self.mw_hessian = self._bfgs_update(self.mw_hessian, dx_pred, dg_pred)
 
-        dx_star = get_dx(lambda_opt)
-        dx = big_eigvecs.dot(dx_star)
+        # Update DWI with predicted point
+        if self._dwi is not None:
+            self._dwi.update(pred_mw.copy(), E_pred, g_pred, self.mw_hessian.copy())
 
-        # Update MW displacement and coordinates
-        self.displacement += dx
-        self.mw_coords += dx
+        # Corrector: mBS integration on DWI surface
+        if self._dwi is not None:
+            corr_mw = self._corrector_step(init_mw, self._step_len_umw, self._dwi)
+        else:
+            corr_mw = pred_mw
 
-        # Gradient tangent to the sphere (MW)
-        g_tan = self._perp_component(gradient, self.displacement)
-
+        self.mw_coords = corr_mw
         self.micro_counter += 1
 
-        return dx, g_tan
+        dx = self.mw_coords - init_mw
+        return dx, g_pred
+
+    def _corrector_step(self, init_mw: np.ndarray, step_length: float, dwi: DWI) -> np.ndarray:
+        """mBS (modified Bulirsch–Stoer) corrector integration on DWI PES."""
+        errors = []
+        richardson: Dict[Tuple[int, int], np.ndarray] = {}
+
+        for k in range(int(self.p.mbs_max_k)):
+            points = int(self.p.mbs_points) * (2 ** k)
+            corr_step = step_length / (points - 1)
+            cur_coords = init_mw.copy()
+            k_coords: List[np.ndarray] = []
+            cur_length = 0.0
+
+            while True:
+                k_coords.append(cur_coords.copy())
+                if abs(step_length - cur_length) < 0.5 * corr_step:
+                    break
+
+                _, gradient = dwi.interpolate(cur_coords, gradient=True)
+                grad_norm = _norm(gradient)
+                if grad_norm < 1e-12:
+                    break
+                cur_coords = cur_coords + corr_step * (-gradient / grad_norm)
+                cur_length = self._unweight_len(cur_coords - init_mw)
+
+                # Oscillation check (same heuristic as EulerPC)
+                if len(k_coords) > 1:
+                    prev_coords = k_coords[-2]
+                    if _norm(cur_coords - prev_coords) <= corr_step:
+                        return prev_coords
+
+            richardson[(k, 0)] = cur_coords
+
+            for j in range(1, k + 1):
+                richardson[(k, j)] = (
+                    (2 ** j) * richardson[(k, j - 1)] - richardson[(k - 1, j - 1)]
+                ) / (2 ** j - 1)
+
+            if k > 0:
+                error = float(np.sqrt(np.mean((richardson[(k, k)] - richardson[(k, k - 1)]) ** 2)))
+                errors.append(error)
+                if error <= float(self.p.mbs_tol):
+                    break
+        else:
+            raise RuntimeError("mBS Richardson extrapolation did not converge.")
+
+        return richardson[(k, k)]
 
     # --------------------------- One direction ------------------------------
     def _one_side(self,
@@ -505,7 +706,7 @@ class GS:
                   v_neg_mw: np.ndarray,
                   E_ts: float) -> Dict[str, any]:
         """
-        Single-sided GS IRC integration.
+        Single-sided EulerPC IRC integration.
 
         Args:
             forward: True for forward path, False for backward.
@@ -515,7 +716,7 @@ class GS:
             E_ts: TS reference energy (Eh).
         """
         p = self.p
-        title = "FORWARD GS-IRC" if forward else "BACKWARD GS-IRC"
+        title = "FORWARD EulerPC-IRC" if forward else "BACKWARD EulerPC-IRC"
 
         self._print_header(title)
         self._print_conv_thresholds(p.f_max_th, p.f_rms_th)
@@ -525,28 +726,37 @@ class GS:
 
         # Initial displacement along negative mode in MW
         v_dir = _unit(v_neg_mw) * sign
-        q0_mw = q_ts_mw + 0.5 * self._step_len_mw * v_dir
+        q0_mw = q_ts_mw + self._scale_mw_step(v_dir, 0.5 * self._step_len_umw)
 
-        # Initial energy / forces / gradient at starting point
+        # Gradient at TS (for initial Hessian update)
+        _, F_ts_cart = self._energy_forces_from_mw(q_ts_mw)
+        g_ts_mw = self._gradient_mw_from_forces(F_ts_cart)
+
+        # Initial Hessian at TS (MW)
+        H_ts_cart = self._get_hessian_cart()
+        H0_mw = (self._D[:, None] * H_ts_cart) * self._D[None, :]
+
+        # Initial energy / forces / gradient at displaced point
         E0, F0_cart = self._energy_forces_from_mw(q0_mw)
         g0_mw = self._gradient_mw_from_forces(F0_cart)
 
         maxF0 = float(np.max(np.abs(F0_cart)))
         rmsF0 = float(np.sqrt(np.mean(F0_cart ** 2)))
 
-        # Initial Hessian at starting point (MW)
-        H0_cart = self._get_hessian_cart()
-        H0_mw = (self._D[:, None] * H0_cart) * self._D[None, :]
+        # Hessian update using TS -> displaced point
+        if str(self.p.hessian_update).lower() == "bofill":
+            H0_mw = self._bofill_update(H0_mw, q0_mw - q_ts_mw, g0_mw - g_ts_mw)
+        else:
+            H0_mw = self._bfgs_update(H0_mw, q0_mw - q_ts_mw, g0_mw - g_ts_mw)
 
-        # Initialize GS state
+        # Initialize EulerPC state
         self.mw_coords = q0_mw.copy()
         self.mw_hessian = H0_mw.copy()
-        self.prev_coords = q0_mw.copy()
-        self.prev_grad = g0_mw.copy()
-        self.displacement = np.zeros_like(q0_mw)
+        self.prev_coords = None
+        self.prev_grad = None
         self.micro_counter = 0
-        self.pivot_coords = []
-        self.micro_coords = []
+        self._dwi = DWI(n=self.p.dwi_n, maxlen=self.p.dwi_maxlen)
+        self._dwi.update(q0_mw.copy(), E0, g0_mw, self.mw_hessian.copy())
 
         # Iteration 0 logging
         if p.print_each:
@@ -564,47 +774,34 @@ class GS:
 
         # Macro steps
         for it in range(1, p.max_steps + 1):
-            # Anchor gradient at current MW coordinates
-            E_anchor, F_anchor = self._energy_forces_from_mw(self.mw_coords)
-            g_anchor_mw = self._gradient_mw_from_forces(F_anchor)
-            g_norm = _norm(g_anchor_mw)
-
-            if g_norm < 1e-12:
+            self.cur_cycle = it - 1
+            self._early_converged = False
+            dx, _ = self._micro_step()
+            if _norm(dx) <= 1e-12:
                 log_info(
-                    [f"[INFO] {title}: gradient norm ~ 0 at step {it}, stopping.\n"],
+                    [f"[INFO] {title}: step too small at step {it}, stopping.\n"],
                     self.output,
                 )
                 break
 
-            # For BFGS in first micro-cycle
-            self.prev_coords = self.mw_coords.copy()
-            self.prev_grad = g_anchor_mw.copy()
-
-            # Pivot half-step in MW space: move downhill along -gradient
-            pivot_step = -0.5 * self._step_len_mw * g_anchor_mw / g_norm
-            pivot_coords = self.mw_coords + pivot_step
-            self.pivot_coords.append(pivot_coords.copy())
-
-            # Initial guess for new point: another half-step from the pivot
-            self.mw_coords = pivot_coords + pivot_step
-            self.displacement = pivot_step.copy()
-
-            # Micro-cycles on hypersphere
-            micro_coords_side: List[np.ndarray] = []
-            for i_micro in range(p.max_micro_cycles):
-                dx, _ = self._micro_step()
-                micro_coords_side.append(self.mw_coords.copy())
-                if _norm(dx) <= p.micro_step_thresh:
-                    break
-            else:
-                log_info(
-                    [f"[WARNING] {title}: max micro cycles exceeded at macro step {it}.\n"],
-                    self.output,
+            if self._early_converged:
+                E_new, F_new = self._energy_forces_from_mw(self.mw_coords)
+                maxF = float(np.max(np.abs(F_new)))
+                rmsF = float(np.sqrt(np.mean(F_new ** 2)))
+                if p.print_each:
+                    self._print_iter_line(it, E_new, (E_new - E_ts) * KCAL_PER_EH, maxF, rmsF)
+                records.append(
+                    {
+                        "E": E_new,
+                        "maxG": maxF,
+                        "rmsG": rmsF,
+                        "x": self.atoms.get_positions().copy(),
+                    }
                 )
+                self._print_hurray()
+                break
 
-            self.micro_coords.append(np.array(micro_coords_side))
-
-            # Final energy / forces at new point
+            # Energy / forces at new point
             E_new, F_new = self._energy_forces_from_mw(self.mw_coords)
             maxF = float(np.max(np.abs(F_new)))
             rmsF = float(np.sqrt(np.mean(F_new ** 2)))
@@ -632,8 +829,8 @@ class GS:
     def _merge_and_mark_ts(self, f: Dict, b: Dict) -> Dict:
         fR, bR = f["records"], b["records"]
         if not fR or not bR:
-            log_error(["[ERROR] GS-IRC: One path side is empty.\n"], self.output)
-            raise RuntimeError("GS-IRC: one path side is empty.")
+            log_error(["[ERROR] EulerPC-IRC: One path side is empty.\n"], self.output)
+            raise RuntimeError("EulerPC-IRC: one path side is empty.")
 
         Ef_end, Eb_end = fR[-1]["E"], bR[-1]["E"]
         if Ef_end <= Eb_end:
@@ -656,7 +853,7 @@ class GS:
         log_info(
             [
                 "\n---------------------------------------------------------------\n",
-                "                       GS-IRC PATH SUMMARY           \n",
+                "                       EulerPC-IRC PATH SUMMARY           \n",
                 "---------------------------------------------------------------\n",
                 "All forces are in Eh/Å.\n\n",
                 "Step        E(Eh)      dE(kcal/mol)  max(|G|)   RMS(G) \n",
@@ -715,9 +912,9 @@ class GS:
 
         log_info(
             [
-                f"\n[INFO] GS-IRC forward trajectory written to: {fwd_path}\n",
-                f"[INFO] GS-IRC backward trajectory written to: {bwd_path}\n",
-                f"[INFO] GS-IRC full trajectory written to: {full_path}\n",
+                f"\n[INFO] EulerPC-IRC forward trajectory written to: {fwd_path}\n",
+                f"[INFO] EulerPC-IRC backward trajectory written to: {bwd_path}\n",
+                f"[INFO] EulerPC-IRC full trajectory written to: {full_path}\n",
             ],
             self.output,
         )
@@ -757,7 +954,7 @@ class GS:
         log_info(
             [
                 "\n                      *************************************************\n",
-                "                      ***          THE GS-IRC HAS CONVERGED        ***\n",
+                "                      ***          THE EulerPC-IRC HAS CONVERGED        ***\n",
                 "                      *************************************************\n\n",
             ],
             self.output,
