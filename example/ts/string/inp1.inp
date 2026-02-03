@@ -2,9 +2,9 @@
 #ts(method=string,refine=stringts)
 #device=gpu0
 
-XYZ /home/user/software/maple/example/ts/neb/react.xyz
+XYZ /home/user/software/MAPLE/example/ts/neb/react.xyz
 
-XYZ /home/user/software/maple/example/ts/neb/prod.xyz
+XYZ /home/user/software/MAPLE/example/ts/neb/prod.xyz
 
 
 

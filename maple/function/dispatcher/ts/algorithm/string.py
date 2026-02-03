@@ -518,14 +518,15 @@ class GSM(JobABC):
         Take HEI from the equal-arc path as TS guess, run PRFO/RFO refinement,
         then print a NEB-TS-style path summary (marking CI and TS) and dump files.
         """
-        from .PRFO import RFO  # your existing TS refiner (returns an Atoms)
+        from .PRFO import PRFO
 
         # Prepare TS guess from HEI
         ts_guess = copy.deepcopy(images[hei_idx])
         inherit_attrs(images[0], ts_guess)
 
-        # Run PRFO (RFO) to refine TS
-        ts_opt = RFO(ts_guess, self.output)
+        # Run PRFO to refine TS
+        prfo = PRFO(output=self.output, atoms=ts_guess)
+        ts_opt = prfo.run()
         E_TS   = float(ts_opt.get_potential_energy(force_consistent=True))
 
         # Create a path with TS inserted after the original CI (HEI)

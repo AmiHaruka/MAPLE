@@ -2,7 +2,7 @@
 #freq
 #device=gpu0
 
-XYZ /home/user/software/maple/example/freq/mw/inp1.xyz
+XYZ /home/user/software/MAPLE/example/freq/mw/inp1.xyz
 
 
 

@@ -966,7 +966,7 @@ class NEB(JobABC):
 
         # --- Stage 2: Optional PRFO refinement ---
         if self.params.refine == 'nebts':
-            from .PRFO import RFO
+            from .PRFO import PRFO
 
             # Use CI geometry as TS guess
             ts_guess = images[hei].copy()
@@ -976,7 +976,8 @@ class NEB(JobABC):
             ts_guess.dp_max_th = images[0].dp_max_th
             ts_guess.dp_rms_th = images[0].dp_rms_th
 
-            ts_opt = RFO(ts_guess, self.output)
+            prfo = PRFO(output=self.output, atoms=ts_guess)
+            ts_opt = prfo.run()
 
             E_TS = ts_opt.get_potential_energy(force_consistent=True)
             maxF_TS = np.max(np.linalg.norm(ts_opt.get_forces(), axis=1))

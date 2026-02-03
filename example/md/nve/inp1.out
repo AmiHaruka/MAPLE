@@ -16,106 +16,41 @@
 
 Parsing # commands...
 Global parameter: model = uma
-Task set to 'md'
+Global nested parameter: md = {'ensemble': 'nve', 'timestep': 1.0, 'steps': 100, 'temperature': 300}
 Global parameter: device = cpu
+No task specified. Defaulting to 'sp'.
 Parsed configuration:
 ----------------------------------------
-Task: md
+Task: sp
 model          : uma
-ensemble       : nve
-timestep       : 1.0
-steps          : 100
-temperature    : 300
-thermostat     : langevin
-friction       : 0.01
-tau_t          : 100.0
-traj_every     : 10
-log_every      : 100
-verbose        : 1
+md             : {'ensemble': 'nve', 'timestep': 1.0, 'steps': 100, 'temperature': 300}
 device         : cpu
 
                              Coordinates                              
 **********************************************************************
 
-================================================================================
-                               NVE MD PARAMETERS                                
-================================================================================
-Ensemble:           NVE (microcanonical)
-Timestep:           1.000 fs
-Total steps:        100
-Initial temp:       300.00 K
-
-Output frequencies:
-  Log every:        100 steps
-  Traj every:       10 steps
-
-Velocity init:      True
-Remove COM motion:  True
-================================================================================
-
-Initializing velocities at 300.00 K...
-Initial temperature: 353.71 K
-
-================================================================================
-                                 MD SIMULATION                                  
-================================================================================
-Ensemble:        NVE
-Timestep:        1.000 fs
-Total steps:     100
-Simulation time: 100.00 fs
-
-System:
-  Atoms:         245
-  Formula:       Cu180O65
-  Charge:        0
-  Multiplicity:  1
-
-================================================================================
-
-Starting NVE simulation...
-
-Step    100 | Time:   100.00 fs | T: 1063.82 K | E: -11029.881386 Ha
-
-================================================================================
-                            MD SIMULATION COMPLETED                             
-================================================================================
-
-Energy Statistics:
-  Mean total energy:     -11029.94980337 Hartree
-  Std deviation:              0.29087878 Hartree
-  Energy drift:               0.79191870 Hartree
-  Relative drift:            0.007180 %
-
-Temperature Statistics:
-  Mean temperature:              1002.53 K
-  Std deviation:                  260.54 K
-
-Output Files:
-  Thermodynamics:        inp1_md_thermo.dat
-  Trajectory:            inp1_md_traj.xyz
-  Summary:               inp1_md_summary.txt
-================================================================================
-
-NVE simulation completed successfully.
+Energy: -11031.0841371487 Hartree
 
 
 
-Program started: 2026-01-30 21:52:32
+Program started: 2026-02-02 22:27:09
 
 ======================================================================
                       TIMING SUMMARY
 ======================================================================
-Input Reading.......................................   0.001 s  (   0.0 %)
-  Settings Parsing....................................   0.000 s  (  15.1 %)
-  Coordinate Section Parsing..........................   0.001 s  (  54.4 %)
-  Post-Processing Expansion...........................   0.000 s  (   0.3 %)
-MLP Initialization..................................   3.004 s  (   1.9 %)
-Job Dispatching..................................... 155.595 s  (  98.1 %)
-  MD Simulation (NVE)................................. 155.591 s  ( 100.0 %)
+Input Reading (×15).................................   0.008 s  (   0.2 %)
+  Settings Parsing (×15)..............................   0.002 s  (  20.9 %)
+  Coordinate Section Parsing (×15)....................   0.003 s  (  39.1 %)
+  Post-Processing Expansion (×15).....................   0.000 s  (   0.4 %)
+MLP Initialization (×15)............................   4.894 s  (  99.8 %)
+Job Dispatching (×15)...............................  33.059 s  ( 673.9 %)
+  Single Point Energy Calculation (×4)................   1.923 s  (   5.8 %)
+  Frequency Calculation (×7)..........................   9.962 s  (  30.1 %)
+  IRC Calculation (×4)................................  21.166 s  (  64.0 %)
 ======================================================================
-Total wall time: 158.600 s
-Total CPU time: 3730.080 s
+Total wall time: 4.906 s
+Total CPU time: 42.721 s
 ======================================================================
 
-Program ended: 2026-01-30 21:55:11
-TOTAL RUN TIME: 0 days 0 hours 2 minutes 38 seconds 599 msec
+Program ended: 2026-02-02 22:27:14
+TOTAL RUN TIME: 0 days 0 hours 0 minutes 4 seconds 905 msec

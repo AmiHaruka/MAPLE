@@ -55,13 +55,19 @@ Group 1 (inline)
 22   H              2.960009            -0.368806            -1.388910
 
 ======================================================================
-Steepest Descent Parameters
+SDCG Parameters
 ======================================================================
+mode:              SD only
 max_step:          0.2
 max_iter:          256
+sd_enabled:        True
+cg_enabled:        False
+sd_max_iter:       50
+cg_switch_fmax:    0.0
+cg_restart_thresh: 0.2
+cg_beta_method:    prp+
 diis_enabled:      False
 diis_store_every:  5
-diis_min_snapshots:3
 diis_memory:       6
 write_traj:        False
 traj_every:        1
@@ -70,7 +76,7 @@ verbose:           1
 
 
 ----------------------------------------------------------------------
-                             Iteration: 1                             
+                          Iteration: 1 [SD]                           
 
 
                              Coordinates                              
@@ -106,7 +112,7 @@ Maximum Displacement:      0.009717     0.003150  No
 RMS Displacement:          0.003254     0.002100  No
 
 ----------------------------------------------------------------------
-                             Iteration: 2                             
+                          Iteration: 2 [SD]                           
 
 
                              Coordinates                              
@@ -142,7 +148,7 @@ Maximum Displacement:      0.009468     0.003150  No
 RMS Displacement:          0.002851     0.002100  No
 
 ----------------------------------------------------------------------
-                             Iteration: 3                             
+                          Iteration: 3 [SD]                           
 
 
                              Coordinates                              
@@ -178,7 +184,7 @@ Maximum Displacement:      0.009238     0.003150  No
 RMS Displacement:          0.002761     0.002100  No
 
 ----------------------------------------------------------------------
-                             Iteration: 4                             
+                          Iteration: 4 [SD]                           
 
 
                              Coordinates                              
@@ -214,7 +220,7 @@ Maximum Displacement:      0.009011     0.003150  No
 RMS Displacement:          0.002735     0.002100  No
 
 ----------------------------------------------------------------------
-                             Iteration: 5                             
+                          Iteration: 5 [SD]                           
 
 
                              Coordinates                              
@@ -250,7 +256,7 @@ Maximum Displacement:      0.008789     0.003150  No
 RMS Displacement:          0.002724     0.002100  No
 
 ----------------------------------------------------------------------
-                             Iteration: 6                             
+                          Iteration: 6 [SD]                           
 
 
                              Coordinates                              
@@ -286,7 +292,7 @@ Maximum Displacement:      0.008574     0.003150  No
 RMS Displacement:          0.002720     0.002100  No
 
 ----------------------------------------------------------------------
-                             Iteration: 7                             
+                          Iteration: 7 [SD]                           
 
 
                              Coordinates                              
@@ -322,7 +328,7 @@ Maximum Displacement:      0.008366     0.003150  No
 RMS Displacement:          0.002719     0.002100  No
 
 ----------------------------------------------------------------------
-                             Iteration: 8                             
+                          Iteration: 8 [SD]                           
 
 
                              Coordinates                              
@@ -358,7 +364,7 @@ Maximum Displacement:      0.008169     0.003150  No
 RMS Displacement:          0.002721     0.002100  No
 
 ----------------------------------------------------------------------
-                             Iteration: 9                             
+                          Iteration: 9 [SD]                           
 
 
                              Coordinates                              
@@ -394,7 +400,7 @@ Maximum Displacement:      0.007984     0.003150  No
 RMS Displacement:          0.002726     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 10                             
+                          Iteration: 10 [SD]                          
 
 
                              Coordinates                              
@@ -430,7 +436,7 @@ Maximum Displacement:      0.007813     0.003150  No
 RMS Displacement:          0.002734     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 11                             
+                          Iteration: 11 [SD]                          
 
 
                              Coordinates                              
@@ -466,7 +472,7 @@ Maximum Displacement:      0.007657     0.003150  No
 RMS Displacement:          0.002745     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 12                             
+                          Iteration: 12 [SD]                          
 
 
                              Coordinates                              
@@ -502,7 +508,7 @@ Maximum Displacement:      0.007518     0.003150  No
 RMS Displacement:          0.002760     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 13                             
+                          Iteration: 13 [SD]                          
 
 
                              Coordinates                              
@@ -538,7 +544,7 @@ Maximum Displacement:      0.007397     0.003150  No
 RMS Displacement:          0.002778     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 14                             
+                          Iteration: 14 [SD]                          
 
 
                              Coordinates                              
@@ -574,7 +580,7 @@ Maximum Displacement:      0.007293     0.003150  No
 RMS Displacement:          0.002799     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 15                             
+                          Iteration: 15 [SD]                          
 
 
                              Coordinates                              
@@ -610,7 +616,7 @@ Maximum Displacement:      0.007208     0.003150  No
 RMS Displacement:          0.002824     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 16                             
+                          Iteration: 16 [SD]                          
 
 
                              Coordinates                              
@@ -646,7 +652,7 @@ Maximum Displacement:      0.007141     0.003150  No
 RMS Displacement:          0.002852     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 17                             
+                          Iteration: 17 [SD]                          
 
 
                              Coordinates                              
@@ -682,7 +688,7 @@ Maximum Displacement:      0.007090     0.003150  No
 RMS Displacement:          0.002883     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 18                             
+                          Iteration: 18 [SD]                          
 
 
                              Coordinates                              
@@ -718,7 +724,7 @@ Maximum Displacement:      0.007057     0.003150  No
 RMS Displacement:          0.002916     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 19                             
+                          Iteration: 19 [SD]                          
 
 
                              Coordinates                              
@@ -754,7 +760,7 @@ Maximum Displacement:      0.007038     0.003150  No
 RMS Displacement:          0.002952     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 20                             
+                          Iteration: 20 [SD]                          
 
 
                              Coordinates                              
@@ -790,7 +796,7 @@ Maximum Displacement:      0.007094     0.003150  No
 RMS Displacement:          0.002991     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 21                             
+                          Iteration: 21 [SD]                          
 
 
                              Coordinates                              
@@ -826,7 +832,7 @@ Maximum Displacement:      0.007224     0.003150  No
 RMS Displacement:          0.003031     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 22                             
+                          Iteration: 22 [SD]                          
 
 
                              Coordinates                              
@@ -862,7 +868,7 @@ Maximum Displacement:      0.007356     0.003150  No
 RMS Displacement:          0.003073     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 23                             
+                          Iteration: 23 [SD]                          
 
 
                              Coordinates                              
@@ -898,7 +904,7 @@ Maximum Displacement:      0.007488     0.003150  No
 RMS Displacement:          0.003116     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 24                             
+                          Iteration: 24 [SD]                          
 
 
                              Coordinates                              
@@ -934,7 +940,7 @@ Maximum Displacement:      0.007622     0.003150  No
 RMS Displacement:          0.003161     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 25                             
+                          Iteration: 25 [SD]                          
 
 
                              Coordinates                              
@@ -970,7 +976,7 @@ Maximum Displacement:      0.007755     0.003150  No
 RMS Displacement:          0.003205     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 26                             
+                          Iteration: 26 [SD]                          
 
 
                              Coordinates                              
@@ -1006,7 +1012,7 @@ Maximum Displacement:      0.007889     0.003150  No
 RMS Displacement:          0.003251     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 27                             
+                          Iteration: 27 [SD]                          
 
 
                              Coordinates                              
@@ -1042,7 +1048,7 @@ Maximum Displacement:      0.008022     0.003150  No
 RMS Displacement:          0.003297     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 28                             
+                          Iteration: 28 [SD]                          
 
 
                              Coordinates                              
@@ -1078,7 +1084,7 @@ Maximum Displacement:      0.008154     0.003150  No
 RMS Displacement:          0.003342     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 29                             
+                          Iteration: 29 [SD]                          
 
 
                              Coordinates                              
@@ -1114,7 +1120,7 @@ Maximum Displacement:      0.008285     0.003150  No
 RMS Displacement:          0.003388     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 30                             
+                          Iteration: 30 [SD]                          
 
 
                              Coordinates                              
@@ -1150,7 +1156,7 @@ Maximum Displacement:      0.008415     0.003150  No
 RMS Displacement:          0.003434     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 31                             
+                          Iteration: 31 [SD]                          
 
 
                              Coordinates                              
@@ -1186,7 +1192,7 @@ Maximum Displacement:      0.008543     0.003150  No
 RMS Displacement:          0.003480     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 32                             
+                          Iteration: 32 [SD]                          
 
 
                              Coordinates                              
@@ -1222,7 +1228,7 @@ Maximum Displacement:      0.008670     0.003150  No
 RMS Displacement:          0.003526     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 33                             
+                          Iteration: 33 [SD]                          
 
 
                              Coordinates                              
@@ -1258,7 +1264,7 @@ Maximum Displacement:      0.008795     0.003150  No
 RMS Displacement:          0.003573     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 34                             
+                          Iteration: 34 [SD]                          
 
 
                              Coordinates                              
@@ -1294,7 +1300,7 @@ Maximum Displacement:      0.008919     0.003150  No
 RMS Displacement:          0.003619     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 35                             
+                          Iteration: 35 [SD]                          
 
 
                              Coordinates                              
@@ -1330,7 +1336,7 @@ Maximum Displacement:      0.009041     0.003150  No
 RMS Displacement:          0.003665     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 36                             
+                          Iteration: 36 [SD]                          
 
 
                              Coordinates                              
@@ -1366,7 +1372,7 @@ Maximum Displacement:      0.009162     0.003150  No
 RMS Displacement:          0.003711     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 37                             
+                          Iteration: 37 [SD]                          
 
 
                              Coordinates                              
@@ -1402,7 +1408,7 @@ Maximum Displacement:      0.009280     0.003150  No
 RMS Displacement:          0.003757     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 38                             
+                          Iteration: 38 [SD]                          
 
 
                              Coordinates                              
@@ -1438,7 +1444,7 @@ Maximum Displacement:      0.009397     0.003150  No
 RMS Displacement:          0.003802     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 39                             
+                          Iteration: 39 [SD]                          
 
 
                              Coordinates                              
@@ -1474,7 +1480,7 @@ Maximum Displacement:      0.009512     0.003150  No
 RMS Displacement:          0.003846     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 40                             
+                          Iteration: 40 [SD]                          
 
 
                              Coordinates                              
@@ -1510,7 +1516,7 @@ Maximum Displacement:      0.009623     0.003150  No
 RMS Displacement:          0.003889     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 41                             
+                          Iteration: 41 [SD]                          
 
 
                              Coordinates                              
@@ -1546,7 +1552,7 @@ Maximum Displacement:      0.009731     0.003150  No
 RMS Displacement:          0.003930     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 42                             
+                          Iteration: 42 [SD]                          
 
 
                              Coordinates                              
@@ -1582,7 +1588,7 @@ Maximum Displacement:      0.009834     0.003150  No
 RMS Displacement:          0.003968     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 43                             
+                          Iteration: 43 [SD]                          
 
 
                              Coordinates                              
@@ -1612,13 +1618,13 @@ RMS Displacement:          0.003968     0.002100  No
 
 
 Energy:                 -383.577509 Convergence criteria  Is converged 
-Maximum Force:             0.050114     0.002850  No
+Maximum Force:             0.050113     0.002850  No
 RMS Force:                 0.020164     0.001900  No
 Maximum Displacement:      0.009932     0.003150  No
 RMS Displacement:          0.004002     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 44                             
+                          Iteration: 44 [SD]                          
 
 
                              Coordinates                              
@@ -1654,7 +1660,7 @@ Maximum Displacement:      0.010023     0.003150  No
 RMS Displacement:          0.004033     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 45                             
+                          Iteration: 45 [SD]                          
 
 
                              Coordinates                              
@@ -1690,7 +1696,7 @@ Maximum Displacement:      0.010105     0.003150  No
 RMS Displacement:          0.004059     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 46                             
+                          Iteration: 46 [SD]                          
 
 
                              Coordinates                              
@@ -1726,7 +1732,7 @@ Maximum Displacement:      0.010179     0.003150  No
 RMS Displacement:          0.004079     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 47                             
+                          Iteration: 47 [SD]                          
 
 
                              Coordinates                              
@@ -1762,7 +1768,7 @@ Maximum Displacement:      0.010242     0.003150  No
 RMS Displacement:          0.004095     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 48                             
+                          Iteration: 48 [SD]                          
 
 
                              Coordinates                              
@@ -1798,7 +1804,7 @@ Maximum Displacement:      0.010293     0.003150  No
 RMS Displacement:          0.004105     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 49                             
+                          Iteration: 49 [SD]                          
 
 
                              Coordinates                              
@@ -1834,7 +1840,7 @@ Maximum Displacement:      0.010333     0.003150  No
 RMS Displacement:          0.004110     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 50                             
+                          Iteration: 50 [SD]                          
 
 
                              Coordinates                              
@@ -1870,7 +1876,7 @@ Maximum Displacement:      0.010360     0.003150  No
 RMS Displacement:          0.004109     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 51                             
+                          Iteration: 51 [SD]                          
 
 
                              Coordinates                              
@@ -1906,7 +1912,7 @@ Maximum Displacement:      0.010374     0.003150  No
 RMS Displacement:          0.004104     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 52                             
+                          Iteration: 52 [SD]                          
 
 
                              Coordinates                              
@@ -1942,7 +1948,7 @@ Maximum Displacement:      0.010375     0.003150  No
 RMS Displacement:          0.004094     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 53                             
+                          Iteration: 53 [SD]                          
 
 
                              Coordinates                              
@@ -1978,7 +1984,7 @@ Maximum Displacement:      0.010363     0.003150  No
 RMS Displacement:          0.004078     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 54                             
+                          Iteration: 54 [SD]                          
 
 
                              Coordinates                              
@@ -2014,7 +2020,7 @@ Maximum Displacement:      0.010338     0.003150  No
 RMS Displacement:          0.004058     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 55                             
+                          Iteration: 55 [SD]                          
 
 
                              Coordinates                              
@@ -2050,7 +2056,7 @@ Maximum Displacement:      0.010299     0.003150  No
 RMS Displacement:          0.004031     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 56                             
+                          Iteration: 56 [SD]                          
 
 
                              Coordinates                              
@@ -2086,7 +2092,7 @@ Maximum Displacement:      0.010246     0.003150  No
 RMS Displacement:          0.003999     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 57                             
+                          Iteration: 57 [SD]                          
 
 
                              Coordinates                              
@@ -2122,7 +2128,7 @@ Maximum Displacement:      0.010178     0.003150  No
 RMS Displacement:          0.003962     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 58                             
+                          Iteration: 58 [SD]                          
 
 
                              Coordinates                              
@@ -2158,7 +2164,7 @@ Maximum Displacement:      0.010096     0.003150  No
 RMS Displacement:          0.003918     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 59                             
+                          Iteration: 59 [SD]                          
 
 
                              Coordinates                              
@@ -2194,7 +2200,7 @@ Maximum Displacement:      0.009999     0.003150  No
 RMS Displacement:          0.003869     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 60                             
+                          Iteration: 60 [SD]                          
 
 
                              Coordinates                              
@@ -2230,7 +2236,7 @@ Maximum Displacement:      0.009888     0.003150  No
 RMS Displacement:          0.003815     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 61                             
+                          Iteration: 61 [SD]                          
 
 
                              Coordinates                              
@@ -2266,7 +2272,7 @@ Maximum Displacement:      0.009762     0.003150  No
 RMS Displacement:          0.003757     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 62                             
+                          Iteration: 62 [SD]                          
 
 
                              Coordinates                              
@@ -2302,7 +2308,7 @@ Maximum Displacement:      0.009623     0.003150  No
 RMS Displacement:          0.003694     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 63                             
+                          Iteration: 63 [SD]                          
 
 
                              Coordinates                              
@@ -2338,7 +2344,7 @@ Maximum Displacement:      0.009471     0.003150  No
 RMS Displacement:          0.003628     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 64                             
+                          Iteration: 64 [SD]                          
 
 
                              Coordinates                              
@@ -2374,7 +2380,7 @@ Maximum Displacement:      0.009308     0.003150  No
 RMS Displacement:          0.003558     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 65                             
+                          Iteration: 65 [SD]                          
 
 
                              Coordinates                              
@@ -2410,7 +2416,7 @@ Maximum Displacement:      0.009134     0.003150  No
 RMS Displacement:          0.003486     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 66                             
+                          Iteration: 66 [SD]                          
 
 
                              Coordinates                              
@@ -2446,7 +2452,7 @@ Maximum Displacement:      0.008950     0.003150  No
 RMS Displacement:          0.003412     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 67                             
+                          Iteration: 67 [SD]                          
 
 
                              Coordinates                              
@@ -2482,7 +2488,7 @@ Maximum Displacement:      0.008758     0.003150  No
 RMS Displacement:          0.003336     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 68                             
+                          Iteration: 68 [SD]                          
 
 
                              Coordinates                              
@@ -2518,7 +2524,7 @@ Maximum Displacement:      0.008559     0.003150  No
 RMS Displacement:          0.003259     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 69                             
+                          Iteration: 69 [SD]                          
 
 
                              Coordinates                              
@@ -2554,7 +2560,7 @@ Maximum Displacement:      0.008355     0.003150  No
 RMS Displacement:          0.003182     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 70                             
+                          Iteration: 70 [SD]                          
 
 
                              Coordinates                              
@@ -2590,7 +2596,7 @@ Maximum Displacement:      0.008145     0.003150  No
 RMS Displacement:          0.003104     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 71                             
+                          Iteration: 71 [SD]                          
 
 
                              Coordinates                              
@@ -2626,7 +2632,7 @@ Maximum Displacement:      0.007933     0.003150  No
 RMS Displacement:          0.003027     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 72                             
+                          Iteration: 72 [SD]                          
 
 
                              Coordinates                              
@@ -2662,7 +2668,7 @@ Maximum Displacement:      0.007718     0.003150  No
 RMS Displacement:          0.002950     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 73                             
+                          Iteration: 73 [SD]                          
 
 
                              Coordinates                              
@@ -2698,7 +2704,7 @@ Maximum Displacement:      0.007502     0.003150  No
 RMS Displacement:          0.002874     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 74                             
+                          Iteration: 74 [SD]                          
 
 
                              Coordinates                              
@@ -2734,7 +2740,7 @@ Maximum Displacement:      0.007286     0.003150  No
 RMS Displacement:          0.002799     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 75                             
+                          Iteration: 75 [SD]                          
 
 
                              Coordinates                              
@@ -2770,7 +2776,7 @@ Maximum Displacement:      0.007071     0.003150  No
 RMS Displacement:          0.002726     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 76                             
+                          Iteration: 76 [SD]                          
 
 
                              Coordinates                              
@@ -2806,7 +2812,7 @@ Maximum Displacement:      0.006858     0.003150  No
 RMS Displacement:          0.002654     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 77                             
+                          Iteration: 77 [SD]                          
 
 
                              Coordinates                              
@@ -2842,7 +2848,7 @@ Maximum Displacement:      0.006647     0.003150  No
 RMS Displacement:          0.002583     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 78                             
+                          Iteration: 78 [SD]                          
 
 
                              Coordinates                              
@@ -2878,7 +2884,7 @@ Maximum Displacement:      0.006439     0.003150  No
 RMS Displacement:          0.002515     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 79                             
+                          Iteration: 79 [SD]                          
 
 
                              Coordinates                              
@@ -2914,7 +2920,7 @@ Maximum Displacement:      0.006235     0.003150  No
 RMS Displacement:          0.002448     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 80                             
+                          Iteration: 80 [SD]                          
 
 
                              Coordinates                              
@@ -2950,7 +2956,7 @@ Maximum Displacement:      0.006034     0.003150  No
 RMS Displacement:          0.002383     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 81                             
+                          Iteration: 81 [SD]                          
 
 
                              Coordinates                              
@@ -2986,7 +2992,7 @@ Maximum Displacement:      0.005838     0.003150  No
 RMS Displacement:          0.002320     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 82                             
+                          Iteration: 82 [SD]                          
 
 
                              Coordinates                              
@@ -3022,7 +3028,7 @@ Maximum Displacement:      0.005646     0.003150  No
 RMS Displacement:          0.002259     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 83                             
+                          Iteration: 83 [SD]                          
 
 
                              Coordinates                              
@@ -3058,7 +3064,7 @@ Maximum Displacement:      0.005459     0.003150  No
 RMS Displacement:          0.002200     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 84                             
+                          Iteration: 84 [SD]                          
 
 
                              Coordinates                              
@@ -3094,7 +3100,7 @@ Maximum Displacement:      0.005277     0.003150  No
 RMS Displacement:          0.002143     0.002100  No
 
 ----------------------------------------------------------------------
-                            Iteration: 85                             
+                          Iteration: 85 [SD]                          
 
 
                              Coordinates                              
@@ -3130,7 +3136,7 @@ Maximum Displacement:      0.005100     0.003150  No
 RMS Displacement:          0.002088     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 86                             
+                          Iteration: 86 [SD]                          
 
 
                              Coordinates                              
@@ -3166,7 +3172,7 @@ Maximum Displacement:      0.004927     0.003150  No
 RMS Displacement:          0.002035     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 87                             
+                          Iteration: 87 [SD]                          
 
 
                              Coordinates                              
@@ -3202,7 +3208,7 @@ Maximum Displacement:      0.004760     0.003150  No
 RMS Displacement:          0.001983     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 88                             
+                          Iteration: 88 [SD]                          
 
 
                              Coordinates                              
@@ -3238,7 +3244,7 @@ Maximum Displacement:      0.004598     0.003150  No
 RMS Displacement:          0.001934     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 89                             
+                          Iteration: 89 [SD]                          
 
 
                              Coordinates                              
@@ -3274,7 +3280,7 @@ Maximum Displacement:      0.004441     0.003150  No
 RMS Displacement:          0.001886     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 90                             
+                          Iteration: 90 [SD]                          
 
 
                              Coordinates                              
@@ -3310,7 +3316,7 @@ Maximum Displacement:      0.004288     0.003150  No
 RMS Displacement:          0.001840     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 91                             
+                          Iteration: 91 [SD]                          
 
 
                              Coordinates                              
@@ -3346,7 +3352,7 @@ Maximum Displacement:      0.004141     0.003150  No
 RMS Displacement:          0.001796     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 92                             
+                          Iteration: 92 [SD]                          
 
 
                              Coordinates                              
@@ -3382,7 +3388,7 @@ Maximum Displacement:      0.003998     0.003150  No
 RMS Displacement:          0.001754     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 93                             
+                          Iteration: 93 [SD]                          
 
 
                              Coordinates                              
@@ -3418,7 +3424,7 @@ Maximum Displacement:      0.003860     0.003150  No
 RMS Displacement:          0.001713     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 94                             
+                          Iteration: 94 [SD]                          
 
 
                              Coordinates                              
@@ -3454,7 +3460,7 @@ Maximum Displacement:      0.003727     0.003150  No
 RMS Displacement:          0.001674     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 95                             
+                          Iteration: 95 [SD]                          
 
 
                              Coordinates                              
@@ -3490,7 +3496,7 @@ Maximum Displacement:      0.003598     0.003150  No
 RMS Displacement:          0.001636     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 96                             
+                          Iteration: 96 [SD]                          
 
 
                              Coordinates                              
@@ -3526,7 +3532,7 @@ Maximum Displacement:      0.003473     0.003150  No
 RMS Displacement:          0.001600     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 97                             
+                          Iteration: 97 [SD]                          
 
 
                              Coordinates                              
@@ -3562,7 +3568,7 @@ Maximum Displacement:      0.003353     0.003150  No
 RMS Displacement:          0.001565     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 98                             
+                          Iteration: 98 [SD]                          
 
 
                              Coordinates                              
@@ -3598,7 +3604,7 @@ Maximum Displacement:      0.003237     0.003150  No
 RMS Displacement:          0.001532     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 99                             
+                          Iteration: 99 [SD]                          
 
 
                              Coordinates                              
@@ -3634,7 +3640,7 @@ Maximum Displacement:      0.003125     0.003150  Yes
 RMS Displacement:          0.001499     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 100                            
+                         Iteration: 100 [SD]                          
 
 
                              Coordinates                              
@@ -3670,7 +3676,7 @@ Maximum Displacement:      0.003017     0.003150  Yes
 RMS Displacement:          0.001469     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 101                            
+                         Iteration: 101 [SD]                          
 
 
                              Coordinates                              
@@ -3706,7 +3712,7 @@ Maximum Displacement:      0.002912     0.003150  Yes
 RMS Displacement:          0.001439     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 102                            
+                         Iteration: 102 [SD]                          
 
 
                              Coordinates                              
@@ -3742,7 +3748,7 @@ Maximum Displacement:      0.002812     0.003150  Yes
 RMS Displacement:          0.001411     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 103                            
+                         Iteration: 103 [SD]                          
 
 
                              Coordinates                              
@@ -3778,7 +3784,7 @@ Maximum Displacement:      0.002715     0.003150  Yes
 RMS Displacement:          0.001384     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 104                            
+                         Iteration: 104 [SD]                          
 
 
                              Coordinates                              
@@ -3814,7 +3820,7 @@ Maximum Displacement:      0.002621     0.003150  Yes
 RMS Displacement:          0.001358     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 105                            
+                         Iteration: 105 [SD]                          
 
 
                              Coordinates                              
@@ -3850,7 +3856,7 @@ Maximum Displacement:      0.002531     0.003150  Yes
 RMS Displacement:          0.001333     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 106                            
+                         Iteration: 106 [SD]                          
 
 
                              Coordinates                              
@@ -3886,7 +3892,7 @@ Maximum Displacement:      0.002444     0.003150  Yes
 RMS Displacement:          0.001309     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 107                            
+                         Iteration: 107 [SD]                          
 
 
                              Coordinates                              
@@ -3922,7 +3928,7 @@ Maximum Displacement:      0.002360     0.003150  Yes
 RMS Displacement:          0.001286     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 108                            
+                         Iteration: 108 [SD]                          
 
 
                              Coordinates                              
@@ -3958,7 +3964,7 @@ Maximum Displacement:      0.002279     0.003150  Yes
 RMS Displacement:          0.001263     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 109                            
+                         Iteration: 109 [SD]                          
 
 
                              Coordinates                              
@@ -3994,7 +4000,7 @@ Maximum Displacement:      0.002201     0.003150  Yes
 RMS Displacement:          0.001242     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 110                            
+                         Iteration: 110 [SD]                          
 
 
                              Coordinates                              
@@ -4030,7 +4036,7 @@ Maximum Displacement:      0.002126     0.003150  Yes
 RMS Displacement:          0.001222     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 111                            
+                         Iteration: 111 [SD]                          
 
 
                              Coordinates                              
@@ -4066,7 +4072,7 @@ Maximum Displacement:      0.002053     0.003150  Yes
 RMS Displacement:          0.001202     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 112                            
+                         Iteration: 112 [SD]                          
 
 
                              Coordinates                              
@@ -4102,7 +4108,7 @@ Maximum Displacement:      0.001983     0.003150  Yes
 RMS Displacement:          0.001184     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 113                            
+                         Iteration: 113 [SD]                          
 
 
                              Coordinates                              
@@ -4138,7 +4144,7 @@ Maximum Displacement:      0.001916     0.003150  Yes
 RMS Displacement:          0.001165     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 114                            
+                         Iteration: 114 [SD]                          
 
 
                              Coordinates                              
@@ -4174,7 +4180,7 @@ Maximum Displacement:      0.001851     0.003150  Yes
 RMS Displacement:          0.001148     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 115                            
+                         Iteration: 115 [SD]                          
 
 
                              Coordinates                              
@@ -4210,7 +4216,7 @@ Maximum Displacement:      0.001788     0.003150  Yes
 RMS Displacement:          0.001131     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 116                            
+                         Iteration: 116 [SD]                          
 
 
                              Coordinates                              
@@ -4240,13 +4246,13 @@ RMS Displacement:          0.001131     0.002100  Yes
 
 
 Energy:                 -383.639069 Convergence criteria  Is converged 
-Maximum Force:             0.008393     0.002850  No
+Maximum Force:             0.008394     0.002850  No
 RMS Force:                 0.005500     0.001900  No
 Maximum Displacement:      0.001728     0.003150  Yes
 RMS Displacement:          0.001115     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 117                            
+                         Iteration: 117 [SD]                          
 
 
                              Coordinates                              
@@ -4282,7 +4288,7 @@ Maximum Displacement:      0.001679     0.003150  Yes
 RMS Displacement:          0.001100     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 118                            
+                         Iteration: 118 [SD]                          
 
 
                              Coordinates                              
@@ -4318,7 +4324,7 @@ Maximum Displacement:      0.001667     0.003150  Yes
 RMS Displacement:          0.001085     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 119                            
+                         Iteration: 119 [SD]                          
 
 
                              Coordinates                              
@@ -4354,7 +4360,7 @@ Maximum Displacement:      0.001655     0.003150  Yes
 RMS Displacement:          0.001071     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 120                            
+                         Iteration: 120 [SD]                          
 
 
                              Coordinates                              
@@ -4390,7 +4396,7 @@ Maximum Displacement:      0.001643     0.003150  Yes
 RMS Displacement:          0.001057     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 121                            
+                         Iteration: 121 [SD]                          
 
 
                              Coordinates                              
@@ -4426,7 +4432,7 @@ Maximum Displacement:      0.001631     0.003150  Yes
 RMS Displacement:          0.001044     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 122                            
+                         Iteration: 122 [SD]                          
 
 
                              Coordinates                              
@@ -4462,7 +4468,7 @@ Maximum Displacement:      0.001619     0.003150  Yes
 RMS Displacement:          0.001031     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 123                            
+                         Iteration: 123 [SD]                          
 
 
                              Coordinates                              
@@ -4498,7 +4504,7 @@ Maximum Displacement:      0.001608     0.003150  Yes
 RMS Displacement:          0.001019     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 124                            
+                         Iteration: 124 [SD]                          
 
 
                              Coordinates                              
@@ -4534,7 +4540,7 @@ Maximum Displacement:      0.001596     0.003150  Yes
 RMS Displacement:          0.001007     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 125                            
+                         Iteration: 125 [SD]                          
 
 
                              Coordinates                              
@@ -4570,7 +4576,7 @@ Maximum Displacement:      0.001585     0.003150  Yes
 RMS Displacement:          0.000996     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 126                            
+                         Iteration: 126 [SD]                          
 
 
                              Coordinates                              
@@ -4606,7 +4612,7 @@ Maximum Displacement:      0.001573     0.003150  Yes
 RMS Displacement:          0.000985     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 127                            
+                         Iteration: 127 [SD]                          
 
 
                              Coordinates                              
@@ -4642,7 +4648,7 @@ Maximum Displacement:      0.001562     0.003150  Yes
 RMS Displacement:          0.000974     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 128                            
+                         Iteration: 128 [SD]                          
 
 
                              Coordinates                              
@@ -4678,7 +4684,7 @@ Maximum Displacement:      0.001551     0.003150  Yes
 RMS Displacement:          0.000964     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 129                            
+                         Iteration: 129 [SD]                          
 
 
                              Coordinates                              
@@ -4714,7 +4720,7 @@ Maximum Displacement:      0.001540     0.003150  Yes
 RMS Displacement:          0.000954     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 130                            
+                         Iteration: 130 [SD]                          
 
 
                              Coordinates                              
@@ -4750,7 +4756,7 @@ Maximum Displacement:      0.001529     0.003150  Yes
 RMS Displacement:          0.000944     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 131                            
+                         Iteration: 131 [SD]                          
 
 
                              Coordinates                              
@@ -4786,7 +4792,7 @@ Maximum Displacement:      0.001518     0.003150  Yes
 RMS Displacement:          0.000935     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 132                            
+                         Iteration: 132 [SD]                          
 
 
                              Coordinates                              
@@ -4822,7 +4828,7 @@ Maximum Displacement:      0.001508     0.003150  Yes
 RMS Displacement:          0.000926     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 133                            
+                         Iteration: 133 [SD]                          
 
 
                              Coordinates                              
@@ -4858,7 +4864,7 @@ Maximum Displacement:      0.001497     0.003150  Yes
 RMS Displacement:          0.000917     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 134                            
+                         Iteration: 134 [SD]                          
 
 
                              Coordinates                              
@@ -4894,7 +4900,7 @@ Maximum Displacement:      0.001486     0.003150  Yes
 RMS Displacement:          0.000909     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 135                            
+                         Iteration: 135 [SD]                          
 
 
                              Coordinates                              
@@ -4930,7 +4936,7 @@ Maximum Displacement:      0.001476     0.003150  Yes
 RMS Displacement:          0.000901     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 136                            
+                         Iteration: 136 [SD]                          
 
 
                              Coordinates                              
@@ -4966,7 +4972,7 @@ Maximum Displacement:      0.001466     0.003150  Yes
 RMS Displacement:          0.000893     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 137                            
+                         Iteration: 137 [SD]                          
 
 
                              Coordinates                              
@@ -5002,7 +5008,7 @@ Maximum Displacement:      0.001455     0.003150  Yes
 RMS Displacement:          0.000885     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 138                            
+                         Iteration: 138 [SD]                          
 
 
                              Coordinates                              
@@ -5038,7 +5044,7 @@ Maximum Displacement:      0.001445     0.003150  Yes
 RMS Displacement:          0.000877     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 139                            
+                         Iteration: 139 [SD]                          
 
 
                              Coordinates                              
@@ -5074,7 +5080,7 @@ Maximum Displacement:      0.001435     0.003150  Yes
 RMS Displacement:          0.000870     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 140                            
+                         Iteration: 140 [SD]                          
 
 
                              Coordinates                              
@@ -5110,7 +5116,7 @@ Maximum Displacement:      0.001426     0.003150  Yes
 RMS Displacement:          0.000863     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 141                            
+                         Iteration: 141 [SD]                          
 
 
                              Coordinates                              
@@ -5146,7 +5152,7 @@ Maximum Displacement:      0.001416     0.003150  Yes
 RMS Displacement:          0.000856     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 142                            
+                         Iteration: 142 [SD]                          
 
 
                              Coordinates                              
@@ -5182,7 +5188,7 @@ Maximum Displacement:      0.001406     0.003150  Yes
 RMS Displacement:          0.000849     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 143                            
+                         Iteration: 143 [SD]                          
 
 
                              Coordinates                              
@@ -5218,7 +5224,7 @@ Maximum Displacement:      0.001397     0.003150  Yes
 RMS Displacement:          0.000843     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 144                            
+                         Iteration: 144 [SD]                          
 
 
                              Coordinates                              
@@ -5254,7 +5260,7 @@ Maximum Displacement:      0.001387     0.003150  Yes
 RMS Displacement:          0.000837     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 145                            
+                         Iteration: 145 [SD]                          
 
 
                              Coordinates                              
@@ -5290,7 +5296,7 @@ Maximum Displacement:      0.001378     0.003150  Yes
 RMS Displacement:          0.000830     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 146                            
+                         Iteration: 146 [SD]                          
 
 
                              Coordinates                              
@@ -5326,7 +5332,7 @@ Maximum Displacement:      0.001368     0.003150  Yes
 RMS Displacement:          0.000824     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 147                            
+                         Iteration: 147 [SD]                          
 
 
                              Coordinates                              
@@ -5362,7 +5368,7 @@ Maximum Displacement:      0.001359     0.003150  Yes
 RMS Displacement:          0.000819     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 148                            
+                         Iteration: 148 [SD]                          
 
 
                              Coordinates                              
@@ -5398,7 +5404,7 @@ Maximum Displacement:      0.001350     0.003150  Yes
 RMS Displacement:          0.000813     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 149                            
+                         Iteration: 149 [SD]                          
 
 
                              Coordinates                              
@@ -5434,7 +5440,7 @@ Maximum Displacement:      0.001341     0.003150  Yes
 RMS Displacement:          0.000807     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 150                            
+                         Iteration: 150 [SD]                          
 
 
                              Coordinates                              
@@ -5470,7 +5476,7 @@ Maximum Displacement:      0.001332     0.003150  Yes
 RMS Displacement:          0.000802     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 151                            
+                         Iteration: 151 [SD]                          
 
 
                              Coordinates                              
@@ -5506,7 +5512,7 @@ Maximum Displacement:      0.001323     0.003150  Yes
 RMS Displacement:          0.000796     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 152                            
+                         Iteration: 152 [SD]                          
 
 
                              Coordinates                              
@@ -5542,7 +5548,7 @@ Maximum Displacement:      0.001315     0.003150  Yes
 RMS Displacement:          0.000791     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 153                            
+                         Iteration: 153 [SD]                          
 
 
                              Coordinates                              
@@ -5578,7 +5584,7 @@ Maximum Displacement:      0.001306     0.003150  Yes
 RMS Displacement:          0.000786     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 154                            
+                         Iteration: 154 [SD]                          
 
 
                              Coordinates                              
@@ -5614,7 +5620,7 @@ Maximum Displacement:      0.001298     0.003150  Yes
 RMS Displacement:          0.000781     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 155                            
+                         Iteration: 155 [SD]                          
 
 
                              Coordinates                              
@@ -5650,7 +5656,7 @@ Maximum Displacement:      0.001289     0.003150  Yes
 RMS Displacement:          0.000776     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 156                            
+                         Iteration: 156 [SD]                          
 
 
                              Coordinates                              
@@ -5686,7 +5692,7 @@ Maximum Displacement:      0.001281     0.003150  Yes
 RMS Displacement:          0.000771     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 157                            
+                         Iteration: 157 [SD]                          
 
 
                              Coordinates                              
@@ -5722,7 +5728,7 @@ Maximum Displacement:      0.001273     0.003150  Yes
 RMS Displacement:          0.000767     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 158                            
+                         Iteration: 158 [SD]                          
 
 
                              Coordinates                              
@@ -5758,7 +5764,7 @@ Maximum Displacement:      0.001267     0.003150  Yes
 RMS Displacement:          0.000762     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 159                            
+                         Iteration: 159 [SD]                          
 
 
                              Coordinates                              
@@ -5794,7 +5800,7 @@ Maximum Displacement:      0.001264     0.003150  Yes
 RMS Displacement:          0.000757     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 160                            
+                         Iteration: 160 [SD]                          
 
 
                              Coordinates                              
@@ -5830,7 +5836,7 @@ Maximum Displacement:      0.001260     0.003150  Yes
 RMS Displacement:          0.000753     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 161                            
+                         Iteration: 161 [SD]                          
 
 
                              Coordinates                              
@@ -5866,7 +5872,7 @@ Maximum Displacement:      0.001257     0.003150  Yes
 RMS Displacement:          0.000749     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 162                            
+                         Iteration: 162 [SD]                          
 
 
                              Coordinates                              
@@ -5902,7 +5908,7 @@ Maximum Displacement:      0.001253     0.003150  Yes
 RMS Displacement:          0.000744     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 163                            
+                         Iteration: 163 [SD]                          
 
 
                              Coordinates                              
@@ -5938,7 +5944,7 @@ Maximum Displacement:      0.001250     0.003150  Yes
 RMS Displacement:          0.000740     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 164                            
+                         Iteration: 164 [SD]                          
 
 
                              Coordinates                              
@@ -5974,7 +5980,7 @@ Maximum Displacement:      0.001246     0.003150  Yes
 RMS Displacement:          0.000736     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 165                            
+                         Iteration: 165 [SD]                          
 
 
                              Coordinates                              
@@ -6010,7 +6016,7 @@ Maximum Displacement:      0.001243     0.003150  Yes
 RMS Displacement:          0.000732     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 166                            
+                         Iteration: 166 [SD]                          
 
 
                              Coordinates                              
@@ -6046,7 +6052,7 @@ Maximum Displacement:      0.001239     0.003150  Yes
 RMS Displacement:          0.000728     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 167                            
+                         Iteration: 167 [SD]                          
 
 
                              Coordinates                              
@@ -6082,7 +6088,7 @@ Maximum Displacement:      0.001236     0.003150  Yes
 RMS Displacement:          0.000724     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 168                            
+                         Iteration: 168 [SD]                          
 
 
                              Coordinates                              
@@ -6118,7 +6124,7 @@ Maximum Displacement:      0.001232     0.003150  Yes
 RMS Displacement:          0.000720     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 169                            
+                         Iteration: 169 [SD]                          
 
 
                              Coordinates                              
@@ -6139,7 +6145,7 @@ RMS Displacement:          0.000720     0.002100  Yes
 13   H               -1.8634              -1.4562              -1.1033
 14   H               -0.4098               1.5444               1.0500
 15   H               -1.9659               0.9738               1.6046
-16   H                2.8641               0.2545               1.5542
+16   H                2.8642               0.2545               1.5542
 17   H                1.8024               0.6774              -2.0703
 18   H                2.4646              -1.4062               1.0609
 19   H                1.3409              -0.4705               2.0474
@@ -6154,7 +6160,7 @@ Maximum Displacement:      0.001229     0.003150  Yes
 RMS Displacement:          0.000716     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 170                            
+                         Iteration: 170 [SD]                          
 
 
                              Coordinates                              
@@ -6190,7 +6196,7 @@ Maximum Displacement:      0.001226     0.003150  Yes
 RMS Displacement:          0.000713     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 171                            
+                         Iteration: 171 [SD]                          
 
 
                              Coordinates                              
@@ -6226,7 +6232,7 @@ Maximum Displacement:      0.001222     0.003150  Yes
 RMS Displacement:          0.000709     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 172                            
+                         Iteration: 172 [SD]                          
 
 
                              Coordinates                              
@@ -6262,7 +6268,7 @@ Maximum Displacement:      0.001219     0.003150  Yes
 RMS Displacement:          0.000705     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 173                            
+                         Iteration: 173 [SD]                          
 
 
                              Coordinates                              
@@ -6298,7 +6304,7 @@ Maximum Displacement:      0.001216     0.003150  Yes
 RMS Displacement:          0.000702     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 174                            
+                         Iteration: 174 [SD]                          
 
 
                              Coordinates                              
@@ -6334,7 +6340,7 @@ Maximum Displacement:      0.001212     0.003150  Yes
 RMS Displacement:          0.000698     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 175                            
+                         Iteration: 175 [SD]                          
 
 
                              Coordinates                              
@@ -6370,7 +6376,7 @@ Maximum Displacement:      0.001209     0.003150  Yes
 RMS Displacement:          0.000695     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 176                            
+                         Iteration: 176 [SD]                          
 
 
                              Coordinates                              
@@ -6406,7 +6412,7 @@ Maximum Displacement:      0.001206     0.003150  Yes
 RMS Displacement:          0.000691     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 177                            
+                         Iteration: 177 [SD]                          
 
 
                              Coordinates                              
@@ -6442,7 +6448,7 @@ Maximum Displacement:      0.001203     0.003150  Yes
 RMS Displacement:          0.000688     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 178                            
+                         Iteration: 178 [SD]                          
 
 
                              Coordinates                              
@@ -6478,7 +6484,7 @@ Maximum Displacement:      0.001200     0.003150  Yes
 RMS Displacement:          0.000685     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 179                            
+                         Iteration: 179 [SD]                          
 
 
                              Coordinates                              
@@ -6514,7 +6520,7 @@ Maximum Displacement:      0.001196     0.003150  Yes
 RMS Displacement:          0.000681     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 180                            
+                         Iteration: 180 [SD]                          
 
 
                              Coordinates                              
@@ -6550,7 +6556,7 @@ Maximum Displacement:      0.001193     0.003150  Yes
 RMS Displacement:          0.000678     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 181                            
+                         Iteration: 181 [SD]                          
 
 
                              Coordinates                              
@@ -6586,7 +6592,7 @@ Maximum Displacement:      0.001190     0.003150  Yes
 RMS Displacement:          0.000675     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 182                            
+                         Iteration: 182 [SD]                          
 
 
                              Coordinates                              
@@ -6622,7 +6628,7 @@ Maximum Displacement:      0.001187     0.003150  Yes
 RMS Displacement:          0.000672     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 183                            
+                         Iteration: 183 [SD]                          
 
 
                              Coordinates                              
@@ -6658,7 +6664,7 @@ Maximum Displacement:      0.001184     0.003150  Yes
 RMS Displacement:          0.000669     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 184                            
+                         Iteration: 184 [SD]                          
 
 
                              Coordinates                              
@@ -6694,7 +6700,7 @@ Maximum Displacement:      0.001181     0.003150  Yes
 RMS Displacement:          0.000666     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 185                            
+                         Iteration: 185 [SD]                          
 
 
                              Coordinates                              
@@ -6730,7 +6736,7 @@ Maximum Displacement:      0.001177     0.003150  Yes
 RMS Displacement:          0.000663     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 186                            
+                         Iteration: 186 [SD]                          
 
 
                              Coordinates                              
@@ -6766,7 +6772,7 @@ Maximum Displacement:      0.001174     0.003150  Yes
 RMS Displacement:          0.000660     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 187                            
+                         Iteration: 187 [SD]                          
 
 
                              Coordinates                              
@@ -6802,7 +6808,7 @@ Maximum Displacement:      0.001171     0.003150  Yes
 RMS Displacement:          0.000657     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 188                            
+                         Iteration: 188 [SD]                          
 
 
                              Coordinates                              
@@ -6838,7 +6844,7 @@ Maximum Displacement:      0.001168     0.003150  Yes
 RMS Displacement:          0.000654     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 189                            
+                         Iteration: 189 [SD]                          
 
 
                              Coordinates                              
@@ -6874,7 +6880,7 @@ Maximum Displacement:      0.001165     0.003150  Yes
 RMS Displacement:          0.000651     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 190                            
+                         Iteration: 190 [SD]                          
 
 
                              Coordinates                              
@@ -6904,13 +6910,13 @@ RMS Displacement:          0.000651     0.002100  Yes
 
 
 Energy:                 -383.644540 Convergence criteria  Is converged 
-Maximum Force:             0.005795     0.002850  No
+Maximum Force:             0.005796     0.002850  No
 RMS Force:                 0.003226     0.001900  No
 Maximum Displacement:      0.001162     0.003150  Yes
 RMS Displacement:          0.000648     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 191                            
+                         Iteration: 191 [SD]                          
 
 
                              Coordinates                              
@@ -6946,7 +6952,7 @@ Maximum Displacement:      0.001159     0.003150  Yes
 RMS Displacement:          0.000645     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 192                            
+                         Iteration: 192 [SD]                          
 
 
                              Coordinates                              
@@ -6982,7 +6988,7 @@ Maximum Displacement:      0.001156     0.003150  Yes
 RMS Displacement:          0.000642     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 193                            
+                         Iteration: 193 [SD]                          
 
 
                              Coordinates                              
@@ -7018,7 +7024,7 @@ Maximum Displacement:      0.001153     0.003150  Yes
 RMS Displacement:          0.000640     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 194                            
+                         Iteration: 194 [SD]                          
 
 
                              Coordinates                              
@@ -7054,7 +7060,7 @@ Maximum Displacement:      0.001150     0.003150  Yes
 RMS Displacement:          0.000637     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 195                            
+                         Iteration: 195 [SD]                          
 
 
                              Coordinates                              
@@ -7090,7 +7096,7 @@ Maximum Displacement:      0.001147     0.003150  Yes
 RMS Displacement:          0.000634     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 196                            
+                         Iteration: 196 [SD]                          
 
 
                              Coordinates                              
@@ -7126,7 +7132,7 @@ Maximum Displacement:      0.001144     0.003150  Yes
 RMS Displacement:          0.000632     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 197                            
+                         Iteration: 197 [SD]                          
 
 
                              Coordinates                              
@@ -7162,7 +7168,7 @@ Maximum Displacement:      0.001141     0.003150  Yes
 RMS Displacement:          0.000629     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 198                            
+                         Iteration: 198 [SD]                          
 
 
                              Coordinates                              
@@ -7198,7 +7204,7 @@ Maximum Displacement:      0.001138     0.003150  Yes
 RMS Displacement:          0.000626     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 199                            
+                         Iteration: 199 [SD]                          
 
 
                              Coordinates                              
@@ -7234,7 +7240,7 @@ Maximum Displacement:      0.001135     0.003150  Yes
 RMS Displacement:          0.000624     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 200                            
+                         Iteration: 200 [SD]                          
 
 
                              Coordinates                              
@@ -7270,7 +7276,7 @@ Maximum Displacement:      0.001132     0.003150  Yes
 RMS Displacement:          0.000621     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 201                            
+                         Iteration: 201 [SD]                          
 
 
                              Coordinates                              
@@ -7306,7 +7312,7 @@ Maximum Displacement:      0.001130     0.003150  Yes
 RMS Displacement:          0.000619     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 202                            
+                         Iteration: 202 [SD]                          
 
 
                              Coordinates                              
@@ -7342,7 +7348,7 @@ Maximum Displacement:      0.001127     0.003150  Yes
 RMS Displacement:          0.000616     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 203                            
+                         Iteration: 203 [SD]                          
 
 
                              Coordinates                              
@@ -7378,7 +7384,7 @@ Maximum Displacement:      0.001124     0.003150  Yes
 RMS Displacement:          0.000614     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 204                            
+                         Iteration: 204 [SD]                          
 
 
                              Coordinates                              
@@ -7414,7 +7420,7 @@ Maximum Displacement:      0.001121     0.003150  Yes
 RMS Displacement:          0.000611     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 205                            
+                         Iteration: 205 [SD]                          
 
 
                              Coordinates                              
@@ -7450,7 +7456,7 @@ Maximum Displacement:      0.001118     0.003150  Yes
 RMS Displacement:          0.000609     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 206                            
+                         Iteration: 206 [SD]                          
 
 
                              Coordinates                              
@@ -7486,7 +7492,7 @@ Maximum Displacement:      0.001115     0.003150  Yes
 RMS Displacement:          0.000606     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 207                            
+                         Iteration: 207 [SD]                          
 
 
                              Coordinates                              
@@ -7522,7 +7528,7 @@ Maximum Displacement:      0.001112     0.003150  Yes
 RMS Displacement:          0.000604     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 208                            
+                         Iteration: 208 [SD]                          
 
 
                              Coordinates                              
@@ -7558,7 +7564,7 @@ Maximum Displacement:      0.001110     0.003150  Yes
 RMS Displacement:          0.000602     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 209                            
+                         Iteration: 209 [SD]                          
 
 
                              Coordinates                              
@@ -7594,7 +7600,7 @@ Maximum Displacement:      0.001107     0.003150  Yes
 RMS Displacement:          0.000599     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 210                            
+                         Iteration: 210 [SD]                          
 
 
                              Coordinates                              
@@ -7624,13 +7630,13 @@ RMS Displacement:          0.000599     0.002100  Yes
 
 
 Energy:                 -383.645385 Convergence criteria  Is converged 
-Maximum Force:             0.005507     0.002850  No
+Maximum Force:             0.005506     0.002850  No
 RMS Force:                 0.002974     0.001900  No
 Maximum Displacement:      0.001104     0.003150  Yes
 RMS Displacement:          0.000597     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 211                            
+                         Iteration: 211 [SD]                          
 
 
                              Coordinates                              
@@ -7666,7 +7672,7 @@ Maximum Displacement:      0.001101     0.003150  Yes
 RMS Displacement:          0.000595     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 212                            
+                         Iteration: 212 [SD]                          
 
 
                              Coordinates                              
@@ -7702,7 +7708,7 @@ Maximum Displacement:      0.001099     0.003150  Yes
 RMS Displacement:          0.000593     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 213                            
+                         Iteration: 213 [SD]                          
 
 
                              Coordinates                              
@@ -7738,7 +7744,7 @@ Maximum Displacement:      0.001096     0.003150  Yes
 RMS Displacement:          0.000590     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 214                            
+                         Iteration: 214 [SD]                          
 
 
                              Coordinates                              
@@ -7774,7 +7780,7 @@ Maximum Displacement:      0.001093     0.003150  Yes
 RMS Displacement:          0.000588     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 215                            
+                         Iteration: 215 [SD]                          
 
 
                              Coordinates                              
@@ -7810,7 +7816,7 @@ Maximum Displacement:      0.001090     0.003150  Yes
 RMS Displacement:          0.000586     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 216                            
+                         Iteration: 216 [SD]                          
 
 
                              Coordinates                              
@@ -7846,7 +7852,7 @@ Maximum Displacement:      0.001088     0.003150  Yes
 RMS Displacement:          0.000584     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 217                            
+                         Iteration: 217 [SD]                          
 
 
                              Coordinates                              
@@ -7882,7 +7888,7 @@ Maximum Displacement:      0.001085     0.003150  Yes
 RMS Displacement:          0.000581     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 218                            
+                         Iteration: 218 [SD]                          
 
 
                              Coordinates                              
@@ -7918,7 +7924,7 @@ Maximum Displacement:      0.001082     0.003150  Yes
 RMS Displacement:          0.000579     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 219                            
+                         Iteration: 219 [SD]                          
 
 
                              Coordinates                              
@@ -7947,14 +7953,14 @@ RMS Displacement:          0.000579     0.002100  Yes
 21   H                2.9509              -0.5313              -1.4172
 
 
-Energy:                 -383.645724 Convergence criteria  Is converged 
+Energy:                 -383.645725 Convergence criteria  Is converged 
 Maximum Force:             0.005384     0.002850  No
 RMS Force:                 0.002876     0.001900  No
 Maximum Displacement:      0.001079     0.003150  Yes
 RMS Displacement:          0.000577     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 220                            
+                         Iteration: 220 [SD]                          
 
 
                              Coordinates                              
@@ -7990,7 +7996,7 @@ Maximum Displacement:      0.001077     0.003150  Yes
 RMS Displacement:          0.000575     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 221                            
+                         Iteration: 221 [SD]                          
 
 
                              Coordinates                              
@@ -8026,7 +8032,7 @@ Maximum Displacement:      0.001074     0.003150  Yes
 RMS Displacement:          0.000573     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 222                            
+                         Iteration: 222 [SD]                          
 
 
                              Coordinates                              
@@ -8062,7 +8068,7 @@ Maximum Displacement:      0.001071     0.003150  Yes
 RMS Displacement:          0.000571     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 223                            
+                         Iteration: 223 [SD]                          
 
 
                              Coordinates                              
@@ -8098,7 +8104,7 @@ Maximum Displacement:      0.001069     0.003150  Yes
 RMS Displacement:          0.000569     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 224                            
+                         Iteration: 224 [SD]                          
 
 
                              Coordinates                              
@@ -8134,7 +8140,7 @@ Maximum Displacement:      0.001066     0.003150  Yes
 RMS Displacement:          0.000567     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 225                            
+                         Iteration: 225 [SD]                          
 
 
                              Coordinates                              
@@ -8170,7 +8176,7 @@ Maximum Displacement:      0.001063     0.003150  Yes
 RMS Displacement:          0.000565     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 226                            
+                         Iteration: 226 [SD]                          
 
 
                              Coordinates                              
@@ -8206,7 +8212,7 @@ Maximum Displacement:      0.001061     0.003150  Yes
 RMS Displacement:          0.000563     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 227                            
+                         Iteration: 227 [SD]                          
 
 
                              Coordinates                              
@@ -8242,7 +8248,7 @@ Maximum Displacement:      0.001058     0.003150  Yes
 RMS Displacement:          0.000561     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 228                            
+                         Iteration: 228 [SD]                          
 
 
                              Coordinates                              
@@ -8278,7 +8284,7 @@ Maximum Displacement:      0.001056     0.003150  Yes
 RMS Displacement:          0.000559     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 229                            
+                         Iteration: 229 [SD]                          
 
 
                              Coordinates                              
@@ -8314,7 +8320,7 @@ Maximum Displacement:      0.001053     0.003150  Yes
 RMS Displacement:          0.000557     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 230                            
+                         Iteration: 230 [SD]                          
 
 
                              Coordinates                              
@@ -8350,7 +8356,7 @@ Maximum Displacement:      0.001050     0.003150  Yes
 RMS Displacement:          0.000555     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 231                            
+                         Iteration: 231 [SD]                          
 
 
                              Coordinates                              
@@ -8386,7 +8392,7 @@ Maximum Displacement:      0.001048     0.003150  Yes
 RMS Displacement:          0.000553     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 232                            
+                         Iteration: 232 [SD]                          
 
 
                              Coordinates                              
@@ -8422,7 +8428,7 @@ Maximum Displacement:      0.001045     0.003150  Yes
 RMS Displacement:          0.000551     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 233                            
+                         Iteration: 233 [SD]                          
 
 
                              Coordinates                              
@@ -8458,7 +8464,7 @@ Maximum Displacement:      0.001043     0.003150  Yes
 RMS Displacement:          0.000549     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 234                            
+                         Iteration: 234 [SD]                          
 
 
                              Coordinates                              
@@ -8494,7 +8500,7 @@ Maximum Displacement:      0.001040     0.003150  Yes
 RMS Displacement:          0.000547     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 235                            
+                         Iteration: 235 [SD]                          
 
 
                              Coordinates                              
@@ -8530,7 +8536,7 @@ Maximum Displacement:      0.001038     0.003150  Yes
 RMS Displacement:          0.000545     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 236                            
+                         Iteration: 236 [SD]                          
 
 
                              Coordinates                              
@@ -8566,7 +8572,7 @@ Maximum Displacement:      0.001035     0.003150  Yes
 RMS Displacement:          0.000544     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 237                            
+                         Iteration: 237 [SD]                          
 
 
                              Coordinates                              
@@ -8602,7 +8608,7 @@ Maximum Displacement:      0.001032     0.003150  Yes
 RMS Displacement:          0.000542     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 238                            
+                         Iteration: 238 [SD]                          
 
 
                              Coordinates                              
@@ -8638,7 +8644,7 @@ Maximum Displacement:      0.001030     0.003150  Yes
 RMS Displacement:          0.000540     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 239                            
+                         Iteration: 239 [SD]                          
 
 
                              Coordinates                              
@@ -8674,7 +8680,7 @@ Maximum Displacement:      0.001027     0.003150  Yes
 RMS Displacement:          0.000538     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 240                            
+                         Iteration: 240 [SD]                          
 
 
                              Coordinates                              
@@ -8710,7 +8716,7 @@ Maximum Displacement:      0.001025     0.003150  Yes
 RMS Displacement:          0.000536     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 241                            
+                         Iteration: 241 [SD]                          
 
 
                              Coordinates                              
@@ -8746,7 +8752,7 @@ Maximum Displacement:      0.001022     0.003150  Yes
 RMS Displacement:          0.000535     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 242                            
+                         Iteration: 242 [SD]                          
 
 
                              Coordinates                              
@@ -8782,7 +8788,7 @@ Maximum Displacement:      0.001020     0.003150  Yes
 RMS Displacement:          0.000533     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 243                            
+                         Iteration: 243 [SD]                          
 
 
                              Coordinates                              
@@ -8818,7 +8824,7 @@ Maximum Displacement:      0.001017     0.003150  Yes
 RMS Displacement:          0.000531     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 244                            
+                         Iteration: 244 [SD]                          
 
 
                              Coordinates                              
@@ -8854,7 +8860,7 @@ Maximum Displacement:      0.001015     0.003150  Yes
 RMS Displacement:          0.000529     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 245                            
+                         Iteration: 245 [SD]                          
 
 
                              Coordinates                              
@@ -8890,7 +8896,7 @@ Maximum Displacement:      0.001012     0.003150  Yes
 RMS Displacement:          0.000528     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 246                            
+                         Iteration: 246 [SD]                          
 
 
                              Coordinates                              
@@ -8926,7 +8932,7 @@ Maximum Displacement:      0.001010     0.003150  Yes
 RMS Displacement:          0.000526     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 247                            
+                         Iteration: 247 [SD]                          
 
 
                              Coordinates                              
@@ -8962,7 +8968,7 @@ Maximum Displacement:      0.001008     0.003150  Yes
 RMS Displacement:          0.000524     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 248                            
+                         Iteration: 248 [SD]                          
 
 
                              Coordinates                              
@@ -8998,7 +9004,7 @@ Maximum Displacement:      0.001005     0.003150  Yes
 RMS Displacement:          0.000523     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 249                            
+                         Iteration: 249 [SD]                          
 
 
                              Coordinates                              
@@ -9034,7 +9040,7 @@ Maximum Displacement:      0.001003     0.003150  Yes
 RMS Displacement:          0.000521     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 250                            
+                         Iteration: 250 [SD]                          
 
 
                              Coordinates                              
@@ -9070,7 +9076,7 @@ Maximum Displacement:      0.001000     0.003150  Yes
 RMS Displacement:          0.000519     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 251                            
+                         Iteration: 251 [SD]                          
 
 
                              Coordinates                              
@@ -9106,7 +9112,7 @@ Maximum Displacement:      0.000998     0.003150  Yes
 RMS Displacement:          0.000518     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 252                            
+                         Iteration: 252 [SD]                          
 
 
                              Coordinates                              
@@ -9142,7 +9148,7 @@ Maximum Displacement:      0.000995     0.003150  Yes
 RMS Displacement:          0.000516     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 253                            
+                         Iteration: 253 [SD]                          
 
 
                              Coordinates                              
@@ -9178,7 +9184,7 @@ Maximum Displacement:      0.000993     0.003150  Yes
 RMS Displacement:          0.000514     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 254                            
+                         Iteration: 254 [SD]                          
 
 
                              Coordinates                              
@@ -9214,7 +9220,7 @@ Maximum Displacement:      0.000991     0.003150  Yes
 RMS Displacement:          0.000513     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 255                            
+                         Iteration: 255 [SD]                          
 
 
                              Coordinates                              
@@ -9250,7 +9256,7 @@ Maximum Displacement:      0.000988     0.003150  Yes
 RMS Displacement:          0.000511     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 256                            
+                         Iteration: 256 [SD]                          
 
 
                              Coordinates                              
@@ -9286,7 +9292,7 @@ Maximum Displacement:      0.000986     0.003150  Yes
 RMS Displacement:          0.000510     0.002100  Yes
 
 ----------------------------------------------------------------------
-                            Iteration: 256                            
+                         Iteration: 256 [SD]                          
 
 
                              Coordinates                              
@@ -9321,27 +9327,30 @@ RMS Force:                 0.002540     0.001900  No
 Maximum Displacement:      0.000986     0.003150  Yes
 RMS Displacement:          0.000510     0.002100  Yes
 
-SD did NOT converge after 256 iterations. Final frame written to /home/user/software/MAPLE/example/opt/sd/inp_nodiis_opt.xyz
+SDCG did NOT converge after 256 iterations (final phase: SD). Final frame written to /home/user/software/MAPLE/example/opt/sd/inp_nodiis_opt.xyz
 Complete trajectory written to /home/user/software/MAPLE/example/opt/sd/inp_nodiis_traj.xyz
 
 
 
-Program started: 2026-02-02 21:40:16
+Program started: 2026-02-02 22:34:32
 
 ======================================================================
                       TIMING SUMMARY
 ======================================================================
-Input Reading.......................................   0.146 s  (   0.8 %)
-  Settings Parsing....................................   0.145 s  (  99.3 %)
-  Coordinate Section Parsing..........................   0.000 s  (   0.2 %)
-  Post-Processing Expansion...........................   0.000 s  (   0.0 %)
-MLP Initialization..................................   3.247 s  (  18.7 %)
-Job Dispatching.....................................  13.924 s  (  80.4 %)
-  Optimization........................................  13.923 s  ( 100.0 %)
+Input Reading (×26).................................   0.039 s  (   0.3 %)
+  Settings Parsing (×26)..............................   0.003 s  (   6.8 %)
+  Coordinate Section Parsing (×26)....................   0.005 s  (  12.5 %)
+  Post-Processing Expansion (×26).....................   0.000 s  (   0.3 %)
+MLP Initialization (×26)............................  14.971 s  ( 101.6 %)
+Job Dispatching (×26)............................... 475.137 s  (3223.4 %)
+  Single Point Energy Calculation (×7)................   2.237 s  (   0.5 %)
+  Frequency Calculation (×7)..........................   9.962 s  (   2.1 %)
+  IRC Calculation (×4)................................  21.166 s  (   4.5 %)
+  Optimization (×8)................................... 441.758 s  (  93.0 %)
 ======================================================================
-Total wall time: 17.316 s
-Total CPU time: 302.895 s
+Total wall time: 14.740 s
+Total CPU time: 303.882 s
 ======================================================================
 
-Program ended: 2026-02-02 21:40:34
-TOTAL RUN TIME: 0 days 0 hours 0 minutes 17 seconds 316 msec
+Program ended: 2026-02-02 22:34:46
+TOTAL RUN TIME: 0 days 0 hours 0 minutes 14 seconds 740 msec

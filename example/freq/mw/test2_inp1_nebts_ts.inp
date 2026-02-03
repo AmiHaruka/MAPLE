@@ -2,6 +2,6 @@
 #freq(method=nonmw, temperature=298, verbosity=2, treat_imag_as_real=Ture, pressure_kpa=300,ilow=3)
 #device=gpu0
 
-XYZ C:\Users\18526\maple\example\freq\mw\inp1_nebts_ts.xyz
+XYZ /home/user/software/MAPLE/example/freq/mw/inp1_nebts_ts.xyz
 
 
