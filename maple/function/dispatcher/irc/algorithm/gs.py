@@ -110,8 +110,7 @@ class GSParams:
     # Which negative eigenmode (1 = most negative) to use for initial direction
     target_mode: int = 1
 
-    # GS macro step length in mass-weighted coordinates (same units as q_mw)
-    # User-facing name kept in "Bohr" for compatibility with old inputs.
+    # GS step length in Bohr
     step_length_bohr: float = 0.10
 
     # Number of macro steps per direction
@@ -197,7 +196,7 @@ class GS:
 
         # Internal state for GS integration
         self._D: Optional[np.ndarray] = None  # mass-weight scaling vector
-        self._step_len_mw: float = float(self.p.step_length_bohr)
+        self._step_len_mw: float = float(self.p.step_length_bohr * BOHR_TO_ANG)
 
         self.mw_coords: Optional[np.ndarray] = None
         self.mw_hessian: Optional[np.ndarray] = None
@@ -223,7 +222,7 @@ class GS:
         """
         # Prepare mass weights once at TS geometry
         self._D = masses_D(self.atoms)
-        self._step_len_mw = float(self.p.step_length_bohr)
+        self._step_len_mw = float(self.p.step_length_bohr * BOHR_TO_ANG)
 
         # Diagonalize mass-weighted Hessian at TS to get negative mode
         H_cart_ts = self._get_hessian_cart()
@@ -430,7 +429,7 @@ class GS:
         _, F_cart = self._energy_forces_from_mw(self.mw_coords)
         gradient = self._gradient_mw_from_forces(F_cart)
 
-        # BFGS update (or optional full Hessian recalculation)
+        # Hessian update (or optional full Hessian recalculation)
         gradient_diff = gradient - self.prev_grad
         coords_diff = self.mw_coords - self.prev_coords
 

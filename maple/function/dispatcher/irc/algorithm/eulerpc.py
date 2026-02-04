@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Intrinsic Reaction Coordinate (IRC) integrator using Euler integration with a Hessian-based Predictor-Corrector(EulerPC):
+Intrinsic Reaction Coordinate (IRC) integrator using Euler-based Predictor-Corrector(EulerPC):
 
 - Mass-weighted coordinates and Hessian
 - Predictor Euler integration with a Hessian-based gradient model
@@ -193,8 +193,7 @@ class EulerPCParams:
     # Which negative eigenmode (1 = most negative) to use for initial direction
     target_mode: int = 1
 
-    # EulerPC step length in unweighted coordinates (Å).
-    # User-facing name kept in "Bohr" for compatibility with old inputs.
+    # EulerPC step length in Bohr
     step_length_bohr: float = 0.10
 
     # Number of macro steps per direction
@@ -212,7 +211,6 @@ class EulerPCParams:
 
     # DWI / mBS corrector controls
     dwi_n: int = 4
-    dwi_maxlen: int = 2
     mbs_max_k: int = 15
     mbs_points: int = 20
     mbs_tol: float = 1e-5
@@ -232,8 +230,8 @@ class EulerPC:
     Euler integration with a Hessian-based Predictor-Corrector:
 
     - Works in mass-weighted coordinates.
-    - Each macro step uses Euler predictor integration followed by a
-      simple corrector update based on the new gradient direction.
+    - Each macro step uses Euler predictor integration followed by
+      DWI + mBS corrector integration.
     - Uses BFGS/Bofill updates of the mass-weighted Hessian, with optional
       periodic full recalculation.
     - Integrates forward and backward from the TS along the lowest
@@ -266,12 +264,9 @@ class EulerPC:
                 "steplength_bohr": "step_length_bohr",
                 "max_points": "max_steps",
                 "max_pred_steps": "max_pred_steps",
-                "pred_steps": "max_pred_steps",
-                "n_pred_steps": "max_pred_steps",
                 "loose_cycles": "loose_cycles",
                 "hessian_update": "hessian_update",
                 "dwi_n": "dwi_n",
-                "dwi_maxlen": "dwi_maxlen",
                 "mbs_max_k": "mbs_max_k",
                 "mbs_points": "mbs_points",
                 "mbs_tol": "mbs_tol",
@@ -293,8 +288,8 @@ class EulerPC:
 
         # Internal state for EulerPC integration
         self._D: Optional[np.ndarray] = None  # mass-weight scaling vector
-        self._step_len_umw: float = float(self.p.step_length_bohr)
-
+        self._step_len_mw: float = float(self.p.step_length_bohr * BOHR_TO_ANG)
+        self._step_len_umw: float = float(self.p.step_length_bohr * BOHR_TO_ANG)
         self.mw_coords: Optional[np.ndarray] = None
         self.mw_hessian: Optional[np.ndarray] = None
         self.prev_coords: Optional[np.ndarray] = None
@@ -318,7 +313,8 @@ class EulerPC:
         """
         # Prepare mass weights once at TS geometry
         self._D = masses_D(self.atoms)
-        self._step_len_umw = float(self.p.step_length_bohr)
+        self._step_len_mw = float(self.p.step_length_bohr * BOHR_TO_ANG)
+        self._step_len_umw = float(self.p.step_length_bohr * BOHR_TO_ANG)
 
         # Diagonalize mass-weighted Hessian at TS to get negative mode
         H_cart_ts = self._get_hessian_cart()
@@ -579,7 +575,7 @@ class EulerPC:
 
         # Predictor: Euler integration with Hessian-based gradient model
         conv_fact = self._get_conv_fact(g_curr)
-        euler_step_len = self._step_len_umw / (float(self.p.max_pred_steps) / conv_fact)
+        euler_step_len = self._step_len_mw / (float(self.p.max_pred_steps) / conv_fact)
 
         euler_mw = init_mw.copy()
         euler_grad = g_curr.copy()
@@ -599,6 +595,8 @@ class EulerPC:
         pred_mw = euler_mw
 
         if not pred_converged:
+            # If predictor misses target length, keep going: either early-converge
+            # (small Cartesian gradient) or continue with corrector.
             euler_grad_cart = self._unweight_grad(euler_grad)
             rms_grad = float(np.sqrt(np.mean(euler_grad_cart ** 2)))
             if self.cur_cycle < int(self.p.loose_cycles):
@@ -675,7 +673,7 @@ class EulerPC:
                 cur_coords = cur_coords + corr_step * (-gradient / grad_norm)
                 cur_length = self._unweight_len(cur_coords - init_mw)
 
-                # Oscillation check (same heuristic as EulerPC)
+                # Oscillation check
                 if len(k_coords) > 1:
                     prev_coords = k_coords[-2]
                     if _norm(cur_coords - prev_coords) <= corr_step:
@@ -726,7 +724,7 @@ class EulerPC:
 
         # Initial displacement along negative mode in MW
         v_dir = _unit(v_neg_mw) * sign
-        q0_mw = q_ts_mw + self._scale_mw_step(v_dir, 0.5 * self._step_len_umw)
+        q0_mw = q_ts_mw + self._scale_mw_step(v_dir, 0.5 * self._step_len_mw)
 
         # Gradient at TS (for initial Hessian update)
         _, F_ts_cart = self._energy_forces_from_mw(q_ts_mw)
@@ -755,7 +753,7 @@ class EulerPC:
         self.prev_coords = None
         self.prev_grad = None
         self.micro_counter = 0
-        self._dwi = DWI(n=self.p.dwi_n, maxlen=self.p.dwi_maxlen)
+        self._dwi = DWI(n=self.p.dwi_n, maxlen=2)
         self._dwi.update(q0_mw.copy(), E0, g0_mw, self.mw_hessian.copy())
 
         # Iteration 0 logging
