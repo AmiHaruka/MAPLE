@@ -108,15 +108,14 @@ class LQAParams:
     # Which negative eigenmode (1 = most negative) to use for initial direction
     target_mode: int = 1
 
-    # LQA step length in unweighted coordinates (Å).
-    # User-facing name kept in "Bohr" for compatibility with old inputs.
+    # LQA step length in Bohr
     step_length_bohr: float = 0.10
 
     # Number of macro steps per direction
     max_steps: int = 50
 
     # Euler integration sub-steps to estimate the LQA propagation parameter
-    n_euler: int = 5000
+    euler_n: int = 5000
 
     # Recalculate Hessian every N micro-steps (None = never)
     hessian_recalc: Optional[int] = None
@@ -172,9 +171,7 @@ class LQA:
                 "steplength_bohr": "step_length_bohr",
                 "max_points": "max_steps",
                 "hessian_update": "hessian_update",
-                "n_euler": "n_euler",
-                "neuler": "n_euler",
-                "euler_steps": "n_euler",
+                "euler_n": "euler_n",
                 "hessian_recalc": "hessian_recalc",
                 "target_mode": "target_mode",
                 "f_max_th": "f_max_th",
@@ -193,7 +190,7 @@ class LQA:
 
         # Internal state for LQA integration
         self._D: Optional[np.ndarray] = None  # mass-weight scaling vector
-        self._step_len_umw: float = float(self.p.step_length_bohr)
+        self._step_len_mw: float = float(self.p.step_length_bohr * BOHR_TO_ANG)
 
         self.mw_coords: Optional[np.ndarray] = None
         self.mw_hessian: Optional[np.ndarray] = None
@@ -215,7 +212,7 @@ class LQA:
         """
         # Prepare mass weights once at TS geometry
         self._D = masses_D(self.atoms)
-        self._step_len_umw = float(self.p.step_length_bohr)
+        self._step_len_mw = float(self.p.step_length_bohr * BOHR_TO_ANG)
 
         # Diagonalize mass-weighted Hessian at TS to get negative mode
         H_cart_ts = self._get_hessian_cart()
@@ -470,13 +467,13 @@ class LQA:
 
         g_star = eigvecs.T.dot(g_curr)
 
-        dt = self._step_len_umw / (float(self.p.n_euler) * g_norm)
+        dt = self._step_len_mw / (float(self.p.euler_n) * g_norm)
         t = dt
         cur_length = 0.0
-        for _ in range(int(self.p.n_euler)):
+        for _ in range(int(self.p.euler_n)):
             dsdt = np.sqrt(np.sum((g_star ** 2) * np.exp(-2.0 * eigvals * t)))
             cur_length += dsdt * dt
-            if cur_length >= self._step_len_umw:
+            if cur_length >= self._step_len_mw:
                 break
             t += dt
 
@@ -516,7 +513,7 @@ class LQA:
 
         # Initial displacement along negative mode in MW
         v_dir = _unit(v_neg_mw) * sign
-        q0_mw = q_ts_mw + self._scale_mw_step(v_dir, 0.5 * self._step_len_umw)
+        q0_mw = q_ts_mw + self._scale_mw_step(v_dir, 0.5 * self._step_len_mw)
 
         # Initial energy / forces / gradient at starting point
         E0, F0_cart = self._energy_forces_from_mw(q0_mw)
