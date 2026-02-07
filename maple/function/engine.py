@@ -105,6 +105,7 @@ class engine():
         """
         with timer("MLP Initialization"):
             from .calculator import SetClaculator
+            from .utility.uncertainty import wrap_with_ensemble
 
             implicit_method = self.commandcontrol.get('solv', {}).get('method', None)
             solvent = self.commandcontrol.get('solv', {}).get('implicit', None)
@@ -121,7 +122,23 @@ class engine():
 
             setcalculator = SetClaculator(device, model, self.output, atoms=atoms_for_check,
                             d4=self.d4, implicit=implicit_method, solvent=solvent)
-            self.calulator = setcalculator.set_calculator()
+            ensemble_raw = self.commandcontrol.get("ensemble", None)
+            ensemble_active = (
+                isinstance(ensemble_raw, dict) and bool(ensemble_raw.get("active", False))
+            )
+
+            # If ensemble is active (non-freq), build primary directly from ensemble[0]
+            # to avoid requiring an unrelated base #model file.
+            if ensemble_active and str(self.jobtype).lower() != "freq":
+                self.calulator = wrap_with_ensemble(
+                    primary_calc=None,
+                    ensemble_raw=ensemble_raw,
+                    calculator_factory=setcalculator,
+                    output=self.output,
+                    jobtype=self.jobtype,
+                )
+            else:
+                self.calulator = setcalculator.set_calculator()
     
     def _jobtype_dispatcher(self, commandcontrol, jobtype:int, atoms:Union[Atoms, Molecules, List[Atoms]], output:str, extra:dict=None) -> None:
         """
@@ -140,8 +157,6 @@ class engine():
             dispatcher = Dispatcher()
             dispatcher(commandcontrol, jobtype, atoms, output, extra)
     
-
-
 
 
 

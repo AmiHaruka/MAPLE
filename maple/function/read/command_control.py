@@ -27,6 +27,7 @@ class CommandControl:
         "opt": {},
         "ts": {},
         "scan": {},
+        "ensemble": {"active": False, "models": "", "on_error": "warn"},
         "freq": {
             "method": "mw",
             "temperature": 298.15,
@@ -127,6 +128,8 @@ class CommandControl:
             params['model'] = params['model'].lower().replace('_', '').replace('-', '').replace(' ', '').replace('(', '').replace(')', '')
 
         # ✅ Validation
+        if "ensemble" not in params:
+            params["ensemble"] = dict(cls.DEFAULTS["ensemble"])
         cls._validate(params, task, output_path)
         cls._log_info(output_path, log_lines)
 
@@ -179,6 +182,29 @@ class CommandControl:
             if allowed and params["method"] not in allowed:
                 cls._log_error(output_path, f"Method '{params['method']}' not implemented for task '{task}'.")
                 raise ValueError(f"Method '{params['method']}' not implemented for task '{task}'.")
+
+        # ensemble validation
+        ens = params.get("ensemble", None)
+        if ens is not None:
+            if not isinstance(ens, dict):
+                cls._log_error(output_path, "ensemble must be a nested dict, e.g. #ensemble(active=true,models=...).")
+                raise ValueError("ensemble must be a nested dict.")
+
+            active = bool(ens.get("active", False))
+            on_error = str(ens.get("on_error", "warn")).strip().lower()
+            models_raw = ens.get("models", "")
+            if isinstance(models_raw, list):
+                models = [str(x).strip() for x in models_raw if str(x).strip()]
+            else:
+                models = [x.strip() for x in str(models_raw).split(";") if x.strip()]
+
+            if on_error not in {"warn"}:
+                cls._log_error(output_path, "ensemble.on_error only supports 'warn' currently.")
+                raise ValueError("ensemble.on_error only supports 'warn'.")
+
+            if active and len(models) < 2:
+                cls._log_error(output_path, "ensemble.active=true requires at least two model paths in models.")
+                raise ValueError("ensemble.active=true requires at least two model paths.")
 
     @staticmethod
     def _log_info(output_path: Optional[str], lines: List[str]) -> None:

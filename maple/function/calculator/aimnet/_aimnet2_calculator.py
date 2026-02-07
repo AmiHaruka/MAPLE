@@ -1,7 +1,7 @@
 import os
 import torch
 import numpy as np
-from typing import Dict, Literal
+from typing import Dict, Literal, Optional
 from ase.calculators.calculator import Calculator, all_changes
 from ..calculator_base import CalcABC
 
@@ -66,6 +66,7 @@ class AIMNet2Calculator(CalcABC):
 
     def __init__(self, device: torch.device, 
                 model: str = "aimnet2", 
+                model_path: Optional[str] = None,
                 coulomb_method: str = "simple",
                 implicit: Literal["gbsa", "none"] = "gbsa",
                 solvent: str = 'none',
@@ -74,9 +75,12 @@ class AIMNet2Calculator(CalcABC):
         self.device = device
 
         # Load model
-        model_dir = os.path.dirname(os.path.realpath(__file__))
-        model_dir = os.path.dirname(model_dir)
-        model_path = os.path.join(model_dir, "model", f"{model}.pt")
+        if model_path is None:
+            model_dir = os.path.dirname(os.path.realpath(__file__))
+            model_dir = os.path.dirname(model_dir)
+            model_path = os.path.join(model_dir, "model", f"{model}.pt")
+        else:
+            model_path = os.path.abspath(model_path)
         self.model = torch.jit.load(model_path, map_location=device).eval()
 
         self.cutoff = float(getattr(self.model, "cutoff"))

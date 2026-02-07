@@ -1,5 +1,6 @@
 import torch
 from typing import Optional
+import os
 
 import ase
 from ase import Atoms
@@ -164,6 +165,46 @@ class SetClaculator():
                     ])
 
         return calculator
+    
+    def build_calculator_from_path(self, model_path: str) -> ase.calculators.calculator.Calculator:
+        """
+        Build uncertainty observer calculator from an explicit model path.
+        Supported in this version: MACE family and AIMNet2 family.
+        """
+        if not isinstance(model_path, str) or len(model_path.strip()) == 0:
+            raise ValueError("Invalid model path.")
+
+        model_path = os.path.abspath(model_path.strip())
+        if not os.path.isfile(model_path):
+            raise FileNotFoundError(f"Model file not found: {model_path}")
+
+        model_name = str(self.model).lower()
+
+        # MACE-like wrappers
+        if model_name in ['maceoff23s', 'maceoff23m', 'maceoff23l', 'egret']:
+            from .mace._mace_calculator import MACECalculator
+            return MACECalculator(
+                model=model_name,
+                model_path=model_path,
+                device=self.device,
+                implicit=self.implicit,
+                solvent=self.solvent,
+            )
+
+        # AIMNet2 family
+        if model_name in ['aimnet2', 'aimnet2nse']:
+            from .aimnet._aimnet2_calculator import AIMNet2Calculator
+            return AIMNet2Calculator(
+                model=model_name,
+                model_path=model_path,
+                device=self.device,
+                implicit=self.implicit,
+                solvent=self.solvent,
+            )
+
+        raise ValueError(
+            f"Uncertainty ensemble from custom path is not supported for model '{self.model}'."
+        )
         
 
     def log_error(self, error_message: str) -> None:
