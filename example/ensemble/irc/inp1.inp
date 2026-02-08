@@ -1,0 +1,8 @@
+#model=aimnet2nse
+#irc(method=hpc)
+#ensemble(active=true,models=/home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/calculator/model/aimnet2nse_0.pt;/home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/calculator/model/aimnet2nse_1.pt;/home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/calculator/model/aimnet2nse_2.pt)
+#device=gpu0
+
+XYZ 0 1 /home/hungn/Desktop/MyRepo/MLP/MAPLE/example/ensemble/ts/prfo/inp1_prfo_ts.xyz
+
+

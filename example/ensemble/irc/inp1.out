@@ -1,0 +1,1106 @@
+
+**********************************************************************
+*                                                                    *
+*                        M   A   P   L   E                           *
+*                                                                    *
+*      MAchine-learning Potential for Landscape Exploration          *
+*                                                                    *
+*                                                                    *
+*      © 2025 University of Pittsburgh. All rights reserved.         *
+*      Licensed under CC BY 4.0 for academic use.                    *
+*                                                                    *
+*      Principal Developer:  Xujian Wang                             *
+*                                                                    *
+**********************************************************************
+
+
+Parsing # commands...
+Global parameter: model = aimnet2nse
+Task set to 'irc'
+Global nested parameter: ensemble = {'active': True, 'models': '/home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/calculator/model/aimnet2nse_0.pt;/home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/calculator/model/aimnet2nse_1.pt;/home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/calculator/model/aimnet2nse_2.pt'}
+Global parameter: device = gpu0
+Parsed configuration:
+----------------------------------------
+Task: irc
+model          : aimnet2nse
+method         : hpc
+ensemble       : {'active': True, 'models': '/home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/calculator/model/aimnet2nse_0.pt;/home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/calculator/model/aimnet2nse_1.pt;/home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/calculator/model/aimnet2nse_2.pt'}
+device         : gpu0
+
+                             Coordinates                              
+**********************************************************************
+[UNC] ensemble enabled with 3 models (1 primary + 2 observers).
+
+[INFO] HPC-IRC: Selected negative eigenmode #1 with λ = -5.694588e-02 (MW basis)
+[UNC] eval=1 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8060049586 Eh  E_mean=-424.7986544161 Eh  E_std=5.268e-03 Eh  E_rms=5.268e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.975e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.208e-02 Eh
+
+         *************************************************************
+         *                      FORWARD HPC-IRC                      *
+         *************************************************************
+
+Iteration    E(Eh)      dE(kcal/mol)  max(|G|)   RMS(G) 
+Convergence thresholds                0.002850  0.001900
+[UNC] eval=2 task=runtime active_models=3 dropped=0 props=energy,forces
+[UNC] E_primary=-424.8060049586 Eh  E_mean=-424.7986544161 Eh  E_std=5.268e-03 Eh  E_rms=5.268e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.975e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.208e-02 Eh
+[UNC] F_sigma_rms=6.643e-03 Eh/Ang  F_sigma_max=2.020e-02 Eh/Ang
+[UNC] eval=3 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8060363727 Eh  E_mean=-424.7986411034 Eh  E_std=5.297e-03 Eh  E_rms=5.297e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.006e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.212e-02 Eh
+    0     -424.806036     -0.019713    0.157284  0.042164
+[UNC] eval=4 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8143450636 Eh  E_mean=-424.8068951988 Eh  E_std=5.349e-03 Eh  E_rms=5.349e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.004e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.231e-02 Eh
+[UNC] eval=5 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8159812416 Eh  E_mean=-424.8085102318 Eh  E_std=5.363e-03 Eh  E_rms=5.363e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.008e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.234e-02 Eh
+    1     -424.815981     -6.260212    0.157284  0.042164
+[UNC] eval=6 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8212519218 Eh  E_mean=-424.8137616813 Eh  E_std=5.367e-03 Eh  E_rms=5.367e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.017e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.230e-02 Eh
+[UNC] eval=7 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8184282129 Eh  E_mean=-424.8109355036 Eh  E_std=5.376e-03 Eh  E_rms=5.376e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.012e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.236e-02 Eh
+    2     -424.818428     -7.795710    0.157284  0.042164
+[UNC] eval=8 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8223538572 Eh  E_mean=-424.8148782314 Eh  E_std=5.349e-03 Eh  E_rms=5.349e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.021e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.222e-02 Eh
+[UNC] eval=9 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8199716744 Eh  E_mean=-424.8124762140 Eh  E_std=5.376e-03 Eh  E_rms=5.376e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.014e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.235e-02 Eh
+    3     -424.819972     -8.764247    0.157284  0.042164
+[UNC] eval=10 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8229356267 Eh  E_mean=-424.8154821747 Eh  E_std=5.326e-03 Eh  E_rms=5.326e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.024e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.212e-02 Eh
+[UNC] eval=11 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8212879423 Eh  E_mean=-424.8137948450 Eh  E_std=5.369e-03 Eh  E_rms=5.369e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.018e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.230e-02 Eh
+    4     -424.821288     -9.590217    0.157284  0.042164
+[UNC] eval=12 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8231966559 Eh  E_mean=-424.8157724020 Eh  E_std=5.297e-03 Eh  E_rms=5.297e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.027e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.200e-02 Eh
+[UNC] eval=13 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8222509124 Eh  E_mean=-424.8147702776 Eh  E_std=5.353e-03 Eh  E_rms=5.353e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.021e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.223e-02 Eh
+    5     -424.822251    -10.194490    0.157284  0.042164
+[UNC] eval=14 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8231511891 Eh  E_mean=-424.8157619029 Eh  E_std=5.264e-03 Eh  E_rms=5.264e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.030e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.187e-02 Eh
+[UNC] eval=15 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8228759046 Eh  E_mean=-424.8154164381 Eh  E_std=5.331e-03 Eh  E_rms=5.331e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.024e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.213e-02 Eh
+    6     -424.822876    -10.586678    0.157284  0.042164
+[UNC] eval=16 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8228129560 Eh  E_mean=-424.8154634078 Eh  E_std=5.228e-03 Eh  E_rms=5.228e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.032e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.173e-02 Eh
+[UNC] eval=17 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8231776835 Eh  E_mean=-424.8157466137 Eh  E_std=5.303e-03 Eh  E_rms=5.303e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.027e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.202e-02 Eh
+    7     -424.823178    -10.776048    0.157284  0.042164
+[UNC] eval=18 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8221940817 Eh  E_mean=-424.8148892234 Eh  E_std=5.190e-03 Eh  E_rms=5.190e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.034e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.157e-02 Eh
+[UNC] eval=19 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8231708745 Eh  E_mean=-424.8157741707 Eh  E_std=5.270e-03 Eh  E_rms=5.270e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.030e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.189e-02 Eh
+    8     -424.823171    -10.771775    0.157284  0.042164
+[UNC] eval=20 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8213050145 Eh  E_mean=-424.8140509753 Eh  E_std=5.148e-03 Eh  E_rms=5.148e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.035e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.141e-02 Eh
+[UNC] eval=21 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8228691964 Eh  E_mean=-424.8155116995 Eh  E_std=5.235e-03 Eh  E_rms=5.235e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.032e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.175e-02 Eh
+    9     -424.822869    -10.582469    0.157284  0.042164
+[UNC] eval=22 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8201544461 Eh  E_mean=-424.8129593265 Eh  E_std=5.101e-03 Eh  E_rms=5.101e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.035e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.124e-02 Eh
+[UNC] eval=23 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8222852365 Eh  E_mean=-424.8149718625 Eh  E_std=5.197e-03 Eh  E_rms=5.197e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.034e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.160e-02 Eh
+   10     -424.822285    -10.216029    0.157284  0.042164
+[UNC] eval=24 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8187493234 Eh  E_mean=-424.8116238497 Eh  E_std=5.047e-03 Eh  E_rms=5.047e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.033e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.105e-02 Eh
+[UNC] eval=25 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8214416985 Eh  E_mean=-424.8141764026 Eh  E_std=5.156e-03 Eh  E_rms=5.156e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.036e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.144e-02 Eh
+   11     -424.821442     -9.686701    0.157284  0.042164
+[UNC] eval=26 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8171197835 Eh  E_mean=-424.8100743721 Eh  E_std=4.987e-03 Eh  E_rms=4.987e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.029e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.084e-02 Eh
+[UNC] eval=27 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8205306317 Eh  E_mean=-424.8133128222 Eh  E_std=5.118e-03 Eh  E_rms=5.118e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.036e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.130e-02 Eh
+   12     -424.820531     -9.114997    0.157284  0.042164
+[UNC] eval=28 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8166095676 Eh  E_mean=-424.8096991463 Eh  E_std=4.890e-03 Eh  E_rms=4.890e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.015e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.058e-02 Eh
+[UNC] eval=29 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8192021609 Eh  E_mean=-424.8120505586 Eh  E_std=5.067e-03 Eh  E_rms=5.067e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.034e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.111e-02 Eh
+   13     -424.819202     -8.281369    0.157284  0.042164
+[UNC] eval=30 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8145254805 Eh  E_mean=-424.8077223998 Eh  E_std=4.812e-03 Eh  E_rms=4.812e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.007e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.034e-02 Eh
+[UNC] eval=31 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8179034767 Eh  E_mean=-424.8108162073 Eh  E_std=5.018e-03 Eh  E_rms=5.018e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.032e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.094e-02 Eh
+   14     -424.817903     -7.466433    0.157284  0.042164
+[UNC] eval=32 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8126180933 Eh  E_mean=-424.8059100666 Eh  E_std=4.744e-03 Eh  E_rms=4.744e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.000e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.012e-02 Eh
+[UNC] eval=33 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8174797862 Eh  E_mean=-424.8105217142 Eh  E_std=4.924e-03 Eh  E_rms=4.924e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.019e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.069e-02 Eh
+   15     -424.817480     -7.200563    0.157284  0.042164
+[UNC] eval=34 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8105632572 Eh  E_mean=-424.8039514828 Eh  E_std=4.675e-03 Eh  E_rms=4.675e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.925e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=9.910e-03 Eh
+[UNC] eval=35 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8158466232 Eh  E_mean=-424.8089732443 Eh  E_std=4.862e-03 Eh  E_rms=4.862e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.013e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.049e-02 Eh
+   16     -424.815847     -6.175738    0.157284  0.042164
+[UNC] eval=36 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8083658504 Eh  E_mean=-424.8018494163 Eh  E_std=4.608e-03 Eh  E_rms=4.608e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.852e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=9.697e-03 Eh
+[UNC] eval=37 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8140530047 Eh  E_mean=-424.8072714336 Eh  E_std=4.796e-03 Eh  E_rms=4.796e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.006e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.029e-02 Eh
+   17     -424.814053     -5.050225    0.157284  0.042164
+[UNC] eval=38 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8060259101 Eh  E_mean=-424.7996052102 Eh  E_std=4.542e-03 Eh  E_rms=4.542e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.780e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=9.482e-03 Eh
+[UNC] eval=39 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8121063978 Eh  E_mean=-424.8054204623 Eh  E_std=4.728e-03 Eh  E_rms=4.728e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.985e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.007e-02 Eh
+   18     -424.812106     -3.828711    0.157284  0.042164
+[UNC] eval=40 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8035378507 Eh  E_mean=-424.7972169972 Eh  E_std=4.473e-03 Eh  E_rms=4.473e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.705e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=9.258e-03 Eh
+[UNC] eval=41 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8100140155 Eh  E_mean=-424.8034240878 Eh  E_std=4.660e-03 Eh  E_rms=4.660e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.911e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=9.859e-03 Eh
+   19     -424.810014     -2.515721    0.157284  0.042164
+[UNC] eval=42 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8008948315 Eh  E_mean=-424.7946815829 Eh  E_std=4.400e-03 Eh  E_rms=4.400e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.620e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=9.019e-03 Eh
+[UNC] eval=43 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8077794503 Eh  E_mean=-424.8012846131 Eh  E_std=4.593e-03 Eh  E_rms=4.593e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.839e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=9.645e-03 Eh
+   20     -424.807779     -1.113510    0.157284  0.042164
+[UNC] eval=44 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7980956258 Eh  E_mean=-424.7919965238 Eh  E_std=4.324e-03 Eh  E_rms=4.324e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.529e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.769e-03 Eh
+[UNC] eval=45 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8054010548 Eh  E_mean=-424.7990025155 Eh  E_std=4.527e-03 Eh  E_rms=4.527e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.767e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=9.429e-03 Eh
+   21     -424.805401      0.378955    0.157284  0.042164
+[UNC] eval=46 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7951451075 Eh  E_mean=-424.7891612794 Eh  E_std=4.248e-03 Eh  E_rms=4.248e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.437e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.514e-03 Eh
+[UNC] eval=47 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8028723257 Eh  E_mean=-424.7965755004 Eh  E_std=4.457e-03 Eh  E_rms=4.457e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.689e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=9.201e-03 Eh
+   22     -424.802872      1.965757    0.157284  0.042164
+[UNC] eval=48 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7920504917 Eh  E_mean=-424.7861769700 Eh  E_std=4.177e-03 Eh  E_rms=4.177e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.357e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.263e-03 Eh
+[UNC] eval=49 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8001876094 Eh  E_mean=-424.7940003787 Eh  E_std=4.383e-03 Eh  E_rms=4.383e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.602e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.959e-03 Eh
+   23     -424.800188      3.650442    0.157284  0.042164
+[UNC] eval=50 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7890396039 Eh  E_mean=-424.7832884408 Eh  E_std=4.096e-03 Eh  E_rms=4.096e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.222e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.032e-03 Eh
+[UNC] eval=51 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7973471405 Eh  E_mean=-424.7912750527 Eh  E_std=4.306e-03 Eh  E_rms=4.306e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.509e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.707e-03 Eh
+   24     -424.797347      5.432863    0.157284  0.042164
+[UNC] eval=52 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7856694385 Eh  E_mean=-424.7800050201 Eh  E_std=4.045e-03 Eh  E_rms=4.045e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.190e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.803e-03 Eh
+[UNC] eval=53 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7943573422 Eh  E_mean=-424.7883996526 Eh  E_std=4.231e-03 Eh  E_rms=4.231e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.420e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.453e-03 Eh
+   25     -424.794357      7.308990    0.157284  0.042164
+[UNC] eval=54 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7821641061 Eh  E_mean=-424.7765701031 Eh  E_std=4.009e-03 Eh  E_rms=4.009e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.190e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.592e-03 Eh
+[UNC] eval=55 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7912247608 Eh  E_mean=-424.7853751393 Eh  E_std=4.163e-03 Eh  E_rms=4.163e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.346e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.203e-03 Eh
+   26     -424.791225      9.274714    0.157284  0.042164
+[UNC] eval=56 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7785286095 Eh  E_mean=-424.7729848159 Eh  E_std=3.990e-03 Eh  E_rms=3.990e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.225e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.407e-03 Eh
+[UNC] eval=57 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7881769172 Eh  E_mean=-424.7824462098 Eh  E_std=4.084e-03 Eh  E_rms=4.084e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.217e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.975e-03 Eh
+   27     -424.788177     11.187265    0.157284  0.042164
+[UNC] eval=58 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7747671511 Eh  E_mean=-424.7692494101 Eh  E_std=3.989e-03 Eh  E_rms=3.989e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.296e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.257e-03 Eh
+[UNC] eval=59 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7847693163 Eh  E_mean=-424.7791215159 Eh  E_std=4.037e-03 Eh  E_rms=4.037e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.193e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.751e-03 Eh
+   28     -424.784769     13.325567    0.157284  0.042164
+[UNC] eval=60 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7708758013 Eh  E_mean=-424.7653611656 Eh  E_std=4.006e-03 Eh  E_rms=4.006e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.398e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.145e-03 Eh
+[UNC] eval=61 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7812278121 Eh  E_mean=-424.7756454469 Eh  E_std=4.005e-03 Eh  E_rms=4.005e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.201e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.546e-03 Eh
+   29     -424.781228     15.547894    0.157284  0.042164
+[UNC] eval=62 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7668367300 Eh  E_mean=-424.7613135531 Eh  E_std=4.032e-03 Eh  E_rms=4.032e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.512e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.058e-03 Eh
+[UNC] eval=63 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7775572698 Eh  E_mean=-424.7720190749 Eh  E_std=3.990e-03 Eh  E_rms=3.990e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.246e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.368e-03 Eh
+   30     -424.777557     17.851194    0.157284  0.042164
+[UNC] eval=64 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7626260363 Eh  E_mean=-424.7570990637 Eh  E_std=4.054e-03 Eh  E_rms=4.054e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.612e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.969e-03 Eh
+[UNC] eval=65 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7737608554 Eh  E_mean=-424.7682421094 Eh  E_std=3.995e-03 Eh  E_rms=3.995e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.328e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.229e-03 Eh
+   31     -424.773761     20.233480    0.157284  0.042164
+[UNC] eval=66 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7582272185 Eh  E_mean=-424.7527130841 Eh  E_std=4.066e-03 Eh  E_rms=4.066e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.685e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.857e-03 Eh
+[UNC] eval=67 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7698308839 Eh  E_mean=-424.7643106893 Eh  E_std=4.016e-03 Eh  E_rms=4.016e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.435e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.126e-03 Eh
+   32     -424.769831     22.699575    0.157284  0.042164
+[UNC] eval=68 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7536393327 Eh  E_mean=-424.7481544719 Eh  E_std=4.068e-03 Eh  E_rms=4.068e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.729e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.725e-03 Eh
+[UNC] eval=69 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7657470282 Eh  E_mean=-424.7602179889 Eh  E_std=4.041e-03 Eh  E_rms=4.041e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.547e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.040e-03 Eh
+   33     -424.765747     25.262233    0.157284  0.042164
+[UNC] eval=70 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7488756747 Eh  E_mean=-424.7434241223 Eh  E_std=4.065e-03 Eh  E_rms=4.065e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.759e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.595e-03 Eh
+[UNC] eval=71 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7614855548 Eh  E_mean=-424.7559563297 Eh  E_std=4.062e-03 Eh  E_rms=4.062e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.642e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.946e-03 Eh
+   34     -424.761486     27.936348    0.157284  0.042164
+[UNC] eval=72 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7439552476 Eh  E_mean=-424.7385249417 Eh  E_std=4.070e-03 Eh  E_rms=4.070e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.797e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.494e-03 Eh
+[UNC] eval=73 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7570339499 Eh  E_mean=-424.7515226619 Eh  E_std=4.070e-03 Eh  E_rms=4.070e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.706e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.827e-03 Eh
+   35     -424.757034     30.729772    0.157284  0.042164
+[UNC] eval=74 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7388936594 Eh  E_mean=-424.7334585611 Eh  E_std=4.090e-03 Eh  E_rms=4.090e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.866e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.439e-03 Eh
+[UNC] eval=75 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7523955352 Eh  E_mean=-424.7469161705 Eh  E_std=4.070e-03 Eh  E_rms=4.070e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.745e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.693e-03 Eh
+   36     -424.752396     33.640421    0.157284  0.042164
+[UNC] eval=76 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7336924509 Eh  E_mean=-424.7282210331 Eh  E_std=4.128e-03 Eh  E_rms=4.128e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.969e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.446e-03 Eh
+[UNC] eval=77 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7475860731 Eh  E_mean=-424.7421383452 Eh  E_std=4.068e-03 Eh  E_rms=4.068e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.775e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.568e-03 Eh
+   37     -424.747586     36.658404    0.157284  0.042164
+[UNC] eval=78 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7283432689 Eh  E_mean=-424.7228106473 Eh  E_std=4.176e-03 Eh  E_rms=4.176e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.009e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.508e-03 Eh
+[UNC] eval=79 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7426248131 Eh  E_mean=-424.7371926150 Eh  E_std=4.076e-03 Eh  E_rms=4.076e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.820e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.477e-03 Eh
+   38     -424.742625     39.771642    0.157284  0.042164
+[UNC] eval=80 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7228407854 Eh  E_mean=-424.7172297145 Eh  E_std=4.229e-03 Eh  E_rms=4.229e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.021e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.624e-03 Eh
+[UNC] eval=81 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7375240972 Eh  E_mean=-424.7320787284 Eh  E_std=4.101e-03 Eh  E_rms=4.101e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.898e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.438e-03 Eh
+   39     -424.737524     42.972389    0.157284  0.042164
+[UNC] eval=82 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7171846048 Eh  E_mean=-424.7114786923 Eh  E_std=4.282e-03 Eh  E_rms=4.282e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.031e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.804e-03 Eh
+[UNC] eval=83 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7322818773 Eh  E_mean=-424.7267926444 Eh  E_std=4.143e-03 Eh  E_rms=4.143e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.001e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.460e-03 Eh
+   40     -424.732282     46.261932    0.157284  0.042164
+[UNC] eval=84 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7113675645 Eh  E_mean=-424.7055499430 Eh  E_std=4.334e-03 Eh  E_rms=4.334e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.040e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.056e-03 Eh
+[UNC] eval=85 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7268894420 Eh  E_mean=-424.7213339577 Eh  E_std=4.193e-03 Eh  E_rms=4.193e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.013e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.536e-03 Eh
+   41     -424.726889     49.645736    0.157284  0.042164
+[UNC] eval=86 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7053745385 Eh  E_mean=-424.6994334238 Eh  E_std=4.385e-03 Eh  E_rms=4.385e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.045e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.371e-03 Eh
+[UNC] eval=87 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7213436548 Eh  E_mean=-424.7157054412 Eh  E_std=4.246e-03 Eh  E_rms=4.246e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.025e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.668e-03 Eh
+   42     -424.721344     53.125770    0.157284  0.042164
+[UNC] eval=88 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.6991749647 Eh  E_mean=-424.6931153211 Eh  E_std=4.430e-03 Eh  E_rms=4.430e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.047e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.713e-03 Eh
+[UNC] eval=89 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7156429449 Eh  E_mean=-424.7099052146 Eh  E_std=4.299e-03 Eh  E_rms=4.299e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.035e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.867e-03 Eh
+   43     -424.715643     56.703020    0.157284  0.042164
+[UNC] eval=90 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.6927244147 Eh  E_mean=-424.6865746448 Eh  E_std=4.454e-03 Eh  E_rms=4.454e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.041e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.044e-03 Eh
+[UNC] eval=91 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7097782628 Eh  E_mean=-424.7039247788 Eh  E_std=4.351e-03 Eh  E_rms=4.351e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.042e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.138e-03 Eh
+   44     -424.709778     60.383163    0.157284  0.042164
+[UNC] eval=92 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.6860019414 Eh  E_mean=-424.6797970537 Eh  E_std=4.455e-03 Eh  E_rms=4.455e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.026e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.358e-03 Eh
+[UNC] eval=93 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7037308724 Eh  E_mean=-424.6977531126 Eh  E_std=4.402e-03 Eh  E_rms=4.402e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.047e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.463e-03 Eh
+   45     -424.703731     64.177958    0.157284  0.042164
+[UNC] eval=94 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.6790350303 Eh  E_mean=-424.6727905199 Eh  E_std=4.451e-03 Eh  E_rms=4.451e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.005e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.680e-03 Eh
+[UNC] eval=95 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.6987378764 Eh  E_mean=-424.6926676910 Eh  E_std=4.435e-03 Eh  E_rms=4.435e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.047e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.737e-03 Eh
+   46     -424.698738     67.311110    0.157284  0.042164
+[UNC] eval=96 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.6733137677 Eh  E_mean=-424.6670324011 Eh  E_std=4.457e-03 Eh  E_rms=4.457e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.881e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.963e-03 Eh
+[UNC] eval=97 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.6935820240 Eh  E_mean=-424.6874387615 Eh  E_std=4.455e-03 Eh  E_rms=4.455e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.043e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.003e-03 Eh
+   47     -424.693582     70.546457    0.157284  0.042164
+[UNC] eval=98 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.6674666177 Eh  E_mean=-424.6611395909 Eh  E_std=4.477e-03 Eh  E_rms=4.477e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.711e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=9.270e-03 Eh
+[UNC] eval=99 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.6882506766 Eh  E_mean=-424.6820579070 Eh  E_std=4.460e-03 Eh  E_rms=4.460e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.032e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.256e-03 Eh
+   48     -424.688251     73.891928    0.157284  0.042164
+[UNC] eval=100 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.6614897746 Eh  E_mean=-424.6551082903 Eh  E_std=4.512e-03 Eh  E_rms=4.512e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.540e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=9.604e-03 Eh
+[UNC] eval=101 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.6827538772 Eh  E_mean=-424.6765271534 Eh  E_std=4.455e-03 Eh  E_rms=4.455e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.017e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.507e-03 Eh
+   49     -424.682754     77.341221    0.157284  0.042164
+[UNC] eval=102 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.6553861888 Eh  E_mean=-424.6489372338 Eh  E_std=4.567e-03 Eh  E_rms=4.567e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.373e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=9.974e-03 Eh
+[UNC] eval=103 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.6771142201 Eh  E_mean=-424.6708551586 Eh  E_std=4.454e-03 Eh  E_rms=4.454e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.000e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.774e-03 Eh
+   50     -424.677114     80.880160    0.157284  0.042164
+
+         *************************************************************
+         *                      BACKWARD HPC-IRC                     *
+         *************************************************************
+
+Iteration    E(Eh)      dE(kcal/mol)  max(|G|)   RMS(G) 
+Convergence thresholds                0.002850  0.001900
+[UNC] eval=104 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8060049586 Eh  E_mean=-424.7986544161 Eh  E_std=5.268e-03 Eh  E_rms=5.268e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.975e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.208e-02 Eh
+[UNC] eval=105 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8060137499 Eh  E_mean=-424.7987064872 Eh  E_std=5.240e-03 Eh  E_rms=5.240e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.893e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.203e-02 Eh
+    0     -424.806014     -0.005517    0.157284  0.042164
+[UNC] eval=106 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8143283626 Eh  E_mean=-424.8069604261 Eh  E_std=5.297e-03 Eh  E_rms=5.297e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.881e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.222e-02 Eh
+[UNC] eval=107 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8159683542 Eh  E_mean=-424.8085770876 Eh  E_std=5.313e-03 Eh  E_rms=5.313e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.920e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.225e-02 Eh
+    1     -424.815968     -6.252125    0.157284  0.042164
+[UNC] eval=108 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8212340709 Eh  E_mean=-424.8138113742 Eh  E_std=5.326e-03 Eh  E_rms=5.326e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.003e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.224e-02 Eh
+[UNC] eval=109 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8184229471 Eh  E_mean=-424.8110062797 Eh  E_std=5.329e-03 Eh  E_rms=5.329e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.968e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.228e-02 Eh
+    2     -424.818423     -7.792405    0.157284  0.042164
+[UNC] eval=110 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8223549425 Eh  E_mean=-424.8149435274 Eh  E_std=5.310e-03 Eh  E_rms=5.310e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.007e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.216e-02 Eh
+[UNC] eval=111 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8201153119 Eh  E_mean=-424.8126921388 Eh  E_std=5.331e-03 Eh  E_rms=5.331e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.995e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.227e-02 Eh
+    3     -424.820115     -8.854380    0.157284  0.042164
+[UNC] eval=112 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8229929174 Eh  E_mean=-424.8156028740 Eh  E_std=5.286e-03 Eh  E_rms=5.286e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.011e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.206e-02 Eh
+[UNC] eval=113 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8214052574 Eh  E_mean=-424.8139825824 Eh  E_std=5.325e-03 Eh  E_rms=5.325e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.004e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.223e-02 Eh
+    4     -424.821405     -9.663833    0.157284  0.042164
+[UNC] eval=114 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8232374811 Eh  E_mean=-424.8158746388 Eh  E_std=5.258e-03 Eh  E_rms=5.258e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.014e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.194e-02 Eh
+[UNC] eval=115 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8223436695 Eh  E_mean=-424.8149314710 Eh  E_std=5.310e-03 Eh  E_rms=5.310e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.007e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.216e-02 Eh
+    5     -424.822344    -10.252696    0.157284  0.042164
+[UNC] eval=116 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8231759421 Eh  E_mean=-424.8158461746 Eh  E_std=5.226e-03 Eh  E_rms=5.226e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.017e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.182e-02 Eh
+[UNC] eval=117 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8229455351 Eh  E_mean=-424.8155525050 Eh  E_std=5.289e-03 Eh  E_rms=5.289e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.011e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.207e-02 Eh
+    6     -424.822946    -10.630372    0.157284  0.042164
+[UNC] eval=118 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8228219872 Eh  E_mean=-424.8155300893 Eh  E_std=5.191e-03 Eh  E_rms=5.191e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.020e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.168e-02 Eh
+[UNC] eval=119 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8232257831 Eh  E_mean=-424.8158592587 Eh  E_std=5.262e-03 Eh  E_rms=5.262e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.014e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.196e-02 Eh
+    7     -424.823226    -10.806231    0.157284  0.042164
+[UNC] eval=120 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8221876079 Eh  E_mean=-424.8149387227 Eh  E_std=5.153e-03 Eh  E_rms=5.153e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.022e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.152e-02 Eh
+[UNC] eval=121 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8231986448 Eh  E_mean=-424.8158645585 Eh  E_std=5.230e-03 Eh  E_rms=5.230e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.017e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.183e-02 Eh
+    8     -424.823199    -10.789201    0.157284  0.042164
+[UNC] eval=122 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8212833665 Eh  E_mean=-424.8140838197 Eh  E_std=5.112e-03 Eh  E_rms=5.112e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.024e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.136e-02 Eh
+[UNC] eval=123 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8228780600 Eh  E_mean=-424.8155812584 Eh  E_std=5.196e-03 Eh  E_rms=5.196e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.020e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.169e-02 Eh
+    9     -424.822878    -10.588031    0.157284  0.042164
+[UNC] eval=124 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8201177706 Eh  E_mean=-424.8129759844 Eh  E_std=5.065e-03 Eh  E_rms=5.065e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.024e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.119e-02 Eh
+[UNC] eval=125 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8222760071 Eh  E_mean=-424.8150215506 Eh  E_std=5.158e-03 Eh  E_rms=5.158e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.022e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.154e-02 Eh
+   10     -424.822276    -10.210237    0.157284  0.042164
+[UNC] eval=126 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8186982678 Eh  E_mean=-424.8116249792 Eh  E_std=5.012e-03 Eh  E_rms=5.012e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.022e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.100e-02 Eh
+[UNC] eval=127 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8214272208 Eh  E_mean=-424.8142199465 Eh  E_std=5.118e-03 Eh  E_rms=5.118e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.024e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.139e-02 Eh
+   11     -424.821427     -9.677616    0.157284  0.042164
+[UNC] eval=128 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8170690684 Eh  E_mean=-424.8100753363 Eh  E_std=4.951e-03 Eh  E_rms=4.951e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.019e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.079e-02 Eh
+[UNC] eval=129 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8205045733 Eh  E_mean=-424.8133437376 Eh  E_std=5.080e-03 Eh  E_rms=5.080e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.024e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.124e-02 Eh
+   12     -424.820505     -9.098646    0.157284  0.042164
+[UNC] eval=130 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8165463014 Eh  E_mean=-424.8096860724 Eh  E_std=4.855e-03 Eh  E_rms=4.855e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.005e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.053e-02 Eh
+[UNC] eval=131 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8191633618 Eh  E_mean=-424.8120673760 Eh  E_std=5.029e-03 Eh  E_rms=5.029e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.023e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.106e-02 Eh
+   13     -424.819163     -8.257023    0.157284  0.042164
+[UNC] eval=132 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8144485778 Eh  E_mean=-424.8076961705 Eh  E_std=4.776e-03 Eh  E_rms=4.776e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.974e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.028e-02 Eh
+[UNC] eval=133 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8178545096 Eh  E_mean=-424.8108219065 Eh  E_std=4.981e-03 Eh  E_rms=4.981e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.021e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.089e-02 Eh
+   14     -424.817855     -7.435706    0.157284  0.042164
+[UNC] eval=134 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8125284981 Eh  E_mean=-424.8058721773 Eh  E_std=4.707e-03 Eh  E_rms=4.707e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.902e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.007e-02 Eh
+[UNC] eval=135 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8163750273 Eh  E_mean=-424.8094157499 Eh  E_std=4.926e-03 Eh  E_rms=4.926e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.017e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.071e-02 Eh
+   15     -424.816375     -6.507316    0.157284  0.042164
+[UNC] eval=136 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8104601492 Eh  E_mean=-424.8039018195 Eh  E_std=4.637e-03 Eh  E_rms=4.637e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.827e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=9.848e-03 Eh
+[UNC] eval=137 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8157791558 Eh  E_mean=-424.8089583285 Eh  E_std=4.826e-03 Eh  E_rms=4.826e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.002e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.044e-02 Eh
+   16     -424.815779     -6.133401    0.157284  0.042164
+[UNC] eval=138 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8082488726 Eh  E_mean=-424.8017881346 Eh  E_std=4.569e-03 Eh  E_rms=4.569e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.753e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=9.629e-03 Eh
+[UNC] eval=139 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8139754252 Eh  E_mean=-424.8072468548 Eh  E_std=4.759e-03 Eh  E_rms=4.759e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.957e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.023e-02 Eh
+   17     -424.813975     -5.001543    0.157284  0.042164
+[UNC] eval=140 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8058952202 Eh  E_mean=-424.7995322345 Eh  E_std=4.501e-03 Eh  E_rms=4.501e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.681e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=9.408e-03 Eh
+[UNC] eval=141 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8120178814 Eh  E_mean=-424.8053861989 Eh  E_std=4.690e-03 Eh  E_rms=4.690e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.883e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.001e-02 Eh
+   18     -424.812018     -3.773166    0.157284  0.042164
+[UNC] eval=142 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8033937160 Eh  E_mean=-424.7971324590 Eh  E_std=4.431e-03 Eh  E_rms=4.431e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.604e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=9.179e-03 Eh
+[UNC] eval=143 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8099138800 Eh  E_mean=-424.8033801795 Eh  E_std=4.620e-03 Eh  E_rms=4.620e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.808e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=9.793e-03 Eh
+   19     -424.809914     -2.452885    0.157284  0.042164
+[UNC] eval=144 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8007373330 Eh  E_mean=-424.7945853149 Eh  E_std=4.357e-03 Eh  E_rms=4.357e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.520e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.936e-03 Eh
+[UNC] eval=145 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8076678040 Eh  E_mean=-424.8012313999 Eh  E_std=4.552e-03 Eh  E_rms=4.552e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.735e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=9.574e-03 Eh
+   20     -424.807668     -1.043451    0.157284  0.042164
+[UNC] eval=146 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7979234109 Eh  E_mean=-424.7918878891 Eh  E_std=4.279e-03 Eh  E_rms=4.279e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.426e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.681e-03 Eh
+[UNC] eval=147 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8052785013 Eh  E_mean=-424.7989404018 Eh  E_std=4.484e-03 Eh  E_rms=4.484e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.662e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=9.352e-03 Eh
+   21     -424.805279      0.455859    0.157284  0.042164
+[UNC] eval=148 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7949572967 Eh  E_mean=-424.7890397898 Eh  E_std=4.201e-03 Eh  E_rms=4.201e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.332e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.421e-03 Eh
+[UNC] eval=149 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8027395735 Eh  E_mean=-424.7965048269 Eh  E_std=4.413e-03 Eh  E_rms=4.413e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.584e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=9.120e-03 Eh
+   22     -424.802740      2.049060    0.157284  0.042164
+[UNC] eval=150 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7918468463 Eh  E_mean=-424.7860422742 Eh  E_std=4.128e-03 Eh  E_rms=4.128e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.249e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.165e-03 Eh
+[UNC] eval=151 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.8000445941 Eh  E_mean=-424.7939211761 Eh  E_std=4.337e-03 Eh  E_rms=4.337e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.497e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.873e-03 Eh
+   23     -424.800045      3.740185    0.157284  0.042164
+[UNC] eval=152 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7888211041 Eh  E_mean=-424.7831403947 Eh  E_std=4.046e-03 Eh  E_rms=4.046e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.111e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.931e-03 Eh
+[UNC] eval=153 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7971927951 Eh  E_mean=-424.7911867564 Eh  E_std=4.259e-03 Eh  E_rms=4.259e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.402e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.616e-03 Eh
+   24     -424.797193      5.529716    0.157284  0.042164
+[UNC] eval=154 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7854367754 Eh  E_mean=-424.7798439326 Eh  E_std=3.994e-03 Eh  E_rms=3.994e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.077e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.701e-03 Eh
+[UNC] eval=155 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7941908202 Eh  E_mean=-424.7883021185 Eh  E_std=4.182e-03 Eh  E_rms=4.182e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.310e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.356e-03 Eh
+   25     -424.794191      7.413484    0.157284  0.042164
+[UNC] eval=156 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7819169664 Eh  E_mean=-424.7763953878 Eh  E_std=3.958e-03 Eh  E_rms=3.958e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.075e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.490e-03 Eh
+[UNC] eval=157 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7910466065 Eh  E_mean=-424.7852685124 Eh  E_std=4.112e-03 Eh  E_rms=4.112e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.232e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.103e-03 Eh
+   26     -424.791047      9.386508    0.157284  0.042164
+[UNC] eval=158 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7782666680 Eh  E_mean=-424.7727956215 Eh  E_std=3.938e-03 Eh  E_rms=3.938e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.109e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.305e-03 Eh
+[UNC] eval=159 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7879881766 Eh  E_mean=-424.7823305178 Eh  E_std=4.032e-03 Eh  E_rms=4.032e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.100e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.873e-03 Eh
+   27     -424.787988     11.305701    0.157284  0.042164
+[UNC] eval=160 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7744900026 Eh  E_mean=-424.7690445373 Eh  E_std=3.938e-03 Eh  E_rms=3.938e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.179e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.157e-03 Eh
+[UNC] eval=161 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7845707888 Eh  E_mean=-424.7789971612 Eh  E_std=3.984e-03 Eh  E_rms=3.984e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.074e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.647e-03 Eh
+   28     -424.784571     13.450145    0.157284  0.042164
+[UNC] eval=162 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7705822092 Eh  E_mean=-424.7651393605 Eh  E_std=3.955e-03 Eh  E_rms=3.955e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.280e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.049e-03 Eh
+[UNC] eval=163 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7810191244 Eh  E_mean=-424.7755120139 Eh  E_std=3.951e-03 Eh  E_rms=3.951e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.080e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.441e-03 Eh
+   29     -424.781019     15.678848    0.157284  0.042164
+[UNC] eval=164 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7665247689 Eh  E_mean=-424.7610735732 Eh  E_std=3.980e-03 Eh  E_rms=3.980e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.390e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.964e-03 Eh
+[UNC] eval=165 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7773384085 Eh  E_mean=-424.7718758879 Eh  E_std=3.936e-03 Eh  E_rms=3.936e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.123e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.264e-03 Eh
+   30     -424.777338     17.988532    0.157284  0.042164
+[UNC] eval=166 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7622939451 Eh  E_mean=-424.7568398726 Eh  E_std=4.001e-03 Eh  E_rms=4.001e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.486e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.876e-03 Eh
+[UNC] eval=167 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7735314056 Eh  E_mean=-424.7680880925 Eh  E_std=3.941e-03 Eh  E_rms=3.941e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.202e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.127e-03 Eh
+   31     -424.773531     20.377462    0.157284  0.042164
+[UNC] eval=168 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7578735221 Eh  E_mean=-424.7524337115 Eh  E_std=4.011e-03 Eh  E_rms=4.011e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.554e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.766e-03 Eh
+[UNC] eval=169 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7695897975 Eh  E_mean=-424.7641450081 Eh  E_std=3.961e-03 Eh  E_rms=3.961e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.307e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.027e-03 Eh
+   32     -424.769590     22.850859    0.157284  0.042164
+[UNC] eval=170 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7532637298 Eh  E_mean=-424.7478540832 Eh  E_std=4.011e-03 Eh  E_rms=4.011e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.593e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.636e-03 Eh
+[UNC] eval=171 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7654926152 Eh  E_mean=-424.7600393385 Eh  E_std=3.986e-03 Eh  E_rms=3.986e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.416e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.944e-03 Eh
+   33     -424.765493     25.421879    0.157284  0.042164
+[UNC] eval=172 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7484780273 Eh  E_mean=-424.7431014650 Eh  E_std=4.008e-03 Eh  E_rms=4.008e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.618e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.511e-03 Eh
+[UNC] eval=173 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7612171154 Eh  E_mean=-424.7557645627 Eh  E_std=4.005e-03 Eh  E_rms=4.005e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.506e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.852e-03 Eh
+   34     -424.761217     28.104796    0.157284  0.042164
+[UNC] eval=174 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7435362786 Eh  E_mean=-424.7381792082 Eh  E_std=4.012e-03 Eh  E_rms=4.012e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.654e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.417e-03 Eh
+[UNC] eval=175 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7567507700 Eh  E_mean=-424.7513169889 Eh  E_std=4.012e-03 Eh  E_rms=4.012e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.566e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.735e-03 Eh
+   35     -424.756751     30.907470    0.157284  0.042164
+[UNC] eval=176 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7384531967 Eh  E_mean=-424.7330880706 Eh  E_std=4.033e-03 Eh  E_rms=4.033e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.723e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.373e-03 Eh
+[UNC] eval=177 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7520970814 Eh  E_mean=-424.7466956566 Eh  E_std=4.010e-03 Eh  E_rms=4.010e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.600e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.604e-03 Eh
+   36     -424.752097     33.827704    0.157284  0.042164
+[UNC] eval=178 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7332291946 Eh  E_mean=-424.7278239347 Eh  E_std=4.071e-03 Eh  E_rms=4.071e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.826e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.390e-03 Eh
+[UNC] eval=179 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7472723477 Eh  E_mean=-424.7419021884 Eh  E_std=4.008e-03 Eh  E_rms=4.008e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.626e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.485e-03 Eh
+   37     -424.747272     36.855270    0.157284  0.042164
+[UNC] eval=180 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7278551118 Eh  E_mean=-424.7223852365 Eh  E_std=4.121e-03 Eh  E_rms=4.121e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.947e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.463e-03 Eh
+[UNC] eval=181 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7422963176 Eh  E_mean=-424.7369399752 Eh  E_std=4.016e-03 Eh  E_rms=4.016e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.668e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.401e-03 Eh
+   38     -424.742296     39.977776    0.157284  0.042164
+[UNC] eval=182 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7223260156 Eh  E_mean=-424.7167750228 Eh  E_std=4.174e-03 Eh  E_rms=4.174e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.006e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.589e-03 Eh
+[UNC] eval=183 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7371806082 Eh  E_mean=-424.7318082000 Eh  E_std=4.041e-03 Eh  E_rms=4.041e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.746e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.371e-03 Eh
+   39     -424.737181     43.187932    0.157284  0.042164
+[UNC] eval=184 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7166407987 Eh  E_mean=-424.7109924216 Eh  E_std=4.226e-03 Eh  E_rms=4.226e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.017e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.780e-03 Eh
+[UNC] eval=185 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7319220367 Eh  E_mean=-424.7265024638 Eh  E_std=4.083e-03 Eh  E_rms=4.083e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.855e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.403e-03 Eh
+   40     -424.731922     46.487735    0.157284  0.042164
+[UNC] eval=186 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7107920410 Eh  E_mean=-424.7050296921 Eh  E_std=4.279e-03 Eh  E_rms=4.279e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.024e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.043e-03 Eh
+[UNC] eval=187 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7265114143 Eh  E_mean=-424.7210227987 Eh  E_std=4.134e-03 Eh  E_rms=4.134e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.977e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.489e-03 Eh
+   41     -424.726511     49.882952    0.157284  0.042164
+[UNC] eval=188 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7047650917 Eh  E_mean=-424.6988775137 Eh  E_std=4.331e-03 Eh  E_rms=4.331e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.030e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.367e-03 Eh
+[UNC] eval=189 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7209456897 Eh  E_mean=-424.7153720475 Eh  E_std=4.187e-03 Eh  E_rms=4.187e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.009e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.630e-03 Eh
+   42     -424.720946     53.375497    0.157284  0.042164
+[UNC] eval=190 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.6985271329 Eh  E_mean=-424.6925211815 Eh  E_std=4.376e-03 Eh  E_rms=4.376e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.030e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.714e-03 Eh
+[UNC] eval=191 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7152227711 Eh  E_mean=-424.7095477346 Eh  E_std=4.239e-03 Eh  E_rms=4.239e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.019e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=6.838e-03 Eh
+   43     -424.715223     56.966683    0.157284  0.042164
+[UNC] eval=192 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.6920326615 Eh  E_mean=-424.6859384153 Eh  E_std=4.400e-03 Eh  E_rms=4.400e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.023e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.050e-03 Eh
+[UNC] eval=193 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7093338190 Eh  E_mean=-424.7035412615 Eh  E_std=4.292e-03 Eh  E_rms=4.292e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.026e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.118e-03 Eh
+   44     -424.709334     60.662056    0.157284  0.042164
+[UNC] eval=194 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.6852637095 Eh  E_mean=-424.6791164300 Eh  E_std=4.402e-03 Eh  E_rms=4.402e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.007e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.369e-03 Eh
+[UNC] eval=195 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.7032605651 Eh  E_mean=-424.6973423284 Eh  E_std=4.344e-03 Eh  E_rms=4.344e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.030e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.451e-03 Eh
+   45     -424.703261     64.473080    0.157284  0.042164
+[UNC] eval=196 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.6782523250 Eh  E_mean=-424.6720657332 Eh  E_std=4.400e-03 Eh  E_rms=4.400e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.862e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.698e-03 Eh
+[UNC] eval=197 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.6982446846 Eh  E_mean=-424.6922338058 Eh  E_std=4.378e-03 Eh  E_rms=4.378e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.030e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=7.730e-03 Eh
+   46     -424.698245     67.620593    0.157284  0.042164
+[UNC] eval=198 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.6724947855 Eh  E_mean=-424.6662710437 Eh  E_std=4.410e-03 Eh  E_rms=4.410e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.687e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.985e-03 Eh
+[UNC] eval=199 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.6930625821 Eh  E_mean=-424.6869794155 Eh  E_std=4.398e-03 Eh  E_rms=4.398e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.025e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.000e-03 Eh
+   47     -424.693063     70.872411    0.157284  0.042164
+[UNC] eval=200 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.6666095823 Eh  E_mean=-424.6603400331 Eh  E_std=4.434e-03 Eh  E_rms=4.434e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.513e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=9.296e-03 Eh
+[UNC] eval=201 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.6877033965 Eh  E_mean=-424.6815718005 Eh  E_std=4.403e-03 Eh  E_rms=4.403e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=1.014e-02 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.256e-03 Eh
+   48     -424.687703     74.235351    0.157284  0.042164
+[UNC] eval=202 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.6605935885 Eh  E_mean=-424.6542688466 Eh  E_std=4.474e-03 Eh  E_rms=4.474e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.340e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=9.635e-03 Eh
+[UNC] eval=203 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.6821787414 Eh  E_mean=-424.6760137859 Eh  E_std=4.400e-03 Eh  E_rms=4.400e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.983e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.512e-03 Eh
+   49     -424.682179     77.702124    0.157284  0.042164
+[UNC] eval=204 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.6544520710 Eh  E_mean=-424.6480573734 Eh  E_std=4.535e-03 Eh  E_rms=4.535e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.171e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=1.001e-02 Eh
+[UNC] eval=205 task=runtime active_models=3 dropped=0 props=energy
+[UNC] E_primary=-424.6765118989 Eh  E_mean=-424.6703147273 Eh  E_std=4.402e-03 Eh  E_rms=4.402e-03 Eh
+[UNC] dE(model2:aimnet2nse_1.pt-primary)=9.809e-03 Eh
+[UNC] dE(model3:aimnet2nse_2.pt-primary)=8.783e-03 Eh
+   50     -424.676512     81.258122    0.157284  0.042164
+
+---------------------------------------------------------------
+                       HPC-IRC PATH SUMMARY           
+---------------------------------------------------------------
+All forces are in Eh/Å.
+
+Step        E(Eh)      dE(kcal/mol)  max(|G|)   RMS(G) 
+   1     -424.677114      0.000000    0.157284  0.042164
+   2     -424.682754     -3.538938    0.157284  0.042164
+   3     -424.688251     -6.988232    0.157284  0.042164
+   4     -424.693582    -10.333703    0.157284  0.042164
+   5     -424.698738    -13.569049    0.157284  0.042164
+   6     -424.703731    -16.702201    0.157284  0.042164
+   7     -424.709778    -20.496996    0.157284  0.042164
+   8     -424.715643    -24.177140    0.157284  0.042164
+   9     -424.721344    -27.754389    0.157284  0.042164
+  10     -424.726889    -31.234423    0.157284  0.042164
+  11     -424.732282    -34.618228    0.157284  0.042164
+  12     -424.737524    -37.907770    0.157284  0.042164
+  13     -424.742625    -41.108518    0.157284  0.042164
+  14     -424.747586    -44.221755    0.157284  0.042164
+  15     -424.752396    -47.239738    0.157284  0.042164
+  16     -424.757034    -50.150388    0.157284  0.042164
+  17     -424.761486    -52.943812    0.157284  0.042164
+  18     -424.765747    -55.617927    0.157284  0.042164
+  19     -424.769831    -58.180585    0.157284  0.042164
+  20     -424.773761    -60.646679    0.157284  0.042164
+  21     -424.777557    -63.028965    0.157284  0.042164
+  22     -424.781228    -65.332265    0.157284  0.042164
+  23     -424.784769    -67.554593    0.157284  0.042164
+  24     -424.788177    -69.692895    0.157284  0.042164
+  25     -424.791225    -71.605445    0.157284  0.042164
+  26     -424.794357    -73.571170    0.157284  0.042164
+  27     -424.797347    -75.447297    0.157284  0.042164
+  28     -424.800188    -77.229718    0.157284  0.042164
+  29     -424.802872    -78.914403    0.157284  0.042164
+  30     -424.805401    -80.501204    0.157284  0.042164
+  31     -424.807779    -81.993670    0.157284  0.042164
+  32     -424.810014    -83.395881    0.157284  0.042164
+  33     -424.812106    -84.708870    0.157284  0.042164
+  34     -424.814053    -85.930385    0.157284  0.042164
+  35     -424.815847    -87.055897    0.157284  0.042164
+  36     -424.817480    -88.080723    0.157284  0.042164
+  37     -424.817903    -88.346592    0.157284  0.042164
+  38     -424.819202    -89.161529    0.157284  0.042164
+  39     -424.820531    -89.995157    0.157284  0.042164
+  40     -424.821442    -90.566860    0.157284  0.042164
+  41     -424.822285    -91.096188    0.157284  0.042164
+  42     -424.822869    -91.462629    0.157284  0.042164
+  43     -424.823171    -91.651934    0.157284  0.042164
+  44     -424.823178    -91.656207    0.157284  0.042164
+  45     -424.822876    -91.466838    0.157284  0.042164
+  46     -424.822251    -91.074649    0.157284  0.042164
+  47     -424.821288    -90.470377    0.157284  0.042164
+  48     -424.819972    -89.644406    0.157284  0.042164
+  49     -424.818428    -88.675869    0.157284  0.042164
+  50     -424.815981    -87.140372    0.157284  0.042164
+  51     -424.806036    -80.899872    0.157284  0.042164
+  52     -424.806014    -80.885676    0.157284  0.042164
+  53     -424.815968    -87.132285    0.157284  0.042164
+  54     -424.818423    -88.672565    0.157284  0.042164
+  55     -424.820115    -89.734540    0.157284  0.042164
+  56     -424.821405    -90.543993    0.157284  0.042164
+  57     -424.822344    -91.132855    0.157284  0.042164
+  58     -424.822946    -91.510532    0.157284  0.042164
+  59     -424.823226    -91.686390    0.157284  0.042164
+  60     -424.823199    -91.669360    0.157284  0.042164
+  61     -424.822878    -91.468190    0.157284  0.042164
+  62     -424.822276    -91.090397    0.157284  0.042164
+  63     -424.821427    -90.557775    0.157284  0.042164
+  64     -424.820505    -89.978805    0.157284  0.042164
+  65     -424.819163    -89.137182    0.157284  0.042164
+  66     -424.817855    -88.315865    0.157284  0.042164
+  67     -424.816375    -87.387476    0.157284  0.042164
+  68     -424.815779    -87.013561    0.157284  0.042164
+  69     -424.813975    -85.881703    0.157284  0.042164
+  70     -424.812018    -84.653326    0.157284  0.042164
+  71     -424.809914    -83.333045    0.157284  0.042164
+  72     -424.807668    -81.923611    0.157284  0.042164
+  73     -424.805279    -80.424301    0.157284  0.042164
+  74     -424.802740    -78.831099    0.157284  0.042164
+  75     -424.800045    -77.139974    0.157284  0.042164
+  76     -424.797193    -75.350443    0.157284  0.042164
+  77     -424.794191    -73.466676    0.157284  0.042164
+  78     -424.791047    -71.493652    0.157284  0.042164
+  79     -424.787988    -69.574458    0.157284  0.042164
+  80     -424.784571    -67.430015    0.157284  0.042164
+  81     -424.781019    -65.201312    0.157284  0.042164
+  82     -424.777338    -62.891628    0.157284  0.042164
+  83     -424.773531    -60.502697    0.157284  0.042164
+  84     -424.769590    -58.029301    0.157284  0.042164
+  85     -424.765493    -55.458280    0.157284  0.042164
+  86     -424.761217    -52.775364    0.157284  0.042164
+  87     -424.756751    -49.972690    0.157284  0.042164
+  88     -424.752097    -47.052456    0.157284  0.042164
+  89     -424.747272    -44.024890    0.157284  0.042164
+  90     -424.742296    -40.902384    0.157284  0.042164
+  91     -424.737181    -37.692228    0.157284  0.042164
+  92     -424.731922    -34.392424    0.157284  0.042164
+  93     -424.726511    -30.997207    0.157284  0.042164
+  94     -424.720946    -27.504662    0.157284  0.042164
+  95     -424.715223    -23.913477    0.157284  0.042164
+  96     -424.709334    -20.218104    0.157284  0.042164
+  97     -424.703261    -16.407079    0.157284  0.042164
+  98     -424.698245    -13.259567    0.157284  0.042164
+  99     -424.693063    -10.007748    0.157284  0.042164
+ 100     -424.687703     -6.644808    0.157284  0.042164
+ 101     -424.682179     -3.178035    0.157284  0.042164
+ 102     -424.676512      0.377962    0.157284  0.042164 <= TS
+
+[INFO] HPC-IRC forward trajectory written to: /home/hungn/Desktop/MyRepo/MLP/MAPLE/example/ensemble/irc/inp1_forward.xyz
+[INFO] HPC-IRC backward trajectory written to: /home/hungn/Desktop/MyRepo/MLP/MAPLE/example/ensemble/irc/inp1_backward.xyz
+[INFO] HPC-IRC full trajectory written to: /home/hungn/Desktop/MyRepo/MLP/MAPLE/example/ensemble/irc/inp1_full.xyz
+
+
+
+Program started: 2026-02-08 12:08:05
+
+======================================================================
+                      TIMING SUMMARY
+======================================================================
+Input Reading.......................................   0.015 s  (   0.2 %)
+  Settings Parsing....................................   0.014 s  (  92.9 %)
+  Coordinate Section Parsing..........................   0.000 s  (   3.3 %)
+  Post-Processing Expansion...........................   0.000 s  (   0.0 %)
+MLP Initialization..................................   0.248 s  (   2.7 %)
+Job Dispatching.....................................   8.868 s  (  97.1 %)
+  IRC Calculation.....................................   8.868 s  ( 100.0 %)
+======================================================================
+Total wall time: 9.131 s
+Total CPU time: 28.460 s
+======================================================================
+
+Program ended: 2026-02-08 12:08:15
+TOTAL RUN TIME: 0 days 0 hours 0 minutes 9 seconds 131 msec
