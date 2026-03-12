@@ -1,0 +1,3953 @@
+{
+  "input_pdb": "6TJD.pdb",
+  "target_index": 10,
+  "target": {
+    "chain": "A",
+    "resseq": 11,
+    "model": null,
+    "icode": ""
+  },
+  "cutoff": 4.0,
+  "ace_mode": "neighbor",
+  "nme_mode": "neighbor",
+  "fragment": {
+    "atom_count": 105,
+    "bond_count": 38,
+    "ace_mode": "neighbor",
+    "nme_mode": "neighbor",
+    "cutoff": 4.0,
+    "context": {
+      "target_idx": 10,
+      "target_key": {
+        "model": 1,
+        "chain": "A",
+        "resseq": 11,
+        "icode": "",
+        "resname": "GLY"
+      },
+      "core_keys": [
+        {
+          "model": 1,
+          "chain": "A",
+          "resseq": 10,
+          "icode": "",
+          "resname": "THR"
+        },
+        {
+          "model": 1,
+          "chain": "A",
+          "resseq": 11,
+          "icode": "",
+          "resname": "GLY"
+        },
+        {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "LYS"
+        }
+      ],
+      "env_keys": [
+        {
+          "model": 1,
+          "chain": "A",
+          "resseq": 30,
+          "icode": "",
+          "resname": "SER"
+        },
+        {
+          "model": 1,
+          "chain": "A",
+          "resseq": 32,
+          "icode": "",
+          "resname": "ASP"
+        },
+        {
+          "model": 1,
+          "chain": "A",
+          "resseq": 36,
+          "icode": "",
+          "resname": "TYR"
+        }
+      ],
+      "n_open": false,
+      "c_open": false,
+      "left_anchor_key": {
+        "model": 1,
+        "chain": "A",
+        "resseq": 10,
+        "icode": "",
+        "resname": "THR"
+      },
+      "right_anchor_key": {
+        "model": 1,
+        "chain": "A",
+        "resseq": 12,
+        "icode": "",
+        "resname": "LYS"
+      },
+      "left_outer_key": {
+        "model": 1,
+        "chain": "A",
+        "resseq": 9,
+        "icode": "",
+        "resname": "LYS"
+      },
+      "right_outer_key": {
+        "model": 1,
+        "chain": "A",
+        "resseq": 13,
+        "icode": "",
+        "resname": "ALA"
+      },
+      "boundary_break_count": 6,
+      "boundary_h_count": 6,
+      "source_map": {
+        "162": {
+          "source_serial": 162,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 10,
+            "icode": "",
+            "resname": "THR"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "163": {
+          "source_serial": 163,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 10,
+            "icode": "",
+            "resname": "THR"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "164": {
+          "source_serial": 164,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 10,
+            "icode": "",
+            "resname": "THR"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "165": {
+          "source_serial": 165,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 10,
+            "icode": "",
+            "resname": "THR"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "166": {
+          "source_serial": 166,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 10,
+            "icode": "",
+            "resname": "THR"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "167": {
+          "source_serial": 167,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 10,
+            "icode": "",
+            "resname": "THR"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "168": {
+          "source_serial": 168,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 10,
+            "icode": "",
+            "resname": "THR"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "169": {
+          "source_serial": 169,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 10,
+            "icode": "",
+            "resname": "THR"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "170": {
+          "source_serial": 170,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 10,
+            "icode": "",
+            "resname": "THR"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "171": {
+          "source_serial": 171,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 10,
+            "icode": "",
+            "resname": "THR"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "172": {
+          "source_serial": 172,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 10,
+            "icode": "",
+            "resname": "THR"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "173": {
+          "source_serial": 173,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 10,
+            "icode": "",
+            "resname": "THR"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "174": {
+          "source_serial": 174,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 10,
+            "icode": "",
+            "resname": "THR"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "175": {
+          "source_serial": 175,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 10,
+            "icode": "",
+            "resname": "THR"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "176": {
+          "source_serial": 176,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 11,
+            "icode": "",
+            "resname": "GLY"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "177": {
+          "source_serial": 177,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 11,
+            "icode": "",
+            "resname": "GLY"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "178": {
+          "source_serial": 178,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 11,
+            "icode": "",
+            "resname": "GLY"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "179": {
+          "source_serial": 179,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 11,
+            "icode": "",
+            "resname": "GLY"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "180": {
+          "source_serial": 180,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 11,
+            "icode": "",
+            "resname": "GLY"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "181": {
+          "source_serial": 181,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 11,
+            "icode": "",
+            "resname": "GLY"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "182": {
+          "source_serial": 182,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 11,
+            "icode": "",
+            "resname": "GLY"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "183": {
+          "source_serial": 183,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "LYS"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "184": {
+          "source_serial": 184,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "LYS"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "185": {
+          "source_serial": 185,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "LYS"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "186": {
+          "source_serial": 186,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "LYS"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "187": {
+          "source_serial": 187,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "LYS"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "188": {
+          "source_serial": 188,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "LYS"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "189": {
+          "source_serial": 189,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "LYS"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "190": {
+          "source_serial": 190,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "LYS"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "191": {
+          "source_serial": 191,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "LYS"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "192": {
+          "source_serial": 192,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "LYS"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "193": {
+          "source_serial": 193,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "LYS"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "194": {
+          "source_serial": 194,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "LYS"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "195": {
+          "source_serial": 195,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "LYS"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "196": {
+          "source_serial": 196,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "LYS"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "197": {
+          "source_serial": 197,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "LYS"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "198": {
+          "source_serial": 198,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "LYS"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "199": {
+          "source_serial": 199,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "LYS"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "200": {
+          "source_serial": 200,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "LYS"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "201": {
+          "source_serial": 201,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "LYS"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "202": {
+          "source_serial": 202,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "LYS"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "203": {
+          "source_serial": 203,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "LYS"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "204": {
+          "source_serial": 204,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "LYS"
+          },
+          "state": "copied",
+          "category": "core",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "437": {
+          "source_serial": 437,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 30,
+            "icode": "",
+            "resname": "SER"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "438": {
+          "source_serial": 438,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 30,
+            "icode": "",
+            "resname": "SER"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "439": {
+          "source_serial": 439,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 30,
+            "icode": "",
+            "resname": "SER"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "440": {
+          "source_serial": 440,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 30,
+            "icode": "",
+            "resname": "SER"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "441": {
+          "source_serial": 441,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 30,
+            "icode": "",
+            "resname": "SER"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "442": {
+          "source_serial": 442,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 30,
+            "icode": "",
+            "resname": "SER"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "443": {
+          "source_serial": 443,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 30,
+            "icode": "",
+            "resname": "SER"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "444": {
+          "source_serial": 444,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 30,
+            "icode": "",
+            "resname": "SER"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "445": {
+          "source_serial": 445,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 30,
+            "icode": "",
+            "resname": "SER"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "446": {
+          "source_serial": 446,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 30,
+            "icode": "",
+            "resname": "SER"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "447": {
+          "source_serial": 447,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 30,
+            "icode": "",
+            "resname": "SER"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "462": {
+          "source_serial": 462,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 32,
+            "icode": "",
+            "resname": "ASP"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "463": {
+          "source_serial": 463,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 32,
+            "icode": "",
+            "resname": "ASP"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "464": {
+          "source_serial": 464,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 32,
+            "icode": "",
+            "resname": "ASP"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "465": {
+          "source_serial": 465,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 32,
+            "icode": "",
+            "resname": "ASP"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "466": {
+          "source_serial": 466,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 32,
+            "icode": "",
+            "resname": "ASP"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "467": {
+          "source_serial": 467,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 32,
+            "icode": "",
+            "resname": "ASP"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "468": {
+          "source_serial": 468,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 32,
+            "icode": "",
+            "resname": "ASP"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "469": {
+          "source_serial": 469,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 32,
+            "icode": "",
+            "resname": "ASP"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "470": {
+          "source_serial": 470,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 32,
+            "icode": "",
+            "resname": "ASP"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "471": {
+          "source_serial": 471,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 32,
+            "icode": "",
+            "resname": "ASP"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "472": {
+          "source_serial": 472,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 32,
+            "icode": "",
+            "resname": "ASP"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "473": {
+          "source_serial": 473,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 32,
+            "icode": "",
+            "resname": "ASP"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "517": {
+          "source_serial": 517,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 36,
+            "icode": "",
+            "resname": "TYR"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "518": {
+          "source_serial": 518,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 36,
+            "icode": "",
+            "resname": "TYR"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "519": {
+          "source_serial": 519,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 36,
+            "icode": "",
+            "resname": "TYR"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "520": {
+          "source_serial": 520,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 36,
+            "icode": "",
+            "resname": "TYR"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "521": {
+          "source_serial": 521,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 36,
+            "icode": "",
+            "resname": "TYR"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "522": {
+          "source_serial": 522,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 36,
+            "icode": "",
+            "resname": "TYR"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "523": {
+          "source_serial": 523,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 36,
+            "icode": "",
+            "resname": "TYR"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "524": {
+          "source_serial": 524,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 36,
+            "icode": "",
+            "resname": "TYR"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "525": {
+          "source_serial": 525,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 36,
+            "icode": "",
+            "resname": "TYR"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "526": {
+          "source_serial": 526,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 36,
+            "icode": "",
+            "resname": "TYR"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "527": {
+          "source_serial": 527,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 36,
+            "icode": "",
+            "resname": "TYR"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "528": {
+          "source_serial": 528,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 36,
+            "icode": "",
+            "resname": "TYR"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "529": {
+          "source_serial": 529,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 36,
+            "icode": "",
+            "resname": "TYR"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "530": {
+          "source_serial": 530,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 36,
+            "icode": "",
+            "resname": "TYR"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "531": {
+          "source_serial": 531,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 36,
+            "icode": "",
+            "resname": "TYR"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "532": {
+          "source_serial": 532,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 36,
+            "icode": "",
+            "resname": "TYR"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "533": {
+          "source_serial": 533,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 36,
+            "icode": "",
+            "resname": "TYR"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "534": {
+          "source_serial": 534,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 36,
+            "icode": "",
+            "resname": "TYR"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "535": {
+          "source_serial": 535,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 36,
+            "icode": "",
+            "resname": "TYR"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "536": {
+          "source_serial": 536,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 36,
+            "icode": "",
+            "resname": "TYR"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "537": {
+          "source_serial": 537,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 36,
+            "icode": "",
+            "resname": "TYR"
+          },
+          "state": "copied",
+          "category": "environment",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "5333": {
+          "source_serial": null,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 10,
+            "icode": "",
+            "resname": "ACE"
+          },
+          "state": "new",
+          "category": "ace",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "5334": {
+          "source_serial": null,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 10,
+            "icode": "",
+            "resname": "ACE"
+          },
+          "state": "new",
+          "category": "ace",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "5335": {
+          "source_serial": null,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 10,
+            "icode": "",
+            "resname": "ACE"
+          },
+          "state": "new",
+          "category": "ace",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "5338": {
+          "source_serial": null,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 10,
+            "icode": "",
+            "resname": "ACE"
+          },
+          "state": "new",
+          "category": "ace",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "5339": {
+          "source_serial": null,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 10,
+            "icode": "",
+            "resname": "ACE"
+          },
+          "state": "new",
+          "category": "ace",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "5340": {
+          "source_serial": null,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 10,
+            "icode": "",
+            "resname": "ACE"
+          },
+          "state": "new",
+          "category": "ace",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "5336": {
+          "source_serial": null,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "NME"
+          },
+          "state": "new",
+          "category": "nme",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "5337": {
+          "source_serial": null,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "NME"
+          },
+          "state": "new",
+          "category": "nme",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "5341": {
+          "source_serial": null,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "NME"
+          },
+          "state": "new",
+          "category": "nme",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "5342": {
+          "source_serial": null,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "NME"
+          },
+          "state": "new",
+          "category": "nme",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "5343": {
+          "source_serial": null,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "NME"
+          },
+          "state": "new",
+          "category": "nme",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "5344": {
+          "source_serial": null,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 12,
+            "icode": "",
+            "resname": "NME"
+          },
+          "state": "new",
+          "category": "nme",
+          "attached_to": null,
+          "detached_from": null
+        },
+        "5345": {
+          "source_serial": null,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 30,
+            "icode": "",
+            "resname": "SER"
+          },
+          "state": "new",
+          "category": "boundary_h",
+          "attached_to": 437,
+          "detached_from": 432
+        },
+        "5346": {
+          "source_serial": null,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 30,
+            "icode": "",
+            "resname": "SER"
+          },
+          "state": "new",
+          "category": "boundary_h",
+          "attached_to": 439,
+          "detached_from": 448
+        },
+        "5347": {
+          "source_serial": null,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 32,
+            "icode": "",
+            "resname": "ASP"
+          },
+          "state": "new",
+          "category": "boundary_h",
+          "attached_to": 462,
+          "detached_from": 450
+        },
+        "5348": {
+          "source_serial": null,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 32,
+            "icode": "",
+            "resname": "ASP"
+          },
+          "state": "new",
+          "category": "boundary_h",
+          "attached_to": 464,
+          "detached_from": 474
+        },
+        "5349": {
+          "source_serial": null,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 36,
+            "icode": "",
+            "resname": "TYR"
+          },
+          "state": "new",
+          "category": "boundary_h",
+          "attached_to": 517,
+          "detached_from": 500
+        },
+        "5350": {
+          "source_serial": null,
+          "source_residue_key": {
+            "model": 1,
+            "chain": "A",
+            "resseq": 36,
+            "icode": "",
+            "resname": "TYR"
+          },
+          "state": "new",
+          "category": "boundary_h",
+          "attached_to": 519,
+          "detached_from": 538
+        }
+      }
+    },
+    "residue_groups": {
+      "ACE": [
+        5333,
+        5334,
+        5335,
+        5338,
+        5339,
+        5340
+      ],
+      "CORE": [
+        162,
+        163,
+        164,
+        165,
+        166,
+        167,
+        168,
+        169,
+        170,
+        171,
+        172,
+        173,
+        174,
+        175,
+        176,
+        177,
+        178,
+        179,
+        180,
+        181,
+        182,
+        183,
+        184,
+        185,
+        186,
+        187,
+        188,
+        189,
+        190,
+        191,
+        192,
+        193,
+        194,
+        195,
+        196,
+        197,
+        198,
+        199,
+        200,
+        201,
+        202,
+        203,
+        204
+      ],
+      "ENV": [
+        437,
+        438,
+        439,
+        440,
+        441,
+        442,
+        443,
+        444,
+        445,
+        446,
+        447,
+        462,
+        463,
+        464,
+        465,
+        466,
+        467,
+        468,
+        469,
+        470,
+        471,
+        472,
+        473,
+        517,
+        518,
+        519,
+        520,
+        521,
+        522,
+        523,
+        524,
+        525,
+        526,
+        527,
+        528,
+        529,
+        530,
+        531,
+        532,
+        533,
+        534,
+        535,
+        536,
+        537
+      ],
+      "NME": [
+        5336,
+        5337,
+        5341,
+        5342,
+        5343,
+        5344
+      ],
+      "BOUNDARY_H": [
+        5345,
+        5346,
+        5347,
+        5348,
+        5349,
+        5350
+      ]
+    },
+    "atoms": [
+      {
+        "serial": 162,
+        "record": "ATOM",
+        "name": "N",
+        "altloc": "",
+        "x": -3.919,
+        "y": -2.454,
+        "z": -0.727,
+        "occ": 1.0,
+        "bfac": 25.95,
+        "element": "N",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 10,
+          "icode": "",
+          "resname": "THR"
+        }
+      },
+      {
+        "serial": 163,
+        "record": "ATOM",
+        "name": "CA",
+        "altloc": "",
+        "x": -4.65,
+        "y": -3.547,
+        "z": -0.113,
+        "occ": 1.0,
+        "bfac": 24.97,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 10,
+          "icode": "",
+          "resname": "THR"
+        }
+      },
+      {
+        "serial": 164,
+        "record": "ATOM",
+        "name": "C",
+        "altloc": "",
+        "x": -6.142,
+        "y": -3.224,
+        "z": -0.148,
+        "occ": 1.0,
+        "bfac": 27.44,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 10,
+          "icode": "",
+          "resname": "THR"
+        }
+      },
+      {
+        "serial": 165,
+        "record": "ATOM",
+        "name": "O",
+        "altloc": "",
+        "x": -6.567,
+        "y": -2.18,
+        "z": -0.647,
+        "occ": 1.0,
+        "bfac": 26.95,
+        "element": "O",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 10,
+          "icode": "",
+          "resname": "THR"
+        }
+      },
+      {
+        "serial": 166,
+        "record": "ATOM",
+        "name": "CB",
+        "altloc": "",
+        "x": -4.164,
+        "y": -3.797,
+        "z": 1.317,
+        "occ": 1.0,
+        "bfac": 25.53,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 10,
+          "icode": "",
+          "resname": "THR"
+        }
+      },
+      {
+        "serial": 167,
+        "record": "ATOM",
+        "name": "CG2",
+        "altloc": "",
+        "x": -2.643,
+        "y": -3.788,
+        "z": 1.371,
+        "occ": 1.0,
+        "bfac": 24.13,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 10,
+          "icode": "",
+          "resname": "THR"
+        }
+      },
+      {
+        "serial": 168,
+        "record": "ATOM",
+        "name": "OG1",
+        "altloc": "",
+        "x": -4.68,
+        "y": -2.783,
+        "z": 2.187,
+        "occ": 1.0,
+        "bfac": 27.48,
+        "element": "O",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 10,
+          "icode": "",
+          "resname": "THR"
+        }
+      },
+      {
+        "serial": 169,
+        "record": "ATOM",
+        "name": "H01",
+        "altloc": "",
+        "x": -4.471,
+        "y": -4.465,
+        "z": -0.672,
+        "occ": 1.0,
+        "bfac": 24.97,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 10,
+          "icode": "",
+          "resname": "THR"
+        }
+      },
+      {
+        "serial": 170,
+        "record": "ATOM",
+        "name": "H02",
+        "altloc": "",
+        "x": -4.522,
+        "y": -4.774,
+        "z": 1.641,
+        "occ": 1.0,
+        "bfac": 25.53,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 10,
+          "icode": "",
+          "resname": "THR"
+        }
+      },
+      {
+        "serial": 171,
+        "record": "ATOM",
+        "name": "H03",
+        "altloc": "",
+        "x": -2.281,
+        "y": -2.77,
+        "z": 1.226,
+        "occ": 1.0,
+        "bfac": 24.13,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 10,
+          "icode": "",
+          "resname": "THR"
+        }
+      },
+      {
+        "serial": 172,
+        "record": "ATOM",
+        "name": "H04",
+        "altloc": "",
+        "x": -2.311,
+        "y": -4.156,
+        "z": 2.342,
+        "occ": 1.0,
+        "bfac": 24.13,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 10,
+          "icode": "",
+          "resname": "THR"
+        }
+      },
+      {
+        "serial": 173,
+        "record": "ATOM",
+        "name": "H05",
+        "altloc": "",
+        "x": -2.247,
+        "y": -4.43,
+        "z": 0.584,
+        "occ": 1.0,
+        "bfac": 24.13,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 10,
+          "icode": "",
+          "resname": "THR"
+        }
+      },
+      {
+        "serial": 174,
+        "record": "ATOM",
+        "name": "H06",
+        "altloc": "",
+        "x": -4.711,
+        "y": -1.945,
+        "z": 1.72,
+        "occ": 1.0,
+        "bfac": 27.48,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 10,
+          "icode": "",
+          "resname": "THR"
+        }
+      },
+      {
+        "serial": 175,
+        "record": "ATOM",
+        "name": "H14",
+        "altloc": "",
+        "x": -3.787,
+        "y": -1.603,
+        "z": -0.199,
+        "occ": 1.0,
+        "bfac": 25.95,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 10,
+          "icode": "",
+          "resname": "THR"
+        }
+      },
+      {
+        "serial": 176,
+        "record": "ATOM",
+        "name": "N",
+        "altloc": "",
+        "x": -6.95,
+        "y": -4.136,
+        "z": 0.396,
+        "occ": 1.0,
+        "bfac": 25.52,
+        "element": "N",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 11,
+          "icode": "",
+          "resname": "GLY"
+        }
+      },
+      {
+        "serial": 177,
+        "record": "ATOM",
+        "name": "CA",
+        "altloc": "",
+        "x": -8.391,
+        "y": -3.973,
+        "z": 0.331,
+        "occ": 1.0,
+        "bfac": 25.71,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 11,
+          "icode": "",
+          "resname": "GLY"
+        }
+      },
+      {
+        "serial": 178,
+        "record": "ATOM",
+        "name": "C",
+        "altloc": "",
+        "x": -8.975,
+        "y": -3.028,
+        "z": 1.358,
+        "occ": 1.0,
+        "bfac": 29.19,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 11,
+          "icode": "",
+          "resname": "GLY"
+        }
+      },
+      {
+        "serial": 179,
+        "record": "ATOM",
+        "name": "O",
+        "altloc": "",
+        "x": -10.067,
+        "y": -2.494,
+        "z": 1.138,
+        "occ": 1.0,
+        "bfac": 33.42,
+        "element": "O",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 11,
+          "icode": "",
+          "resname": "GLY"
+        }
+      },
+      {
+        "serial": 180,
+        "record": "ATOM",
+        "name": "H01",
+        "altloc": "",
+        "x": -8.818,
+        "y": -4.953,
+        "z": 0.542,
+        "occ": 1.0,
+        "bfac": 25.71,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 11,
+          "icode": "",
+          "resname": "GLY"
+        }
+      },
+      {
+        "serial": 181,
+        "record": "ATOM",
+        "name": "H02",
+        "altloc": "",
+        "x": -8.645,
+        "y": -3.596,
+        "z": -0.66,
+        "occ": 1.0,
+        "bfac": 25.71,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 11,
+          "icode": "",
+          "resname": "GLY"
+        }
+      },
+      {
+        "serial": 182,
+        "record": "ATOM",
+        "name": "H07",
+        "altloc": "",
+        "x": -6.557,
+        "y": -4.945,
+        "z": 0.856,
+        "occ": 1.0,
+        "bfac": 25.52,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 11,
+          "icode": "",
+          "resname": "GLY"
+        }
+      },
+      {
+        "serial": 183,
+        "record": "ATOM",
+        "name": "N",
+        "altloc": "",
+        "x": -8.282,
+        "y": -2.81,
+        "z": 2.473,
+        "occ": 1.0,
+        "bfac": 31.61,
+        "element": "N",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "LYS"
+        }
+      },
+      {
+        "serial": 184,
+        "record": "ATOM",
+        "name": "CA",
+        "altloc": "",
+        "x": -8.794,
+        "y": -1.959,
+        "z": 3.537,
+        "occ": 1.0,
+        "bfac": 27.9,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "LYS"
+        }
+      },
+      {
+        "serial": 185,
+        "record": "ATOM",
+        "name": "C",
+        "altloc": "",
+        "x": -7.631,
+        "y": -1.208,
+        "z": 4.172,
+        "occ": 1.0,
+        "bfac": 30.22,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "LYS"
+        }
+      },
+      {
+        "serial": 186,
+        "record": "ATOM",
+        "name": "O",
+        "altloc": "",
+        "x": -6.477,
+        "y": -1.343,
+        "z": 3.756,
+        "occ": 1.0,
+        "bfac": 27.91,
+        "element": "O",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "LYS"
+        }
+      },
+      {
+        "serial": 187,
+        "record": "ATOM",
+        "name": "CB",
+        "altloc": "",
+        "x": -9.563,
+        "y": -2.777,
+        "z": 4.578,
+        "occ": 1.0,
+        "bfac": 28.88,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "LYS"
+        }
+      },
+      {
+        "serial": 188,
+        "record": "ATOM",
+        "name": "CG",
+        "altloc": "",
+        "x": -10.949,
+        "y": -3.215,
+        "z": 4.139,
+        "occ": 1.0,
+        "bfac": 32.12,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "LYS"
+        }
+      },
+      {
+        "serial": 189,
+        "record": "ATOM",
+        "name": "CD",
+        "altloc": "",
+        "x": -11.602,
+        "y": -4.086,
+        "z": 5.197,
+        "occ": 1.0,
+        "bfac": 33.06,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "LYS"
+        }
+      },
+      {
+        "serial": 190,
+        "record": "ATOM",
+        "name": "CE",
+        "altloc": "",
+        "x": -12.959,
+        "y": -4.591,
+        "z": 4.74,
+        "occ": 1.0,
+        "bfac": 44.21,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "LYS"
+        }
+      },
+      {
+        "serial": 191,
+        "record": "ATOM",
+        "name": "NZ",
+        "altloc": "",
+        "x": -13.617,
+        "y": -5.411,
+        "z": 5.794,
+        "occ": 1.0,
+        "bfac": 47.92,
+        "element": "N",
+        "charge": "1+",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "LYS"
+        }
+      },
+      {
+        "serial": 192,
+        "record": "ATOM",
+        "name": "H01",
+        "altloc": "",
+        "x": -9.498,
+        "y": -1.24,
+        "z": 3.117,
+        "occ": 1.0,
+        "bfac": 27.9,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "LYS"
+        }
+      },
+      {
+        "serial": 193,
+        "record": "ATOM",
+        "name": "H02",
+        "altloc": "",
+        "x": -9.704,
+        "y": -2.125,
+        "z": 5.44,
+        "occ": 1.0,
+        "bfac": 28.88,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "LYS"
+        }
+      },
+      {
+        "serial": 194,
+        "record": "ATOM",
+        "name": "H03",
+        "altloc": "",
+        "x": -7.378,
+        "y": -3.246,
+        "z": 2.584,
+        "occ": 1.0,
+        "bfac": 31.61,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "LYS"
+        }
+      },
+      {
+        "serial": 195,
+        "record": "ATOM",
+        "name": "H04",
+        "altloc": "",
+        "x": -8.981,
+        "y": -3.669,
+        "z": 4.808,
+        "occ": 1.0,
+        "bfac": 28.88,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "LYS"
+        }
+      },
+      {
+        "serial": 196,
+        "record": "ATOM",
+        "name": "H05",
+        "altloc": "",
+        "x": -10.856,
+        "y": -3.794,
+        "z": 3.22,
+        "occ": 1.0,
+        "bfac": 32.12,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "LYS"
+        }
+      },
+      {
+        "serial": 197,
+        "record": "ATOM",
+        "name": "H06",
+        "altloc": "",
+        "x": -11.566,
+        "y": -2.333,
+        "z": 3.971,
+        "occ": 1.0,
+        "bfac": 32.12,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "LYS"
+        }
+      },
+      {
+        "serial": 198,
+        "record": "ATOM",
+        "name": "H07",
+        "altloc": "",
+        "x": -11.745,
+        "y": -3.485,
+        "z": 6.095,
+        "occ": 1.0,
+        "bfac": 33.06,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "LYS"
+        }
+      },
+      {
+        "serial": 199,
+        "record": "ATOM",
+        "name": "H08",
+        "altloc": "",
+        "x": -10.956,
+        "y": -4.94,
+        "z": 5.402,
+        "occ": 1.0,
+        "bfac": 33.06,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "LYS"
+        }
+      },
+      {
+        "serial": 200,
+        "record": "ATOM",
+        "name": "H09",
+        "altloc": "",
+        "x": -12.813,
+        "y": -5.217,
+        "z": 3.86,
+        "occ": 1.0,
+        "bfac": 44.21,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "LYS"
+        }
+      },
+      {
+        "serial": 201,
+        "record": "ATOM",
+        "name": "H10",
+        "altloc": "",
+        "x": -13.595,
+        "y": -3.738,
+        "z": 4.505,
+        "occ": 1.0,
+        "bfac": 44.21,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "LYS"
+        }
+      },
+      {
+        "serial": 202,
+        "record": "ATOM",
+        "name": "H11",
+        "altloc": "",
+        "x": -14.543,
+        "y": -5.672,
+        "z": 5.487,
+        "occ": 1.0,
+        "bfac": 47.92,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "LYS"
+        }
+      },
+      {
+        "serial": 203,
+        "record": "ATOM",
+        "name": "H12",
+        "altloc": "",
+        "x": -13.071,
+        "y": -6.244,
+        "z": 5.963,
+        "occ": 1.0,
+        "bfac": 47.92,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "LYS"
+        }
+      },
+      {
+        "serial": 204,
+        "record": "ATOM",
+        "name": "H13",
+        "altloc": "",
+        "x": -13.684,
+        "y": -4.874,
+        "z": 6.646,
+        "occ": 1.0,
+        "bfac": 47.92,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "LYS"
+        }
+      },
+      {
+        "serial": 437,
+        "record": "ATOM",
+        "name": "N",
+        "altloc": "",
+        "x": -3.082,
+        "y": -6.029,
+        "z": 6.734,
+        "occ": 1.0,
+        "bfac": 25.53,
+        "element": "N",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 30,
+          "icode": "",
+          "resname": "SER"
+        }
+      },
+      {
+        "serial": 438,
+        "record": "ATOM",
+        "name": "CA",
+        "altloc": "",
+        "x": -4.122,
+        "y": -5.108,
+        "z": 6.308,
+        "occ": 1.0,
+        "bfac": 26.09,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 30,
+          "icode": "",
+          "resname": "SER"
+        }
+      },
+      {
+        "serial": 439,
+        "record": "ATOM",
+        "name": "C",
+        "altloc": "",
+        "x": -5.418,
+        "y": -5.397,
+        "z": 7.05,
+        "occ": 1.0,
+        "bfac": 26.69,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 30,
+          "icode": "",
+          "resname": "SER"
+        }
+      },
+      {
+        "serial": 440,
+        "record": "ATOM",
+        "name": "O",
+        "altloc": "",
+        "x": -5.637,
+        "y": -6.5,
+        "z": 7.56,
+        "occ": 1.0,
+        "bfac": 29.46,
+        "element": "O",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 30,
+          "icode": "",
+          "resname": "SER"
+        }
+      },
+      {
+        "serial": 441,
+        "record": "ATOM",
+        "name": "CB",
+        "altloc": "",
+        "x": -4.356,
+        "y": -5.199,
+        "z": 4.796,
+        "occ": 1.0,
+        "bfac": 25.61,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 30,
+          "icode": "",
+          "resname": "SER"
+        }
+      },
+      {
+        "serial": 442,
+        "record": "ATOM",
+        "name": "OG",
+        "altloc": "",
+        "x": -5.475,
+        "y": -4.421,
+        "z": 4.411,
+        "occ": 1.0,
+        "bfac": 22.45,
+        "element": "O",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 30,
+          "icode": "",
+          "resname": "SER"
+        }
+      },
+      {
+        "serial": 443,
+        "record": "ATOM",
+        "name": "H01",
+        "altloc": "",
+        "x": -3.791,
+        "y": -4.096,
+        "z": 6.543,
+        "occ": 1.0,
+        "bfac": 26.09,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 30,
+          "icode": "",
+          "resname": "SER"
+        }
+      },
+      {
+        "serial": 444,
+        "record": "ATOM",
+        "name": "H02",
+        "altloc": "",
+        "x": -4.549,
+        "y": -6.24,
+        "z": 4.535,
+        "occ": 1.0,
+        "bfac": 25.61,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 30,
+          "icode": "",
+          "resname": "SER"
+        }
+      },
+      {
+        "serial": 445,
+        "record": "ATOM",
+        "name": "H03",
+        "altloc": "",
+        "x": -3.235,
+        "y": -7.022,
+        "z": 6.627,
+        "occ": 1.0,
+        "bfac": 25.53,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 30,
+          "icode": "",
+          "resname": "SER"
+        }
+      },
+      {
+        "serial": 446,
+        "record": "ATOM",
+        "name": "H04",
+        "altloc": "",
+        "x": -3.471,
+        "y": -4.835,
+        "z": 4.274,
+        "occ": 1.0,
+        "bfac": 25.61,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 30,
+          "icode": "",
+          "resname": "SER"
+        }
+      },
+      {
+        "serial": 447,
+        "record": "ATOM",
+        "name": "H05",
+        "altloc": "",
+        "x": -5.756,
+        "y": -4.677,
+        "z": 3.529,
+        "occ": 1.0,
+        "bfac": 22.45,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 30,
+          "icode": "",
+          "resname": "SER"
+        }
+      },
+      {
+        "serial": 462,
+        "record": "ATOM",
+        "name": "N",
+        "altloc": "",
+        "x": -8.048,
+        "y": -5.814,
+        "z": 5.602,
+        "occ": 1.0,
+        "bfac": 23.84,
+        "element": "N",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 32,
+          "icode": "",
+          "resname": "ASP"
+        }
+      },
+      {
+        "serial": 463,
+        "record": "ATOM",
+        "name": "CA",
+        "altloc": "",
+        "x": -8.757,
+        "y": -6.789,
+        "z": 4.784,
+        "occ": 1.0,
+        "bfac": 27.46,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 32,
+          "icode": "",
+          "resname": "ASP"
+        }
+      },
+      {
+        "serial": 464,
+        "record": "ATOM",
+        "name": "C",
+        "altloc": "",
+        "x": -8.47,
+        "y": -8.227,
+        "z": 5.198,
+        "occ": 1.0,
+        "bfac": 24.97,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 32,
+          "icode": "",
+          "resname": "ASP"
+        }
+      },
+      {
+        "serial": 465,
+        "record": "ATOM",
+        "name": "O",
+        "altloc": "",
+        "x": -8.976,
+        "y": -9.152,
+        "z": 4.555,
+        "occ": 1.0,
+        "bfac": 29.65,
+        "element": "O",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 32,
+          "icode": "",
+          "resname": "ASP"
+        }
+      },
+      {
+        "serial": 466,
+        "record": "ATOM",
+        "name": "CB",
+        "altloc": "",
+        "x": -8.434,
+        "y": -6.578,
+        "z": 3.294,
+        "occ": 1.0,
+        "bfac": 27.81,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 32,
+          "icode": "",
+          "resname": "ASP"
+        }
+      },
+      {
+        "serial": 467,
+        "record": "ATOM",
+        "name": "CG",
+        "altloc": "",
+        "x": -6.97,
+        "y": -6.855,
+        "z": 2.939,
+        "occ": 1.0,
+        "bfac": 31.21,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 32,
+          "icode": "",
+          "resname": "ASP"
+        }
+      },
+      {
+        "serial": 468,
+        "record": "ATOM",
+        "name": "OD1",
+        "altloc": "",
+        "x": -6.259,
+        "y": -7.558,
+        "z": 3.686,
+        "occ": 1.0,
+        "bfac": 27.07,
+        "element": "O",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 32,
+          "icode": "",
+          "resname": "ASP"
+        }
+      },
+      {
+        "serial": 469,
+        "record": "ATOM",
+        "name": "OD2",
+        "altloc": "",
+        "x": -6.528,
+        "y": -6.36,
+        "z": 1.88,
+        "occ": 1.0,
+        "bfac": 28.72,
+        "element": "O",
+        "charge": "1-",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 32,
+          "icode": "",
+          "resname": "ASP"
+        }
+      },
+      {
+        "serial": 470,
+        "record": "ATOM",
+        "name": "H01",
+        "altloc": "",
+        "x": -9.822,
+        "y": -6.624,
+        "z": 4.946,
+        "occ": 1.0,
+        "bfac": 27.46,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 32,
+          "icode": "",
+          "resname": "ASP"
+        }
+      },
+      {
+        "serial": 471,
+        "record": "ATOM",
+        "name": "H02",
+        "altloc": "",
+        "x": -8.623,
+        "y": -5.528,
+        "z": 3.072,
+        "occ": 1.0,
+        "bfac": 27.81,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 32,
+          "icode": "",
+          "resname": "ASP"
+        }
+      },
+      {
+        "serial": 472,
+        "record": "ATOM",
+        "name": "H03",
+        "altloc": "",
+        "x": -9.064,
+        "y": -7.245,
+        "z": 2.706,
+        "occ": 1.0,
+        "bfac": 27.81,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 32,
+          "icode": "",
+          "resname": "ASP"
+        }
+      },
+      {
+        "serial": 473,
+        "record": "ATOM",
+        "name": "H06",
+        "altloc": "",
+        "x": -7.239,
+        "y": -5.342,
+        "z": 5.224,
+        "occ": 1.0,
+        "bfac": 23.84,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 32,
+          "icode": "",
+          "resname": "ASP"
+        }
+      },
+      {
+        "serial": 517,
+        "record": "ATOM",
+        "name": "N",
+        "altloc": "",
+        "x": 0.563,
+        "y": -9.422,
+        "z": 3.723,
+        "occ": 1.0,
+        "bfac": 25.97,
+        "element": "N",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 36,
+          "icode": "",
+          "resname": "TYR"
+        }
+      },
+      {
+        "serial": 518,
+        "record": "ATOM",
+        "name": "CA",
+        "altloc": "",
+        "x": 1.126,
+        "y": -9.254,
+        "z": 2.392,
+        "occ": 1.0,
+        "bfac": 28.24,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 36,
+          "icode": "",
+          "resname": "TYR"
+        }
+      },
+      {
+        "serial": 519,
+        "record": "ATOM",
+        "name": "C",
+        "altloc": "",
+        "x": 2.646,
+        "y": -9.305,
+        "z": 2.443,
+        "occ": 1.0,
+        "bfac": 25.47,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 36,
+          "icode": "",
+          "resname": "TYR"
+        }
+      },
+      {
+        "serial": 520,
+        "record": "ATOM",
+        "name": "O",
+        "altloc": "",
+        "x": 3.268,
+        "y": -8.737,
+        "z": 3.345,
+        "occ": 1.0,
+        "bfac": 23.05,
+        "element": "O",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 36,
+          "icode": "",
+          "resname": "TYR"
+        }
+      },
+      {
+        "serial": 521,
+        "record": "ATOM",
+        "name": "CB",
+        "altloc": "",
+        "x": 0.678,
+        "y": -7.929,
+        "z": 1.773,
+        "occ": 1.0,
+        "bfac": 25.25,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 36,
+          "icode": "",
+          "resname": "TYR"
+        }
+      },
+      {
+        "serial": 522,
+        "record": "ATOM",
+        "name": "CG",
+        "altloc": "",
+        "x": -0.772,
+        "y": -7.906,
+        "z": 1.354,
+        "occ": 1.0,
+        "bfac": 25.47,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 36,
+          "icode": "",
+          "resname": "TYR"
+        }
+      },
+      {
+        "serial": 523,
+        "record": "ATOM",
+        "name": "CD1",
+        "altloc": "",
+        "x": -1.166,
+        "y": -8.407,
+        "z": 0.12,
+        "occ": 1.0,
+        "bfac": 25.15,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 36,
+          "icode": "",
+          "resname": "TYR"
+        }
+      },
+      {
+        "serial": 524,
+        "record": "ATOM",
+        "name": "CD2",
+        "altloc": "",
+        "x": -1.748,
+        "y": -7.383,
+        "z": 2.191,
+        "occ": 1.0,
+        "bfac": 24.34,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 36,
+          "icode": "",
+          "resname": "TYR"
+        }
+      },
+      {
+        "serial": 525,
+        "record": "ATOM",
+        "name": "CE1",
+        "altloc": "",
+        "x": -2.491,
+        "y": -8.386,
+        "z": -0.268,
+        "occ": 1.0,
+        "bfac": 25.74,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 36,
+          "icode": "",
+          "resname": "TYR"
+        }
+      },
+      {
+        "serial": 526,
+        "record": "ATOM",
+        "name": "CE2",
+        "altloc": "",
+        "x": -3.075,
+        "y": -7.358,
+        "z": 1.812,
+        "occ": 1.0,
+        "bfac": 23.22,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 36,
+          "icode": "",
+          "resname": "TYR"
+        }
+      },
+      {
+        "serial": 527,
+        "record": "ATOM",
+        "name": "CZ",
+        "altloc": "",
+        "x": -3.441,
+        "y": -7.861,
+        "z": 0.582,
+        "occ": 1.0,
+        "bfac": 25.83,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 36,
+          "icode": "",
+          "resname": "TYR"
+        }
+      },
+      {
+        "serial": 528,
+        "record": "ATOM",
+        "name": "OH",
+        "altloc": "",
+        "x": -4.763,
+        "y": -7.837,
+        "z": 0.202,
+        "occ": 1.0,
+        "bfac": 27.46,
+        "element": "O",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 36,
+          "icode": "",
+          "resname": "TYR"
+        }
+      },
+      {
+        "serial": 529,
+        "record": "ATOM",
+        "name": "H01",
+        "altloc": "",
+        "x": 0.762,
+        "y": -10.073,
+        "z": 1.771,
+        "occ": 1.0,
+        "bfac": 28.24,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 36,
+          "icode": "",
+          "resname": "TYR"
+        }
+      },
+      {
+        "serial": 530,
+        "record": "ATOM",
+        "name": "H02",
+        "altloc": "",
+        "x": 1.27,
+        "y": -7.788,
+        "z": 0.868,
+        "occ": 1.0,
+        "bfac": 25.25,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 36,
+          "icode": "",
+          "resname": "TYR"
+        }
+      },
+      {
+        "serial": 531,
+        "record": "ATOM",
+        "name": "H03",
+        "altloc": "",
+        "x": 0.837,
+        "y": -7.137,
+        "z": 2.505,
+        "occ": 1.0,
+        "bfac": 25.25,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 36,
+          "icode": "",
+          "resname": "TYR"
+        }
+      },
+      {
+        "serial": 532,
+        "record": "ATOM",
+        "name": "H04",
+        "altloc": "",
+        "x": -0.417,
+        "y": -8.824,
+        "z": -0.553,
+        "occ": 1.0,
+        "bfac": 25.15,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 36,
+          "icode": "",
+          "resname": "TYR"
+        }
+      },
+      {
+        "serial": 533,
+        "record": "ATOM",
+        "name": "H05",
+        "altloc": "",
+        "x": -1.462,
+        "y": -6.985,
+        "z": 3.165,
+        "occ": 1.0,
+        "bfac": 24.34,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 36,
+          "icode": "",
+          "resname": "TYR"
+        }
+      },
+      {
+        "serial": 534,
+        "record": "ATOM",
+        "name": "H06",
+        "altloc": "",
+        "x": -2.784,
+        "y": -8.782,
+        "z": -1.24,
+        "occ": 1.0,
+        "bfac": 25.74,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 36,
+          "icode": "",
+          "resname": "TYR"
+        }
+      },
+      {
+        "serial": 535,
+        "record": "ATOM",
+        "name": "H07",
+        "altloc": "",
+        "x": -3.829,
+        "y": -6.943,
+        "z": 2.481,
+        "occ": 1.0,
+        "bfac": 23.22,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 36,
+          "icode": "",
+          "resname": "TYR"
+        }
+      },
+      {
+        "serial": 536,
+        "record": "ATOM",
+        "name": "H08",
+        "altloc": "",
+        "x": -5.118,
+        "y": -8.729,
+        "z": 0.219,
+        "occ": 1.0,
+        "bfac": 27.46,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 36,
+          "icode": "",
+          "resname": "TYR"
+        }
+      },
+      {
+        "serial": 537,
+        "record": "ATOM",
+        "name": "H12",
+        "altloc": "",
+        "x": 0.588,
+        "y": -8.644,
+        "z": 4.366,
+        "occ": 1.0,
+        "bfac": 25.97,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 36,
+          "icode": "",
+          "resname": "TYR"
+        }
+      },
+      {
+        "serial": 5333,
+        "record": "ATOM",
+        "name": "CH3",
+        "altloc": "",
+        "x": -2.969,
+        "y": -1.208,
+        "z": -2.577,
+        "occ": 1.0,
+        "bfac": 28.57,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 10,
+          "icode": "",
+          "resname": "ACE"
+        }
+      },
+      {
+        "serial": 5334,
+        "record": "ATOM",
+        "name": "C",
+        "altloc": "",
+        "x": -3.416,
+        "y": -2.526,
+        "z": -1.956,
+        "occ": 1.0,
+        "bfac": 29.42,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 10,
+          "icode": "",
+          "resname": "ACE"
+        }
+      },
+      {
+        "serial": 5335,
+        "record": "ATOM",
+        "name": "O",
+        "altloc": "",
+        "x": -3.304,
+        "y": -3.586,
+        "z": -2.581,
+        "occ": 1.0,
+        "bfac": 24.69,
+        "element": "O",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 10,
+          "icode": "",
+          "resname": "ACE"
+        }
+      },
+      {
+        "serial": 5336,
+        "record": "ATOM",
+        "name": "N",
+        "altloc": "",
+        "x": -7.949,
+        "y": -0.422,
+        "z": 5.2,
+        "occ": 1.0,
+        "bfac": 27.44,
+        "element": "N",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "NME"
+        }
+      },
+      {
+        "serial": 5337,
+        "record": "ATOM",
+        "name": "CH3",
+        "altloc": "",
+        "x": -6.958,
+        "y": 0.433,
+        "z": 5.839,
+        "occ": 1.0,
+        "bfac": 26.21,
+        "element": "C",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "NME"
+        }
+      },
+      {
+        "serial": 5338,
+        "record": "ATOM",
+        "name": "H11",
+        "altloc": "",
+        "x": -1.8799682324431792,
+        "y": -1.1664485630535861,
+        "z": -2.596577725602218,
+        "occ": 1.0,
+        "bfac": 0.0,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 10,
+          "icode": "",
+          "resname": "ACE"
+        }
+      },
+      {
+        "serial": 5339,
+        "record": "ATOM",
+        "name": "H12",
+        "altloc": "",
+        "x": -3.353663452748181,
+        "y": -0.37810972269269116,
+        "z": -1.9841963598706176,
+        "occ": 1.0,
+        "bfac": 0.0,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 10,
+          "icode": "",
+          "resname": "ACE"
+        }
+      },
+      {
+        "serial": 5340,
+        "record": "ATOM",
+        "name": "H13",
+        "altloc": "",
+        "x": -3.3536634527481812,
+        "y": -1.1367772663886577,
+        "z": -3.594379649067532,
+        "occ": 1.0,
+        "bfac": 0.0,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 10,
+          "icode": "",
+          "resname": "ACE"
+        }
+      },
+      {
+        "serial": 5341,
+        "record": "ATOM",
+        "name": "H21",
+        "altloc": "",
+        "x": -5.957670975464461,
+        "y": 0.08620600298974679,
+        "z": 5.579817118023916,
+        "occ": 1.0,
+        "bfac": 0.0,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "NME"
+        }
+      },
+      {
+        "serial": 5342,
+        "record": "ATOM",
+        "name": "H22",
+        "altloc": "",
+        "x": -7.0873505222415,
+        "y": 0.3935349304800704,
+        "z": 6.920577991031456,
+        "occ": 1.0,
+        "bfac": 0.0,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "NME"
+        }
+      },
+      {
+        "serial": 5343,
+        "record": "ATOM",
+        "name": "H23",
+        "altloc": "",
+        "x": -7.0873505222415,
+        "y": 1.45910964467844,
+        "z": 5.494809007244906,
+        "occ": 1.0,
+        "bfac": 0.0,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "NME"
+        }
+      },
+      {
+        "serial": 5344,
+        "record": "ATOM",
+        "name": "HN",
+        "altloc": "",
+        "x": -8.898671887911313,
+        "y": -0.4190805598452636,
+        "z": 5.5438237661653815,
+        "occ": 1.0,
+        "bfac": 0.0,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 12,
+          "icode": "",
+          "resname": "NME"
+        }
+      },
+      {
+        "serial": 5345,
+        "record": "ATOM",
+        "name": "HN1",
+        "altloc": "",
+        "x": -2.2112550020531625,
+        "y": -5.70883961210863,
+        "z": 7.133249889888289,
+        "occ": 1.0,
+        "bfac": 0.0,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 30,
+          "icode": "",
+          "resname": "SER"
+        }
+      },
+      {
+        "serial": 5346,
+        "record": "ATOM",
+        "name": "HC1",
+        "altloc": "",
+        "x": -6.125349264092931,
+        "y": -4.568903687365254,
+        "z": 7.094872213985134,
+        "occ": 1.0,
+        "bfac": 0.0,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 30,
+          "icode": "",
+          "resname": "SER"
+        }
+      },
+      {
+        "serial": 5347,
+        "record": "ATOM",
+        "name": "HN1",
+        "altloc": "",
+        "x": -8.354002269800768,
+        "y": -5.603434081671749,
+        "z": 6.541214887507305,
+        "occ": 1.0,
+        "bfac": 0.0,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 32,
+          "icode": "",
+          "resname": "ASP"
+        }
+      },
+      {
+        "serial": 5348,
+        "record": "ATOM",
+        "name": "HC1",
+        "altloc": "",
+        "x": -7.812530859421151,
+        "y": -8.395456023581149,
+        "z": 6.050910837840473,
+        "occ": 1.0,
+        "bfac": 0.0,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 32,
+          "icode": "",
+          "resname": "ASP"
+        }
+      },
+      {
+        "serial": 5349,
+        "record": "ATOM",
+        "name": "HN1",
+        "altloc": "",
+        "x": 0.14748437188931546,
+        "y": -10.291843155550389,
+        "z": 4.024362983025331,
+        "occ": 1.0,
+        "bfac": 0.0,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 36,
+          "icode": "",
+          "resname": "TYR"
+        }
+      },
+      {
+        "serial": 5350,
+        "record": "ATOM",
+        "name": "HC1",
+        "altloc": "",
+        "x": 3.129282077490696,
+        "y": -9.872794902586692,
+        "z": 1.647923033805629,
+        "occ": 1.0,
+        "bfac": 0.0,
+        "element": "H",
+        "charge": "",
+        "residue_key": {
+          "model": 1,
+          "chain": "A",
+          "resseq": 36,
+          "icode": "",
+          "resname": "TYR"
+        }
+      }
+    ],
+    "bonds": [
+      [
+        162,
+        163
+      ],
+      [
+        162,
+        5334
+      ],
+      [
+        163,
+        164
+      ],
+      [
+        164,
+        165
+      ],
+      [
+        164,
+        176
+      ],
+      [
+        176,
+        177
+      ],
+      [
+        177,
+        178
+      ],
+      [
+        178,
+        179
+      ],
+      [
+        178,
+        183
+      ],
+      [
+        183,
+        184
+      ],
+      [
+        184,
+        185
+      ],
+      [
+        185,
+        186
+      ],
+      [
+        185,
+        5336
+      ],
+      [
+        437,
+        438
+      ],
+      [
+        437,
+        5345
+      ],
+      [
+        438,
+        439
+      ],
+      [
+        439,
+        440
+      ],
+      [
+        439,
+        5346
+      ],
+      [
+        462,
+        463
+      ],
+      [
+        462,
+        5347
+      ],
+      [
+        463,
+        464
+      ],
+      [
+        464,
+        465
+      ],
+      [
+        464,
+        5348
+      ],
+      [
+        517,
+        518
+      ],
+      [
+        517,
+        5349
+      ],
+      [
+        518,
+        519
+      ],
+      [
+        519,
+        520
+      ],
+      [
+        519,
+        5350
+      ],
+      [
+        5333,
+        5334
+      ],
+      [
+        5333,
+        5338
+      ],
+      [
+        5333,
+        5339
+      ],
+      [
+        5333,
+        5340
+      ],
+      [
+        5334,
+        5335
+      ],
+      [
+        5336,
+        5337
+      ],
+      [
+        5336,
+        5344
+      ],
+      [
+        5337,
+        5341
+      ],
+      [
+        5337,
+        5342
+      ],
+      [
+        5337,
+        5343
+      ]
+    ]
+  }
+}

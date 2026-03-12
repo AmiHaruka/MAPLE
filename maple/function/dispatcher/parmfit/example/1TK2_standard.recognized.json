@@ -1,0 +1,5644 @@
+{
+  "residue_count": 10,
+  "residues": [
+    {
+      "key": {
+        "model": 1,
+        "chain": "B",
+        "resseq": 1,
+        "icode": "",
+        "resname": "VAL"
+      },
+      "file_order": 0,
+      "ter_after": false,
+      "parent_std": "PRO|ORN",
+      "prev_parent_std": "PRO",
+      "next_parent_std": "ORN",
+      "ccd_type": null,
+      "atoms": [
+        {
+          "serial": 1,
+          "record": "ATOM",
+          "name": "N",
+          "altloc": "",
+          "x": 5.977,
+          "y": 37.184,
+          "z": 4.841,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "N",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 1,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 2,
+          "record": "ATOM",
+          "name": "CA",
+          "altloc": "",
+          "x": 7.18,
+          "y": 36.357,
+          "z": 5.144,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 1,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 3,
+          "record": "ATOM",
+          "name": "C",
+          "altloc": "",
+          "x": 6.945,
+          "y": 34.852,
+          "z": 5.029,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 1,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 4,
+          "record": "ATOM",
+          "name": "O",
+          "altloc": "",
+          "x": 6.488,
+          "y": 34.364,
+          "z": 3.992,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "O",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 1,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 5,
+          "record": "ATOM",
+          "name": "CB",
+          "altloc": "",
+          "x": 7.835,
+          "y": 36.728,
+          "z": 6.504,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 1,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 6,
+          "record": "ATOM",
+          "name": "CG1",
+          "altloc": "",
+          "x": 8.885,
+          "y": 35.697,
+          "z": 6.921,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 1,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 7,
+          "record": "ATOM",
+          "name": "CG2",
+          "altloc": "",
+          "x": 8.499,
+          "y": 38.095,
+          "z": 6.392,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 1,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 8,
+          "record": "ATOM",
+          "name": "H01",
+          "altloc": "",
+          "x": 5.301,
+          "y": 36.863,
+          "z": 4.163,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 1,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 9,
+          "record": "ATOM",
+          "name": "H02",
+          "altloc": "",
+          "x": 7.891,
+          "y": 36.61,
+          "z": 4.358,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 1,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 10,
+          "record": "ATOM",
+          "name": "H03",
+          "altloc": "",
+          "x": 7.05,
+          "y": 36.746,
+          "z": 7.26,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 1,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 11,
+          "record": "ATOM",
+          "name": "H04",
+          "altloc": "",
+          "x": 9.768,
+          "y": 36.211,
+          "z": 7.3,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 1,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 12,
+          "record": "ATOM",
+          "name": "H05",
+          "altloc": "",
+          "x": 8.476,
+          "y": 35.056,
+          "z": 7.702,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 1,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 13,
+          "record": "ATOM",
+          "name": "H06",
+          "altloc": "",
+          "x": 9.161,
+          "y": 35.09,
+          "z": 6.059,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 1,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 14,
+          "record": "ATOM",
+          "name": "H07",
+          "altloc": "",
+          "x": 9.464,
+          "y": 37.99,
+          "z": 5.895,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 1,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 15,
+          "record": "ATOM",
+          "name": "H08",
+          "altloc": "",
+          "x": 7.862,
+          "y": 38.762,
+          "z": 5.811,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 1,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 16,
+          "record": "ATOM",
+          "name": "H09",
+          "altloc": "",
+          "x": 8.647,
+          "y": 38.51,
+          "z": 7.389,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 1,
+            "icode": "",
+            "resname": "VAL"
+          }
+        }
+      ]
+    },
+    {
+      "key": {
+        "model": 1,
+        "chain": "B",
+        "resseq": 2,
+        "icode": "",
+        "resname": "ORN"
+      },
+      "file_order": 1,
+      "ter_after": false,
+      "parent_std": "VAL|LEU",
+      "prev_parent_std": "VAL",
+      "next_parent_std": "LEU",
+      "ccd_type": null,
+      "atoms": [
+        {
+          "serial": 17,
+          "record": "HETATM",
+          "name": "N",
+          "altloc": "",
+          "x": 7.212,
+          "y": 34.132,
+          "z": 6.112,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "N",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 2,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 18,
+          "record": "HETATM",
+          "name": "CA",
+          "altloc": "",
+          "x": 7.686,
+          "y": 32.788,
+          "z": 5.886,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 2,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 19,
+          "record": "HETATM",
+          "name": "C",
+          "altloc": "",
+          "x": 7.665,
+          "y": 31.59,
+          "z": 6.791,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 2,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 20,
+          "record": "HETATM",
+          "name": "O",
+          "altloc": "",
+          "x": 7.894,
+          "y": 31.686,
+          "z": 7.99,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "O",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 2,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 21,
+          "record": "HETATM",
+          "name": "CB",
+          "altloc": "",
+          "x": 9.189,
+          "y": 33.073,
+          "z": 5.887,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 2,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 22,
+          "record": "HETATM",
+          "name": "CG",
+          "altloc": "",
+          "x": 9.693,
+          "y": 33.625,
+          "z": 7.268,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 2,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 23,
+          "record": "HETATM",
+          "name": "CD",
+          "altloc": "",
+          "x": 11.207,
+          "y": 33.755,
+          "z": 7.359,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 2,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 24,
+          "record": "HETATM",
+          "name": "NE",
+          "altloc": "",
+          "x": 11.664,
+          "y": 34.346,
+          "z": 8.615,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "N",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 2,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 25,
+          "record": "HETATM",
+          "name": "H01",
+          "altloc": "",
+          "x": 7.018,
+          "y": 32.454,
+          "z": 5.092,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 2,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 26,
+          "record": "HETATM",
+          "name": "H02",
+          "altloc": "",
+          "x": 9.383,
+          "y": 33.837,
+          "z": 5.134,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 2,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 27,
+          "record": "HETATM",
+          "name": "H03",
+          "altloc": "",
+          "x": 9.721,
+          "y": 32.149,
+          "z": 5.663,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 2,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 28,
+          "record": "HETATM",
+          "name": "H04",
+          "altloc": "",
+          "x": 9.389,
+          "y": 32.906,
+          "z": 8.028,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 2,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 29,
+          "record": "HETATM",
+          "name": "H05",
+          "altloc": "",
+          "x": 9.252,
+          "y": 34.609,
+          "z": 7.428,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 2,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 30,
+          "record": "HETATM",
+          "name": "H06",
+          "altloc": "",
+          "x": 11.521,
+          "y": 34.422,
+          "z": 6.556,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 2,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 31,
+          "record": "HETATM",
+          "name": "H07",
+          "altloc": "",
+          "x": 11.646,
+          "y": 32.762,
+          "z": 7.264,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 2,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 32,
+          "record": "HETATM",
+          "name": "H08",
+          "altloc": "",
+          "x": 10.926,
+          "y": 34.912,
+          "z": 9.009,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 2,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 33,
+          "record": "HETATM",
+          "name": "H09",
+          "altloc": "",
+          "x": 11.909,
+          "y": 33.612,
+          "z": 9.264,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 2,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 34,
+          "record": "HETATM",
+          "name": "H10",
+          "altloc": "",
+          "x": 7.09,
+          "y": 34.504,
+          "z": 7.043,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 2,
+            "icode": "",
+            "resname": "ORN"
+          }
+        }
+      ]
+    },
+    {
+      "key": {
+        "model": 1,
+        "chain": "B",
+        "resseq": 3,
+        "icode": "",
+        "resname": "LEU"
+      },
+      "file_order": 2,
+      "ter_after": false,
+      "parent_std": "ORN|DPN",
+      "prev_parent_std": "ORN",
+      "next_parent_std": "DPN",
+      "ccd_type": null,
+      "atoms": [
+        {
+          "serial": 35,
+          "record": "ATOM",
+          "name": "N",
+          "altloc": "",
+          "x": 7.559,
+          "y": 30.42,
+          "z": 6.181,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "N",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 3,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 36,
+          "record": "ATOM",
+          "name": "CA",
+          "altloc": "",
+          "x": 7.835,
+          "y": 29.237,
+          "z": 6.966,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 3,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 37,
+          "record": "ATOM",
+          "name": "C",
+          "altloc": "",
+          "x": 9.078,
+          "y": 28.499,
+          "z": 6.314,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 3,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 38,
+          "record": "ATOM",
+          "name": "O",
+          "altloc": "",
+          "x": 9.133,
+          "y": 28.323,
+          "z": 5.092,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "O",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 3,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 39,
+          "record": "ATOM",
+          "name": "CB",
+          "altloc": "",
+          "x": 6.508,
+          "y": 28.537,
+          "z": 7.272,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 3,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 40,
+          "record": "ATOM",
+          "name": "CG",
+          "altloc": "",
+          "x": 5.7,
+          "y": 29.717,
+          "z": 7.946,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 3,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 41,
+          "record": "ATOM",
+          "name": "CD1",
+          "altloc": "",
+          "x": 5.13,
+          "y": 30.806,
+          "z": 7.01,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 3,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 42,
+          "record": "ATOM",
+          "name": "CD2",
+          "altloc": "",
+          "x": 4.564,
+          "y": 29.296,
+          "z": 8.797,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 3,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 43,
+          "record": "ATOM",
+          "name": "H01",
+          "altloc": "",
+          "x": 8.204,
+          "y": 29.378,
+          "z": 7.982,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 3,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 44,
+          "record": "ATOM",
+          "name": "H02",
+          "altloc": "",
+          "x": 6.601,
+          "y": 27.643,
+          "z": 7.889,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 3,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 45,
+          "record": "ATOM",
+          "name": "H03",
+          "altloc": "",
+          "x": 6.021,
+          "y": 28.184,
+          "z": 6.363,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 3,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 46,
+          "record": "ATOM",
+          "name": "H04",
+          "altloc": "",
+          "x": 6.511,
+          "y": 30.14,
+          "z": 8.539,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 3,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 47,
+          "record": "ATOM",
+          "name": "H05",
+          "altloc": "",
+          "x": 4.22,
+          "y": 31.218,
+          "z": 7.445,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 3,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 48,
+          "record": "ATOM",
+          "name": "H06",
+          "altloc": "",
+          "x": 5.865,
+          "y": 31.601,
+          "z": 6.887,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 3,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 49,
+          "record": "ATOM",
+          "name": "H07",
+          "altloc": "",
+          "x": 4.902,
+          "y": 30.368,
+          "z": 6.038,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 3,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 50,
+          "record": "ATOM",
+          "name": "H08",
+          "altloc": "",
+          "x": 3.688,
+          "y": 29.122,
+          "z": 8.172,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 3,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 51,
+          "record": "ATOM",
+          "name": "H09",
+          "altloc": "",
+          "x": 4.824,
+          "y": 28.377,
+          "z": 9.322,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 3,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 52,
+          "record": "ATOM",
+          "name": "H10",
+          "altloc": "",
+          "x": 7.296,
+          "y": 30.356,
+          "z": 5.208,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 3,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 53,
+          "record": "ATOM",
+          "name": "H11",
+          "altloc": "",
+          "x": 4.343,
+          "y": 30.079,
+          "z": 9.522,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 3,
+            "icode": "",
+            "resname": "LEU"
+          }
+        }
+      ]
+    },
+    {
+      "key": {
+        "model": 1,
+        "chain": "B",
+        "resseq": 4,
+        "icode": "",
+        "resname": "DPN"
+      },
+      "file_order": 3,
+      "ter_after": false,
+      "parent_std": "LEU|PRO",
+      "prev_parent_std": "LEU",
+      "next_parent_std": "PRO",
+      "ccd_type": null,
+      "atoms": [
+        {
+          "serial": 54,
+          "record": "HETATM",
+          "name": "N",
+          "altloc": "",
+          "x": 10.126,
+          "y": 28.23,
+          "z": 7.117,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "N",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 4,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 55,
+          "record": "HETATM",
+          "name": "CA",
+          "altloc": "",
+          "x": 11.422,
+          "y": 27.688,
+          "z": 6.624,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 4,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 56,
+          "record": "HETATM",
+          "name": "C",
+          "altloc": "",
+          "x": 11.777,
+          "y": 28.393,
+          "z": 5.276,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 4,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 57,
+          "record": "HETATM",
+          "name": "O",
+          "altloc": "",
+          "x": 12.035,
+          "y": 29.597,
+          "z": 5.265,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "O",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 4,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 58,
+          "record": "HETATM",
+          "name": "CB",
+          "altloc": "",
+          "x": 12.545,
+          "y": 27.838,
+          "z": 7.689,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 4,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 59,
+          "record": "HETATM",
+          "name": "CG",
+          "altloc": "",
+          "x": 13.841,
+          "y": 27.191,
+          "z": 7.269,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 4,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 60,
+          "record": "HETATM",
+          "name": "CD1",
+          "altloc": "",
+          "x": 14.07,
+          "y": 25.836,
+          "z": 7.486,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 4,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 61,
+          "record": "HETATM",
+          "name": "CD2",
+          "altloc": "",
+          "x": 14.794,
+          "y": 27.921,
+          "z": 6.582,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 4,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 62,
+          "record": "HETATM",
+          "name": "CE1",
+          "altloc": "",
+          "x": 15.243,
+          "y": 25.239,
+          "z": 7.049,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 4,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 63,
+          "record": "HETATM",
+          "name": "CE2",
+          "altloc": "",
+          "x": 15.963,
+          "y": 27.329,
+          "z": 6.146,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 4,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 64,
+          "record": "HETATM",
+          "name": "CZ",
+          "altloc": "",
+          "x": 16.187,
+          "y": 25.988,
+          "z": 6.379,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 4,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 65,
+          "record": "HETATM",
+          "name": "H01",
+          "altloc": "",
+          "x": 11.329,
+          "y": 26.617,
+          "z": 6.444,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 4,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 66,
+          "record": "HETATM",
+          "name": "H02",
+          "altloc": "",
+          "x": 12.206,
+          "y": 27.335,
+          "z": 8.595,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 4,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 67,
+          "record": "HETATM",
+          "name": "H03",
+          "altloc": "",
+          "x": 12.724,
+          "y": 28.9,
+          "z": 7.859,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 4,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 68,
+          "record": "HETATM",
+          "name": "H04",
+          "altloc": "",
+          "x": 13.32,
+          "y": 25.238,
+          "z": 8.004,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 4,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 69,
+          "record": "HETATM",
+          "name": "H05",
+          "altloc": "",
+          "x": 14.62,
+          "y": 28.978,
+          "z": 6.382,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 4,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 70,
+          "record": "HETATM",
+          "name": "H06",
+          "altloc": "",
+          "x": 15.418,
+          "y": 24.179,
+          "z": 7.235,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 4,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 71,
+          "record": "HETATM",
+          "name": "H07",
+          "altloc": "",
+          "x": 16.709,
+          "y": 27.922,
+          "z": 5.617,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 4,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 72,
+          "record": "HETATM",
+          "name": "H08",
+          "altloc": "",
+          "x": 17.109,
+          "y": 25.521,
+          "z": 6.034,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 4,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 73,
+          "record": "HETATM",
+          "name": "H12",
+          "altloc": "",
+          "x": 10.027,
+          "y": 28.406,
+          "z": 8.107,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 4,
+            "icode": "",
+            "resname": "DPN"
+          }
+        }
+      ]
+    },
+    {
+      "key": {
+        "model": 1,
+        "chain": "B",
+        "resseq": 5,
+        "icode": "",
+        "resname": "PRO"
+      },
+      "file_order": 4,
+      "ter_after": false,
+      "parent_std": "DPN|VAL",
+      "prev_parent_std": "DPN",
+      "next_parent_std": "VAL",
+      "ccd_type": null,
+      "atoms": [
+        {
+          "serial": 74,
+          "record": "ATOM",
+          "name": "N",
+          "altloc": "",
+          "x": 11.958,
+          "y": 27.618,
+          "z": 4.199,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "N",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 5,
+            "icode": "",
+            "resname": "PRO"
+          }
+        },
+        {
+          "serial": 75,
+          "record": "ATOM",
+          "name": "CA",
+          "altloc": "",
+          "x": 11.959,
+          "y": 28.071,
+          "z": 2.787,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 5,
+            "icode": "",
+            "resname": "PRO"
+          }
+        },
+        {
+          "serial": 76,
+          "record": "ATOM",
+          "name": "C",
+          "altloc": "",
+          "x": 10.768,
+          "y": 28.687,
+          "z": 2.006,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 5,
+            "icode": "",
+            "resname": "PRO"
+          }
+        },
+        {
+          "serial": 77,
+          "record": "ATOM",
+          "name": "O",
+          "altloc": "",
+          "x": 10.954,
+          "y": 28.722,
+          "z": 0.792,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "O",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 5,
+            "icode": "",
+            "resname": "PRO"
+          }
+        },
+        {
+          "serial": 78,
+          "record": "ATOM",
+          "name": "CB",
+          "altloc": "",
+          "x": 12.22,
+          "y": 26.764,
+          "z": 2.018,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 5,
+            "icode": "",
+            "resname": "PRO"
+          }
+        },
+        {
+          "serial": 79,
+          "record": "ATOM",
+          "name": "CG",
+          "altloc": "",
+          "x": 12.908,
+          "y": 25.871,
+          "z": 2.915,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 5,
+            "icode": "",
+            "resname": "PRO"
+          }
+        },
+        {
+          "serial": 80,
+          "record": "ATOM",
+          "name": "CD",
+          "altloc": "",
+          "x": 12.62,
+          "y": 26.308,
+          "z": 4.319,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 5,
+            "icode": "",
+            "resname": "PRO"
+          }
+        },
+        {
+          "serial": 81,
+          "record": "ATOM",
+          "name": "H01",
+          "altloc": "",
+          "x": 12.818,
+          "y": 26.953,
+          "z": 1.127,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 5,
+            "icode": "",
+            "resname": "PRO"
+          }
+        },
+        {
+          "serial": 82,
+          "record": "ATOM",
+          "name": "H02",
+          "altloc": "",
+          "x": 11.276,
+          "y": 26.322,
+          "z": 1.701,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 5,
+            "icode": "",
+            "resname": "PRO"
+          }
+        },
+        {
+          "serial": 83,
+          "record": "ATOM",
+          "name": "H03",
+          "altloc": "",
+          "x": 13.981,
+          "y": 25.897,
+          "z": 2.724,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 5,
+            "icode": "",
+            "resname": "PRO"
+          }
+        },
+        {
+          "serial": 84,
+          "record": "ATOM",
+          "name": "H04",
+          "altloc": "",
+          "x": 12.555,
+          "y": 24.851,
+          "z": 2.765,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 5,
+            "icode": "",
+            "resname": "PRO"
+          }
+        },
+        {
+          "serial": 85,
+          "record": "ATOM",
+          "name": "H05",
+          "altloc": "",
+          "x": 11.994,
+          "y": 25.587,
+          "z": 4.845,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 5,
+            "icode": "",
+            "resname": "PRO"
+          }
+        },
+        {
+          "serial": 86,
+          "record": "ATOM",
+          "name": "H06",
+          "altloc": "",
+          "x": 13.546,
+          "y": 26.399,
+          "z": 4.887,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 5,
+            "icode": "",
+            "resname": "PRO"
+          }
+        },
+        {
+          "serial": 87,
+          "record": "ATOM",
+          "name": "H09",
+          "altloc": "",
+          "x": 12.634,
+          "y": 28.925,
+          "z": 2.844,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 5,
+            "icode": "",
+            "resname": "PRO"
+          }
+        }
+      ]
+    },
+    {
+      "key": {
+        "model": 1,
+        "chain": "B",
+        "resseq": 6,
+        "icode": "",
+        "resname": "VAL"
+      },
+      "file_order": 5,
+      "ter_after": false,
+      "parent_std": "PRO|ORN",
+      "prev_parent_std": "PRO",
+      "next_parent_std": "ORN",
+      "ccd_type": null,
+      "atoms": [
+        {
+          "serial": 88,
+          "record": "ATOM",
+          "name": "N",
+          "altloc": "",
+          "x": 9.612,
+          "y": 29.075,
+          "z": 2.529,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "N",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 6,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 89,
+          "record": "ATOM",
+          "name": "CA",
+          "altloc": "",
+          "x": 8.65,
+          "y": 29.707,
+          "z": 1.601,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 6,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 90,
+          "record": "ATOM",
+          "name": "C",
+          "altloc": "",
+          "x": 7.795,
+          "y": 30.788,
+          "z": 2.2,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 6,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 91,
+          "record": "ATOM",
+          "name": "O",
+          "altloc": "",
+          "x": 7.18,
+          "y": 30.659,
+          "z": 3.237,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "O",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 6,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 92,
+          "record": "ATOM",
+          "name": "CB",
+          "altloc": "",
+          "x": 7.854,
+          "y": 28.749,
+          "z": 0.756,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 6,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 93,
+          "record": "ATOM",
+          "name": "CG1",
+          "altloc": "",
+          "x": 6.806,
+          "y": 29.541,
+          "z": -0.035,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 6,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 94,
+          "record": "ATOM",
+          "name": "CG2",
+          "altloc": "",
+          "x": 8.794,
+          "y": 28.056,
+          "z": -0.191,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 6,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 95,
+          "record": "ATOM",
+          "name": "H01",
+          "altloc": "",
+          "x": 9.316,
+          "y": 30.221,
+          "z": 0.908,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 6,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 96,
+          "record": "ATOM",
+          "name": "H02",
+          "altloc": "",
+          "x": 7.351,
+          "y": 28.01,
+          "z": 1.38,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 6,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 97,
+          "record": "ATOM",
+          "name": "H03",
+          "altloc": "",
+          "x": 5.938,
+          "y": 29.726,
+          "z": 0.597,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 6,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 98,
+          "record": "ATOM",
+          "name": "H04",
+          "altloc": "",
+          "x": 7.232,
+          "y": 30.492,
+          "z": -0.353,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 6,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 99,
+          "record": "ATOM",
+          "name": "H05",
+          "altloc": "",
+          "x": 6.502,
+          "y": 28.968,
+          "z": -0.911,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 6,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 100,
+          "record": "ATOM",
+          "name": "H06",
+          "altloc": "",
+          "x": 9.745,
+          "y": 27.876,
+          "z": 0.309,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 6,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 101,
+          "record": "ATOM",
+          "name": "H07",
+          "altloc": "",
+          "x": 9.401,
+          "y": 28.946,
+          "z": 3.508,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 6,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 102,
+          "record": "ATOM",
+          "name": "H08",
+          "altloc": "",
+          "x": 8.362,
+          "y": 27.105,
+          "z": -0.502,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 6,
+            "icode": "",
+            "resname": "VAL"
+          }
+        },
+        {
+          "serial": 103,
+          "record": "ATOM",
+          "name": "H09",
+          "altloc": "",
+          "x": 8.958,
+          "y": 28.685,
+          "z": -1.066,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 6,
+            "icode": "",
+            "resname": "VAL"
+          }
+        }
+      ]
+    },
+    {
+      "key": {
+        "model": 1,
+        "chain": "B",
+        "resseq": 7,
+        "icode": "",
+        "resname": "ORN"
+      },
+      "file_order": 6,
+      "ter_after": false,
+      "parent_std": "VAL|LEU",
+      "prev_parent_std": "VAL",
+      "next_parent_std": "LEU",
+      "ccd_type": null,
+      "atoms": [
+        {
+          "serial": 104,
+          "record": "HETATM",
+          "name": "N",
+          "altloc": "",
+          "x": 7.91,
+          "y": 31.894,
+          "z": 1.494,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "N",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 7,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 105,
+          "record": "HETATM",
+          "name": "CA",
+          "altloc": "",
+          "x": 7.693,
+          "y": 33.198,
+          "z": 2.02,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 7,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 106,
+          "record": "HETATM",
+          "name": "C",
+          "altloc": "",
+          "x": 7.2,
+          "y": 33.873,
+          "z": 0.778,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 7,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 107,
+          "record": "HETATM",
+          "name": "O",
+          "altloc": "",
+          "x": 7.355,
+          "y": 33.369,
+          "z": -0.334,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "O",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 7,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 108,
+          "record": "HETATM",
+          "name": "CB",
+          "altloc": "",
+          "x": 9.019,
+          "y": 33.689,
+          "z": 2.631,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 7,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 109,
+          "record": "HETATM",
+          "name": "CG",
+          "altloc": "",
+          "x": 9.779,
+          "y": 34.838,
+          "z": 2.013,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 7,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 110,
+          "record": "HETATM",
+          "name": "CD",
+          "altloc": "",
+          "x": 11.28,
+          "y": 34.737,
+          "z": 2.316,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 7,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 111,
+          "record": "HETATM",
+          "name": "NE",
+          "altloc": "",
+          "x": 11.968,
+          "y": 36.023,
+          "z": 2.267,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "N",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 7,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 112,
+          "record": "HETATM",
+          "name": "H01",
+          "altloc": "",
+          "x": 6.993,
+          "y": 33.348,
+          "z": 2.842,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 7,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 113,
+          "record": "HETATM",
+          "name": "H02",
+          "altloc": "",
+          "x": 9.687,
+          "y": 32.843,
+          "z": 2.467,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 7,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 114,
+          "record": "HETATM",
+          "name": "H03",
+          "altloc": "",
+          "x": 8.8,
+          "y": 33.978,
+          "z": 3.659,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 7,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 115,
+          "record": "HETATM",
+          "name": "H04",
+          "altloc": "",
+          "x": 9.403,
+          "y": 35.769,
+          "z": 2.438,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 7,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 116,
+          "record": "HETATM",
+          "name": "H05",
+          "altloc": "",
+          "x": 9.632,
+          "y": 34.823,
+          "z": 0.933,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 7,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 117,
+          "record": "HETATM",
+          "name": "H06",
+          "altloc": "",
+          "x": 11.722,
+          "y": 34.106,
+          "z": 1.545,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 7,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 118,
+          "record": "HETATM",
+          "name": "H07",
+          "altloc": "",
+          "x": 11.404,
+          "y": 34.315,
+          "z": 3.313,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 7,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 119,
+          "record": "HETATM",
+          "name": "H08",
+          "altloc": "",
+          "x": 11.402,
+          "y": 36.689,
+          "z": 1.76,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 7,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 120,
+          "record": "HETATM",
+          "name": "H09",
+          "altloc": "",
+          "x": 12.123,
+          "y": 36.359,
+          "z": 3.207,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 7,
+            "icode": "",
+            "resname": "ORN"
+          }
+        },
+        {
+          "serial": 121,
+          "record": "HETATM",
+          "name": "H10",
+          "altloc": "",
+          "x": 8.168,
+          "y": 31.811,
+          "z": 0.521,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 7,
+            "icode": "",
+            "resname": "ORN"
+          }
+        }
+      ]
+    },
+    {
+      "key": {
+        "model": 1,
+        "chain": "B",
+        "resseq": 8,
+        "icode": "",
+        "resname": "LEU"
+      },
+      "file_order": 7,
+      "ter_after": false,
+      "parent_std": "ORN|DPN",
+      "prev_parent_std": "ORN",
+      "next_parent_std": "DPN",
+      "ccd_type": null,
+      "atoms": [
+        {
+          "serial": 122,
+          "record": "ATOM",
+          "name": "N",
+          "altloc": "",
+          "x": 6.651,
+          "y": 35.04,
+          "z": 0.957,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "N",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 8,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 123,
+          "record": "ATOM",
+          "name": "CA",
+          "altloc": "",
+          "x": 5.579,
+          "y": 35.395,
+          "z": 0.092,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 8,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 124,
+          "record": "ATOM",
+          "name": "C",
+          "altloc": "",
+          "x": 5.057,
+          "y": 36.422,
+          "z": 0.937,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 8,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 125,
+          "record": "ATOM",
+          "name": "O",
+          "altloc": "",
+          "x": 4.695,
+          "y": 36.245,
+          "z": 2.11,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "O",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 8,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 126,
+          "record": "ATOM",
+          "name": "CB",
+          "altloc": "",
+          "x": 4.54,
+          "y": 34.291,
+          "z": 0.035,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 8,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 127,
+          "record": "ATOM",
+          "name": "CG",
+          "altloc": "",
+          "x": 4.943,
+          "y": 32.881,
+          "z": -0.336,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 8,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 128,
+          "record": "ATOM",
+          "name": "CD1",
+          "altloc": "",
+          "x": 3.773,
+          "y": 31.967,
+          "z": -0.019,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 8,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 129,
+          "record": "ATOM",
+          "name": "CD2",
+          "altloc": "",
+          "x": 5.293,
+          "y": 32.848,
+          "z": -1.791,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 8,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 130,
+          "record": "ATOM",
+          "name": "H01",
+          "altloc": "",
+          "x": 5.843,
+          "y": 35.625,
+          "z": -0.94,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 8,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 131,
+          "record": "ATOM",
+          "name": "H02",
+          "altloc": "",
+          "x": 3.905,
+          "y": 34.593,
+          "z": -0.798,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 8,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 132,
+          "record": "ATOM",
+          "name": "H03",
+          "altloc": "",
+          "x": 4.085,
+          "y": 34.237,
+          "z": 1.024,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 8,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 133,
+          "record": "ATOM",
+          "name": "H04",
+          "altloc": "",
+          "x": 5.815,
+          "y": 32.547,
+          "z": 0.226,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 8,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 134,
+          "record": "ATOM",
+          "name": "H05",
+          "altloc": "",
+          "x": 2.916,
+          "y": 32.249,
+          "z": -0.631,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 8,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 135,
+          "record": "ATOM",
+          "name": "H06",
+          "altloc": "",
+          "x": 4.049,
+          "y": 30.935,
+          "z": -0.235,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 8,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 136,
+          "record": "ATOM",
+          "name": "H07",
+          "altloc": "",
+          "x": 3.513,
+          "y": 32.061,
+          "z": 1.035,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 8,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 137,
+          "record": "ATOM",
+          "name": "H08",
+          "altloc": "",
+          "x": 6.331,
+          "y": 32.535,
+          "z": -1.908,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 8,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 138,
+          "record": "ATOM",
+          "name": "H09",
+          "altloc": "",
+          "x": 4.641,
+          "y": 32.142,
+          "z": -2.306,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 8,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 139,
+          "record": "ATOM",
+          "name": "H10",
+          "altloc": "",
+          "x": 6.973,
+          "y": 35.667,
+          "z": 1.68,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 8,
+            "icode": "",
+            "resname": "LEU"
+          }
+        },
+        {
+          "serial": 140,
+          "record": "ATOM",
+          "name": "H11",
+          "altloc": "",
+          "x": 5.164,
+          "y": 33.842,
+          "z": -2.219,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 8,
+            "icode": "",
+            "resname": "LEU"
+          }
+        }
+      ]
+    },
+    {
+      "key": {
+        "model": 1,
+        "chain": "B",
+        "resseq": 9,
+        "icode": "",
+        "resname": "DPN"
+      },
+      "file_order": 8,
+      "ter_after": false,
+      "parent_std": "LEU|PRO",
+      "prev_parent_std": "LEU",
+      "next_parent_std": "PRO",
+      "ccd_type": null,
+      "atoms": [
+        {
+          "serial": 141,
+          "record": "HETATM",
+          "name": "N",
+          "altloc": "",
+          "x": 5.265,
+          "y": 37.57,
+          "z": 0.403,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "N",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 9,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 142,
+          "record": "HETATM",
+          "name": "CA",
+          "altloc": "",
+          "x": 4.8,
+          "y": 38.639,
+          "z": 1.115,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 9,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 143,
+          "record": "HETATM",
+          "name": "C",
+          "altloc": "",
+          "x": 5.491,
+          "y": 38.588,
+          "z": 2.523,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 9,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 144,
+          "record": "HETATM",
+          "name": "O",
+          "altloc": "",
+          "x": 6.616,
+          "y": 38.114,
+          "z": 2.586,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "O",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 9,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 145,
+          "record": "HETATM",
+          "name": "CB",
+          "altloc": "",
+          "x": 4.946,
+          "y": 39.888,
+          "z": 0.319,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 9,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 146,
+          "record": "HETATM",
+          "name": "CG",
+          "altloc": "",
+          "x": 3.897,
+          "y": 40.772,
+          "z": 0.552,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 9,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 147,
+          "record": "HETATM",
+          "name": "CD1",
+          "altloc": "",
+          "x": 2.615,
+          "y": 40.499,
+          "z": 0.149,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 9,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 148,
+          "record": "HETATM",
+          "name": "CD2",
+          "altloc": "",
+          "x": 4.106,
+          "y": 41.63,
+          "z": 1.598,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 9,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 149,
+          "record": "HETATM",
+          "name": "CE1",
+          "altloc": "",
+          "x": 1.597,
+          "y": 41.281,
+          "z": 0.615,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 9,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 150,
+          "record": "HETATM",
+          "name": "CE2",
+          "altloc": "",
+          "x": 3.125,
+          "y": 42.4,
+          "z": 2.069,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 9,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 151,
+          "record": "HETATM",
+          "name": "CZ",
+          "altloc": "",
+          "x": 1.855,
+          "y": 42.24,
+          "z": 1.586,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 9,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 152,
+          "record": "HETATM",
+          "name": "H01",
+          "altloc": "",
+          "x": 3.728,
+          "y": 38.61,
+          "z": 1.309,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 9,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 153,
+          "record": "HETATM",
+          "name": "H02",
+          "altloc": "",
+          "x": 5.077,
+          "y": 37.731,
+          "z": 3.054,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 9,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 154,
+          "record": "HETATM",
+          "name": "H03",
+          "altloc": "",
+          "x": 6.917,
+          "y": 37.884,
+          "z": 1.704,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 9,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 155,
+          "record": "HETATM",
+          "name": "H04",
+          "altloc": "",
+          "x": 4.936,
+          "y": 39.62,
+          "z": -0.738,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 9,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 156,
+          "record": "HETATM",
+          "name": "H05",
+          "altloc": "",
+          "x": 5.884,
+          "y": 40.373,
+          "z": 0.59,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 9,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 157,
+          "record": "HETATM",
+          "name": "H06",
+          "altloc": "",
+          "x": 2.412,
+          "y": 39.672,
+          "z": -0.532,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 9,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 158,
+          "record": "HETATM",
+          "name": "H07",
+          "altloc": "",
+          "x": 5.094,
+          "y": 41.685,
+          "z": 2.055,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 9,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 159,
+          "record": "HETATM",
+          "name": "H08",
+          "altloc": "",
+          "x": 0.587,
+          "y": 41.153,
+          "z": 0.227,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 9,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 160,
+          "record": "HETATM",
+          "name": "H09",
+          "altloc": "",
+          "x": 3.333,
+          "y": 43.15,
+          "z": 2.832,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 9,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 161,
+          "record": "HETATM",
+          "name": "H10",
+          "altloc": "",
+          "x": 1.046,
+          "y": 42.865,
+          "z": 1.963,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 9,
+            "icode": "",
+            "resname": "DPN"
+          }
+        },
+        {
+          "serial": 162,
+          "record": "HETATM",
+          "name": "H12",
+          "altloc": "",
+          "x": 5.74,
+          "y": 37.676,
+          "z": -0.482,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 9,
+            "icode": "",
+            "resname": "DPN"
+          }
+        }
+      ]
+    },
+    {
+      "key": {
+        "model": 1,
+        "chain": "B",
+        "resseq": 10,
+        "icode": "",
+        "resname": "PRO"
+      },
+      "file_order": 9,
+      "ter_after": false,
+      "parent_std": "DPN|VAL",
+      "prev_parent_std": "DPN",
+      "next_parent_std": "VAL",
+      "ccd_type": null,
+      "atoms": [
+        {
+          "serial": 163,
+          "record": "ATOM",
+          "name": "N",
+          "altloc": "",
+          "x": 5.098,
+          "y": 39.558,
+          "z": 3.331,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "N",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 10,
+            "icode": "",
+            "resname": "PRO"
+          }
+        },
+        {
+          "serial": 164,
+          "record": "ATOM",
+          "name": "CA",
+          "altloc": "",
+          "x": 5.915,
+          "y": 39.545,
+          "z": 4.556,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 10,
+            "icode": "",
+            "resname": "PRO"
+          }
+        },
+        {
+          "serial": 165,
+          "record": "ATOM",
+          "name": "C",
+          "altloc": "",
+          "x": 5.797,
+          "y": 38.334,
+          "z": 5.459,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 10,
+            "icode": "",
+            "resname": "PRO"
+          }
+        },
+        {
+          "serial": 166,
+          "record": "ATOM",
+          "name": "O",
+          "altloc": "",
+          "x": 5.87,
+          "y": 38.515,
+          "z": 6.677,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "O",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 10,
+            "icode": "",
+            "resname": "PRO"
+          }
+        },
+        {
+          "serial": 167,
+          "record": "ATOM",
+          "name": "CB",
+          "altloc": "",
+          "x": 5.444,
+          "y": 40.811,
+          "z": 5.302,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 10,
+            "icode": "",
+            "resname": "PRO"
+          }
+        },
+        {
+          "serial": 168,
+          "record": "ATOM",
+          "name": "CG",
+          "altloc": "",
+          "x": 4.059,
+          "y": 40.922,
+          "z": 4.937,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 10,
+            "icode": "",
+            "resname": "PRO"
+          }
+        },
+        {
+          "serial": 169,
+          "record": "ATOM",
+          "name": "CD",
+          "altloc": "",
+          "x": 3.985,
+          "y": 40.515,
+          "z": 3.475,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "C",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 10,
+            "icode": "",
+            "resname": "PRO"
+          }
+        },
+        {
+          "serial": 170,
+          "record": "ATOM",
+          "name": "H01",
+          "altloc": "",
+          "x": 6.023,
+          "y": 41.697,
+          "z": 5.041,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 10,
+            "icode": "",
+            "resname": "PRO"
+          }
+        },
+        {
+          "serial": 171,
+          "record": "ATOM",
+          "name": "H02",
+          "altloc": "",
+          "x": 5.555,
+          "y": 40.693,
+          "z": 6.38,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 10,
+            "icode": "",
+            "resname": "PRO"
+          }
+        },
+        {
+          "serial": 172,
+          "record": "ATOM",
+          "name": "H03",
+          "altloc": "",
+          "x": 3.682,
+          "y": 41.933,
+          "z": 5.092,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 10,
+            "icode": "",
+            "resname": "PRO"
+          }
+        },
+        {
+          "serial": 173,
+          "record": "ATOM",
+          "name": "H04",
+          "altloc": "",
+          "x": 3.45,
+          "y": 40.257,
+          "z": 5.549,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 10,
+            "icode": "",
+            "resname": "PRO"
+          }
+        },
+        {
+          "serial": 174,
+          "record": "ATOM",
+          "name": "H05",
+          "altloc": "",
+          "x": 3.02,
+          "y": 40.09,
+          "z": 3.2,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 10,
+            "icode": "",
+            "resname": "PRO"
+          }
+        },
+        {
+          "serial": 175,
+          "record": "ATOM",
+          "name": "H06",
+          "altloc": "",
+          "x": 4.123,
+          "y": 41.377,
+          "z": 2.822,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 10,
+            "icode": "",
+            "resname": "PRO"
+          }
+        },
+        {
+          "serial": 176,
+          "record": "ATOM",
+          "name": "H11",
+          "altloc": "",
+          "x": 6.968,
+          "y": 39.511,
+          "z": 4.278,
+          "occ": 0.5,
+          "bfac": 0.0,
+          "element": "H",
+          "charge": "",
+          "residue_key": {
+            "model": 1,
+            "chain": "B",
+            "resseq": 10,
+            "icode": "",
+            "resname": "PRO"
+          }
+        }
+      ]
+    }
+  ],
+  "links": [],
+  "conect": {
+    "1": [
+      2,
+      8,
+      165
+    ],
+    "2": [
+      1,
+      3,
+      5,
+      9
+    ],
+    "3": [
+      2,
+      4,
+      17
+    ],
+    "4": [
+      3
+    ],
+    "5": [
+      2,
+      6,
+      7,
+      10
+    ],
+    "6": [
+      5,
+      11,
+      12,
+      13
+    ],
+    "7": [
+      5,
+      14,
+      15,
+      16
+    ],
+    "8": [
+      1
+    ],
+    "9": [
+      2
+    ],
+    "10": [
+      5
+    ],
+    "11": [
+      6
+    ],
+    "12": [
+      6
+    ],
+    "13": [
+      6
+    ],
+    "14": [
+      7
+    ],
+    "15": [
+      7
+    ],
+    "16": [
+      7
+    ],
+    "17": [
+      3,
+      18,
+      34
+    ],
+    "18": [
+      17,
+      19,
+      21,
+      25
+    ],
+    "19": [
+      18,
+      20,
+      35
+    ],
+    "20": [
+      19
+    ],
+    "21": [
+      18,
+      22,
+      26,
+      27
+    ],
+    "22": [
+      21,
+      23,
+      28,
+      29
+    ],
+    "23": [
+      22,
+      24,
+      30,
+      31
+    ],
+    "24": [
+      23,
+      32,
+      33
+    ],
+    "25": [
+      18
+    ],
+    "26": [
+      21
+    ],
+    "27": [
+      21
+    ],
+    "28": [
+      22
+    ],
+    "29": [
+      22
+    ],
+    "30": [
+      23
+    ],
+    "31": [
+      23
+    ],
+    "32": [
+      24
+    ],
+    "33": [
+      24
+    ],
+    "34": [
+      17
+    ],
+    "35": [
+      19,
+      36,
+      52
+    ],
+    "36": [
+      35,
+      37,
+      39,
+      43
+    ],
+    "37": [
+      36,
+      38,
+      54
+    ],
+    "38": [
+      37
+    ],
+    "39": [
+      36,
+      40,
+      44,
+      45
+    ],
+    "40": [
+      39,
+      41,
+      42,
+      46
+    ],
+    "41": [
+      40,
+      47,
+      48,
+      49
+    ],
+    "42": [
+      40,
+      50,
+      51,
+      53
+    ],
+    "43": [
+      36
+    ],
+    "44": [
+      39
+    ],
+    "45": [
+      39
+    ],
+    "46": [
+      40
+    ],
+    "47": [
+      41
+    ],
+    "48": [
+      41
+    ],
+    "49": [
+      41
+    ],
+    "50": [
+      42
+    ],
+    "51": [
+      42
+    ],
+    "52": [
+      35
+    ],
+    "53": [
+      42
+    ],
+    "54": [
+      37,
+      55,
+      73
+    ],
+    "55": [
+      54,
+      56,
+      58,
+      65
+    ],
+    "56": [
+      55,
+      57,
+      74
+    ],
+    "57": [
+      56
+    ],
+    "58": [
+      55,
+      59,
+      66,
+      67
+    ],
+    "59": [
+      58,
+      60,
+      61
+    ],
+    "60": [
+      59,
+      62,
+      68
+    ],
+    "61": [
+      59,
+      63,
+      69
+    ],
+    "62": [
+      60,
+      64,
+      70
+    ],
+    "63": [
+      61,
+      64,
+      71
+    ],
+    "64": [
+      62,
+      63,
+      72
+    ],
+    "65": [
+      55
+    ],
+    "66": [
+      58
+    ],
+    "67": [
+      58
+    ],
+    "68": [
+      60
+    ],
+    "69": [
+      61
+    ],
+    "70": [
+      62
+    ],
+    "71": [
+      63
+    ],
+    "72": [
+      64
+    ],
+    "73": [
+      54
+    ],
+    "74": [
+      56,
+      75,
+      80
+    ],
+    "75": [
+      74,
+      76,
+      78,
+      87
+    ],
+    "76": [
+      75,
+      77,
+      88
+    ],
+    "77": [
+      76
+    ],
+    "78": [
+      75,
+      79,
+      81,
+      82
+    ],
+    "79": [
+      78,
+      80,
+      83,
+      84
+    ],
+    "80": [
+      74,
+      79,
+      85,
+      86
+    ],
+    "81": [
+      78
+    ],
+    "82": [
+      78
+    ],
+    "83": [
+      79
+    ],
+    "84": [
+      79
+    ],
+    "85": [
+      80
+    ],
+    "86": [
+      80
+    ],
+    "87": [
+      75
+    ],
+    "88": [
+      76,
+      89,
+      101
+    ],
+    "89": [
+      88,
+      90,
+      92,
+      95
+    ],
+    "90": [
+      89,
+      91,
+      104
+    ],
+    "91": [
+      90
+    ],
+    "92": [
+      89,
+      93,
+      94,
+      96
+    ],
+    "93": [
+      92,
+      97,
+      98,
+      99
+    ],
+    "94": [
+      92,
+      100,
+      102,
+      103
+    ],
+    "95": [
+      89
+    ],
+    "96": [
+      92
+    ],
+    "97": [
+      93
+    ],
+    "98": [
+      93
+    ],
+    "99": [
+      93
+    ],
+    "100": [
+      94
+    ],
+    "101": [
+      88
+    ],
+    "102": [
+      94
+    ],
+    "103": [
+      94
+    ],
+    "104": [
+      90,
+      105,
+      121
+    ],
+    "105": [
+      104,
+      106,
+      108,
+      112
+    ],
+    "106": [
+      105,
+      107,
+      122
+    ],
+    "107": [
+      106
+    ],
+    "108": [
+      105,
+      109,
+      113,
+      114
+    ],
+    "109": [
+      108,
+      110,
+      115,
+      116
+    ],
+    "110": [
+      109,
+      111,
+      117,
+      118
+    ],
+    "111": [
+      110,
+      119,
+      120
+    ],
+    "112": [
+      105
+    ],
+    "113": [
+      108
+    ],
+    "114": [
+      108
+    ],
+    "115": [
+      109
+    ],
+    "116": [
+      109
+    ],
+    "117": [
+      110
+    ],
+    "118": [
+      110
+    ],
+    "119": [
+      111
+    ],
+    "120": [
+      111
+    ],
+    "121": [
+      104
+    ],
+    "122": [
+      106,
+      123,
+      139
+    ],
+    "123": [
+      122,
+      124,
+      126,
+      130
+    ],
+    "124": [
+      123,
+      125,
+      141
+    ],
+    "125": [
+      124
+    ],
+    "126": [
+      123,
+      127,
+      131,
+      132
+    ],
+    "127": [
+      126,
+      128,
+      129,
+      133
+    ],
+    "128": [
+      127,
+      134,
+      135,
+      136
+    ],
+    "129": [
+      127,
+      137,
+      138,
+      140
+    ],
+    "130": [
+      123
+    ],
+    "131": [
+      126
+    ],
+    "132": [
+      126
+    ],
+    "133": [
+      127
+    ],
+    "134": [
+      128
+    ],
+    "135": [
+      128
+    ],
+    "136": [
+      128
+    ],
+    "137": [
+      129
+    ],
+    "138": [
+      129
+    ],
+    "139": [
+      122
+    ],
+    "140": [
+      129
+    ],
+    "141": [
+      124,
+      142,
+      162
+    ],
+    "142": [
+      141,
+      143,
+      145,
+      152
+    ],
+    "143": [
+      142,
+      144,
+      153,
+      163
+    ],
+    "144": [
+      143,
+      154
+    ],
+    "145": [
+      142,
+      146,
+      155,
+      156
+    ],
+    "146": [
+      145,
+      147,
+      148
+    ],
+    "147": [
+      146,
+      149,
+      157
+    ],
+    "148": [
+      146,
+      150,
+      158
+    ],
+    "149": [
+      147,
+      151,
+      159
+    ],
+    "150": [
+      148,
+      151,
+      160
+    ],
+    "151": [
+      149,
+      150,
+      161
+    ],
+    "152": [
+      142
+    ],
+    "153": [
+      143
+    ],
+    "154": [
+      144
+    ],
+    "155": [
+      145
+    ],
+    "156": [
+      145
+    ],
+    "157": [
+      147
+    ],
+    "158": [
+      148
+    ],
+    "159": [
+      149
+    ],
+    "160": [
+      150
+    ],
+    "161": [
+      151
+    ],
+    "162": [
+      141
+    ],
+    "163": [
+      143,
+      164,
+      169
+    ],
+    "164": [
+      163,
+      165,
+      167,
+      176
+    ],
+    "165": [
+      1,
+      164,
+      166
+    ],
+    "166": [
+      165
+    ],
+    "167": [
+      164,
+      168,
+      170,
+      171
+    ],
+    "168": [
+      167,
+      169,
+      172,
+      173
+    ],
+    "169": [
+      163,
+      168,
+      174,
+      175
+    ],
+    "170": [
+      167
+    ],
+    "171": [
+      167
+    ],
+    "172": [
+      168
+    ],
+    "173": [
+      168
+    ],
+    "174": [
+      169
+    ],
+    "175": [
+      169
+    ],
+    "176": [
+      164
+    ]
+  },
+  "serial_to_residue": {
+    "1": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 1,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "2": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 1,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "3": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 1,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "4": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 1,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "5": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 1,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "6": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 1,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "7": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 1,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "8": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 1,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "9": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 1,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "10": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 1,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "11": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 1,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "12": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 1,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "13": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 1,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "14": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 1,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "15": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 1,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "16": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 1,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "17": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 2,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "18": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 2,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "19": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 2,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "20": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 2,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "21": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 2,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "22": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 2,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "23": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 2,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "24": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 2,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "25": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 2,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "26": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 2,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "27": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 2,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "28": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 2,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "29": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 2,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "30": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 2,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "31": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 2,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "32": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 2,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "33": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 2,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "34": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 2,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "35": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 3,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "36": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 3,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "37": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 3,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "38": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 3,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "39": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 3,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "40": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 3,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "41": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 3,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "42": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 3,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "43": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 3,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "44": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 3,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "45": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 3,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "46": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 3,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "47": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 3,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "48": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 3,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "49": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 3,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "50": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 3,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "51": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 3,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "52": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 3,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "53": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 3,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "54": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 4,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "55": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 4,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "56": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 4,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "57": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 4,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "58": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 4,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "59": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 4,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "60": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 4,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "61": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 4,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "62": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 4,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "63": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 4,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "64": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 4,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "65": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 4,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "66": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 4,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "67": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 4,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "68": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 4,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "69": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 4,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "70": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 4,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "71": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 4,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "72": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 4,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "73": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 4,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "74": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 5,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "75": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 5,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "76": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 5,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "77": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 5,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "78": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 5,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "79": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 5,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "80": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 5,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "81": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 5,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "82": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 5,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "83": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 5,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "84": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 5,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "85": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 5,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "86": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 5,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "87": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 5,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "88": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 6,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "89": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 6,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "90": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 6,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "91": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 6,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "92": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 6,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "93": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 6,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "94": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 6,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "95": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 6,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "96": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 6,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "97": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 6,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "98": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 6,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "99": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 6,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "100": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 6,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "101": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 6,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "102": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 6,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "103": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 6,
+      "icode": "",
+      "resname": "VAL"
+    },
+    "104": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 7,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "105": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 7,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "106": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 7,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "107": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 7,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "108": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 7,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "109": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 7,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "110": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 7,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "111": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 7,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "112": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 7,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "113": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 7,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "114": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 7,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "115": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 7,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "116": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 7,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "117": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 7,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "118": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 7,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "119": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 7,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "120": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 7,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "121": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 7,
+      "icode": "",
+      "resname": "ORN"
+    },
+    "122": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 8,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "123": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 8,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "124": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 8,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "125": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 8,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "126": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 8,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "127": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 8,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "128": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 8,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "129": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 8,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "130": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 8,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "131": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 8,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "132": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 8,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "133": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 8,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "134": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 8,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "135": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 8,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "136": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 8,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "137": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 8,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "138": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 8,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "139": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 8,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "140": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 8,
+      "icode": "",
+      "resname": "LEU"
+    },
+    "141": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 9,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "142": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 9,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "143": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 9,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "144": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 9,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "145": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 9,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "146": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 9,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "147": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 9,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "148": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 9,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "149": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 9,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "150": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 9,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "151": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 9,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "152": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 9,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "153": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 9,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "154": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 9,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "155": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 9,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "156": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 9,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "157": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 9,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "158": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 9,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "159": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 9,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "160": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 9,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "161": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 9,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "162": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 9,
+      "icode": "",
+      "resname": "DPN"
+    },
+    "163": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 10,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "164": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 10,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "165": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 10,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "166": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 10,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "167": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 10,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "168": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 10,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "169": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 10,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "170": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 10,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "171": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 10,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "172": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 10,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "173": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 10,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "174": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 10,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "175": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 10,
+      "icode": "",
+      "resname": "PRO"
+    },
+    "176": {
+      "model": 1,
+      "chain": "B",
+      "resseq": 10,
+      "icode": "",
+      "resname": "PRO"
+    }
+  }
+}

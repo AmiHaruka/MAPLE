@@ -47,11 +47,19 @@ class UMACalculator(FAIRChemCalculator):
         if not importlib.util.find_spec("fairchem"):
             raise ImportError("fairchem-core is not installed. Please install it first.")
 
-        predictor = pretrained_mlip.get_predict_unit(
-            model,
-            inference_settings="default",
-            overrides=overrides,
-            device=device,
+        # predictor = pretrained_mlip.get_predict_unit(
+        #     model,
+        #     inference_settings="default",
+        #     overrides=overrides,
+        #     device=device,
+        # )
+        
+        from fairchem.core.units.mlip_unit import load_predict_unit
+        predictor = load_predict_unit(
+        "/home/axie/uma-s-1p1.pt",
+        inference_settings="default",
+        overrides=overrides,
+        device=device,
         )
         super().__init__(predict_unit=predictor, task_name="omol")
         self.device = torch.device(device)

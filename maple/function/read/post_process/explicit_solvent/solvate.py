@@ -47,6 +47,9 @@ class ExplicitSolv():
         obj.solv_name = params.get('explicit', 'water')
         obj.clash_cutoff = params.get('clash_cutoff', 1.5)
         obj.fix_dis = params.get('fix_dis', 8.0)
+        obj.max_solvent = params.get('max_solvent', None)
+        if obj.max_solvent is not None:
+            obj.max_solvent = int(obj.max_solvent)
 
         obj.data_path = os.path.join(os.path.dirname(__file__), "data", f"{obj.solv_name}.pdb")
         
@@ -62,6 +65,11 @@ class ExplicitSolv():
             f"• Remove solvent molecules within {obj.clash_cutoff:.2f} Å of any solute atom\n",
             f"• Fix solvent molecules whose atoms lie beyond {obj.fix_dis:.2f} Å from solute center\n\n",
         ]
+        if obj.max_solvent is not None:
+            info_message.append(
+                f"• Keep at most {obj.max_solvent} solvent molecules "
+                f"(drop farthest residues first)\n\n"
+            )
 
         obj.log_info(info_message)
  
@@ -190,6 +198,12 @@ class ExplicitSolv():
         elem_final = elem[mask_final.cpu().numpy()]
         tag_final = tag_s[mask_final]
 
+        # ---- Step3.5: optional molecule cap (drop farthest from solute center) ----
+        if self.max_solvent is not None:
+            S_final, elem_final, tag_final = self._limit_solvent_molecules(
+                S_final, elem_final, tag_final, box_center, self.max_solvent
+            )
+
         # ---- Step4: Add solvent
         start = len(self.atoms)
         self.atoms += Atoms(symbols=list(elem_final), positions=S_final.cpu().numpy())
@@ -213,6 +227,41 @@ class ExplicitSolv():
             
             # ---- NEW: Output constraint file ----
             self._write_constraint_file(fix_indices)
+
+    def _limit_solvent_molecules(self, S_final, elem_final, tag_final, center, max_mols):
+        """
+        Keep at most `max_mols` solvent molecules.
+        Molecules are ranked by residue center distance to the solute center;
+        farthest residues are removed first.
+        """
+        unique_tags = torch.unique(tag_final)
+        n_mols = int(unique_tags.numel())
+        if max_mols >= n_mols:
+            self.log_info([f"Solvent molecule count: {n_mols} (no truncation needed).\n"])
+            return S_final, elem_final, tag_final
+
+        # Compute per-residue center distance to solute center.
+        dist2 = []
+        for tag in unique_tags.tolist():
+            mask = (tag_final == tag)
+            com = S_final[mask].mean(dim=0)
+            d2 = torch.sum((com - center) ** 2).item()
+            dist2.append(d2)
+
+        order = np.argsort(np.asarray(dist2))  # nearest first
+        keep_tags = unique_tags[torch.as_tensor(order[:max_mols], device=unique_tags.device)]
+        keep_mask = (tag_final[:, None] == keep_tags[None, :]).any(dim=1)
+
+        removed = n_mols - max_mols
+        self.log_info([
+            f"Solvent molecule count before cap: {n_mols}\n",
+            f"Applied cap: keep {max_mols}, removed {removed} farthest molecules.\n",
+        ])
+
+        S_kept = S_final[keep_mask]
+        elem_kept = elem_final[keep_mask.cpu().numpy()]
+        tag_kept = tag_final[keep_mask]
+        return S_kept, elem_kept, tag_kept
 
     def _write_constraint_file(self, fix_indices):
         """

@@ -1,0 +1,59 @@
+ATOM    177  CH3 ACE B   1       5.915  39.545   4.556  0.50  0.00           C  
+ATOM    178    C ACE B   1       5.797  38.334   5.459  0.50  0.00           C  
+ATOM    179    O ACE B   1       5.870  38.515   6.677  0.50  0.00           O  
+ATOM    182  H11 ACE B   1       6.968  39.771   4.387  1.00  0.00           H  
+ATOM    183  H12 ACE B   1       5.431  40.399   5.029  1.00  0.00           H  
+ATOM    184  H13 ACE B   1       5.431  39.335   3.602  1.00  0.00           H  
+TER                                                                             
+ATOM      1    N VAL B   1       5.977  37.184   4.841  0.50  0.00           N  
+ATOM      2   CA VAL B   1       7.180  36.357   5.144  0.50  0.00           C  
+ATOM      3    C VAL B   1       6.945  34.852   5.029  0.50  0.00           C  
+ATOM      4    O VAL B   1       6.488  34.364   3.992  0.50  0.00           O  
+ATOM      5   CB VAL B   1       7.835  36.728   6.504  0.50  0.00           C  
+ATOM      6  CG1 VAL B   1       8.885  35.697   6.921  0.50  0.00           C  
+ATOM      7  CG2 VAL B   1       8.499  38.095   6.392  0.50  0.00           C  
+ATOM      8  H01 VAL B   1       5.301  36.863   4.163  0.50  0.00           H  
+ATOM      9  H02 VAL B   1       7.891  36.610   4.358  0.50  0.00           H  
+ATOM     10  H03 VAL B   1       7.050  36.746   7.260  0.50  0.00           H  
+ATOM     11  H04 VAL B   1       9.768  36.211   7.300  0.50  0.00           H  
+ATOM     12  H05 VAL B   1       8.476  35.056   7.702  0.50  0.00           H  
+ATOM     13  H06 VAL B   1       9.161  35.090   6.059  0.50  0.00           H  
+ATOM     14  H07 VAL B   1       9.464  37.990   5.895  0.50  0.00           H  
+ATOM     15  H08 VAL B   1       7.862  38.762   5.811  0.50  0.00           H  
+ATOM     16  H09 VAL B   1       8.647  38.510   7.389  0.50  0.00           H  
+TER                                                                             
+HETATM  180    N NME B   1       7.212  34.132   6.112  0.50  0.00           N  
+HETATM  181  CH3 NME B   1       7.686  32.788   5.886  0.50  0.00           C  
+ATOM    185  H21 NME B   1       8.776  32.782   5.885  1.00  0.00           H  
+ATOM    186  H22 NME B   1       7.320  32.431   4.923  1.00  0.00           H  
+ATOM    187  H23 NME B   1       7.320  32.136   6.679  1.00  0.00           H  
+ATOM    188   HN NME B   1       7.090  34.504   7.043  1.00  0.00           H  
+CONECT    1    2    8  178                                                      
+CONECT    2    1    3    5    9                                                 
+CONECT    3    2    4  180                                                      
+CONECT    4    3                                                                
+CONECT    5    2    6    7   10                                                 
+CONECT    6    5   11   12   13                                                 
+CONECT    7    5   14   15   16                                                 
+CONECT    8    1                                                                
+CONECT    9    2                                                                
+CONECT   10    5                                                                
+CONECT   11    6                                                                
+CONECT   12    6                                                                
+CONECT   13    6                                                                
+CONECT   14    7                                                                
+CONECT   15    7                                                                
+CONECT   16    7                                                                
+CONECT  177  178  182  183  184                                                 
+CONECT  178    1  177  179                                                      
+CONECT  179  178                                                                
+CONECT  180    3  181  188                                                      
+CONECT  181  180  185  186  187                                                 
+CONECT  182  177                                                                
+CONECT  183  177                                                                
+CONECT  184  177                                                                
+CONECT  185  181                                                                
+CONECT  186  181                                                                
+CONECT  187  181                                                                
+CONECT  188  180                                                                
+END                                                                             
