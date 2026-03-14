@@ -105,6 +105,9 @@ class InputReader():
             def is_settings_line(s: str) -> bool:
                 return s.lstrip().startswith('#')
 
+            # Regex for charge/multiplicity line: two integers (e.g. "0 1", "-1 2")
+            charge_mult_re = re.compile(r'^\s*[+-]?\d+\s+\d+\s*$')
+
             def is_xyz_ref(s: str) -> bool:
                 upper = s.upper()
                 return (upper.startswith('XYZ ') or upper.startswith('XYZTRAJ ')) and len(s.split(maxsplit=1)) == 2
@@ -113,6 +116,8 @@ class InputReader():
                 if s == '' or s == '&':
                     return True
                 if is_xyz_ref(s):
+                    return True
+                if charge_mult_re.match(s):
                     return True
                 return atom_line_re.match(s) is not None
 
@@ -257,24 +262,14 @@ class InputReader():
         return expanded
 
     def log_error(self, error_message: str) -> None:
-        """
-        Logs error messages to the output file.
-
-        Args:
-            error_message: The error message to log.
-        """
+        """Logs error messages to the output file."""
         with open(self.output, 'a') as file:
             file.write(f"ERROR: {error_message}\n")
 
     def log_info(self, info_message: list) -> None:
-        """
-        Logs info messages to the output file.
-
-        Args:
-            info_message: The info message to log.
-        """
+        """Logs info messages to the output file."""
         with open(self.output, 'a') as file:
-            for info in info_message:   
+            for info in info_message:
                 file.write(f"{info}")
 
     def settings_command(self, settings: list):
@@ -305,13 +300,13 @@ class InputReader():
                 if torch.cuda.is_available():
                     self.device = torch.device(f'cuda:{cuda_idx}')
                 else:
-                    self.log_info("\nWARNING: CUDA is not available. Falling back to CPU.\n")
+                    self.log_info(["\nWARNING: CUDA is not available. Falling back to CPU.\n"])
                     self.device = torch.device('cpu')
             else:
                 try:
                     self.device = torch.device(dev_str)
                 except:
-                    self.log_info("\nWARNING: Unrecognized device. Falling back to CPU.\n")
+                    self.log_info(["\nWARNING: Unrecognized device. Falling back to CPU.\n"])
                     self.device = torch.device('cpu')
 
 
