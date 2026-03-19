@@ -94,12 +94,16 @@ class InputReader():
             with open(self.input, 'r') as f:
                 raw_lines = f.readlines()
 
-            # Regex used to detect coordinate-like lines
+            # Regex used to detect coordinate-like lines.
+            # Matches "Elem x y z" (4 columns) or "Elem x y z vx vy vz" (7 columns,
+            # the latter produced by MD trajectory frames that include velocities).
             atom_line_re = re.compile(
                 r'^\s*([A-Za-z][a-z]?)\s+'
                 r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s+'
                 r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s+'
-                r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*$'
+                r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)'
+                r'(?:\s+[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?){0,3}'
+                r'\s*$'
             )
 
             def is_settings_line(s: str) -> bool:
@@ -293,7 +297,7 @@ class InputReader():
 
             dev_str: str = params.get("device", "cpu").lower()
 
-            # Automatically handle GPU/CPU selection
+            # Automatically handle device selection with availability checks
             if dev_str.startswith("gpu") or dev_str.startswith("cuda"):
                 idx = ''.join([c for c in dev_str if c.isdigit()])
                 cuda_idx = idx if idx != '' else '0'
@@ -301,6 +305,12 @@ class InputReader():
                     self.device = torch.device(f'cuda:{cuda_idx}')
                 else:
                     self.log_info(["\nWARNING: CUDA is not available. Falling back to CPU.\n"])
+                    self.device = torch.device('cpu')
+            elif dev_str == "mps":
+                if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                    self.device = torch.device('mps')
+                else:
+                    self.log_info(["\nWARNING: MPS is not available. Falling back to CPU.\n"])
                     self.device = torch.device('cpu')
             else:
                 try:
@@ -351,12 +361,15 @@ class InputReader():
             List[Atoms]: if multiple structures are present (will be converted to Molecules in __call__)
         """
 
-        # Regex for atomic line: element + 3 floats (supports scientific notation)
+        # Regex for atomic line: element + 3 position floats + up to 3 optional velocity floats.
+        # Matches both "Elem x y z" (plain XYZ) and "Elem x y z vx vy vz" (MD with velocities).
         atom_pattern = re.compile(
             r'^\s*([A-Za-z][a-z]?)\s+'
             r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s+'
             r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s+'
-            r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*$'
+            r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)'
+            r'(?:\s+[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?){0,3}'
+            r'\s*$'
         )
 
         # Regex for charge and multiplicity line: two integers (charge can be negative)
@@ -464,6 +477,7 @@ class InputReader():
                 # Case 3: inline coordinates
                 elements: List[str] = []
                 coords: List[tuple] = []
+                velocities_inline: List[tuple] = []
                 charge = None
                 mult = None
 
@@ -479,7 +493,8 @@ class InputReader():
                         if mult < 1:
                             raise ValueError(f"Invalid multiplicity: {mult}. Must be >= 1")
 
-                # Parse atomic coordinates
+                # Parse atomic coordinates (and optional velocities in columns 5-7)
+                _float_re = re.compile(r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?')
                 for line in tokens:
                     m = atom_pattern.match(line)
                     if not m:
@@ -490,9 +505,19 @@ class InputReader():
                     z = float(m.group(4))
                     elements.append(elem)
                     coords.append((x, y, z))
+                    # Detect velocity columns (7-column format: Elem x y z vx vy vz)
+                    all_nums = _float_re.findall(line[line.index(m.group(1)) + len(m.group(1)):])
+                    if len(all_nums) == 6:
+                        velocities_inline.append(tuple(float(v) for v in all_nums[3:6]))
 
                 # Create Atoms object
                 atoms = Atoms(symbols=elements, positions=np.array(coords, dtype=np.float64))
+
+                # If all atom lines carried velocity columns, store them in atoms.arrays.
+                # The MD ensembles check for 'velocities' in atoms.arrays when
+                # init_velocities=False, so these will be used automatically.
+                if len(velocities_inline) == len(elements):
+                    atoms.arrays['velocities'] = np.array(velocities_inline, dtype=np.float64)
 
                 # Store charge and multiplicity if provided
                 if charge is not None:

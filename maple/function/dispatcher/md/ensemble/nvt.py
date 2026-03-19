@@ -30,6 +30,9 @@ from ..utils import (
     calculate_temperature,
     calculate_kinetic_energy,
     initialize_velocities,
+    read_last_xyz_frame,
+    get_rng_state_hex,
+    restore_rng_from_hex,
     HA_PER_ANG_TO_AU,
     BOHR_TO_ANGSTROM,
     FS_TO_AU,
@@ -40,21 +43,130 @@ from ..logger import MDLogger
 
 @dataclass
 class NVTParams:
-    """Parameters for NVT simulation."""
-    timestep:        float = 0.5       # fs
-    steps:           int   = 10000     # total steps
-    temperature:     float = 300.0     # K
-    thermostat:      str   = 'v-rescale'  # 'langevin' | 'v-rescale'
-    # Langevin-specific
-    friction:        float = 0.001     # 1/fs  (γ; GROMACS default ~0.001)
-    # V-rescale-specific
-    tau_t:           float = 200.0     # fs  (temperature coupling time)
-    # Common
-    traj_every:      int   = 10
-    log_every:       int   = 100
+    """
+    Parameters for NVT (canonical) ensemble simulation.
+
+    All defaults are grounded in published standards for ML potentials
+    and major MD software (GROMACS, AMBER, NAMD, LAMMPS).  Inline
+    citations are provided next to each field.
+    """
+    # ------------------------------------------------------------------
+    # Timestep
+    # 1 fs: recommended safe default for ML potentials (no SHAKE/LINCS).
+    # SHAKE/LINCS enable 2 fs in classical FF; ML potentials resolve the
+    # full PES including stiff O-H modes, so constraints cannot be used.
+    # Refs: Zhang et al. (2018) Phys. Rev. Lett. 120, 143001 (DeePMD, 0.5 fs);
+    #       Batatia et al. (2022) NeurIPS (MACE, 1 fs default);
+    #       LAMMPS metal units default: timestep 0.001 ps = 1 fs.
+    # ------------------------------------------------------------------
+    timestep:        float = 1.0          # fs  [Zhang 2018; Batatia 2022; LAMMPS metal]
+
+    # ------------------------------------------------------------------
+    # Total steps → simulation length
+    # 100 ps (100000 × 1 fs) is the accepted minimum NVT equilibration
+    # length for small organic/biomolecular systems.
+    # Refs: GROMACS Lemkul tutorial: 50000 × 2 fs = 100 ps;
+    #       AMBER Tutorial 1 (Case et al. 2023): 25000 × 2 fs = 50 ps;
+    #       CHARMM-GUI default equilibration: 1 ns NVT.
+    # ------------------------------------------------------------------
+    steps:           int   = 100000       # steps  (= 100 ps at 1 fs/step)  [Lemkul; AMBER Tutorial 1]
+
+    # ------------------------------------------------------------------
+    # Reference temperature
+    # 300 K: standard ambient condition used across all major MD tutorials.
+    # ------------------------------------------------------------------
+    temperature:     float = 300.0        # K
+
+    # ------------------------------------------------------------------
+    # Thermostat algorithm
+    # Langevin is the recommended default for ML potentials and is the
+    # default in AMBER (ntt=3), NAMD, OpenMM (LangevinMiddleIntegrator),
+    # LAMMPS (fix langevin), MACE (ase.md.langevin), and DeePMD-kit.
+    #
+    # Theoretical basis: Langevin dynamics are governed by the
+    # fluctuation-dissipation theorem (Kubo 1966), which guarantees
+    # the Boltzmann distribution as the stationary state.  Under BAOAB
+    # splitting, configurational averages are second-order accurate.
+    # Unlike Nose-Hoover, Langevin is ergodic by construction — each
+    # DOF receives independent stochastic perturbations at every step,
+    # preventing trapping in quasi-periodic orbits.
+    #
+    # Thermostat comparison:
+    #   Langevin    — correct canonical ensemble; ergodic; per-atom noise;
+    #                 recommended for ML potentials and biomolecular NVT.
+    #                 Slightly damps dynamical properties (diffusion,
+    #                 viscosity) — use small γ for transport calculations.
+    #                 Refs: Leimkuhler & Matthews (2013) AMRX 2013, 34–56;
+    #                       Schneider & Stoll (1978) Phys. Rev. B 17, 1302;
+    #                       Basconi & Shirts (2013) JCTC 9, 2887.
+    #
+    #   V-rescale   — correct canonical ensemble for kinetic energy
+    #                 (Bussi et al. 2007); global rescaling only; ergodicity
+    #                 in configuration space not rigorously proven; weaker
+    #                 perturbation, preserves dynamics better than Langevin.
+    #                 Default in GROMACS (since v4.5).
+    #                 Ref: Bussi, Donadio & Parrinello (2007) JCP 126, 014101.
+    #
+    #   Nose-Hoover — deterministic, time-reversible; correct for large
+    #                 ergodic systems.  Non-ergodic for small/harmonic
+    #                 systems (Legoll et al. 2007).  Not implemented here.
+    #                 Refs: Nosé (1984) JCP 81, 511;
+    #                       Hoover (1985) Phys. Rev. A 31, 1695;
+    #                       Martyna et al. (1992) JCP 97, 2635 (chains).
+    #
+    #   Berendsen   — NOT canonical; suppresses KE fluctuations; produces
+    #                 wrong ensemble.  Use only for rapid pre-equilibration.
+    #                 Ref: Berendsen et al. (1984) JCP 81, 3684.
+    #                      Basconi & Shirts (2013) JCTC 9, 2887 (analysis).
+    # ------------------------------------------------------------------
+    thermostat:      str   = 'langevin'   # [AMBER ntt=3; NAMD; OpenMM; MACE; DeePMD-kit]
+
+    # ------------------------------------------------------------------
+    # Langevin friction coefficient  (used only when thermostat='langevin')
+    # 0.001 1/fs = 1 ps⁻¹: balances fast sampling with realistic dynamics.
+    # Lower values (~0.1 ps⁻¹) preserve dynamics; higher (~10 ps⁻¹) give
+    # faster but over-damped equilibration.
+    # Refs: Leimkuhler & Matthews (2013) AMRX 2013, 34–56 (BAOAB, γ=1 ps⁻¹);
+    #       AMBER: gamma_ln = 1 ps⁻¹ (Case et al. 2023 Tutorial 1);
+    #       NAMD UG §2.6: langevinDamping = 1 ps⁻¹ for production.
+    # ------------------------------------------------------------------
+    friction:        float = 0.001        # 1/fs = 1 ps⁻¹  [Leimkuhler & Matthews 2013; AMBER; NAMD]
+
+    # ------------------------------------------------------------------
+    # V-rescale temperature coupling time  (used only when thermostat='v-rescale')
+    # 100 fs: GROMACS built-in default and Lemkul tutorial value.
+    # Bussi et al. (2007) validate the algorithm at tau_t = 0.1 ps; it is
+    # correct for any tau_t > 0.  LAMMPS Nose-Hoover Tdamp equivalent: 0.1 ps.
+    # Refs: Bussi, Donadio & Parrinello (2007) J. Chem. Phys. 126, 014101;
+    #       GROMACS Reference Manual 2024, mdp-options (tau_t default = 0.1 ps);
+    #       LAMMPS fix nvt docs: "Tdamp of 100 time units is reasonable"
+    #         → metal units: 100 × 0.001 ps = 0.1 ps = 100 fs.
+    # ------------------------------------------------------------------
+    tau_t:           float = 100.0        # fs  [Bussi 2007; GROMACS Manual 2024; LAMMPS fix nvt]
+
+    # ------------------------------------------------------------------
+    # Output frequencies
+    #
+    # GROMACS/AMBER defaults (nstxout=500×2fs=1ps) target classical FF
+    # speeds of 100–1000 ns/day.  ML potentials are ~1000–3000× slower;
+    # a typical ML-NVT run is 10–100 ps.
+    #
+    # Target: 100–500 frames per 10 ps.
+    #   traj_every = 100 steps × 1.0 fs/step = 100 fs = 0.1 ps/frame
+    #   10 ps → 100 frames  ✓   100 ps → 1000 frames  ✓
+    #
+    # Refs: Fu et al. (2023) JCTC 19, 1863; Kovács et al. (2023) JPCL 14, 8725.
+    # ------------------------------------------------------------------
+    traj_every:      int   = 100          # steps (= 100 fs = 0.1 ps at 1 fs/step)
+    log_every:       int   = 100          # steps (= 100 fs; dense logging is cheap vs ML force eval)
+    verbose:         int   = 1            # 0=off, 1=GROMACS-style progress, 2=verbose
+
     init_velocities: bool  = True
+    init_from: Optional[str] = None   # path to *_md_final.xyz from a prior run
     remove_com:      bool  = True
+    remove_rotation: bool  = False
     random_seed: Optional[int] = None
+    resume: bool = False
 
 
 class NVT(JobABC):
@@ -119,6 +231,7 @@ class NVT(JobABC):
             output_path=output,
             log_every=self.params.log_every,
             traj_every=self.params.traj_every,
+            verbose=self.params.verbose,
         )
 
     def run(self):
@@ -126,14 +239,46 @@ class NVT(JobABC):
         with timer("MD Simulation (NVT)"):
             self._log_parameters()
 
-            if self.params.init_velocities:
-                velocities = self._initialize_velocities()
+            if self.params.resume:
+                result = self.logger.resume_simulation(
+                    ensemble='nvt',
+                    timestep=self.params.timestep,
+                    n_steps=self.params.steps,
+                    temperature=self.params.temperature,
+                    atoms=self.atoms,
+                )
+                if result is None:   # already completed
+                    return
+                self.atoms, velocities, step_offset = result
+                # Restore RNG state for deterministic continuation
+                if self.logger.resumed_rng_state is not None:
+                    restore_rng_from_hex(self._rng, self.logger.resumed_rng_state)
+                remaining = self.params.steps - step_offset
             else:
-                if 'velocities' not in self.atoms.arrays:
-                    raise ValueError("init_velocities=False but no velocities found in atoms.arrays")
-                velocities = self.atoms.arrays['velocities']
+                if self.params.init_from:
+                    velocities = self._load_from_final(self.params.init_from)
+                elif 'velocities' in self.atoms.arrays and self.params.init_velocities:
+                    velocities = self.atoms.arrays['velocities']
+                    t_check = calculate_temperature(self.atoms, velocities)
+                    self.log_info([
+                        f"\nVelocities loaded from input file "
+                        f"(T = {t_check:.2f} K); skipping random initialisation.\n"
+                    ])
+                elif self.params.init_velocities:
+                    velocities = self._initialize_velocities()
+                else:
+                    if 'velocities' not in self.atoms.arrays:
+                        raise ValueError(
+                            "init_velocities=False and init_from not set, "
+                            "but no velocities found in atoms.arrays"
+                        )
+                    velocities = self.atoms.arrays['velocities']
+                step_offset = 0
+                remaining   = self.params.steps
 
-            final_velocities = self._run_simulation(velocities)
+            final_velocities = self._run_simulation(velocities,
+                                                    step_offset=step_offset,
+                                                    n_steps=remaining)
             self.atoms.arrays['velocities'] = final_velocities
 
     def _log_parameters(self):
@@ -171,25 +316,77 @@ class NVT(JobABC):
             atoms=self.atoms,
             temperature=self.params.temperature,
             remove_com=self.params.remove_com,
+            remove_rotation=self.params.remove_rotation,
             rng=self._rng,
         )
         actual_temp = calculate_temperature(self.atoms, velocities)
         self.log_info([f"Initial temperature: {actual_temp:.2f} K\n"])
         return velocities
 
-    def _run_simulation(self, velocities: np.ndarray) -> np.ndarray:
+    def _load_from_final(self, path: str) -> np.ndarray:
+        """
+        Load coordinates and velocities from a *_md_final.xyz written by
+        a prior NVE/NVT/NPT run.  Mirrors NVE._load_from_final().
+        """
+        from pathlib import Path
+        from ase.cell import Cell
+
+        fpath = Path(path)
+        if not fpath.exists():
+            raise FileNotFoundError(
+                f"init_from: file not found: {path}"
+            )
+        frame = read_last_xyz_frame(fpath)
+        if frame['n_atoms'] != len(self.atoms):
+            raise ValueError(
+                f"init_from: atom count mismatch — "
+                f"file has {frame['n_atoms']}, system has {len(self.atoms)}"
+            )
+        if frame['symbols'] != self.atoms.get_chemical_symbols():
+            raise ValueError(
+                f"init_from: chemical symbols mismatch in '{fpath.name}'"
+            )
+        if frame['velocities'] is None:
+            raise ValueError(
+                f"init_from: '{fpath.name}' contains no velocity data"
+            )
+        if not np.all(np.isfinite(frame['positions'])):
+            raise ValueError(f"init_from: non-finite coordinates in '{fpath.name}'")
+        if not np.all(np.isfinite(frame['velocities'])):
+            raise ValueError(f"init_from: non-finite velocities in '{fpath.name}'")
+
+        self.atoms.set_positions(frame['positions'])
+        if frame['cell'] is not None:
+            self.atoms.set_cell(Cell.fromcellpar(frame['cell']))
+            self.atoms.set_pbc([True, True, True])
+
+        actual_temp = calculate_temperature(self.atoms, frame['velocities'])
+        self.log_info([
+            f"\nLoaded initial state from: {fpath.name}\n",
+            f"  Prior run step:    {frame['frame_num']}\n",
+            f"  Prior run energy:  {frame['energy']:.8f} Ha\n",
+            f"  Temperature from loaded velocities: {actual_temp:.2f} K\n",
+        ])
+        return frame['velocities']
+
+    def _run_simulation(self, velocities: np.ndarray,
+                        step_offset: int = 0, n_steps: int = None) -> np.ndarray:
         """
         Run NVT simulation with Velocity Verlet + midstep thermostat.
 
         The O-step is either the Langevin Ornstein-Uhlenbeck step or the
         V-rescale global kinetic energy rescaling, depending on thermostat choice.
         """
+        if n_steps is None:
+            n_steps = self.params.steps
+
         self.logger.start_simulation(
             ensemble='nvt',
             timestep=self.params.timestep,
-            n_steps=self.params.steps,
+            n_steps=n_steps,
             temperature=self.params.temperature,
             atoms=self.atoms,
+            step_offset=step_offset,
         )
         self.logger.log_main([
             f"\nStarting NVT simulation ({self.params.thermostat})...\n\n"
@@ -204,7 +401,7 @@ class NVT(JobABC):
         # as the first B-step forces of the next step (standard BAOAB caching).
         forces = self.atoms.get_forces() * HA_PER_ANG_TO_AU  # Ha/Å → a.u.
 
-        for step in range(1, self.params.steps + 1):
+        for step in range(1, n_steps + 1):
             # B: half-step velocity (uses cached forces from end of previous step)
             v += 0.5 * forces / masses * dt
 
@@ -220,13 +417,14 @@ class NVT(JobABC):
             forces = self.atoms.get_forces() * HA_PER_ANG_TO_AU  # Ha/Å → a.u.
             v += 0.5 * forces / masses * dt
 
-            current_time     = step * self.params.timestep
+            abs_step         = step_offset + step
+            current_time     = abs_step * self.params.timestep
             temperature      = calculate_temperature(self.atoms, v)
             kinetic_energy   = calculate_kinetic_energy(self.atoms, v)
             potential_energy = self.atoms.get_potential_energy()  # Ha
 
             self.logger.log_step(
-                step=step,
+                step=abs_step,
                 time=current_time,
                 temperature=temperature,
                 kinetic_energy=kinetic_energy,
@@ -234,8 +432,9 @@ class NVT(JobABC):
                 total_energy=kinetic_energy + potential_energy,
                 atoms=self.atoms,
                 velocities=v,
+                rng_state=get_rng_state_hex(self._rng),
             )
 
-        self.logger.end_simulation()
+        self.logger.end_simulation(atoms=self.atoms, final_velocities=v)
         self.logger.log_main(["\nNVT simulation completed successfully.\n"])
         return v

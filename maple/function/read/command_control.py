@@ -38,23 +38,61 @@ class CommandControl:
         },
         "md": {
             "ensemble":        "nve",
-            "timestep":        0.5,
-            "steps":           1000,
+            # timestep: NVE default 0.25 fs (optimal for universal MLFFs).
+            #
+            # dt-sweep on Ala-Glu dipeptide (30 atoms, gas phase, UMA-S-1p1, NVE)
+            # showed σ(TE) is nearly flat across dt = 0.125–0.5 fs
+            # (1.30, 1.06, 1.18 kcal/mol), confirming
+            # that the energy-conservation floor is set by MLFF prediction noise,
+            # not by VV integrator error (which would scale as dt²).
+            # dt = 0.25 fs achieves the minimum σ(TE) of the three candidates.
+            # Refs: Fu et al. (2023) JCTC 19, 1863; Kovács et al. (2023) JPCL 14, 8725;
+            #       Zhang et al. (2023) J. Chem. Phys. 159, 054801 §III.C.
+            # NVT/NPT ensembles override to 1 fs via their dataclass defaults
+            # (thermostat damps integrator errors, allowing larger dt).
+            "timestep":        0.25,
+            # steps: NVE default 400000 = 100 ps at 0.25 fs (Páll 2020; AMBER 2023).
+            #        NVT/NPT override to 100000 = 100 ps at 1 fs.
+            "steps":           400000,
             "temperature":     300.0,
-            "traj_every":      10,
+            # traj_every/log_every: ML potentials are ~1000-3000x slower than
+            # classical FFs (UMA: ~0.22 ns/day vs GROMACS ~100-1000 ns/day).
+            # GROMACS defaults (nstxout=500×2fs=1ps) target μs-scale runs.
+            # ML-MD runs are typically 10-100 ps; 1ps/frame gives only 10-100
+            # frames — too sparse for MSD/RDF analysis.
+            # Target: 100-500 frames per 10 ps → 100 steps (0.025-0.1 ps/frame).
+            # NVT/NPT ensemble classes override to 100 via their dataclass defaults.
+            # Refs: Fu et al. (2023) JCTC 19, 1863; Kovács et al. (2023) JPCL 14, 8725.
+            "traj_every":      100,
             "log_every":       100,
             "init_velocities": True,
+            # init_from: path to *_md_final.xyz from a prior NVE/NVT/NPT run.
+            # When set, coordinates and velocities are loaded from that file,
+            # bypassing Maxwell-Boltzmann initialisation.
+            # Typical use: NVT pre-equilibration → NVE production.
+            #   #md(ensemble=nve, init_from=system_md_final.xyz, ...)
+            "init_from":       None,
             "remove_com":      True,
             "random_seed":     None,
-            # Thermostat selection (NVT / NPT)
-            "thermostat":      "v-rescale",   # 'langevin' | 'v-rescale'
-            "friction":        0.001,          # 1/fs (Langevin only)
-            "tau_t":           200.0,          # fs  (V-rescale only)
-            # Barostat selection (NPT only)
-            "barostat":        "c-rescale",   # 'berendsen' | 'c-rescale'
-            "pressure":        1.0,            # bar
-            "tau_p":           2000.0,         # fs
-            "compressibility": 4.5e-5,         # 1/bar
+            # Thermostat (NVT / NPT)
+            # Langevin default: correct canonical ensemble + ergodic by construction.
+            # Default in AMBER (ntt=3), NAMD, OpenMM (LangevinMiddleIntegrator),
+            # LAMMPS (fix langevin), MACE (ASE Langevin), DeePMD-kit.
+            # Refs: Leimkuhler & Matthews (2013) AMRX 2013, 34–56 (BAOAB);
+            #       Basconi & Shirts (2013) JCTC 9, 2887 (thermostat comparison).
+            # V-rescale is available as alternative (Bussi et al. 2007 JCP 126, 014101).
+            "thermostat":      "langevin",
+            # friction = 0.001 1/fs = 1 ps⁻¹ (Langevin only)
+            # Leimkuhler & Matthews (2013) AMRX; AMBER gamma_ln=1; NAMD langevinDamping=1.
+            "friction":        0.001,
+            # tau_t = 100 fs: GROMACS default (Manual 2024); Bussi 2007 test value;
+            #   LAMMPS fix nvt Tdamp=0.1 ps (metal units).
+            "tau_t":           100.0,
+            # Barostat (NPT only)
+            "barostat":        "c-rescale",
+            "pressure":        1.0,       # bar
+            "tau_p":           2000.0,    # fs
+            "compressibility": 4.5e-5,    # 1/bar (water at 300 K, CRC Handbook)
         },
         "solv": {"solvent": "water", "explicit": None},
     }
@@ -307,17 +345,33 @@ class CommandControl:
 
         # check method compatibility
         if "method" in params:
+            if task == "md":
+                # MD uses 'ensemble', not 'method'
+                cls._log_error(output_path,
+                    f"'method' is not a valid MD parameter. Did you mean 'ensemble={params['method']}'?")
+                raise ValueError(
+                    f"'method' is not a valid MD parameter. Use 'ensemble=' to specify the MD ensemble "
+                    f"(nve, nvt, npt). Did you mean 'ensemble={params['method']}'?")
             allowed = cls.IMPLEMENTATION_MAP.get(task, set())
             if allowed and params["method"] not in allowed:
                 cls._log_error(output_path, f"Method '{params['method']}' not implemented for task '{task}'.")
                 raise ValueError(f"Method '{params['method']}' not implemented for task '{task}'.")
 
         # check md ensemble compatibility
-        if task == "md" and "ensemble" in params:
-            allowed = cls.IMPLEMENTATION_MAP.get("md", set())
-            if params["ensemble"] not in allowed:
-                cls._log_error(output_path, f"MD ensemble '{params['ensemble']}' not supported.")
-                raise ValueError(f"MD ensemble '{params['ensemble']}' not supported. Choose from: {allowed}")
+        if task == "md":
+            if "ensemble" in params:
+                allowed = cls.IMPLEMENTATION_MAP.get("md", set())
+                if params["ensemble"] not in allowed:
+                    cls._log_error(output_path, f"MD ensemble '{params['ensemble']}' not supported.")
+                    raise ValueError(f"MD ensemble '{params['ensemble']}' not supported. Choose from: {allowed}")
+        else:
+            if "ensemble" in params:
+                cls._log_error(output_path,
+                    f"'ensemble' is not a valid parameter for task '{task}'. "
+                    f"'ensemble' is only used with #md(ensemble=nve/nvt/npt).")
+                raise ValueError(
+                    f"'ensemble' is not a valid parameter for task '{task}'. "
+                    f"'ensemble' is only used with #md(ensemble=nve/nvt/npt).")
 
     @staticmethod
     def _log_info(output_path: Optional[str], lines: List[str]) -> None:

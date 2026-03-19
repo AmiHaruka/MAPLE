@@ -58,46 +58,58 @@ class VelocityVerlet:
         # Cache masses (avoid repeated ASE calls)
         self.masses = atoms.get_masses() * AMU_TO_AU  # Convert to atomic units
 
-    def step(self, velocities: np.ndarray) -> np.ndarray:
+    def step(self, velocities: np.ndarray,
+             forces: np.ndarray = None) -> tuple:
         """
         Perform a full Velocity Verlet integration step.
 
-        This is the standard all-in-one step for NVE dynamics.
+        This is the standalone step for NVE dynamics.  For maximum efficiency
+        call with the forces cached from the previous step so that only one
+        force evaluation is needed per step (standard Velocity Verlet caching):
+
+            forces = atoms.get_forces() * HA_PER_ANG_TO_AU  # t=0
+            for each step:
+                velocities, forces = integrator.step(velocities, forces)
+
+        If *forces* is None a fresh evaluation is performed for the first
+        B-step (two force evaluations per step, 2× slower).
 
         Parameters
         ----------
         velocities : np.ndarray
-            Current atomic velocities in atomic units
-            Shape: (N_atoms, 3)
+            Current atomic velocities in atomic units, shape (N_atoms, 3).
+        forces : np.ndarray, optional
+            Forces at the current positions in a.u. (Ha/Bohr), shape (N_atoms, 3).
+            If None, forces are computed from the calculator.
 
         Returns
         -------
-        np.ndarray
-            Updated velocities in atomic units
+        (velocities, forces) : tuple[np.ndarray, np.ndarray]
+            Updated velocities and forces at the new positions (both in a.u.).
+            The returned forces can be passed directly to the next call.
         """
         dt = self.timestep
         masses = self.masses[:, np.newaxis]  # Shape: (N_atoms, 1)
 
-        # Step 1: Half-step velocity update
-        forces = self.atoms.get_forces() * HA_PER_ANG_TO_AU  # Ha/Å → Ha/Bohr (a.u.)
-        velocities += 0.5 * forces / masses * dt
+        # B1: Half-step velocity update with current forces
+        if forces is None:
+            forces = self.atoms.get_forces() * HA_PER_ANG_TO_AU  # Ha/Å → Ha/Bohr
+        velocities = velocities + 0.5 * forces / masses * dt
 
-        # Step 2: Full-step position update
-        # v is in a.u. (Bohr/a.u.time), dt in a.u. → displacement in Bohr
-        # ASE set_positions expects Å → convert
-        positions = self.atoms.get_positions()                   # Å
-        positions += velocities * dt * BOHR_TO_ANGSTROM          # Å
+        # A: Full-step position update (v in a.u., dt in a.u. → displacement in Bohr → Å)
+        positions = self.atoms.get_positions()
+        positions += velocities * dt * BOHR_TO_ANGSTROM
         self.atoms.set_positions(positions)
         if any(self.atoms.pbc):
             self.atoms.wrap()
 
-        # Step 3: Recalculate forces at new positions
-        forces = self.atoms.get_forces() * HA_PER_ANG_TO_AU  # Ha/Å → Ha/Bohr (a.u.)
+        # Compute forces at new positions
+        forces = self.atoms.get_forces() * HA_PER_ANG_TO_AU  # Ha/Å → Ha/Bohr
 
-        # Step 4: Final half-step velocity update
-        velocities += 0.5 * forces / masses * dt
+        # B2: Final half-step velocity update
+        velocities = velocities + 0.5 * forces / masses * dt
 
-        return velocities
+        return velocities, forces
 
     def half_step_v(self, velocities: np.ndarray) -> np.ndarray:
         """

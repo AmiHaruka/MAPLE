@@ -45,6 +45,9 @@ from ..utils import (
     calculate_temperature,
     calculate_kinetic_energy,
     initialize_velocities,
+    read_last_xyz_frame,
+    get_rng_state_hex,
+    restore_rng_from_hex,
     HA_PER_ANG_TO_AU,
     BOHR_TO_ANGSTROM,
     FS_TO_AU,
@@ -55,26 +58,111 @@ from ..logger import MDLogger
 
 @dataclass
 class NPTParams:
-    """Parameters for NPT simulation."""
+    """
+    Parameters for NPT (isothermal-isobaric) ensemble simulation.
+
+    NPT is used for density equilibration and computing thermodynamic
+    properties at constant pressure (e.g., liquid density, compressibility).
+    Defaults follow published standards for ML potentials.
+
+    Thermostat default: v-rescale (Bussi et al. 2007 JCP 126, 014101)
+      — correct canonical ensemble; less perturbative than Langevin.
+    Barostat default: c-rescale (Bernetti & Bussi 2020 JCP 153, 114107)
+      — correct isothermal-isobaric ensemble; analogue of v-rescale for pressure.
+
+    Recommended production combination: thermostat=v-rescale + barostat=c-rescale.
+    Berendsen variants are suitable for rapid pre-equilibration only.
+    """
+    # ------------------------------------------------------------------
+    # Timestep: 0.5 fs
+    # Smaller than NVT default (1 fs) because NPT adds a cell rescaling
+    # step; slightly shorter dt improves pressure stability.
+    # Ref: GROMACS NPT tutorial: dt=0.002 ps = 2 fs (classical FF + LINCS);
+    #      for ML potentials without constraints, 0.5 fs is conservative.
+    # ------------------------------------------------------------------
     timestep:        float = 0.5          # fs
-    steps:           int   = 10000        # total steps
+
+    # ------------------------------------------------------------------
+    # Total steps: 10000 × 0.5 fs = 5 ps
+    # Conservative default for NPT density equilibration.
+    # For production, extend to ≥ 100 ps (200000 steps at 0.5 fs).
+    # Refs: GROMACS Lemkul tutorial (NPT stage: 100 ps);
+    #       AMBER Tutorial 1: 50 ps NPT.
+    # ------------------------------------------------------------------
+    steps:           int   = 10000        # steps (= 5 ps at 0.5 fs/step)
+
     temperature:     float = 300.0        # K
     pressure:        float = 1.0          # bar
-    thermostat:      str   = 'v-rescale'  # 'langevin' | 'v-rescale'
-    barostat:        str   = 'c-rescale'  # 'berendsen' | 'c-rescale'
-    # Langevin-specific
-    friction:        float = 0.001        # 1/fs
-    # V-rescale-specific
-    tau_t:           float = 200.0        # fs
-    # Barostat common
-    tau_p:           float = 2000.0       # fs  (larger for MLP)
-    compressibility: float = 4.5e-5       # 1/bar (water, see utils.DEFAULT_COMPRESSIBILITY)
-    # Common
-    traj_every:      int   = 10
-    log_every:       int   = 100
+
+    # ------------------------------------------------------------------
+    # Thermostat: v-rescale (default for NPT)
+    # V-rescale produces correct canonical KE distribution while perturbing
+    # dynamics less than Langevin, making it better suited for NPT where
+    # both thermostat and barostat act each step.
+    # Ref: GROMACS default since v4.5 (Bussi et al. 2007).
+    # ------------------------------------------------------------------
+    thermostat:      str   = 'v-rescale'  # [GROMACS default; Bussi 2007]
+
+    # ------------------------------------------------------------------
+    # Barostat: c-rescale (default for NPT)
+    # C-rescale is the correct NPT barostat (Bernetti & Bussi 2020).
+    # Unlike Berendsen, it produces the full Gibbs (N,P,T) distribution.
+    # ------------------------------------------------------------------
+    barostat:        str   = 'c-rescale'  # [Bernetti & Bussi 2020 JCP 153, 114107]
+
+    # Langevin-specific (only used when thermostat='langevin')
+    friction:        float = 0.001        # 1/fs = 1 ps⁻¹
+
+    # ------------------------------------------------------------------
+    # V-rescale τ_T: 200 fs
+    # Slightly larger than NVT default (100 fs) to avoid over-coupling
+    # when both thermostat and barostat act each step.
+    # Ref: GROMACS NPT tutorial: tau_t = 0.1 ps = 100 fs;
+    #      CHARMM-GUI NPT protocol: tau_t = 1 ps (conservative).
+    # ------------------------------------------------------------------
+    tau_t:           float = 200.0        # fs  [GROMACS NPT tutorial]
+
+    # ------------------------------------------------------------------
+    # Barostat τ_P: 2000 fs = 2 ps
+    # Larger than classical MD defaults (0.5–1 ps) to account for ML
+    # potential noise in instantaneous pressure.  Noisy pressure → large
+    # τ_P needed to avoid volume instability.
+    # Ref: GROMACS Lemkul NPT tutorial: tau_p = 2.0 ps;
+    #      Bernetti & Bussi 2020 §III: τ_P ≥ 1 ps recommended.
+    # ------------------------------------------------------------------
+    tau_p:           float = 2000.0       # fs  [GROMACS Lemkul; Bernetti 2020]
+
+    # ------------------------------------------------------------------
+    # Isothermal compressibility: 4.5e-5 1/bar (liquid water, 300 K, 1 bar)
+    # Used by both Berendsen and C-rescale barostats as a scaling prefactor.
+    # The barostat dynamics are not very sensitive to this value; using water
+    # as a default is standard practice for biomolecular systems.
+    # Ref: CRC Handbook of Chemistry and Physics; GROMACS mdp default.
+    # ------------------------------------------------------------------
+    compressibility: float = 4.5e-5       # 1/bar  [CRC Handbook; GROMACS default]
+
+    # ------------------------------------------------------------------
+    # Output frequencies
+    #
+    # ML potentials are ~1000–3000× slower than classical FFs.
+    # A typical ML-NPT run is 10–50 ps; dense output is needed to monitor
+    # density convergence and detect volume instabilities early.
+    #
+    # Target: 100–500 frames per 10 ps.
+    #   traj_every = 100 steps × 0.5 fs/step = 50 fs = 0.05 ps/frame
+    #   10 ps → 200 frames  ✓   50 ps → 1000 frames  ✓
+    #
+    # Refs: Fu et al. (2023) JCTC 19, 1863; Kovács et al. (2023) JPCL 14, 8725.
+    # ------------------------------------------------------------------
+    traj_every:      int   = 100          # steps (= 50 fs = 0.05 ps at 0.5 fs/step)
+    log_every:       int   = 100          # steps (= 50 fs)
+    verbose:         int   = 1
     init_velocities: bool  = True
+    init_from: Optional[str] = None   # path to *_md_final.xyz from a prior run
     remove_com:      bool  = True
+    remove_rotation: bool  = False
     random_seed: Optional[int] = None
+    resume: bool = False
 
 
 class NPT(JobABC):
@@ -169,6 +257,7 @@ class NPT(JobABC):
             output_path=output,
             log_every=self.params.log_every,
             traj_every=self.params.traj_every,
+            verbose=self.params.verbose,
         )
 
     def run(self):
@@ -176,16 +265,47 @@ class NPT(JobABC):
         with timer("MD Simulation (NPT)"):
             self._log_parameters()
 
-            if self.params.init_velocities:
-                velocities = self._initialize_velocities()
+            if self.params.resume:
+                result = self.logger.resume_simulation(
+                    ensemble='npt',
+                    timestep=self.params.timestep,
+                    n_steps=self.params.steps,
+                    temperature=self.params.temperature,
+                    atoms=self.atoms,
+                    pressure=self.params.pressure,
+                )
+                if result is None:   # already completed
+                    return
+                self.atoms, velocities, step_offset = result
+                # Restore RNG state for deterministic continuation
+                if self.logger.resumed_rng_state is not None:
+                    restore_rng_from_hex(self._rng, self.logger.resumed_rng_state)
+                remaining = self.params.steps - step_offset
             else:
-                if 'velocities' not in self.atoms.arrays:
-                    raise ValueError(
-                        "init_velocities=False but no velocities found in atoms.arrays"
-                    )
-                velocities = self.atoms.arrays['velocities']
+                if self.params.init_from:
+                    velocities = self._load_from_final(self.params.init_from)
+                elif 'velocities' in self.atoms.arrays and self.params.init_velocities:
+                    velocities = self.atoms.arrays['velocities']
+                    t_check = calculate_temperature(self.atoms, velocities)
+                    self.log_info([
+                        f"\nVelocities loaded from input file "
+                        f"(T = {t_check:.2f} K); skipping random initialisation.\n"
+                    ])
+                elif self.params.init_velocities:
+                    velocities = self._initialize_velocities()
+                else:
+                    if 'velocities' not in self.atoms.arrays:
+                        raise ValueError(
+                            "init_velocities=False and init_from not set, "
+                            "but no velocities found in atoms.arrays"
+                        )
+                    velocities = self.atoms.arrays['velocities']
+                step_offset = 0
+                remaining   = self.params.steps
 
-            final_velocities = self._run_simulation(velocities)
+            final_velocities = self._run_simulation(velocities,
+                                                    step_offset=step_offset,
+                                                    n_steps=remaining)
             self.atoms.arrays['velocities'] = final_velocities
 
     def _log_parameters(self):
@@ -227,26 +347,76 @@ class NPT(JobABC):
             atoms=self.atoms,
             temperature=self.params.temperature,
             remove_com=self.params.remove_com,
+            remove_rotation=self.params.remove_rotation,
             rng=self._rng,
         )
         actual_temp = calculate_temperature(self.atoms, velocities)
         self.log_info([f"Initial temperature: {actual_temp:.2f} K\n"])
         return velocities
 
-    def _run_simulation(self, velocities: np.ndarray) -> np.ndarray:
+    def _load_from_final(self, path: str) -> np.ndarray:
+        """
+        Load coordinates and velocities from a *_md_final.xyz written by
+        a prior NVE/NVT/NPT run.  Mirrors NVE._load_from_final().
+        """
+        from pathlib import Path
+        from ase.cell import Cell
+
+        fpath = Path(path)
+        if not fpath.exists():
+            raise FileNotFoundError(f"init_from: file not found: {path}")
+        frame = read_last_xyz_frame(fpath)
+        if frame['n_atoms'] != len(self.atoms):
+            raise ValueError(
+                f"init_from: atom count mismatch — "
+                f"file has {frame['n_atoms']}, system has {len(self.atoms)}"
+            )
+        if frame['symbols'] != self.atoms.get_chemical_symbols():
+            raise ValueError(
+                f"init_from: chemical symbols mismatch in '{fpath.name}'"
+            )
+        if frame['velocities'] is None:
+            raise ValueError(
+                f"init_from: '{fpath.name}' contains no velocity data"
+            )
+        if not np.all(np.isfinite(frame['positions'])):
+            raise ValueError(f"init_from: non-finite coordinates in '{fpath.name}'")
+        if not np.all(np.isfinite(frame['velocities'])):
+            raise ValueError(f"init_from: non-finite velocities in '{fpath.name}'")
+
+        self.atoms.set_positions(frame['positions'])
+        if frame['cell'] is not None:
+            self.atoms.set_cell(Cell.fromcellpar(frame['cell']))
+            self.atoms.set_pbc([True, True, True])
+
+        actual_temp = calculate_temperature(self.atoms, frame['velocities'])
+        self.log_info([
+            f"\nLoaded initial state from: {fpath.name}\n",
+            f"  Prior run step:    {frame['frame_num']}\n",
+            f"  Prior run energy:  {frame['energy']:.8f} Ha\n",
+            f"  Temperature from loaded velocities: {actual_temp:.2f} K\n",
+        ])
+        return frame['velocities']
+
+    def _run_simulation(self, velocities: np.ndarray,
+                        step_offset: int = 0, n_steps: int = None) -> np.ndarray:
         """
         Run NPT simulation.
 
         Velocity Verlet with midstep thermostat + barostat step after each
         complete integration cycle.
         """
+        if n_steps is None:
+            n_steps = self.params.steps
+
         self.logger.start_simulation(
             ensemble='npt',
             timestep=self.params.timestep,
-            n_steps=self.params.steps,
+            n_steps=n_steps,
             temperature=self.params.temperature,
             atoms=self.atoms,
             pressure=self.params.pressure,
+            step_offset=step_offset,
         )
         self.logger.log_main([
             f"\nStarting NPT simulation "
@@ -260,7 +430,7 @@ class NPT(JobABC):
         # Cache forces at t=0; reused as first B-step forces each cycle.
         forces = self.atoms.get_forces() * HA_PER_ANG_TO_AU  # Ha/Å → a.u.
 
-        for step in range(1, self.params.steps + 1):
+        for step in range(1, n_steps + 1):
             # B: half-step velocity (uses cached forces from end of previous step)
             v += 0.5 * forces / masses * dt
 
@@ -279,14 +449,15 @@ class NPT(JobABC):
             # Barostat: rescale cell, returns instantaneous pressure
             pressure = self.barostat.apply(v)
 
-            current_time     = step * self.params.timestep
+            abs_step         = step_offset + step
+            current_time     = abs_step * self.params.timestep
             temperature      = calculate_temperature(self.atoms, v)
             kinetic_energy   = calculate_kinetic_energy(self.atoms, v)
             potential_energy = self.atoms.get_potential_energy()  # Ha
             volume           = self.atoms.get_volume()
 
             self.logger.log_step(
-                step=step,
+                step=abs_step,
                 time=current_time,
                 temperature=temperature,
                 kinetic_energy=kinetic_energy,
@@ -296,8 +467,9 @@ class NPT(JobABC):
                 velocities=v,
                 pressure=pressure,
                 volume=volume,
+                rng_state=get_rng_state_hex(self._rng),
             )
 
-        self.logger.end_simulation()
+        self.logger.end_simulation(atoms=self.atoms, final_velocities=v)
         self.logger.log_main(["\nNPT simulation completed successfully.\n"])
         return v

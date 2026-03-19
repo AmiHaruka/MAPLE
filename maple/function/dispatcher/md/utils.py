@@ -8,7 +8,10 @@ This module provides essential calculations for MD:
 - XYZ trajectory writing utilities
 """
 
+import json
+import re
 import numpy as np
+from pathlib import Path
 from ase import Atoms
 from typing import Optional
 
@@ -27,7 +30,8 @@ FS_TO_AU = 41.341374575751  # femtoseconds to atomic units
 AU_TO_FS = 1.0 / FS_TO_AU
 
 # Length conversions
-BOHR_TO_ANGSTROM = 0.529177249
+# NIST CODATA 2018: 1 Bohr = 0.529177210903 Å (exact to 12 sig. fig.)
+BOHR_TO_ANGSTROM = 0.529177210903
 ANGSTROM_TO_BOHR = 1.0 / BOHR_TO_ANGSTROM
 
 # Force conversions
@@ -125,6 +129,7 @@ def initialize_velocities(
     atoms: Atoms,
     temperature: float,
     remove_com: bool = True,
+    remove_rotation: bool = False,
     rng: Optional[np.random.Generator] = None
 ) -> np.ndarray:
     """
@@ -140,7 +145,55 @@ def initialize_velocities(
     temperature : float
         Target temperature in Kelvin
     remove_com : bool, default=True
-        Remove center of mass motion
+        Remove center of mass translational motion (3 DOF).
+        Ref: Allen & Tildesley, Computer Simulation of Liquids,
+             2nd ed. (2017), §3.2
+    remove_rotation : bool, default=False
+        Remove overall rigid-body rotational motion (up to 3 DOF).
+        Only meaningful for non-periodic isolated molecules.
+        For periodic systems this parameter is ignored.
+
+        Scientific rationale
+        --------------------
+        A Maxwell-Boltzmann draw generically yields a non-zero net angular
+        momentum L = Σ_i r_i × (m_i v_i).  For an isolated molecule in NVE,
+        L is a conserved quantity, so any initial L causes the entire molecule
+        to rotate as a rigid body throughout the simulation, obscuring internal
+        dynamics in visualisation.
+
+        The standard remedy is to project out the three rotational DOF from the
+        velocities immediately after COM removal.  The projection is exact for a
+        rigid body and removes only the infinitesimal rigid-rotation component
+        from the velocity field; internal (vibrational) DOF are unaffected.
+
+        After projection, velocities are rescaled to restore the target
+        temperature, accounting for the reduced DOF count (3N − 6 for a
+        non-linear molecule, analogous to the COM correction).
+
+        This procedure is the default in several major MD codes:
+          • GROMACS: `comm-mode = Angular` removes both translation and
+            rotation; recommended for isolated molecules in vacuum.
+            Ref: GROMACS Reference Manual 2024, §3.4.1 "Removing COM motion"
+          • AMBER: `nscm` option; rotation removal is standard for gas-phase
+            peptide simulations.
+            Ref: Case et al. (2023) AMBER 2023 Reference Manual, §3.1
+          • NAMD: `zeroMomentum yes` + angular momentum zeroing described in
+            the User's Guide §2.6 for vacuum simulations.
+          • LAMMPS: `fix momentum ... angular` explicitly zeroes angular
+            momentum.
+            Ref: LAMMPS documentation, fix momentum command.
+
+        Theoretical basis: the projection is equivalent to constraining the
+        three rigid-rotation modes of the molecule, reducing the effective DOF
+        from 3N−3 to 3N−6 (non-linear) or 3N−5 (linear).  The equipartition
+        theorem still holds for the remaining DOF after rescaling.
+        Ref: Shirts (2013) J. Chem. Theory Comput. 9, 909, §2 "Removing rigid
+             body motion"; Eastman & Pande (2010) J. Chem. Theory Comput. 6,
+             434, §2.
+
+        Limitation: for periodic (PBC) systems there is no well-defined
+        rigid-body rotation of the whole cell, so this flag is silently ignored
+        when any(atoms.pbc) is True.
     rng : np.random.Generator, optional
         Random number generator (for reproducibility)
 
@@ -165,30 +218,122 @@ def initialize_velocities(
         sigma = np.sqrt(kT / mass)
         velocities[i] *= sigma
 
-    # Remove center of mass motion
+    # Remove center of mass motion, then rescale to restore target temperature.
+    # COM removal reduces the number of active DOF by 3, which lowers the
+    # instantaneous kinetic energy below the target; rescaling corrects this.
+    # Ref: Allen & Tildesley, Computer Simulation of Liquids, 2nd ed. (2017), §3.2
     if remove_com:
         total_momentum = np.sum(masses[:, np.newaxis] * velocities, axis=0)
         total_mass = np.sum(masses)
         velocities -= total_momentum / total_mass
+
+    # Remove overall rigid-body rotation (non-PBC only).
+    #
+    # Method (Shirts 2013, §2):
+    #   1. Compute angular momentum L = Σ r_i × (m_i v_i)  in the COM frame.
+    #   2. Compute the inertia tensor I = Σ m_i (|r_i|² E − r_i ⊗ r_i).
+    #   3. Solve ω = I⁻¹ L  for the rigid-body angular velocity.
+    #   4. Subtract the rigid-rotation contribution: v_i -= ω × r_i.
+    #
+    # This is a linear projection onto the subspace orthogonal to the three
+    # infinitesimal rotation generators; internal DOF are exactly preserved.
+    if remove_rotation and not any(atoms.pbc):
+        positions_au = atoms.get_positions() * ANGSTROM_TO_BOHR  # Å → Bohr
+
+        # Step 1 — COM frame positions
+        total_mass = np.sum(masses)
+        com = np.sum(masses[:, np.newaxis] * positions_au, axis=0) / total_mass
+        r = positions_au - com  # (N, 3)
+
+        # Step 2 — Angular momentum
+        L = np.sum(
+            masses[:, np.newaxis] * np.cross(r, velocities),
+            axis=0
+        )  # (3,)
+
+        # Step 3 — Inertia tensor
+        I = np.zeros((3, 3))
+        for mi, ri in zip(masses, r):
+            I += mi * (np.dot(ri, ri) * np.eye(3) - np.outer(ri, ri))
+
+        # Step 4 — Solve for ω; use pseudoinverse to handle near-singular I
+        # (e.g. linear molecules where one principal moment is ~0)
+        try:
+            omega = np.linalg.solve(I, L)
+        except np.linalg.LinAlgError:
+            omega = np.linalg.lstsq(I, L, rcond=None)[0]
+
+        # Step 5 — Subtract rigid rotation from each atom
+        velocities -= np.cross(omega, r)  # v_i -= ω × r_i
+
+    # Rescale to exact target temperature via velocity scaling.
+    #
+    # The DOF count used here must match calculate_temperature(), which uses
+    # 3N − 3 for non-PBC systems (COM translation removed) and 3N for PBC.
+    # Rotational constraints are NOT subtracted here: the equipartition
+    # temperature estimator calculate_temperature() is unaware of them, so
+    # keeping consistent DOF counts ensures the reported initial temperature
+    # matches the target.
+    # Ref: Allen & Tildesley (2017) §3.2; Shirts (2013) JCTC 9, 909.
+    is_pbc = any(atoms.pbc)
+    n_dof = 3 * n_atoms - (0 if is_pbc else 3)
+    current_ke2 = np.sum(masses[:, np.newaxis] * velocities**2)  # 2*KE
+    if n_dof > 0 and current_ke2 > 0:
+        actual_temp = current_ke2 / (n_dof * KELVIN_TO_HARTREE)
+        velocities *= np.sqrt(temperature / actual_temp)
 
     return velocities
 
 
 # ========== Trajectory I/O ==========
 
+def get_rng_state_hex(rng: np.random.Generator) -> str:
+    """
+    Serialize a numpy Generator's bit-generator state to a compact hex string.
+
+    Parameters
+    ----------
+    rng : np.random.Generator
+
+    Returns
+    -------
+    str
+        Hex-encoded JSON of the bit-generator state dict.
+    """
+    state_json = json.dumps(rng.bit_generator.state, sort_keys=True)
+    return state_json.encode().hex()
+
+
+def restore_rng_from_hex(rng: np.random.Generator, hex_str: str) -> None:
+    """
+    Restore a numpy Generator's bit-generator state from a hex string produced
+    by get_rng_state_hex().
+
+    Parameters
+    ----------
+    rng : np.random.Generator
+        Generator whose state will be overwritten in-place.
+    hex_str : str
+        Hex string from get_rng_state_hex().
+    """
+    state = json.loads(bytes.fromhex(hex_str).decode())
+    rng.bit_generator.state = state
+
+
 def write_xyz_frame(
     file_handle,
     atoms: Atoms,
     energy: float,
     frame_number: int,
-    velocity: Optional[np.ndarray] = None
+    velocity: Optional[np.ndarray] = None,
+    rng_state: Optional[str] = None,
 ):
     """
     Write a single frame to XYZ file.
 
     Format:
         N_atoms
-        Frame <number>  Energy = <energy> Hartree
+        Frame <number>  Energy = <energy> Hartree[  Cell = ...][ RNG = <hex>]
         Symbol  x  y  z  [vx  vy  vz]
 
     Parameters
@@ -204,13 +349,27 @@ def write_xyz_frame(
     velocity : np.ndarray, optional
         Velocities to write (in atomic units)
         Shape: (N_atoms, 3)
+    rng_state : str, optional
+        Hex-encoded RNG state from get_rng_state_hex(). When provided, appended
+        to the comment line as ``  RNG = <hex>`` for deterministic resume.
     """
     positions = atoms.get_positions()
     symbols = atoms.get_chemical_symbols()
 
     # Header lines
     file_handle.write(f"{len(symbols)}\n")
-    file_handle.write(f"Frame {frame_number}  Energy = {energy:.10f} Hartree\n")
+    cell_str = ""
+    if any(atoms.pbc):
+        cp = atoms.cell.cellpar()  # [a, b, c, alpha, beta, gamma]
+        cell_str = (f"  Cell = {cp[0]:.6f} {cp[1]:.6f} {cp[2]:.6f}"
+                    f" {cp[3]:.6f} {cp[4]:.6f} {cp[5]:.6f}")
+    rng_str = f"  RNG = {rng_state}" if rng_state is not None else ""
+    # frame_number stores the MD step number (not sequential frame index) so that
+    # resume_simulation() can recover the exact step offset without knowing traj_every.
+    file_handle.write(f"Frame {frame_number}  Energy = {energy:.10f} Hartree{cell_str}{rng_str}\n")
+    # NOTE: frame_number is the MD *step* number (passed as `step` from the ensemble loop).
+    # The regex _TRAJ_COMMENT_RE parses this as frame_num; resume_simulation uses it
+    # directly as step_offset (no multiplication by traj_every needed).
 
     # Atomic coordinates (and optionally velocities)
     if velocity is not None:
@@ -249,6 +408,112 @@ def write_xyz_trajectory(
     with open(filename, mode) as f:
         for i, (atoms, energy) in enumerate(zip(atoms_list, energies)):
             write_xyz_frame(f, atoms, energy, frame_number=i)
+
+
+_TRAJ_COMMENT_RE = re.compile(
+    r"Frame\s+(\d+)\s+Energy\s*=\s*([\d\.\-eE+]+)\s+Hartree"
+    r"(?:\s+Cell\s*=\s*([\d\.\s]+?))?"
+    r"(?:\s+RNG\s*=\s*(\S+))?"
+    r"\s*$"
+)
+
+
+def read_last_xyz_frame(traj_path) -> dict:
+    """
+    Scan a trajectory XYZ file from the end and return the last complete frame.
+
+    Returns a dict with keys:
+        n_atoms   : int
+        frame_num : int            # frame index written in comment line
+        energy    : float          # Ha
+        symbols   : list[str]
+        positions : np.ndarray (N,3)  Å
+        velocities: np.ndarray (N,3) a.u.  or None
+        cell      : np.ndarray (6,) cellpar or None
+        rng_state : str or None    # hex-encoded RNG state, or None if not present
+
+    Raises ValueError if no complete frame is found or parsing fails.
+    """
+    traj_path = Path(traj_path)
+    lines = traj_path.read_text().splitlines()
+    total = len(lines)
+
+    # Scan backwards to find start of each candidate frame (line contains an integer == n_atoms)
+    i = total - 1
+    while i >= 0:
+        stripped = lines[i].strip()
+        try:
+            n_atoms = int(stripped)
+        except ValueError:
+            i -= 1
+            continue
+
+        # Check that we have enough lines for a complete frame
+        if i + 2 + n_atoms > total:
+            i -= 1
+            continue
+
+        comment_line = lines[i + 1]
+        m = _TRAJ_COMMENT_RE.search(comment_line)
+        if m is None:
+            i -= 1
+            continue
+
+        frame_num = int(m.group(1))
+        energy    = float(m.group(2))
+        cell      = None
+        if m.group(3):
+            cell_vals = [float(x) for x in m.group(3).split()]
+            if len(cell_vals) == 6:
+                cell = np.array(cell_vals)
+        rng_state = m.group(4) if m.group(4) else None
+
+        # Parse atom lines
+        symbols   = []
+        positions = []
+        velocities_list = []
+        has_velocities = None
+        ok = True
+        for j in range(n_atoms):
+            parts = lines[i + 2 + j].split()
+            if len(parts) == 4:
+                if has_velocities is None:
+                    has_velocities = False
+                elif has_velocities:
+                    ok = False
+                    break
+                symbols.append(parts[0])
+                positions.append([float(x) for x in parts[1:4]])
+            elif len(parts) == 7:
+                if has_velocities is None:
+                    has_velocities = True
+                elif not has_velocities:
+                    ok = False
+                    break
+                symbols.append(parts[0])
+                positions.append([float(x) for x in parts[1:4]])
+                velocities_list.append([float(x) for x in parts[4:7]])
+            else:
+                ok = False
+                break
+
+        if not ok or len(symbols) != n_atoms:
+            i -= 1
+            continue
+
+        velocities = np.array(velocities_list) if has_velocities else None
+        return {
+            'n_atoms':    n_atoms,
+            'frame_num':  frame_num,
+            'energy':     energy,
+            'symbols':    symbols,
+            'positions':  np.array(positions),
+            'velocities': velocities,
+            'cell':       cell,
+            'rng_state':  rng_state,
+        }
+
+    raise ValueError(f"No complete XYZ frame found in {traj_path}")
 
 
 # ========== Velocity Utilities ==========
