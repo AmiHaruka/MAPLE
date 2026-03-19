@@ -1,0 +1,97 @@
+
+================================================================================
+                                 MD SIMULATION                                  
+================================================================================
+Ensemble:        NVE
+Timestep:        0.125 fs
+Total steps:     5000
+Simulation time: 625.00 fs
+
+System:
+  Atoms:         30
+  Formula:       C8H15N3O4
+  Charge:        0
+  Multiplicity:  1
+
+================================================================================
+
+WARNING: Pre-existing output files were backed up:
+  Backed up existing file: dt_test_0.125.out -> #dt_test_0.125.out.1#
+
+
+       Step      Time(ps)  Progress      T(K)      E_total(Ha)  Speed(ns/day)         ETA
+  ---------  ------------  --------  --------  ---------------  -------------  ----------
+
+Starting NVE simulation...
+
+  Step     1000      125.00 fs  T  179.35 K  E    -779.114235 Ha
+  Step     2000      250.00 fs  T  182.63 K  E    -779.113913 Ha
+  Step     3000      375.00 fs  T  148.28 K  E    -779.117312 Ha
+  Step     4000      500.00 fs  T  151.17 K  E    -779.117026 Ha
+  Step     5000      625.00 fs  T  157.88 K  E    -779.116359 Ha
+
+================================================================================
+                            MD SIMULATION COMPLETED                             
+================================================================================
+
+                            ── Energy Statistics ──                             
+  Mean total energy:               -779.11577947  Ha
+  Std deviation:                      0.00211816  Ha
+
+                       ── Energy Conservation Metrics ──                        
+  Linear drift rate:                -1938.593158  kJ/mol/ns/atom    [SHORT]
+  Total simulation time:                   0.625  ps
+  (SHORT traj < 10 ps: drift rate is indicative only; use σ/|<E>| and r(KE,PE))
+  Rel. fluctuation σ/|<E>|:             2.72e-06  (dimensionless)   [GOOD]
+  KE–PE anti-correlation:                -1.0000  (target: ≈ -1)  [GOOD]
+
+                          ── Temperature Statistics ──                          
+  Mean temperature:                       163.76  K
+  Std deviation:                           21.38  K
+  σ(T)/<T>  observed:                     0.1305
+  σ(T)/<T>  equipartition:                0.1054  (1/√N_dof)
+  Excess ratio:                             1.24  (target: < 2.0)   [GOOD]
+
+        ── Acceptance Criteria (Páll 2020 / AMBER 2022 / Shirts 2008) ──        
+  Drift < 0.01 kJ/mol/ns/atom → GOOD
+  Drift < 0.1  kJ/mol/ns/atom → OK
+  Drift > 1.0  kJ/mol/ns/atom → FAIL
+  σ/|<E>| < 1e-4              → GOOD (AMBER NVE standard)
+  r(KE,PE) ≈ -1 (NVE)         → Velocity Verlet symplecticity confirmed
+  r(KE,PE) ≈  0 (NVT/NPT)     → Thermostat decouples KE from PE (correct)
+
+                               ── Performance ──                                
+  Wall time:                              7m 31s
+  Simulation time:                      0.625  ps
+  Average speed:                       0.1197  ns/day
+  Time per ns:                       721843.5  s/ns
+
+                               ── Output Files ──                               
+  Thermodynamics:             dt_test_0.125_md_thermo.dat
+  Trajectory:                 dt_test_0.125_md_traj.xyz
+  Summary:                    dt_test_0.125_md_summary.txt
+================================================================================
+
+NVE simulation completed successfully.
+
+
+
+Program started: 2026-03-17 20:41:57
+
+======================================================================
+                      TIMING SUMMARY
+======================================================================
+Input Reading.......................................   0.064 s  (   0.0 %)
+  Settings Parsing....................................   0.063 s  (  98.3 %)
+  Coordinate Section Parsing..........................   0.001 s  (   0.8 %)
+  Post-Processing Expansion...........................   0.000 s  (   0.0 %)
+MLP Initialization..................................   4.918 s  (   1.1 %)
+Job Dispatching..................................... 451.070 s  (  98.9 %)
+  MD Simulation (NVE)................................. 451.065 s  ( 100.0 %)
+======================================================================
+Total wall time: 456.052 s
+Total CPU time: 462.511 s
+======================================================================
+
+Program ended: 2026-03-17 20:49:33
+TOTAL RUN TIME: 0 days 0 hours 7 minutes 36 seconds 51 msec

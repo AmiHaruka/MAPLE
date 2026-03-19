@@ -1,0 +1,114 @@
+
+**********************************************************************
+*                                                                    *
+*                        M   A   P   L   E                           *
+*                                                                    *
+*      MAchine-learning Potential for Landscape Exploration          *
+*                                                                    *
+*                                                                    *
+*      © 2025 University of Pittsburgh. All rights reserved.         *
+*      Licensed under CC BY 4.0 for academic use.                    *
+*                                                                    *
+*      Principal Developer:  Xujian Wang                             *
+*                                                                    *
+**********************************************************************
+
+
+Parsing # commands...
+Global parameter: model = uma
+Task set to 'md'
+Global parameter: device = cuda
+Parsed configuration:
+----------------------------------------
+Task: md
+model          : uma
+ensemble       : nve
+timestep       : 0.25
+steps          : 4000000
+temperature    : 300.0
+traj_every     : 100
+log_every      : 100
+init_velocities: True
+init_from      : None
+remove_com     : True
+random_seed    : 123
+thermostat     : langevin
+friction       : 0.001
+tau_t          : 100.0
+barostat       : c-rescale
+pressure       : 1.0
+tau_p          : 2000.0
+compressibility: 4.5e-05
+resume         : False
+remove_rotation: True
+device         : cuda
+
+                             Coordinates                              
+**********************************************************************
+
+Group 1 (inline)
+--------------------
+1    O             -0.126069             2.843330            -0.703986
+2    O             -2.026210            -0.939631             1.250591
+3    O              1.502432             2.802096             0.852027
+4    O              3.355561            -1.765447             0.939072
+5    N             -0.943123             0.413539            -0.207068
+6    N             -3.510207            -2.159226            -0.772220
+7    N              3.776627            -1.683264            -1.266782
+8    C              0.032812             0.889933             0.720323
+9    C              1.173981            -0.105823             0.855401
+10   C              2.054657            -0.200001            -0.374581
+11   C             -2.935542            -0.832501            -0.970557
+12   C             -1.931227            -0.476911             0.135252
+13   C              0.567990             2.269502             0.315544
+14   C             -4.059271             0.210691            -0.851725
+15   C              3.120516            -1.269257            -0.142500
+16   H             -0.447163             1.011190             1.702690
+17   H              0.750803            -1.104266             1.043285
+18   H              1.804000             0.113472             1.722531
+19   H              1.493143            -0.408325            -1.261061
+20   H              2.635901             0.713112            -0.541650
+21   H             -0.881380             0.691726            -1.169355
+22   H             -2.491651            -0.779905            -1.975283
+23   H             -3.699311             1.207863            -1.005248
+24   H             -4.505916             0.205585             0.159113
+25   H             -4.897005             0.049233            -1.533026
+26   H             -3.701457            -2.245390             0.219373
+27   H             -2.817273            -2.895501            -0.918999
+28   H              0.258163             3.714886            -0.845792
+29   H              4.627632            -2.187372            -1.099505
+30   H              3.712651            -1.149762            -2.113518
+
+================================================================================
+                               NVE MD PARAMETERS                                
+================================================================================
+Ensemble:           NVE (microcanonical)
+Timestep:           0.250 fs
+Total steps:        4000000
+Initial temp:       300.00 K
+
+Output frequencies:
+  Log every:        100 steps
+  Traj every:       100 steps
+
+Velocity init:      True
+Remove COM motion:  True
+Remove COM every:   every 100 steps
+Random seed:        123
+================================================================================
+
+  ┌─ NVT PRE-EQUILIBRATION ADVISORY ──────────────────────────────────────┐
+  │  Starting NVE from an optimised (0 K) structure without prior NVT     │
+  │  equilibration is known to cause:                                      │
+  │    • A large initial TE drop (~5–10 kcal/mol) in the first ~20 steps  │
+  │    • Actual mean temperature well below the target value               │
+  │    • Inflated σ(TE) that cannot be reduced by decreasing dt            │
+  │                                                                        │
+  │  Recommended workflow (GROMACS Manual 2024 §3.4.2; AMBER 2023 §3.1): │
+  │    opt → NVT (≥ 10 ps, Langevin) → NVE (production)                  │
+  │                                                                        │
+  │  To suppress: set resume=true (assumes prior NVT was completed).      │
+  └────────────────────────────────────────────────────────────────────────┘
+
+
+Velocities loaded from input file (T = 410.64 K); skipping random initialisation.

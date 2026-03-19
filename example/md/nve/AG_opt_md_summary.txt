@@ -1,0 +1,32 @@
+MD Simulation Summary
+============================================================
+
+Ensemble:                   NVT
+Total steps:                40000
+Total time:                 10000.00 fs
+Number of atoms:            30
+N_dof:                      87  (isolated: 3N-3)
+
+Energy Statistics:
+  Mean total energy:        -779.09392971 Ha
+  Std deviation:            0.00638471 Ha
+
+Temperature Control Metrics [NVT PRIMARY]:
+  Mean temperature:         299.79 K
+  Std deviation:            45.36 K
+  σ_canonical = T·√(2/N_dof): 45.45 K  [Frenkel & Smit 2002 §6.1]
+  σ_obs/σ_canonical:        0.998  [target: 0.5–2.0]  [GOOD]
+  r(KE,PE):                 -0.0151                 [GOOD]
+    (Shirts 2008: r ≈ 0 expected — thermostat decouples KE from PE)
+
+Energy Metrics [NVT SECONDARY — TE fluctuates by design]:
+  σ(TE)/|⟨TE⟩|:            8.20e-06             (expected to be large)
+  Linear drift rate:        +1.894366 kJ/mol/ns/atom  [SHORT]
+  Total simulation time:    10.000 ps
+  (SHORT traj < 10 ps: drift rate is indicative only)
+    (Páll 2020: gross instability threshold only; accept if drift < 1.0)
+
+Performance:
+  Wall time:                53m 48s
+  Average speed:            0.2676 ns/day
+  Time per ns:              322854.2 s/ns

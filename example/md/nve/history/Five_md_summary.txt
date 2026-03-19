@@ -1,0 +1,27 @@
+MD Simulation Summary
+============================================================
+
+Total steps:                10000
+Total time:                 10000.00 fs
+Number of atoms:            53
+
+Energy Statistics:
+  Mean total energy:        -1313.02354405 Ha
+  Std deviation:            0.00540408 Ha
+
+Energy Conservation Metrics:
+  Linear drift rate:        +101.602396 kJ/mol/ns/atom  [SHORT]
+  Total simulation time:    9.999 ps
+  (SHORT traj < 10 ps: drift rate is indicative only)
+    (Páll 2020: < 0.01 GOOD, < 0.1 OK, > 1.0 FAIL)
+  Rel. fluctuation σ/|<E>|: 4.12e-06             [GOOD]
+    (AMBER 2022: < 1e-4 accepted)
+  KE–PE anti-correlation:   -0.9965                 [GOOD]
+    (Shirts 2008: r ≈ -1 confirms Velocity Verlet symplecticity)
+
+Temperature Statistics:
+  Mean temperature:         353.83 K
+  Std deviation:            30.81 K
+  σ(T)/<T> observed:        0.0871
+  σ(T)/<T> equipartition:   0.0793  (1/√N_dof, Allen & Tildesley 2017)
+  Excess ratio:             1.10  [target < 2.0]  [GOOD]
