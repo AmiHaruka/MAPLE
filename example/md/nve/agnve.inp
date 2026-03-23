@@ -1,5 +1,5 @@
 #model=uma
-#md(ensemble=nve,steps=4000000,random_seed=123,resume=false,remove_rotation=true)
+#md(ensemble=nve,steps=4000000,random_seed=123,resume=true,remove_rotation=true)
 #device=cuda
 O      -0.12606935      2.84333009     -0.70398637     -0.000070    -0.000076     0.000175
 O      -2.02621006     -0.93963073      1.25059052      0.000188     0.000058    -0.000033
