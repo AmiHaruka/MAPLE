@@ -98,8 +98,20 @@ class Dispatcher():
                 raise NotImplementedError('For IRC job, only one Atoms object is allowed.')
             irc = IRC(output=output, atoms=atoms, method=commandcontrol.params.get('method'), params=commandcontrol.params)
             irc.run()
-            
-            
+
+        elif jobtype == 'parmfit':
+            from .parmfit import Parmfit
+
+            if isinstance(atoms, (list, Molecules)):
+                raise NotImplementedError('For parmfit job, only one Atoms object is allowed.')
+
+            parmfit = Parmfit(
+                output=output, atoms=atoms, method=commandcontrol.params.get('method'),
+                params=commandcontrol.params, extra=extra.get('parmfit') if extra is not None else None,
+            )
+            parmfit.run()
+
+
         else:
             try:
                 raise NotImplementedError('Job type not implemented')

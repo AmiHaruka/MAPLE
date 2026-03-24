@@ -1,1 +1,1 @@
-from .parmfit import ParmFit
+from .parmfit import Parmfit

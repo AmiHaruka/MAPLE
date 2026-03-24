@@ -6,7 +6,7 @@ from typing import Dict, Any, List, Optional
 class CommandControl:
     """
     Parse and validate input settings.
-    One task only: sp/opt/ts/scan/freq/irc.
+    One task only: sp/opt/ts/scan/freq/irc/parmfit.
     All other settings are global parameters.
     """
 
@@ -16,7 +16,7 @@ class CommandControl:
         "egret", "aimnet2", "uma", "maceomol", "aimnet2nse"
     }
 
-    SUPPORTED_TASKS = {"sp", "opt", "ts", "scan", "freq", "irc"}
+    SUPPORTED_TASKS = {"sp", "opt", "ts", "scan", "freq", "irc", "parmfit"}
 
     # Defaults assigned only when task is selected
     DEFAULTS = {
@@ -27,6 +27,9 @@ class CommandControl:
         "opt": {},
         "ts": {},
         "scan": {},
+        "parmfit": {
+            "method": "abinitio",
+        },
         "freq": {
             "method": "mw",
             "temperature": 298.15,
@@ -46,6 +49,7 @@ class CommandControl:
         "freq": {"mw", "nonmw", "both"},
         "sp": set(),
         "irc": {"gs", "hpc", "eulerpc","lqa"},
+        "parmfit": {"abinitio", "correction"},
     }
 
     def __init__(self, params: Dict[str, Any], task: str, output_path: Optional[str] = None):

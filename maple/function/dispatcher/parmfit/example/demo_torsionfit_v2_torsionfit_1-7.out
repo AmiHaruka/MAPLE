@@ -1,0 +1,1928 @@
+
+----------------------------------------------------------------------
+            Scanning combination 1/37: [360.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.3402               0.1513              -0.2351
+1    C               -1.0083               0.2132              -0.6623
+2    C               -0.3059               1.4106              -0.6689
+3    C               -0.9150               2.5863              -0.2473
+4    C               -2.2366               2.5449               0.1802
+5    C               -2.9367               1.3462               0.1858
+6    C               -3.0951              -1.1384              -0.2287
+7    C               -2.4987              -2.3333              -0.6496
+8    C               -3.1988              -3.5320              -0.6440
+9    C               -4.5203              -3.5734              -0.2164
+10   C               -5.1295              -2.3977               0.2051
+11   C               -4.4271              -1.2003               0.1986
+12   H               -0.4933              -0.6795              -0.9997
+13   H                0.7267               1.4233              -1.0066
+14   H               -0.3670               3.5226              -0.2521
+15   H               -2.7297               3.4539               0.5134
+16   H               -3.9657               1.3605               0.5275
+17   H               -1.4697              -2.3477              -0.9913
+18   H               -2.7057              -4.4410              -0.9772
+19   H               -5.0684              -4.5097              -0.2117
+20   H               -6.1620              -2.4104               0.5429
+21   H               -4.9421              -0.3076               0.5359
+
+
+Energy:                 -463.170773 Convergence criteria  Is converged 
+Maximum Force:             0.001497     0.002850  Yes
+RMS Force:                 0.001189     0.001900  Yes
+Maximum Displacement:      0.000021     0.003150  Yes
+RMS Displacement:          0.000017     0.002100  Yes
+
+LBFGS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 2/37: [370.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.3439               0.1536              -0.2559
+1    C               -1.0550               0.2433              -0.7967
+2    C               -0.3517               1.4416              -0.7919
+3    C               -0.9198               2.5903              -0.2489
+4    C               -2.1932               2.5168               0.3057
+5    C               -2.8876               1.3142               0.3105
+6    C               -3.0863              -1.1439              -0.2102
+7    C               -2.4587              -2.3592              -0.5121
+8    C               -3.1661              -3.5556              -0.5153
+9    C               -4.5236              -3.5724              -0.2113
+10   C               -5.1669              -2.3733               0.0769
+11   C               -4.4591              -1.1781               0.0663
+12   H               -0.5893              -0.6240              -1.2568
+13   H                0.6476               1.4708              -1.2190
+14   H               -0.3741               3.5297              -0.2541
+15   H               -2.6574               3.3997               0.7394
+16   H               -3.8574               1.2835               0.7984
+17   H               -1.3939              -2.3914              -0.7253
+18   H               -2.6443              -4.4781              -0.7572
+19   H               -5.0748              -4.5090              -0.2037
+20   H               -6.2281              -2.3598               0.3142
+21   H               -5.0057              -0.2569               0.2453
+
+
+Energy:                 -463.171607 Convergence criteria  Is converged 
+Maximum Force:             0.001769     0.002850  Yes
+RMS Force:                 0.001314     0.001900  Yes
+Maximum Displacement:      0.001783     0.003150  Yes
+RMS Displacement:          0.001165     0.002100  Yes
+
+LBFGS converged at iteration 26.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 3/37: [380.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.3261               0.1436              -0.2150
+1    C               -1.0614               0.2480              -0.8091
+2    C               -0.3575               1.4455              -0.8049
+3    C               -0.9196               2.5901              -0.2496
+4    C               -2.1895               2.5145               0.3116
+5    C               -2.8769               1.3074               0.3369
+6    C               -3.0966              -1.1382              -0.2544
+7    C               -2.4573              -2.3611              -0.4977
+8    C               -3.1632              -3.5576              -0.5009
+9    C               -4.5233              -3.5728              -0.2109
+10   C               -5.1673              -2.3729               0.0697
+11   C               -4.4659              -1.1738               0.0382
+12   H               -0.5951              -0.6197              -1.2676
+13   H                0.6442               1.4764              -1.2264
+14   H               -0.3731               3.5285              -0.2522
+15   H               -2.6533               3.4004               0.7383
+16   H               -3.8594               1.2873               0.7972
+17   H               -1.3927              -2.3929              -0.7125
+18   H               -2.6454              -4.4811              -0.7478
+19   H               -5.0746              -4.5083              -0.2062
+20   H               -6.2268              -2.3637               0.3129
+21   H               -5.0084              -0.2578               0.2486
+
+
+Energy:                 -463.171513 Convergence criteria  Is converged 
+Maximum Force:             0.002612     0.002850  Yes
+RMS Force:                 0.001521     0.001900  Yes
+Maximum Displacement:      0.002437     0.003150  Yes
+RMS Displacement:          0.001278     0.002100  Yes
+
+LBFGS converged at iteration 7.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 4/37: [390.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.3338               0.1453              -0.2506
+1    C               -1.1363               0.2869              -0.9602
+2    C               -0.4400               1.4911              -0.9538
+3    C               -0.9342               2.5850              -0.2501
+4    C               -2.1242               2.4598               0.4598
+5    C               -2.8027               1.2470               0.4745
+6    C               -3.0798              -1.1452              -0.2228
+7    C               -2.4231              -2.3761              -0.3289
+8    C               -3.1377              -3.5697              -0.3272
+9    C               -4.5235              -3.5591              -0.2039
+10   C               -5.1906              -2.3428              -0.0969
+11   C               -4.4762              -1.1510              -0.1275
+12   H               -0.7588              -0.5390              -1.5575
+13   H                0.5004               1.5721              -1.4925
+14   H               -0.3853               3.5224              -0.2357
+15   H               -2.5310               3.3094               1.0029
+16   H               -3.6926               1.1452               1.0912
+17   H               -1.3377              -2.4098              -0.3751
+18   H               -2.6095              -4.5135              -0.4343
+19   H               -5.0830              -4.4902              -0.2134
+20   H               -6.2719              -2.3180               0.0147
+21   H               -5.0179              -0.2081              -0.1144
+
+
+Energy:                 -463.174252 Convergence criteria  Is converged 
+Maximum Force:             0.002636     0.002850  Yes
+RMS Force:                 0.001823     0.001900  Yes
+Maximum Displacement:      0.002618     0.003150  Yes
+RMS Displacement:          0.001280     0.002100  Yes
+
+LBFGS converged at iteration 20.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 5/37: [400.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.3340               0.1437              -0.2350
+1    C               -1.1869               0.3030              -1.0182
+2    C               -0.5006               1.5120              -1.0367
+3    C               -0.9339               2.5752              -0.2494
+4    C               -2.0606               2.4215               0.5536
+5    C               -2.7609               1.2207               0.5487
+6    C               -3.0876              -1.1389              -0.2348
+7    C               -2.4175              -2.3660              -0.2509
+8    C               -3.1244              -3.5626              -0.2235
+9    C               -4.5164              -3.5536              -0.2080
+10   C               -5.1959              -2.3386              -0.2163
+11   C               -4.4861              -1.1436              -0.2158
+12   H               -0.8399              -0.5219              -1.6370
+13   H                0.3816               1.6191              -1.6625
+14   H               -0.3914               3.5166              -0.2557
+15   H               -2.4014               3.2402               1.1830
+16   H               -3.6439               1.1093               1.1749
+17   H               -1.3297              -2.3839              -0.2633
+18   H               -2.5838              -4.5057              -0.2235
+19   H               -5.0690              -4.4890              -0.1968
+20   H               -6.2832              -2.3184              -0.2176
+21   H               -5.0238              -0.1974              -0.2169
+
+
+Energy:                 -463.175466 Convergence criteria  Is converged 
+Maximum Force:             0.001324     0.002850  Yes
+RMS Force:                 0.000912     0.001900  Yes
+Maximum Displacement:      0.001144     0.003150  Yes
+RMS Displacement:          0.000590     0.002100  Yes
+
+LBFGS converged at iteration 20.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 6/37: [410.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.3208               0.1362              -0.2331
+1    C               -1.2309               0.3353              -1.0860
+2    C               -0.5360               1.5395              -1.0826
+3    C               -0.9378               2.5773              -0.2462
+4    C               -2.0358               2.3992               0.5911
+5    C               -2.7161               1.1865               0.6007
+6    C               -3.0789              -1.1443              -0.2463
+7    C               -2.4165              -2.3728              -0.1643
+8    C               -3.1297              -3.5663              -0.1597
+9    C               -4.5210              -3.5506              -0.2073
+10   C               -5.1929              -2.3328              -0.2661
+11   C               -4.4763              -1.1413              -0.2917
+12   H               -0.9278              -0.4630              -1.7601
+13   H                0.3308               1.6641              -1.7257
+14   H               -0.3899               3.5158              -0.2385
+15   H               -2.3686               3.2090               1.2348
+16   H               -3.5547               1.0378               1.2780
+17   H               -1.3306              -2.3906              -0.1012
+18   H               -2.5973              -4.5130              -0.1319
+19   H               -5.0778              -4.4840              -0.2110
+20   H               -6.2792              -2.3088              -0.2855
+21   H               -5.0014              -0.1915              -0.3691
+
+
+Energy:                 -463.175213 Convergence criteria  Is converged 
+Maximum Force:             0.001952     0.002850  Yes
+RMS Force:                 0.001287     0.001900  Yes
+Maximum Displacement:      0.001263     0.003150  Yes
+RMS Displacement:          0.000689     0.002100  Yes
+
+LBFGS converged at iteration 19.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 7/37: [420.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.3008               0.1250              -0.2395
+1    C               -1.2754               0.3719              -1.1568
+2    C               -0.6050               1.5907              -1.1572
+3    C               -0.9495               2.5804              -0.2406
+4    C               -1.9753               2.3482               0.6715
+5    C               -2.6516               1.1340               0.6621
+6    C               -3.0608              -1.1555              -0.2567
+7    C               -2.4174              -2.3828              -0.0735
+8    C               -3.1468              -3.5669              -0.0472
+9    C               -4.5300              -3.5416              -0.2037
+10   C               -5.1818              -2.3238              -0.3780
+11   C               -4.4519              -1.1410              -0.3921
+12   H               -1.0064              -0.3973              -1.8778
+13   H                0.1903               1.7697              -1.8758
+14   H               -0.4194               3.5291              -0.2364
+15   H               -2.2572               3.1175               1.3856
+16   H               -3.4600               0.9522               1.3674
+17   H               -1.3370              -2.4063               0.0540
+18   H               -2.6342              -4.5143               0.0960
+19   H               -5.0980              -4.4681              -0.1914
+20   H               -6.2621              -2.2928              -0.4929
+21   H               -4.9588              -0.1865              -0.5189
+
+
+Energy:                 -463.174677 Convergence criteria  Is converged 
+Maximum Force:             0.000890     0.002850  Yes
+RMS Force:                 0.000605     0.001900  Yes
+Maximum Displacement:      0.000511     0.003150  Yes
+RMS Displacement:          0.000329     0.002100  Yes
+
+LBFGS converged at iteration 21.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 8/37: [430.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.2893               0.1197              -0.2408
+1    C               -1.3333               0.4107              -1.2179
+2    C               -0.6643               1.6308              -1.2110
+3    C               -0.9571               2.5856              -0.2407
+4    C               -1.9238               2.3140               0.7244
+5    C               -2.5841               1.0904               0.7217
+6    C               -3.0524              -1.1619              -0.2642
+7    C               -2.4294              -2.3804               0.0182
+8    C               -3.1645              -3.5619               0.0405
+9    C               -4.5362              -3.5386              -0.1976
+10   C               -5.1704              -2.3266              -0.4585
+11   C               -4.4325              -1.1485              -0.4900
+12   H               -1.1120              -0.3293              -1.9839
+13   H                0.0972               1.8347              -1.9588
+14   H               -0.4314               3.5369              -0.2347
+15   H               -2.1709               3.0598               1.4762
+16   H               -3.3365               0.8702               1.4771
+17   H               -1.3599              -2.3988               0.2166
+18   H               -2.6643              -4.5069               0.2334
+19   H               -5.1085              -4.4626              -0.1832
+20   H               -6.2440              -2.2964              -0.6294
+21   H               -4.9218              -0.1988              -0.6991
+
+
+Energy:                 -463.173315 Convergence criteria  Is converged 
+Maximum Force:             0.001619     0.002850  Yes
+RMS Force:                 0.001308     0.001900  Yes
+Maximum Displacement:      0.001691     0.003150  Yes
+RMS Displacement:          0.001127     0.002100  Yes
+
+LBFGS converged at iteration 22.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 9/37: [440.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.2727               0.1104              -0.2496
+1    C               -1.3923               0.4525              -1.2794
+2    C               -0.7338               1.6795              -1.2653
+3    C               -0.9642               2.5877              -0.2361
+4    C               -1.8616               2.2671               0.7781
+5    C               -2.5146               1.0399               0.7654
+6    C               -3.0354              -1.1722              -0.2702
+7    C               -2.4439              -2.3793               0.1122
+8    C               -3.1915              -3.5537               0.1372
+9    C               -4.5425              -3.5330              -0.1962
+10   C               -5.1467              -2.3299              -0.5500
+11   C               -4.3981              -1.1592              -0.5793
+12   H               -1.2203              -0.2494              -2.0916
+13   H               -0.0382               1.9308              -2.0614
+14   H               -0.4434               3.5419              -0.2223
+15   H               -2.0621               2.9762               1.5769
+16   H               -3.2235               0.7853               1.5500
+17   H               -1.3919              -2.3964               0.3860
+18   H               -2.7196              -4.4910               0.4198
+19   H               -5.1229              -4.4520              -0.1840
+20   H               -6.2050              -2.2996              -0.7950
+21   H               -4.8648              -0.2138              -0.8468
+
+
+Energy:                 -463.171830 Convergence criteria  Is converged 
+Maximum Force:             0.001399     0.002850  Yes
+RMS Force:                 0.001111     0.001900  Yes
+Maximum Displacement:      0.002076     0.003150  Yes
+RMS Displacement:          0.001500     0.002100  Yes
+
+LBFGS converged at iteration 20.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 10/37: [450.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.2649               0.1072              -0.2607
+1    C               -1.4670               0.5028              -1.3376
+2    C               -0.8134               1.7325              -1.3137
+3    C               -0.9771               2.5946              -0.2337
+4    C               -1.7936               2.2211               0.8292
+5    C               -2.4279               0.9835               0.8144
+6    C               -3.0243              -1.1802              -0.2675
+7    C               -2.4714              -2.3695               0.2153
+8    C               -3.2282              -3.5385               0.2367
+9    C               -4.5530              -3.5260              -0.1884
+10   C               -5.1204              -2.3395              -0.6427
+11   C               -4.3571              -1.1778              -0.6844
+12   H               -1.3503              -0.1538              -2.1962
+13   H               -0.1743               2.0215              -2.1439
+14   H               -0.4656               3.5536              -0.2209
+15   H               -1.9362               2.8916               1.6725
+16   H               -3.0575               0.6737               1.6446
+17   H               -1.4440              -2.3850               0.5706
+18   H               -2.7826              -4.4648               0.5898
+19   H               -5.1394              -4.4410              -0.1681
+20   H               -6.1573              -2.3171              -0.9672
+21   H               -4.7838              -0.2473              -1.0501
+
+
+Energy:                 -463.170572 Convergence criteria  Is converged 
+Maximum Force:             0.001873     0.002850  Yes
+RMS Force:                 0.001255     0.001900  Yes
+Maximum Displacement:      0.001351     0.003150  Yes
+RMS Displacement:          0.000841     0.002100  Yes
+
+LBFGS converged at iteration 20.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 11/37: [460.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.2913               0.1215              -0.2456
+1    C               -1.5796               0.5517              -1.3667
+2    C               -0.9366               1.7864              -1.3617
+3    C               -0.9799               2.5936              -0.2288
+4    C               -1.6495               2.1510               0.9086
+5    C               -2.2966               0.9194               0.9012
+6    C               -3.0517              -1.1629              -0.2588
+7    C               -2.5259              -2.3201               0.3178
+8    C               -3.2789              -3.4903               0.3614
+9    C               -4.5560              -3.5216              -0.1908
+10   C               -5.0691              -2.3843              -0.8079
+11   C               -4.3183              -1.2134              -0.8462
+12   H               -1.5450              -0.0829              -2.2483
+13   H               -0.4118               2.1224              -2.2520
+14   H               -0.4905               3.5643              -0.2316
+15   H               -1.6651               2.7645               1.8051
+16   H               -2.8256               0.5729               1.7860
+17   H               -1.5268              -2.2928               0.7448
+18   H               -2.8690              -4.3754               0.8404
+19   H               -5.1490              -4.4316              -0.1424
+20   H               -6.0549              -2.4094              -1.2640
+21   H               -4.7182              -0.3213              -1.3223
+
+
+Energy:                 -463.171344 Convergence criteria  Is converged 
+Maximum Force:             0.001844     0.002850  Yes
+RMS Force:                 0.001333     0.001900  Yes
+Maximum Displacement:      0.001699     0.003150  Yes
+RMS Displacement:          0.001260     0.002100  Yes
+
+LBFGS converged at iteration 31.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 12/37: [470.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.3255               0.1403              -0.2404
+1    C               -1.7080               0.6125              -1.4012
+2    C               -1.0343               1.8307              -1.3959
+3    C               -0.9522               2.5793              -0.2245
+4    C               -1.5323               2.0979               0.9457
+5    C               -2.2026               0.8803               0.9384
+6    C               -3.0793              -1.1454              -0.2368
+7    C               -2.5910              -2.2672               0.4375
+8    C               -3.3224              -3.4516               0.4576
+9    C               -4.5393              -3.5335              -0.2146
+10   C               -5.0146              -2.4321              -0.9206
+11   C               -4.2815              -1.2512              -0.9408
+12   H               -1.7728               0.0229              -2.3133
+13   H               -0.5760               2.1988              -2.3099
+14   H               -0.4430               3.5400              -0.2225
+15   H               -1.4616               2.6688               1.8675
+16   H               -2.6490               0.4950               1.8526
+17   H               -1.6387              -2.1991               0.9592
+18   H               -2.9434              -4.3115               1.0034
+19   H               -5.1214              -4.4513              -0.1846
+20   H               -5.9564              -2.4911              -1.4592
+21   H               -4.6439              -0.3908              -1.4993
+
+
+Energy:                 -463.173233 Convergence criteria  Is converged 
+Maximum Force:             0.001508     0.002850  Yes
+RMS Force:                 0.001020     0.001900  Yes
+Maximum Displacement:      0.002312     0.003150  Yes
+RMS Displacement:          0.001381     0.002100  Yes
+
+LBFGS converged at iteration 27.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 13/37: [480.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.3171               0.1349              -0.2488
+1    C               -1.7865               0.6652              -1.4299
+2    C               -1.0989               1.8749              -1.4154
+3    C               -0.9534               2.5830              -0.2251
+4    C               -1.4778               2.0629               0.9555
+5    C               -2.1357               0.8384               0.9434
+6    C               -3.0678              -1.1517              -0.2372
+7    C               -2.6384              -2.2460               0.5217
+8    C               -3.3644              -3.4332               0.5240
+9    C               -4.5421              -3.5348              -0.2123
+10   C               -4.9771              -2.4510              -0.9708
+11   C               -4.2324              -1.2776              -0.9969
+12   H               -1.9074               0.1179              -2.3627
+13   H               -0.6745               2.2677              -2.3358
+14   H               -0.4176               3.5290              -0.2154
+15   H               -1.3749               2.6072               1.8902
+16   H               -2.5295               0.4147               1.8653
+17   H               -1.7233              -2.1653               1.1051
+18   H               -3.0108              -4.2830               1.1022
+19   H               -5.1093              -4.4623              -0.2081
+20   H               -5.8964              -2.5157              -1.5464
+21   H               -4.5540              -0.4335              -1.6042
+
+
+Energy:                 -463.174323 Convergence criteria  Is converged 
+Maximum Force:             0.002205     0.002850  Yes
+RMS Force:                 0.001627     0.001900  Yes
+Maximum Displacement:      0.002105     0.003150  Yes
+RMS Displacement:          0.001253     0.002100  Yes
+
+LBFGS converged at iteration 22.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 14/37: [490.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.3158               0.1334              -0.2389
+1    C               -1.8722               0.7112              -1.4319
+2    C               -1.1928               1.9251              -1.4233
+3    C               -0.9512               2.5823              -0.2197
+4    C               -1.3733               2.0068               0.9757
+5    C               -2.0385               0.7863               0.9657
+6    C               -3.0719              -1.1485              -0.2458
+7    C               -2.6981              -2.2066               0.5876
+8    C               -3.4263              -3.3917               0.6005
+9    C               -4.5440              -3.5343              -0.2179
+10   C               -4.9145              -2.4931              -1.0645
+11   C               -4.1761              -1.3156              -1.0867
+12   H               -2.0539               0.1945              -2.3721
+13   H               -0.8617               2.3634              -2.3613
+14   H               -0.4362               3.5394              -0.2143
+15   H               -1.1805               2.5081               1.9204
+16   H               -2.3669               0.3372               1.9007
+17   H               -1.8204              -2.0988               1.2216
+18   H               -3.1254              -4.2014               1.2605
+19   H               -5.1235              -4.4535              -0.1948
+20   H               -5.7797              -2.5994              -1.7135
+21   H               -4.4662              -0.5031              -1.7496
+
+
+Energy:                 -463.175348 Convergence criteria  Is converged 
+Maximum Force:             0.000960     0.002850  Yes
+RMS Force:                 0.000632     0.001900  Yes
+Maximum Displacement:      0.000955     0.003150  Yes
+RMS Displacement:          0.000667     0.002100  Yes
+
+LBFGS converged at iteration 30.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 15/37: [500.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.2957               0.1211              -0.2522
+1    C               -1.9403               0.7579              -1.4464
+2    C               -1.2604               1.9705              -1.4297
+3    C               -0.9559               2.5864              -0.2181
+4    C               -1.3201               1.9703               0.9761
+5    C               -1.9678               0.7409               0.9565
+6    C               -3.0489              -1.1615              -0.2515
+7    C               -2.7458              -2.1852               0.6531
+8    C               -3.4776              -3.3673               0.6591
+9    C               -4.5494              -3.5324              -0.2150
+10   C               -4.8709              -2.5135              -1.1075
+11   C               -4.1150              -1.3477              -1.1355
+12   H               -2.1640               0.2805              -2.3983
+13   H               -0.9755               2.4396              -2.3679
+14   H               -0.4308               3.5374              -0.2084
+15   H               -1.0962               2.4454               1.9282
+16   H               -2.2535               0.2615               1.8903
+17   H               -1.9041              -2.0709               1.3331
+18   H               -3.2140              -4.1587               1.3561
+19   H               -5.1238              -4.4545              -0.2030
+20   H               -5.7110              -2.6266              -1.7886
+21   H               -4.3685              -0.5515              -1.8321
+
+
+Energy:                 -463.175292 Convergence criteria  Is converged 
+Maximum Force:             0.002409     0.002850  Yes
+RMS Force:                 0.001619     0.001900  Yes
+Maximum Displacement:      0.002994     0.003150  Yes
+RMS Displacement:          0.001612     0.002100  Yes
+
+LBFGS converged at iteration 22.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 16/37: [510.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.2725               0.1090              -0.2545
+1    C               -2.0040               0.7994              -1.4410
+2    C               -1.3473               2.0248              -1.4231
+3    C               -0.9657               2.5973              -0.2135
+4    C               -1.2363               1.9278               0.9759
+5    C               -1.8763               0.6943               0.9528
+6    C               -3.0315              -1.1733              -0.2671
+7    C               -2.7997              -2.1576               0.6994
+8    C               -3.5489              -3.3287               0.7222
+9    C               -4.5633              -3.5295              -0.2091
+10   C               -4.8133              -2.5541              -1.1695
+11   C               -4.0499              -1.3930              -1.2007
+12   H               -2.2841               0.3579              -2.3952
+13   H               -1.1386               2.5365              -2.3594
+14   H               -0.4554               3.5567              -0.1964
+15   H               -0.9424               2.3608               1.9286
+16   H               -2.0950               0.1921               1.8923
+17   H               -2.0010              -2.0208               1.4254
+18   H               -3.3418              -4.0848               1.4755
+19   H               -5.1528              -4.4423              -0.1914
+20   H               -5.6004              -2.6973              -1.9052
+21   H               -4.2692              -0.6336              -1.9476
+
+
+Energy:                 -463.174589 Convergence criteria  Is converged 
+Maximum Force:             0.001556     0.002850  Yes
+RMS Force:                 0.000992     0.001900  Yes
+Maximum Displacement:      0.002916     0.003150  Yes
+RMS Displacement:          0.001635     0.002100  Yes
+
+LBFGS converged at iteration 25.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 17/37: [520.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.2629               0.1050              -0.2582
+1    C               -2.0816               0.8507              -1.4292
+2    C               -1.4366               2.0816              -1.4069
+3    C               -0.9687               2.6078              -0.2071
+4    C               -1.1416               1.8805               0.9661
+5    C               -1.7779               0.6454               0.9390
+6    C               -3.0234              -1.1797              -0.2712
+7    C               -2.8690              -2.1227               0.7522
+8    C               -3.6283              -3.2864               0.7801
+9    C               -4.5759              -3.5308              -0.2087
+10   C               -4.7430              -2.6036              -1.2322
+11   C               -3.9752              -1.4458              -1.2631
+12   H               -2.4161               0.4521              -2.3833
+13   H               -1.3084               2.6342              -2.3341
+14   H               -0.4739               3.5749              -0.1872
+15   H               -0.7829               2.2768               1.9125
+16   H               -1.9195               0.1128               1.8758
+17   H               -2.1193              -1.9680               1.5236
+18   H               -3.4817              -4.0004               1.5865
+19   H               -5.1774              -4.4352              -0.1816
+20   H               -5.4793              -2.7781              -2.0126
+21   H               -4.1465              -0.7294              -2.0622
+
+
+Energy:                 -463.173152 Convergence criteria  Is converged 
+Maximum Force:             0.000755     0.002850  Yes
+RMS Force:                 0.000520     0.001900  Yes
+Maximum Displacement:      0.002528     0.003150  Yes
+RMS Displacement:          0.001410     0.002100  Yes
+
+LBFGS converged at iteration 29.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 18/37: [530.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.2519               0.1007              -0.2661
+1    C               -2.1583               0.8994              -1.4142
+2    C               -1.5232               2.1351              -1.3848
+3    C               -0.9762               2.6179              -0.2004
+4    C               -1.0655               1.8430               0.9507
+5    C               -1.6852               0.6003               0.9136
+6    C               -3.0122              -1.1884              -0.2730
+7    C               -2.9377              -2.0859               0.8011
+8    C               -3.7078              -3.2424               0.8311
+9    C               -4.5897              -3.5283              -0.2060
+10   C               -4.6829              -2.6462              -1.2768
+11   C               -3.8984              -1.5004              -1.3122
+12   H               -2.5514               0.5466              -2.3638
+13   H               -1.4599               2.7233              -2.2970
+14   H               -0.4807               3.5845              -0.1764
+15   H               -0.6432               2.2007               1.8870
+16   H               -1.7420               0.0287               1.8353
+17   H               -2.2432              -1.9102               1.6181
+18   H               -3.6164              -3.9214               1.6753
+19   H               -5.1929              -4.4316              -0.1826
+20   H               -5.3648              -2.8514              -2.0989
+21   H               -4.0059              -0.8322              -2.1616
+
+
+Energy:                 -463.171438 Convergence criteria  Is converged 
+Maximum Force:             0.002283     0.002850  Yes
+RMS Force:                 0.001057     0.001900  Yes
+Maximum Displacement:      0.002004     0.003150  Yes
+RMS Displacement:          0.001392     0.002100  Yes
+
+LBFGS converged at iteration 23.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 19/37: [540.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.2668               0.1110              -0.2587
+1    C               -2.2595               0.9589              -1.3746
+2    C               -1.6284               2.1964              -1.3430
+3    C               -0.9755               2.6247              -0.1930
+4    C               -0.9429               1.7844               0.9140
+5    C               -1.5736               0.5466               0.8800
+6    C               -3.0288              -1.1802              -0.2666
+7    C               -3.0361              -2.0282               0.8494
+8    C               -3.8100              -3.1817               0.8805
+9    C               -4.5990              -3.5302              -0.2096
+10   C               -4.5803              -2.7199              -1.3391
+11   C               -3.8048              -1.5672              -1.3689
+12   H               -2.7448               0.6605              -2.2980
+13   H               -1.6523               2.8288              -2.2268
+14   H               -0.4932               3.5975              -0.1622
+15   H               -0.4277               2.0942               1.8196
+16   H               -1.5227              -0.0713               1.7710
+17   H               -2.4258              -1.8032               1.7177
+18   H               -3.7948              -3.8090               1.7682
+19   H               -5.2148              -4.4245              -0.1817
+20   H               -5.1802              -2.9799              -2.2075
+21   H               -3.8271              -0.9661              -2.2724
+
+
+Energy:                 -463.170432 Convergence criteria  Is converged 
+Maximum Force:             0.001419     0.002850  Yes
+RMS Force:                 0.000838     0.001900  Yes
+Maximum Displacement:      0.000844     0.003150  Yes
+RMS Displacement:          0.000563     0.002100  Yes
+
+LBFGS converged at iteration 30.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 20/37: [550.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.3048               0.1328              -0.2443
+1    C               -2.3831               1.0262              -1.3212
+2    C               -1.7319               2.2534              -1.2925
+3    C               -0.9577               2.6139              -0.1955
+4    C               -0.8194               1.7153               0.8566
+5    C               -1.4761               0.4907               0.8278
+6    C               -3.0651              -1.1584              -0.2483
+7    C               -3.1552              -1.9530               0.9026
+8    C               -3.9134              -3.1170               0.9211
+9    C               -4.5840              -3.5387              -0.2216
+10   C               -4.4576              -2.7953              -1.3901
+11   C               -3.7029              -1.6286              -1.4044
+12   H               -2.9909               0.7933              -2.1901
+13   H               -1.8378               2.9320              -2.1350
+14   H               -0.4710               3.5843              -0.1599
+15   H               -0.2028               1.9690               1.7152
+16   H               -1.3218              -0.1902               1.6598
+17   H               -2.6628              -1.6522               1.8223
+18   H               -3.9818              -3.6934               1.8401
+19   H               -5.1994              -4.4333              -0.2005
+20   H               -4.9575              -3.1178              -2.3000
+21   H               -3.6124              -1.0914              -2.3441
+
+
+Energy:                 -463.171079 Convergence criteria  Is converged 
+Maximum Force:             0.001914     0.002850  Yes
+RMS Force:                 0.000948     0.001900  Yes
+Maximum Displacement:      0.001759     0.003150  Yes
+RMS Displacement:          0.001087     0.002100  Yes
+
+LBFGS converged at iteration 30.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 21/37: [560.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.3400               0.1505              -0.2289
+1    C               -2.5005               1.0875              -1.2576
+2    C               -1.8232               2.3006              -1.2373
+3    C               -0.9368               2.5933              -0.2059
+4    C               -0.7193               1.6467               0.7903
+5    C               -1.4055               0.4385               0.7730
+6    C               -3.0981              -1.1361              -0.2337
+7    C               -3.2735              -1.8755               0.9428
+8    C               -4.0086              -3.0550               0.9478
+9    C               -4.5557              -3.5466              -0.2327
+10   C               -4.3376              -2.8564              -1.4205
+11   C               -3.6106              -1.6718              -1.4211
+12   H               -3.2074               0.8997              -2.0615
+13   H               -1.9952               3.0219              -2.0325
+14   H               -0.4192               3.5482              -0.1804
+15   H               -0.0155               1.8501               1.5937
+16   H               -1.1913              -0.2961               1.5451
+17   H               -2.8824              -1.5023               1.8856
+18   H               -4.1562              -3.5883               1.8837
+19   H               -5.1446              -4.4600              -0.2269
+20   H               -4.7411              -3.2361              -2.3561
+21   H               -3.4269              -1.1712              -2.3684
+
+
+Energy:                 -463.172941 Convergence criteria  Is converged 
+Maximum Force:             0.001620     0.002850  Yes
+RMS Force:                 0.000952     0.001900  Yes
+Maximum Displacement:      0.001128     0.003150  Yes
+RMS Displacement:          0.000797     0.002100  Yes
+
+LBFGS converged at iteration 30.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 22/37: [570.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.2885               0.1199              -0.2555
+1    C               -2.5284               1.0961              -1.2296
+2    C               -1.8471               2.3076              -1.2182
+3    C               -0.9305               2.5883              -0.2088
+4    C               -0.6984               1.6384               0.7808
+5    C               -1.3614               0.4171               0.7517
+6    C               -3.0441              -1.1675              -0.2537
+7    C               -3.3045              -1.8495               0.9407
+8    C               -4.0319              -3.0342               0.9494
+9    C               -4.5484              -3.5497              -0.2357
+10   C               -4.3195              -2.8709              -1.4283
+11   C               -3.5688              -1.7008              -1.4376
+12   H               -3.2787               0.9260              -1.9980
+13   H               -2.0485               3.0415              -1.9946
+14   H               -0.4051               3.5395              -0.1939
+15   H               -0.0084               1.8533               1.5931
+16   H               -1.1498              -0.3139               1.5280
+17   H               -2.9602              -1.4411               1.8877
+18   H               -4.2088              -3.5458               1.8924
+19   H               -5.1260              -4.4704              -0.2278
+20   H               -4.7411              -3.2434              -2.3586
+21   H               -3.3911              -1.1988              -2.3853
+
+
+Energy:                 -463.173641 Convergence criteria  Is converged 
+Maximum Force:             0.002538     0.002850  Yes
+RMS Force:                 0.001779     0.001900  Yes
+Maximum Displacement:      0.002943     0.003150  Yes
+RMS Displacement:          0.001768     0.002100  Yes
+
+LBFGS converged at iteration 13.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 23/37: [580.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.3027               0.1250              -0.2436
+1    C               -2.6229               1.1351              -1.1548
+2    C               -1.9602               2.3565              -1.1275
+3    C               -0.9540               2.5854              -0.1931
+4    C               -0.6089               1.5782               0.7041
+5    C               -1.2702               0.3553               0.6722
+6    C               -3.0588              -1.1555              -0.2527
+7    C               -3.4052              -1.7740               0.9519
+8    C               -4.1550              -2.9443               0.9626
+9    C               -4.5624              -3.5249              -0.2349
+10   C               -4.2029              -2.9318              -1.4423
+11   C               -3.4490              -1.7631              -1.4510
+12   H               -3.4214               0.9666              -1.8743
+13   H               -2.2259               3.1268              -1.8464
+14   H               -0.4377               3.5416              -0.1681
+15   H                0.1678               1.7528               1.4444
+16   H               -0.9736              -0.4338               1.3607
+17   H               -3.1046              -1.3129               1.8903
+18   H               -4.4119              -3.4075               1.9115
+19   H               -5.1520              -4.4381              -0.2277
+20   H               -4.5265              -3.3724              -2.3818
+21   H               -3.1512              -1.3233              -2.4011
+
+
+Energy:                 -463.175141 Convergence criteria  Is converged 
+Maximum Force:             0.002184     0.002850  Yes
+RMS Force:                 0.001552     0.001900  Yes
+Maximum Displacement:      0.002130     0.003150  Yes
+RMS Displacement:          0.001570     0.002100  Yes
+
+LBFGS converged at iteration 22.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 24/37: [590.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.2832               0.1141              -0.2538
+1    C               -2.6745               1.1582              -1.0953
+2    C               -2.0183               2.3830              -1.0662
+3    C               -0.9519               2.5817              -0.1932
+4    C               -0.5496               1.5479               0.6480
+5    C               -1.2103               0.3238               0.6196
+6    C               -3.0389              -1.1679              -0.2600
+7    C               -3.4723              -1.7272               0.9445
+8    C               -4.2277              -2.8941               0.9589
+9    C               -4.5589              -3.5243              -0.2373
+10   C               -4.1298              -2.9794              -1.4445
+11   C               -3.3768              -1.8091              -1.4565
+12   H               -3.5197               1.0053              -1.7636
+13   H               -2.3412               3.1828              -1.7270
+14   H               -0.4354               3.5379              -0.1707
+15   H                0.2661               1.7055               1.3496
+16   H               -0.8863              -0.4797               1.2778
+17   H               -3.2268              -1.2221               1.8766
+18   H               -4.5574              -3.3102               1.9069
+19   H               -5.1471              -4.4386              -0.2284
+20   H               -4.4067              -3.4533              -2.3829
+21   H               -3.0425              -1.3926              -2.4044
+
+
+Energy:                 -463.175189 Convergence criteria  Is converged 
+Maximum Force:             0.002401     0.002850  Yes
+RMS Force:                 0.001394     0.001900  Yes
+Maximum Displacement:      0.001800     0.003150  Yes
+RMS Displacement:          0.001043     0.002100  Yes
+
+LBFGS converged at iteration 21.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 25/37: [600.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.2739               0.1089              -0.2638
+1    C               -2.7311               1.1835              -1.0315
+2    C               -2.0796               2.4113              -0.9951
+3    C               -0.9591               2.5819              -0.1866
+4    C               -0.4968               1.5190               0.5849
+5    C               -1.1486               0.2905               0.5458
+6    C               -3.0265              -1.1754              -0.2594
+7    C               -3.5451              -1.6765               0.9377
+8    C               -4.3084              -2.8390               0.9502
+9    C               -4.5648              -3.5168              -0.2381
+10   C               -4.0559              -3.0249              -1.4371
+11   C               -3.2907              -1.8626              -1.4477
+12   H               -3.6157               1.0504              -1.6511
+13   H               -2.4464               3.2349              -1.6017
+14   H               -0.4489               3.5415              -0.1550
+15   H                0.3663               1.6512               1.2321
+16   H               -0.7851              -0.5391               1.1490
+17   H               -3.3545              -1.1358               1.8625
+18   H               -4.7003              -3.2166               1.8907
+19   H               -5.1629              -4.4250              -0.2312
+20   H               -4.2681              -3.5393              -2.3705
+21   H               -2.8932              -1.4804              -2.3857
+
+
+Energy:                 -463.174507 Convergence criteria  Is converged 
+Maximum Force:             0.002326     0.002850  Yes
+RMS Force:                 0.001382     0.001900  Yes
+Maximum Displacement:      0.002950     0.003150  Yes
+RMS Displacement:          0.001991     0.002100  Yes
+
+LBFGS converged at iteration 22.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 26/37: [610.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.2710               0.1087              -0.2727
+1    C               -2.7830               1.2128              -0.9598
+2    C               -2.1350               2.4422              -0.9133
+3    C               -0.9607               2.5841              -0.1790
+4    C               -0.4399               1.4906               0.5077
+5    C               -1.0985               0.2655               0.4710
+6    C               -3.0203              -1.1803              -0.2545
+7    C               -3.6242              -1.6292               0.9235
+8    C               -4.3951              -2.7860               0.9311
+9    C               -4.5715              -3.5145              -0.2421
+10   C               -3.9729              -3.0784              -1.4214
+11   C               -3.2139              -1.9126              -1.4288
+12   H               -3.6999               1.1007              -1.5339
+13   H               -2.5495               3.2897              -1.4524
+14   H               -0.4533               3.5447              -0.1438
+15   H                0.4776               1.5943               1.0812
+16   H               -0.7024              -0.5887               1.0154
+17   H               -3.4851              -1.0599               1.8398
+18   H               -4.8585              -3.1179               1.8565
+19   H               -5.1730              -4.4196              -0.2360
+20   H               -4.1050              -3.6437              -2.3404
+21   H               -2.7541              -1.5610              -2.3498
+
+
+Energy:                 -463.173427 Convergence criteria  Is converged 
+Maximum Force:             0.001402     0.002850  Yes
+RMS Force:                 0.000794     0.001900  Yes
+Maximum Displacement:      0.001713     0.003150  Yes
+RMS Displacement:          0.000829     0.002100  Yes
+
+LBFGS converged at iteration 27.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 27/37: [620.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.2544               0.0997              -0.2778
+1    C               -2.8255               1.2248              -0.8775
+2    C               -2.1778               2.4546              -0.8413
+3    C               -0.9640               2.5838              -0.1718
+4    C               -0.4020               1.4761               0.4580
+5    C               -1.0449               0.2426               0.4093
+6    C               -3.0057              -1.1899              -0.2631
+7    C               -3.6930              -1.5753               0.8902
+8    C               -4.4589              -2.7362               0.9060
+9    C               -4.5763              -3.5090              -0.2458
+10   C               -3.9222              -3.1163              -1.4106
+11   C               -3.1448              -1.9612              -1.4210
+12   H               -3.7776               1.1186              -1.3927
+13   H               -2.6196               3.3108              -1.3444
+14   H               -0.4531               3.5436              -0.1498
+15   H                0.5357               1.5793               0.9989
+16   H               -0.6093              -0.6224               0.9062
+17   H               -3.6028              -0.9630               1.7845
+18   H               -4.9573              -3.0398               1.8227
+19   H               -5.1688              -4.4213              -0.2320
+20   H               -4.0291              -3.7074              -2.3171
+21   H               -2.6380              -1.6503              -2.3326
+
+
+Energy:                 -463.171756 Convergence criteria  Is converged 
+Maximum Force:             0.002055     0.002850  Yes
+RMS Force:                 0.001493     0.001900  Yes
+Maximum Displacement:      0.002449     0.003150  Yes
+RMS Displacement:          0.001690     0.002100  Yes
+
+LBFGS converged at iteration 20.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 28/37: [630.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.2509               0.0977              -0.2713
+1    C               -2.8736               1.2413              -0.7739
+2    C               -2.2348               2.4761              -0.7322
+3    C               -0.9691               2.5832              -0.1643
+4    C               -0.3470               1.4523               0.3567
+5    C               -0.9823               0.2141               0.3024
+6    C               -3.0067              -1.1892              -0.2707
+7    C               -3.7793              -1.5131               0.8457
+8    C               -4.5546              -2.6677               0.8641
+9    C               -4.5817              -3.5025              -0.2487
+10   C               -3.8295              -3.1790              -1.3743
+11   C               -3.0434              -2.0294              -1.3863
+12   H               -3.8692               1.1458              -1.1997
+13   H               -2.7281               3.3548              -1.1389
+14   H               -0.4684               3.5476              -0.1277
+15   H                0.6317               1.5384               0.8215
+16   H               -0.4899              -0.6672               0.7059
+17   H               -3.7614              -0.8433               1.7016
+18   H               -5.1409              -2.9121               1.7458
+19   H               -5.1888              -4.4044              -0.2384
+20   H               -3.8675              -3.8177              -2.2529
+21   H               -2.4535              -1.7840              -2.2660
+
+
+Energy:                 -463.170581 Convergence criteria  Is converged 
+Maximum Force:             0.002119     0.002850  Yes
+RMS Force:                 0.001106     0.001900  Yes
+Maximum Displacement:      0.002108     0.003150  Yes
+RMS Displacement:          0.001488     0.002100  Yes
+
+LBFGS converged at iteration 21.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 29/37: [640.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.3461               0.1542              -0.2195
+1    C               -2.9597               1.3482              -0.6081
+2    C               -2.2536               2.5476              -0.5895
+3    C               -0.9182               2.5656              -0.1973
+4    C               -0.2875               1.3754               0.1524
+5    C               -0.9925               0.1757               0.1233
+6    C               -3.1080              -1.1303              -0.2360
+7    C               -3.9816              -1.4506               0.8069
+8    C               -4.6963              -2.6449               0.7920
+9    C               -4.5341              -3.5428              -0.2590
+10   C               -3.6361              -3.2507              -1.2813
+11   C               -2.9148              -2.0606              -1.2594
+12   H               -4.0047               1.3328              -0.9081
+13   H               -2.7508               3.4712              -0.8727
+14   H               -0.3713               3.5049              -0.1619
+15   H                0.7584               1.3784               0.4485
+16   H               -0.4964              -0.7590               0.3707
+17   H               -4.1116              -0.7449               1.6237
+18   H               -5.3887              -2.8696               1.5986
+19   H               -5.1077              -4.4664              -0.2827
+20   H               -3.4941              -3.9516              -2.0999
+21   H               -2.1937              -1.8410              -2.0424
+
+
+Energy:                 -463.171977 Convergence criteria  Is converged 
+Maximum Force:             0.001620     0.002850  Yes
+RMS Force:                 0.000947     0.001900  Yes
+Maximum Displacement:      0.000983     0.003150  Yes
+RMS Displacement:          0.000858     0.002100  Yes
+
+LBFGS converged at iteration 40.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 30/37: [650.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.3193               0.1368              -0.2353
+1    C               -2.9714               1.3375              -0.5277
+2    C               -2.2728               2.5392              -0.5390
+3    C               -0.9191               2.5620              -0.2106
+4    C               -0.2694               1.3759               0.1207
+5    C               -0.9588               0.1678               0.0837
+6    C               -3.0776              -1.1466              -0.2456
+7    C               -4.0230              -1.4087               0.7499
+8    C               -4.7246              -2.6087               0.7623
+9    C               -4.5241              -3.5445              -0.2496
+10   C               -3.6128              -3.2754              -1.2679
+11   C               -2.8760              -2.0952              -1.2516
+12   H               -4.0363               1.3190              -0.7505
+13   H               -2.7889               3.4624              -0.7886
+14   H               -0.3792               3.5054              -0.1943
+15   H                0.7775               1.3921               0.4136
+16   H               -0.4507              -0.7634               0.3242
+17   H               -4.2005              -0.6603               1.5192
+18   H               -5.4416              -2.8074               1.5545
+19   H               -5.0918              -4.4716              -0.2538
+20   H               -3.4790              -3.9854              -2.0801
+21   H               -2.1499              -1.8891              -2.0352
+
+
+Energy:                 -463.172912 Convergence criteria  Is converged 
+Maximum Force:             0.002742     0.002850  Yes
+RMS Force:                 0.001819     0.001900  Yes
+Maximum Displacement:      0.002309     0.003150  Yes
+RMS Displacement:          0.001236     0.002100  Yes
+
+LBFGS converged at iteration 14.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 31/37: [660.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.3210               0.1376              -0.2248
+1    C               -2.9925               1.3505              -0.4068
+2    C               -2.3024               2.5570              -0.3924
+3    C               -0.9250               2.5690              -0.1884
+4    C               -0.2436               1.3671              -0.0153
+5    C               -0.9333               0.1586              -0.0524
+6    C               -3.0847              -1.1422              -0.2519
+7    C               -4.1084              -1.3592               0.6759
+8    C               -4.8310              -2.5466               0.6756
+9    C               -4.5441              -3.5363              -0.2608
+10   C               -3.5205              -3.3360              -1.1836
+11   C               -2.7835              -2.1555              -1.1674
+12   H               -4.0709               1.3390              -0.5540
+13   H               -2.8419               3.4892              -0.5379
+14   H               -0.3848               3.5122              -0.1675
+15   H                0.8321               1.3721               0.1415
+16   H               -0.3956              -0.7803               0.0648
+17   H               -4.3383              -0.5789               1.3989
+18   H               -5.6216              -2.6973               1.4060
+19   H               -5.1144              -4.4618              -0.2687
+20   H               -3.2917              -4.1075              -1.9144
+21   H               -1.9721              -2.0091              -1.8780
+
+
+Energy:                 -463.174631 Convergence criteria  Is converged 
+Maximum Force:             0.001277     0.002850  Yes
+RMS Force:                 0.000823     0.001900  Yes
+Maximum Displacement:      0.002682     0.003150  Yes
+RMS Displacement:          0.001445     0.002100  Yes
+
+LBFGS converged at iteration 23.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 32/37: [670.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.3224               0.1365              -0.2277
+1    C               -3.0036               1.3544              -0.3070
+2    C               -2.3109               2.5594              -0.3045
+3    C               -0.9230               2.5641              -0.1940
+4    C               -0.2350               1.3573              -0.0991
+5    C               -0.9278               0.1518              -0.1374
+6    C               -3.0827              -1.1415              -0.2493
+7    C               -4.1718              -1.3193               0.6086
+8    C               -4.8857              -2.5118               0.6154
+9    C               -4.5364              -3.5371              -0.2593
+10   C               -3.4627              -3.3653              -1.1291
+11   C               -2.7279              -2.1845              -1.1091
+12   H               -4.0895               1.3481              -0.3789
+13   H               -2.8577               3.4954              -0.3852
+14   H               -0.3794               3.5053              -0.1863
+15   H                0.8474               1.3553              -0.0032
+16   H               -0.3847              -0.7895              -0.0827
+17   H               -4.4514              -0.5107               1.2812
+18   H               -5.7183              -2.6374               1.3029
+19   H               -5.0966              -4.4685              -0.2599
+20   H               -3.1916              -4.1585              -1.8205
+21   H               -1.8774              -2.0619              -1.7768
+
+
+Energy:                 -463.175368 Convergence criteria  Is converged 
+Maximum Force:             0.001130     0.002850  Yes
+RMS Force:                 0.000917     0.001900  Yes
+Maximum Displacement:      0.000771     0.003150  Yes
+RMS Displacement:          0.000486     0.002100  Yes
+
+LBFGS converged at iteration 22.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 33/37: [680.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.3287               0.1410              -0.2396
+1    C               -3.0065               1.3647              -0.2255
+2    C               -2.3092               2.5673              -0.2135
+3    C               -0.9173               2.5676              -0.1929
+4    C               -0.2309               1.3568              -0.1994
+5    C               -0.9305               0.1559              -0.2357
+6    C               -3.0812              -1.1431              -0.2353
+7    C               -4.2270              -1.2954               0.5527
+8    C               -4.9432              -2.4868               0.5490
+9    C               -4.5379              -3.5430              -0.2622
+10   C               -3.4037              -3.4019              -1.0565
+11   C               -2.6757              -2.2177              -1.0327
+12   H               -4.0945               1.3734              -0.2458
+13   H               -2.8565               3.5067              -0.2100
+14   H               -0.3708               3.5066              -0.1737
+15   H                0.8556               1.3469              -0.1826
+16   H               -0.3831              -0.7839              -0.2412
+17   H               -4.5482              -0.4761               1.1930
+18   H               -5.8268              -2.5855               1.1748
+19   H               -5.1022              -4.4716              -0.2737
+20   H               -3.0801              -4.2206              -1.6937
+21   H               -1.7907              -2.1195              -1.6574
+
+
+Energy:                 -463.175521 Convergence criteria  Is converged 
+Maximum Force:             0.001057     0.002850  Yes
+RMS Force:                 0.000620     0.001900  Yes
+Maximum Displacement:      0.002138     0.003150  Yes
+RMS Displacement:          0.001191     0.002100  Yes
+
+LBFGS converged at iteration 21.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 34/37: [690.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.3314               0.1413              -0.2826
+1    C               -3.0059               1.3635              -0.2022
+2    C               -2.3091               2.5664              -0.1986
+3    C               -0.9174               2.5687              -0.1937
+4    C               -0.2310               1.3577              -0.2102
+5    C               -0.9320               0.1588              -0.2667
+6    C               -3.0577              -1.1556              -0.2015
+7    C               -4.2393              -1.2873               0.5346
+8    C               -4.9510              -2.4814               0.5374
+9    C               -4.5383              -3.5438              -0.2612
+10   C               -3.3983              -3.4059              -1.0481
+11   C               -2.6606              -2.2286              -1.0077
+12   H               -4.0937               1.3752              -0.2291
+13   H               -2.8565               3.5055              -0.2021
+14   H               -0.3708               3.5075              -0.1750
+15   H                0.8553               1.3449              -0.1832
+16   H               -0.3887              -0.7834              -0.2409
+17   H               -4.5589              -0.4721               1.1806
+18   H               -5.8304              -2.5823               1.1685
+19   H               -5.1022              -4.4725              -0.2724
+20   H               -3.0783              -4.2194              -1.6937
+21   H               -1.7929              -2.1153              -1.6541
+
+
+Energy:                 -463.173442 Convergence criteria  Is converged 
+Maximum Force:             0.002523     0.002850  Yes
+RMS Force:                 0.001639     0.001900  Yes
+Maximum Displacement:      0.002367     0.003150  Yes
+RMS Displacement:          0.001280     0.002100  Yes
+
+LBFGS converged at iteration 8.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 35/37: [700.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.3362               0.1465              -0.2555
+1    C               -2.9919               1.3667              -0.0503
+2    C               -2.2935               2.5673              -0.0516
+3    C               -0.9099               2.5714              -0.1894
+4    C               -0.2374               1.3648              -0.3507
+5    C               -0.9446               0.1708              -0.4040
+6    C               -3.0786              -1.1456              -0.2173
+7    C               -4.3244              -1.2488               0.4139
+8    C               -5.0311              -2.4444               0.4189
+9    C               -4.5406              -3.5497              -0.2677
+10   C               -3.3253              -3.4521              -0.9369
+11   C               -2.5950              -2.2717              -0.8936
+12   H               -4.0727               1.3928               0.0585
+13   H               -2.8333               3.5050               0.0551
+14   H               -0.3603               3.5076              -0.1904
+15   H                0.8444               1.3501              -0.4500
+16   H               -0.3930              -0.7549              -0.5455
+17   H               -4.7306              -0.4012               0.9592
+18   H               -5.9701              -2.5134               0.9627
+19   H               -5.0903              -4.4858              -0.2668
+20   H               -2.9330              -4.3036              -1.4861
+21   H               -1.6418              -2.2301              -1.4140
+
+
+Energy:                 -463.172903 Convergence criteria  Is converged 
+Maximum Force:             0.002462     0.002850  Yes
+RMS Force:                 0.001850     0.001900  Yes
+Maximum Displacement:      0.001539     0.003150  Yes
+RMS Displacement:          0.000875     0.002100  Yes
+
+LBFGS converged at iteration 19.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 36/37: [710.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.3450               0.1547              -0.2549
+1    C               -2.9734               1.3702               0.0476
+2    C               -2.2629               2.5647               0.0702
+3    C               -0.8989               2.5772              -0.2019
+4    C               -0.2554               1.3797              -0.4927
+5    C               -0.9653               0.1857              -0.5013
+6    C               -3.0877              -1.1434              -0.2099
+7    C               -4.3775              -1.2319               0.3314
+8    C               -5.0895              -2.4256               0.3092
+9    C               -4.5347              -3.5653              -0.2627
+10   C               -3.2608              -3.4944              -0.8153
+11   C               -2.5570              -2.2967              -0.8039
+12   H               -4.0445               1.4076               0.2264
+13   H               -2.7807               3.4903               0.3104
+14   H               -0.3435               3.5104              -0.1900
+15   H                0.8102               1.3684              -0.7089
+16   H               -0.4149              -0.7353              -0.6697
+17   H               -4.8292              -0.3745               0.8225
+18   H               -6.0891              -2.4596               0.7363
+19   H               -5.0877              -4.5001              -0.2758
+20   H               -2.8093              -4.3745              -1.2666
+21   H               -1.5923              -2.2659              -1.3020
+
+
+Energy:                 -463.171542 Convergence criteria  Is converged 
+Maximum Force:             0.001781     0.002850  Yes
+RMS Force:                 0.001190     0.001900  Yes
+Maximum Displacement:      0.001100     0.003150  Yes
+RMS Displacement:          0.000670     0.002100  Yes
+
+LBFGS converged at iteration 21.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 37/37: [720.00]
+
+======================================================================
+LBFGS Parameters
+======================================================================
+memory:     5
+curvature:  70.0
+max_step:   0.2
+max_iter:   256
+write_traj: False
+traj_every: 1
+verbose:    0
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -2.3367               0.1522              -0.2247
+1    C               -2.9269               1.3488               0.2056
+2    C               -2.2200               2.5451               0.2150
+3    C               -0.8950               2.5856              -0.2039
+4    C               -0.2924               1.4102              -0.6376
+5    C               -1.0030               0.2161              -0.6527
+6    C               -3.1008              -1.1382              -0.2381
+7    C               -4.4374              -1.2025               0.1791
+8    C               -5.1446              -2.3987               0.1697
+9    C               -4.5387              -3.5736              -0.2607
+10   C               -3.2125              -3.5317              -0.6753
+11   C               -2.5048              -2.3356              -0.6589
+12   H               -3.9522               1.3660               0.5614
+13   H               -2.7143               3.4517               0.5553
+14   H               -0.3398               3.5198              -0.1904
+15   H                0.7439               1.4169              -0.9668
+16   H               -0.4920              -0.6721              -1.0107
+17   H               -4.9615              -0.3095               0.5048
+18   H               -6.1798              -2.4068               0.5021
+19   H               -5.0934              -4.5083              -0.2744
+20   H               -2.7186              -4.4373              -1.0191
+21   H               -1.4687              -2.3565              -0.9814
+
+
+Energy:                 -463.170783 Convergence criteria  Is converged 
+Maximum Force:             0.001208     0.002850  Yes
+RMS Force:                 0.000805     0.001900  Yes
+Maximum Displacement:      0.000973     0.003150  Yes
+RMS Displacement:          0.000755     0.002100  Yes
+
+LBFGS converged at iteration 30.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_traj.xyz
+
+======================================================================
+Scan completed! Total points: 37Results saved to: /home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/dispatcher/parmfit/example/demo_torsionfit_v2_torsionfit_1-7_scan_final.xyz
+Energy range: -463.175521 to -463.170432 eV
