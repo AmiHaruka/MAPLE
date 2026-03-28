@@ -1,0 +1,67 @@
+"""
+GROMACS-style MDP file parser for MAPLE MD parameters.
+
+Format:
+    key = value   ; optional comment
+    key = value   # optional comment
+
+Keys are case-insensitive and stripped of whitespace.
+Values are coerced to int, float, or bool as appropriate;
+otherwise left as str.
+"""
+
+
+def parse_mdp(path: str) -> dict:
+    """
+    Parse a GROMACS-style MDP file and return a dict of parameters.
+
+    Handles:
+    - Comments introduced by ';' or '#'
+    - key = value pairs (case-insensitive keys, lowercased in output)
+    - Type coercion: int, float, bool ('yes'/'no'/'true'/'false'), str
+    - Blank lines and comment-only lines ignored
+
+    Returns:
+        dict mapping lowercase key to coerced value
+
+    Raises:
+        FileNotFoundError: if path does not exist
+        ValueError: if a line has no '=' separator
+    """
+    result = {}
+    with open(path) as f:
+        for lineno, raw in enumerate(f, 1):
+            # Strip inline comments (; or #)
+            for comment_char in (';', '#'):
+                idx = raw.find(comment_char)
+                if idx != -1:
+                    raw = raw[:idx]
+            line = raw.strip()
+            if not line:
+                continue
+            if '=' not in line:
+                raise ValueError(
+                    f"{path}:{lineno}: expected 'key = value', got: {line!r}"
+                )
+            key, _, val = line.partition('=')
+            key = key.strip().lower()
+            val = val.strip()
+            result[key] = _coerce(val)
+    return result
+
+
+def _coerce(val: str):
+    """Coerce a string value to int, float, bool, or leave as str."""
+    if val.lower() in ('yes', 'true'):
+        return True
+    if val.lower() in ('no', 'false'):
+        return False
+    try:
+        return int(val)
+    except ValueError:
+        pass
+    try:
+        return float(val)
+    except ValueError:
+        pass
+    return val

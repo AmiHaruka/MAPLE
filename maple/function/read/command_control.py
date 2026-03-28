@@ -93,6 +93,7 @@ class CommandControl:
             "pressure":        1.0,       # bar
             "tau_p":           2000.0,    # fs
             "compressibility": 4.5e-5,    # 1/bar (water at 300 K, CRC Handbook)
+            "mdp":             None,      # path to GROMACS-style .mdp file
         },
         "solv": {"solvent": "water", "explicit": None},
     }
@@ -147,6 +148,10 @@ class CommandControl:
                 # Task options inside parentheses
                 if paren_val:
                     cls._parse_nested(params, paren_val)
+
+                # Load MDP file if specified (inline params override MDP)
+                if task == 'md' and params.get('mdp'):
+                    cls._load_mdp(params, output_path)
 
                 continue
 
@@ -256,6 +261,36 @@ class CommandControl:
                 target[k.strip()] = CommandControl._auto_cast(v.strip())
             else:
                 target[kv.strip()] = True
+
+    @classmethod
+    def _load_mdp(cls, params: dict, output_path: Optional[str] = None) -> None:
+        """
+        Load parameters from a GROMACS-style MDP file into params.
+
+        Inline parameters (already in params from the #md(...) line)
+        take precedence over MDP file values. MDP values are only applied
+        for keys that are still at their default values.
+
+        Args:
+            params: Parameter dict to update in-place
+            output_path: Output file path for error logging
+        """
+        from ..dispatcher.md.mdp_reader import parse_mdp
+        mdp_path = params['mdp']
+        try:
+            mdp_params = parse_mdp(mdp_path)
+        except FileNotFoundError:
+            cls._log_error(output_path, f"MDP file not found: {mdp_path!r}")
+            raise
+        except ValueError as e:
+            cls._log_error(output_path, str(e))
+            raise
+
+        defaults = cls.DEFAULTS.get('md', {})
+        # Only apply MDP value if the current param is still at its default
+        for key, mdp_val in mdp_params.items():
+            if key in params and params[key] == defaults.get(key):
+                params[key] = mdp_val
 
     @staticmethod
     def _auto_cast(value: str) -> Any:

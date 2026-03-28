@@ -1,0 +1,80 @@
+import pytest
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+
+from maple.function.dispatcher.md.mdp_reader import parse_mdp, _coerce
+
+
+def test_coerce_types():
+    assert _coerce('42') == 42
+    assert isinstance(_coerce('42'), int)
+    assert _coerce('3.14') == pytest.approx(3.14)
+    assert isinstance(_coerce('3.14'), float)
+    assert _coerce('yes') is True
+    assert _coerce('no') is False
+    assert _coerce('true') is True
+    assert _coerce('false') is False
+    assert _coerce('langevin') == 'langevin'
+
+
+def test_parse_mdp_basic(tmp_path):
+    mdp = tmp_path / "run.mdp"
+    mdp.write_text("""\
+; NVT production run
+ensemble = nvt
+timestep = 1.0   ; fs
+steps    = 100000
+temperature = 300.0
+thermostat = langevin
+""")
+    result = parse_mdp(str(mdp))
+    assert result['ensemble'] == 'nvt'
+    assert result['timestep'] == pytest.approx(1.0)
+    assert result['steps'] == 100000
+    assert result['temperature'] == pytest.approx(300.0)
+    assert result['thermostat'] == 'langevin'
+
+
+def test_parse_mdp_hash_comments(tmp_path):
+    mdp = tmp_path / "run.mdp"
+    mdp.write_text("key = value  # this is a comment\n")
+    result = parse_mdp(str(mdp))
+    assert result['key'] == 'value'
+
+
+def test_parse_mdp_file_not_found():
+    with pytest.raises(FileNotFoundError):
+        parse_mdp("/nonexistent/path/run.mdp")
+
+
+def test_parse_mdp_bad_line(tmp_path):
+    mdp = tmp_path / "bad.mdp"
+    mdp.write_text("this line has no equals sign\n")
+    with pytest.raises(ValueError, match="expected 'key = value'"):
+        parse_mdp(str(mdp))
+
+
+def test_mdp_loaded_via_command_control(tmp_path):
+    """MDP file params are merged when #md(mdp=...) is specified."""
+    from maple.function.read.command_control import CommandControl
+    mdp = tmp_path / "run.mdp"
+    mdp.write_text("timestep = 2.0\ntemperature = 400.0\n")
+    lines = [f"#md(ensemble=nvt, mdp={mdp})"]
+    cc = CommandControl.from_settings(lines)
+    # ensemble was specified inline -> should be nvt
+    assert cc.params['ensemble'] == 'nvt'
+    # timestep was in MDP and not overridden inline -> should be 2.0
+    assert cc.params['timestep'] == pytest.approx(2.0)
+
+
+def test_inline_overrides_mdp(tmp_path):
+    """Inline params take precedence over MDP file values."""
+    from maple.function.read.command_control import CommandControl
+    mdp = tmp_path / "run.mdp"
+    mdp.write_text("timestep = 2.0\n")
+    # inline specifies timestep=0.5 which should win
+    lines = [f"#md(ensemble=nve, mdp={mdp}, timestep=0.5)"]
+    cc = CommandControl.from_settings(lines)
+    assert cc.params['timestep'] == pytest.approx(0.5)
