@@ -1,4 +1,5 @@
 import importlib
+import os
 import torch
 import numpy as np
 from functools import partial
@@ -70,14 +71,14 @@ class UMACalculator(FAIRChemCalculator):
             raise ImportError("fairchem-core is not installed. Please install it first.")
 
         # Resolve local checkpoint path via SetCalculator's model directory
-        from pathlib import Path
-        _model_dir = Path(__file__).parent.parent / "model"
-        _local_path = _model_dir / f"{model_name}.pt"
+        model_dir = os.path.dirname(os.path.realpath(__file__))
+        model_dir = os.path.dirname(model_dir)
+        model_path = os.path.join(model_dir, 'model', f'{model_name}.pt')
 
-        if _local_path.exists():
+        if os.path.exists(model_path):
             from fairchem.core.units.mlip_unit import load_predict_unit
             predictor = load_predict_unit(
-                str(_local_path),
+                model_path,
                 inference_settings="default",
                 overrides=overrides,
                 device=device,
