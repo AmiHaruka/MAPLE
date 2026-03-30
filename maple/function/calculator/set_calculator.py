@@ -158,12 +158,13 @@ class SetClaculator():
                 uma_size = self.model_params.get('size')
             # Resolve the model size key for local file lookup
             size_key = uma_size if uma_size else 'uma-s-1p1'
-            self._ensure_model_file(size_key)
+            model_path = self._ensure_model_file(size_key)
             from .uma._uma_calculator import UMACalculator
             return UMACalculator(
                 model=model, device=self.device,
                 implicit=self.implicit, solvent=self.solvent,
                 task=uma_task, size=uma_size,
+                checkpoint_path=str(model_path),
             )
 
         if model == 'maceomol':

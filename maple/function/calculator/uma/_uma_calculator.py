@@ -1,5 +1,4 @@
 import importlib
-import os
 import torch
 import numpy as np
 from functools import partial
@@ -17,6 +16,12 @@ except ImportError:
 
 EV2HARTREE = 1.0 / 27.211386245988
 
+UMA_MODELS_MAP = {
+    "uma-s-1p1": "uma-s-1p1",
+    "uma-m-1p1": "uma-m-1p1",
+    "uma": "uma-s-1p1",
+}
+
 
 class UMACalculator(FAIRChemCalculator):
     """
@@ -33,36 +38,24 @@ class UMACalculator(FAIRChemCalculator):
         solvent: str = 'none',
         task: str | None = None,
         size: str | None = None,
+        checkpoint_path: str | None = None,
     ):
         """
         Initialize UMA Calculator.
 
         Args:
             device (torch.device): Target device ('cuda' or 'cpu').
-            model (str): UMA model name or local checkpoint path.
+            model (str): UMA model name.
             overrides (dict, optional): Additional inference configuration overrides.
             implicit (Literal["gbsa", "none"]): Implicit solvent model.
             solvent (str): Solvent name for GBSA correction.
             task (str | None): UMA task type (omol, oc20, omat, omc, odac). Default: omol.
             size (str | None): UMA model size (uma-s-1p1, uma-m-1p1). Default: uma-s-1p1.
+            checkpoint_path (str | None): Local checkpoint path. When provided, loads
+                from this path directly. Otherwise falls back to FAIRChem pretrained download.
         """
-        # Determine model size
-        if size is not None:
-            model_name = size
-        else:
-            # Use default mapping
-            UMA_MODELS_MAP = {
-                "uma-s-1p1": "uma-s-1p1",
-                "uma-m-1p1": "uma-m-1p1",
-                "uma": "uma-s-1p1"  # default
-            }
-            model_name = UMA_MODELS_MAP.get(model, "uma-s-1p1")
-
         # Determine task name
-        if task is not None:
-            task_name = task
-        else:
-            task_name = "omol"  # default
+        task_name = task if task is not None else "omol"
 
         device = str(device)
         device = "cuda" if device.startswith("cuda") else "cpu"
@@ -70,20 +63,17 @@ class UMACalculator(FAIRChemCalculator):
         if not importlib.util.find_spec("fairchem"):
             raise ImportError("fairchem-core is not installed. Please install it first.")
 
-        # Resolve local checkpoint path via SetCalculator's model directory
-        model_dir = os.path.dirname(os.path.realpath(__file__))
-        model_dir = os.path.dirname(model_dir)
-        model_path = os.path.join(model_dir, 'model', f'{model_name}.pt')
-
-        if os.path.exists(model_path):
+        if checkpoint_path is not None:
             from fairchem.core.units.mlip_unit import load_predict_unit
             predictor = load_predict_unit(
-                model_path,
+                checkpoint_path,
                 inference_settings="default",
                 overrides=overrides,
                 device=device,
             )
         else:
+            # Determine model name for pretrained download
+            model_name = size if size else UMA_MODELS_MAP.get(model, "uma-s-1p1")
             predictor = pretrained_mlip.get_predict_unit(
                 model_name,
                 inference_settings="default",
