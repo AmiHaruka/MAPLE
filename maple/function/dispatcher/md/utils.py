@@ -274,7 +274,7 @@ def initialize_velocities(
     # temperature estimator calculate_temperature() is unaware of them, so
     # keeping consistent DOF counts ensures the reported initial temperature
     # matches the target.
-    # Ref: Allen & Tildesley (2017) §3.2; Shirts (2013) JCTC 9, 909.
+    # Ref: Allen & Tildesley (2017) §3.2 (temperature from kinetic energy, DOF counting).
     is_pbc = any(atoms.pbc)
     n_dof = 3 * n_atoms - (0 if is_pbc else 3)
     current_ke2 = np.sum(masses[:, np.newaxis] * velocities**2)  # 2*KE

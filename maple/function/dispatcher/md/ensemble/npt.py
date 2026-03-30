@@ -37,6 +37,7 @@ from ase import Atoms
 from ...jobABC import JobABC
 from maple.function.timer import timer
 
+from ..integrator.velocity_verlet import VelocityVerlet
 from ..thermostat.langevin import LangevinThermostat
 from ..thermostat.vrescale import VRescaleThermostat
 from ..barostat.berendsen import BerendsenBarostat
@@ -49,9 +50,6 @@ from ..utils import (
     get_rng_state_hex,
     restore_rng_from_hex,
     HA_PER_ANG_TO_AU,
-    BOHR_TO_ANGSTROM,
-    FS_TO_AU,
-    AMU_TO_AU,
 )
 from ..logger import MDLogger
 
@@ -152,7 +150,10 @@ class NPTParams:
     #   traj_every = 100 steps × 0.5 fs/step = 50 fs = 0.05 ps/frame
     #   10 ps → 200 frames  ✓   50 ps → 1000 frames  ✓
     #
-    # Refs: Fu et al. (2023) JCTC 19, 1863; Kovács et al. (2023) JPCL 14, 8725.
+    # Refs: Stocker et al. (2022) Mach. Learn.: Sci. Technol. 3, 045010 —
+    #         GNN-MD benchmarks, typical run 10–100 ps with dense output.
+    #       Kovács et al. (2023) J. Chem. Phys. 159, 044118 — MACE evaluation
+    #         with per-step monitoring of thermodynamic convergence.
     # ------------------------------------------------------------------
     traj_every:      int   = 100          # steps (= 50 fs = 0.05 ps at 0.5 fs/step)
     log_every:       int   = 100          # steps (= 50 fs)
@@ -423,30 +424,28 @@ class NPT(JobABC):
             f"({self.params.thermostat} + {self.params.barostat})...\n\n"
         ])
 
-        dt = self.params.timestep * FS_TO_AU
-        masses = (self.atoms.get_masses() * AMU_TO_AU)[:, np.newaxis]
+        integrator = VelocityVerlet(self.atoms, self.params.timestep)
         v = velocities.copy()
 
-        # Cache forces at t=0; reused as first B-step forces each cycle.
+        # Cache forces at t=0; complete_split_step() returns fresh forces each step
+        # so only one ML force evaluation occurs per BAOAB cycle.
         forces = self.atoms.get_forces() * HA_PER_ANG_TO_AU  # Ha/Å → a.u.
 
         for step in range(1, n_steps + 1):
-            # B: half-step velocity (uses cached forces from end of previous step)
-            v += 0.5 * forces / masses * dt
+            # BAOAB splitting (Leimkuhler & Matthews 2013) + barostat after full step:
+            #   B: half-kick  A(dt/2): half-position  O: thermostat
+            #   A(dt/2): half-position  B: half-kick  Barostat: cell rescale
 
-            # A: full-step position
-            self.atoms.set_positions(self.atoms.get_positions() + v * dt * BOHR_TO_ANGSTROM)
-            if any(self.atoms.pbc):
-                self.atoms.wrap()
+            # B-A(half): half-kick + half-position; forces cached from prev step
+            v_half = integrator.split_step(v, forces)
 
-            # O: thermostat
-            v = self.thermostat.apply(v)
+            # O: thermostat (V-rescale or Langevin)
+            v_therm = self.thermostat.apply(v_half)
 
-            # B: half-step velocity with new forces; cache for next step
-            forces = self.atoms.get_forces() * HA_PER_ANG_TO_AU  # Ha/Å → a.u.
-            v += 0.5 * forces / masses * dt
+            # A(half)-B: half-position + force eval + half-kick; returns cached forces
+            v, forces = integrator.complete_split_step(v_therm)
 
-            # Barostat: rescale cell, returns instantaneous pressure
+            # Barostat: rescale cell after full BAOAB cycle, returns instantaneous pressure
             pressure = self.barostat.apply(v)
 
             abs_step         = step_offset + step

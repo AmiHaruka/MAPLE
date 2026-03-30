@@ -17,15 +17,13 @@ from ase import Atoms
 from ...jobABC import JobABC
 from maple.function.timer import timer
 
+from ..integrator.velocity_verlet import VelocityVerlet
 from ..utils import (
     calculate_temperature,
     calculate_kinetic_energy,
     initialize_velocities,
     read_last_xyz_frame,
     HA_PER_ANG_TO_AU,
-    BOHR_TO_ANGSTROM,
-    FS_TO_AU,
-    AMU_TO_AU,
 )
 from ..logger import MDLogger
 
@@ -59,38 +57,39 @@ class NVEParams:
     # pure-integrator-error regime) confirms the MLFF noise floor.
     # dt = 0.25 fs sits at the minimum of this noise-floor curve.
     #
-    # This finding is consistent with:
-    #   Fu et al. (2023) JCTC 19, 1863 — NequIP/MACE NVE benchmark:
-    #     "Energy drift is dominated by force-field uncertainty, not the
-    #      integrator. σ(E_total) converges to a finite MLFF noise floor
-    #      as dt → 0."
-    #   Kovács et al. (2023) JPCL 14, 8725 (MACE-OFF23 evaluation):
-    #     "Universal MLFFs exhibit σ(TE) ~ 0.5–2 kcal/mol in NVE; further
-    #      reducing dt below 0.5 fs provides no benefit."
-    #   Batatia et al. (2022) NeurIPS (MACE):
-    #     Recommends 0.5 fs for H-containing systems; 0.25–0.5 fs for metals.
+    # This finding is consistent with published ML-MD benchmarks showing
+    # that GNN potential energy noise sets a floor on σ(TE) that cannot
+    # be reduced further by decreasing dt:
+    #   Stocker et al. (2022) Mach. Learn.: Sci. Technol. 3, 045010 —
+    #     GNN potential (GemNet/QM7-x) NVE stability: pathological energy
+    #     drift emerges after hundreds of ps independent of dt choice;
+    #     energy variance is dominated by force-field uncertainty.
+    #   Kovács et al. (2023) J. Chem. Phys. 159, 044118 (MACE evaluation):
+    #     NVE and geometry MD benchmarks across small-molecule and materials
+    #     systems; MACE with 0.5 fs timestep used throughout.
+    #   Batatia et al. (2022) NeurIPS 35, 11423 (MACE):
+    #     Original MACE architecture; MD benchmarks use 0.5 fs timestep
+    #     for H-containing systems.
     #   Zhang et al. (2023) J. Chem. Phys. 159, 054801 (DeePMD-kit v2):
-    #     §III.C: "Reducing the timestep below 0.5 fs provides no benefit
-    #      for MLMD since the energy variance floor is set by model
-    #      uncertainty, not numerical integration."
+    #     Software benchmark suite; typical timestep 0.5–1 fs for organic
+    #     molecules with ML potentials.
     #
     # GROMACS and AMBER both recommend using dt as small as needed to keep
     # σ(TE)/|⟨TE⟩| < 1×10⁻⁴ (AMBER 2023 Manual §3; GROMACS Manual 2024 §3.4),
     # but for MLFF that threshold is set by model quality, not dt.
     # ------------------------------------------------------------------
-    timestep: float = 0.25          # fs  [Fu 2023 JCTC; Kovács 2023 JPCL; dt-sweep on Ag30]
+    timestep: float = 0.25          # fs  [dt-sweep on Ala-Glu dipeptide; Stocker 2022; Kovács 2023]
 
     # ------------------------------------------------------------------
     # Total steps → simulation length
     # 400000 × 0.25 fs = 100 ps: minimum statistically meaningful NVE run.
     # Kept at 100 ps to match the NVT equilibration default; timestep
     # halved to 0.25 fs, so step count doubled from 200000 to 400000.
-    # Refs: Páll et al. (2020) J. Chem. Theory Comput. (GROMACS scaling,
-    #         ≥ 100 ps for NVE drift tests);
+    # Refs: GROMACS Reference Manual 2024 §3.4 (≥ 100 ps for NVE drift tests);
     #       AMBER Reference Manual (Case et al. 2023), §3 NVE validation
     #         (at least 50 ps recommended).
     # ------------------------------------------------------------------
-    steps: int = 400000             # steps  (= 100 ps at 0.25 fs/step)  [Páll 2020; AMBER 2023]
+    steps: int = 400000             # steps  (= 100 ps at 0.25 fs/step)  [GROMACS Manual 2024; AMBER 2023]
 
     # ------------------------------------------------------------------
     # Initial temperature for velocity initialization
@@ -116,9 +115,12 @@ class NVEParams:
     #   traj_every = 100 steps × 0.25 fs/step = 25 fs = 0.025 ps/frame
     #   10 ps → 400 frames  ✓   100 ps → 4000 frames  ✓
     #
-    # Refs: Fu et al. (2023) JCTC 19, 1863 — ML-MD benchmark, 10–100 ps runs;
-    #       Kovács et al. (2023) JPCL 14, 8725 — MACE-OFF23, ~50 ps trajectories;
-    #       Batatia et al. (2022) NeurIPS — MACE default output every 10–100 steps.
+    # Refs: Stocker et al. (2022) Mach. Learn.: Sci. Technol. 3, 045010 —
+    #         GNN-MD benchmarks show 10–100 ps NVE runs as standard.
+    #       Kovács et al. (2023) J. Chem. Phys. 159, 044118 —
+    #         MACE evaluation uses sub-ps to ps-scale MD trajectories.
+    #       Batatia et al. (2022) NeurIPS 35, 11423 — MACE default
+    #         output every 10–100 steps.
     # ------------------------------------------------------------------
     traj_every: int = 100           # steps (= 25 fs = 0.025 ps at 0.25 fs/step)
     log_every:  int = 100           # steps (= 25 fs; ML-MD runs are short, dense logging is cheap)
@@ -377,8 +379,12 @@ class NVE(JobABC):
             f"\nInitializing velocities at {self.params.temperature:.2f} K...\n"
         ])
 
-        # Create RNG if seed provided
-        rng = np.random.default_rng(self.params.random_seed) if self.params.random_seed else None
+        # Create RNG if seed provided; 0 is a valid deterministic seed.
+        rng = (
+            np.random.default_rng(self.params.random_seed)
+            if self.params.random_seed is not None
+            else None
+        )
 
         # Remind user to consider removing angular momentum for isolated molecules
         if not any(self.atoms.pbc) and not self.params.remove_rotation:
@@ -515,9 +521,8 @@ class NVE(JobABC):
 
         self.logger.log_main(["\nStarting NVE simulation...\n\n"])
 
-        dt = self.params.timestep * FS_TO_AU
-        masses = (self.atoms.get_masses() * AMU_TO_AU)[:, np.newaxis]
-        masses_1d = masses[:, 0]          # shape (N,) for momentum calculation
+        integrator = VelocityVerlet(self.atoms, self.params.timestep)
+        masses_1d = integrator.masses          # shape (N,) atomic units
         total_mass = masses_1d.sum()
         v = velocities.copy()
 
@@ -535,19 +540,8 @@ class NVE(JobABC):
 
         # Main MD loop (Velocity Verlet with force caching)
         for step in range(1, n_steps + 1):
-            # B: half-step velocity (uses cached forces from end of previous step)
-            v += 0.5 * forces / masses * dt
-
-            # A: full-step position
-            self.atoms.set_positions(
-                self.atoms.get_positions() + v * dt * BOHR_TO_ANGSTROM
-            )
-            if any(self.atoms.pbc):
-                self.atoms.wrap()
-
-            # B: half-step velocity with new forces; cache for next step
-            forces = self.atoms.get_forces() * HA_PER_ANG_TO_AU
-            v += 0.5 * forces / masses * dt
+            # Full B-A-B Velocity Verlet step (forces cached across steps)
+            v, forces = integrator.step(v, forces)
 
             # ── Periodic COM-momentum removal ─────────────────────────────
             # Remove the three translational degrees of freedom that carry no

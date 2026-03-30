@@ -9,21 +9,24 @@ Handles:
 
 Energy conservation metrics follow published standards:
     - Linear drift rate via least-squares fit [kJ/mol/ns/atom]:
-        Páll et al. (2020) J. Chem. Theory Comput.; GROMACS Reference Manual §3.4
+        GROMACS Reference Manual §3.4 "Energy Conservation"; Páll et al. (2020)
+        J. Chem. Phys. 153, 134110 (GROMACS GPU parallelisation; NVE thresholds cited therein)
         NVE acceptance: < 0.01 (good), < 0.1 (acceptable), > 1.0 (failure)
         NVT/NPT: gross-instability threshold only (> 1.0 = unstable)
         Equilibration skip: front 20 % discarded before fitting (NVE and NVT/NPT).
           NVE:     removes the ~10–50 step NVT→NVE thermal transient arising from
-                   BAOAB handoff (Leimkuhler & Matthews 2013 AMRX; Frenkel & Smit
-                   2002 Box 4.1; GROMACS Manual 2024 §3.4.2).
+                   the Velocity Verlet + thermostat handoff (Leimkuhler & Matthews,
+                   Appl. Math. Res. eXpress 2013, 34–56; Frenkel & Smit 2002 Box 4.1;
+                   GROMACS Manual 2024 §3.4.2).
           NVT/NPT: removes the early thermalisation ramp so the slope reflects
                    steady-state behaviour (AMBER 2023 Manual §3.1).
     - Relative energy fluctuation σ(E)/|<E>| (dimensionless):
         AMBER Reference Manual (Case et al. 2022), §3 NVE validation
         Acceptance: < 1e-4
     - KE–PE anti-correlation coefficient:
-        Shirts & Chodera (2008) J. Chem. Phys. 129, 124105
-        NVE: r ≈ -1 (energy conservation forces anti-correlation)
+        Allen & Tildesley, Computer Simulation of Liquids, 2nd ed. (2017), §3.4
+        Hammonds & Heyes (2020) J. Chem. Phys. 152, 024114 (shadow Hamiltonian / symplecticity)
+        NVE: r ≈ -1 (energy conservation forces anti-correlation; direct consequence of E = KE + PE = const)
         NVT/NPT: r ≈ 0 (thermostat randomises KE each step; anti-correlation is broken)
     - Temperature fluctuation ratio σ(T)/<T> vs. equipartition prediction 1/√N_dof:
         Allen & Tildesley, Computer Simulation of Liquids, 2nd ed. (2017), §2.4
@@ -612,17 +615,18 @@ class MDLogger:
         # ------------------------------------------------------------------
         # 2. Linear drift rate  [kJ/mol/ns/atom]
         #
-        #    Method: least-squares linear fit to E_total(t), identical to
-        #    GROMACS "gmx energy -drift" (Páll et al. 2020 JCTC; GROMACS
-        #    Reference Manual 2024 §3.4 "Energy Conservation").
+        #    method: least-squares linear fit to E_total(t), identical to
+        #    GROMACS "gmx energy -drift" (GROMACS Reference Manual 2024 §3.4
+        #    "Energy Conservation"; Páll et al. (2020) J. Chem. Phys. 153, 134110).
         #
         #    Equilibration skip (front EQ_FRAC of the trajectory):
         #    --------------------------------------------------------
-        #    NVE started from a prior NVT run (BAOAB thermostat) carries an
+        #    NVE started from a prior NVT run (with thermostat coupling) carries an
         #    unavoidable thermal transient in the first ~10–50 steps:
-        #    the Langevin O-step injects/removes energy at every NVT step, so
-        #    at the NVT→NVE handoff the instantaneous KE is not in equilibrium
-        #    with the current PE.  The resulting ΔTE can be tens of kJ/mol and
+        #    thermostat coupling in the prior run changes KE and breaks strict
+        #    TE conservation, so at the NVT→NVE handoff the instantaneous KE is
+        #    not necessarily in equilibrium with the current PE.  The resulting
+        #    ΔTE can be tens of kJ/mol and
         #    dominates a short polyfit, giving a meaningless drift estimate.
         #    Skipping the front 20 % removes this transient before fitting,
         #    exactly as AMBER (nstlim discard) and GROMACS (equilibration run)
@@ -637,11 +641,10 @@ class MDLogger:
         #        discarded as equilibration."
         #      AMBER 2023 Manual §3.1: multi-stage heating (NVT) before NVE
         #        production; initial NVE data discarded as equilibration.
-        #      Leimkuhler & Matthews (2013) AMRX 2013, 34–56: BAOAB splitting
-        #        does not conserve TE; the Ornstein-Uhlenbeck O-step couples
-        #        to the bath at every step, so TE at the NVT→NVE boundary is
-        #        a random draw from the canonical distribution, not the NVE
-        #        microcanonical invariant.
+        #      Leimkuhler & Matthews (2013) Appl. Math. Res. eXpress 2013, 34–56:
+        #        thermostat coupling does not conserve TE during NVT, so TE at
+        #        the NVT→NVE boundary is a draw from the canonical distribution,
+        #        not the NVE microcanonical invariant.
         #
         #    NVT/NPT: same 20 % skip removes early thermalisation ramp so the
         #    slope reflects steady-state, consistent with AMBER §3.1 practice.
@@ -684,7 +687,8 @@ class MDLogger:
         #    For a symplectic integrator (Velocity Verlet) in NVE, KE and PE
         #    must be perfectly anti-correlated (r ≈ -1) because E = KE + PE
         #    is conserved.  Deviations from -1 quantify integration error.
-        #    Ref: Shirts & Chodera (2008) J. Chem. Phys. 129, 124105
+        #    Ref: Allen & Tildesley (2017) Computer Simulation of Liquids §3.4;
+        #         Hammonds & Heyes (2020) J. Chem. Phys. 152, 024114
         # ------------------------------------------------------------------
         if len(ke_arr) > 1 and np.std(ke_arr) > 0 and np.std(pe_arr) > 0:
             ke_pe_corr = np.corrcoef(ke_arr, pe_arr)[0, 1]
@@ -748,8 +752,8 @@ class MDLogger:
         #        physically incorrect.
         #        Correct NVT primary metrics: σ_obs/σ_canonical, r(KE,PE).
         #        Drift for NVT: gross-instability-only check (> 1 kJ/mol/ns/atom).
-        #        Refs: GROMACS Manual 2024 §3.4; Basconi & Shirts 2013 JCTC 9,2887;
-        #              Eastman et al. 2017 JCTC 13,5560 (OpenMM benchmark).
+        #        Refs: GROMACS Manual 2024 §3.4; Basconi & Shirts (2013) JCTC 9, 2887;
+        #              Eastman et al. (2017) JCTC 13, 5560 (OpenMM benchmark).
         if np.isnan(drift_rate):
             drift_tag = "N/A"
         elif is_short_traj:
@@ -794,10 +798,10 @@ class MDLogger:
                 f"  (skipped first {eq_time_ps:.2f} ps as NVE equilibration)\n",
                 *(["  (SHORT production window < 10 ps: drift rate is indicative only; use σ/|<E>| and r(KE,PE))\n"]
                   if is_short_traj else []),
-                f"    Páll 2020: < 0.01 GOOD, < 0.1 OK, > 1.0 FAIL\n",
+                f"    GROMACS Manual 2024 §3.4 / Páll et al. 2020 JCP 153, 134110: < 0.01 GOOD, < 0.1 OK, > 1.0 FAIL\n",
                 f"    Equil. skip: Frenkel & Smit 2002 Box 4.1; GROMACS Manual 2024 §3.4.2\n",
                 f"  r(KE,PE):                   {ke_pe_corr:>18.4f}  (target {ke_pe_target})  [{corr_tag}]\n",
-                f"    Shirts & Chodera 2008 JCP 129, 124105\n",
+                f"    Allen & Tildesley 2017 §3.4; Hammonds & Heyes 2020 JCP 152, 024114\n",
             ]
             temp_section = [
                 f"\n{'── [NVE] Temperature (reference, not conservation criterion) ──':^80}\n",
@@ -817,7 +821,7 @@ class MDLogger:
                 f"  {t_ratio_name}:  {t_ratio:>18.3f}   (target: 0.5–2.0)  [{temp_tag}]\n",
                 f"    N_dof = {n_dof}  ({'PBC: 3N' if self._is_pbc else 'isolated: 3N-3'})\n",
                 f"  r(KE,PE):                   {ke_pe_corr:>18.4f}  (target {ke_pe_target})  [{corr_tag}]\n",
-                f"    Shirts & Chodera 2008 JCP 129, 124105\n",
+                f"    Allen & Tildesley 2017 §3.4; Hammonds & Heyes 2020 JCP 152, 024114\n",
             ]
             temp_section = [
                 f"\n{'── [' + ens_label + '] Energy (secondary — TE fluctuates by design) ──':^80}\n",
@@ -829,7 +833,7 @@ class MDLogger:
                 f"  (skipped first {eq_time_ps:.2f} ps as equilibration)\n",
                 *(["  (SHORT production window < 10 ps: drift rate is indicative only)\n"]
                   if is_short_traj else []),
-                f"    Páll 2020: gross instability only; accept if drift < 1.0\n",
+                f"    GROMACS Manual 2024 §3.4: gross instability only; accept if drift < 1.0\n",
                 f"    Equil. skip: AMBER 2023 Manual §3.1\n",
             ]
 
@@ -842,9 +846,9 @@ class MDLogger:
             f"  Mean total energy:          {energy_mean:>18.8f}  Ha\n",
             f"  Std deviation:              {energy_std:>18.8f}  Ha\n",
         ] + energy_section + temp_section + [
-            f"\n{'── Acceptance Criteria Summary (Páll 2020 / AMBER 2022 / Shirts 2008 / F&S 2002) ──':^80}\n",
-            f"  NVE primary:  σ(TE)/|⟨TE⟩| < 1e-4 GOOD (AMBER);  drift < 0.01 GOOD (Páll);  r ≈ -1\n",
-            f"  NVT/NPT primary:  σ_obs/σ_canonical ∈ [0.5, 2.0] (F&S §6.1);  r(KE,PE) ≈ 0 (Shirts)\n",
+            f"\n{'── Acceptance Criteria Summary (GROMACS 2024 / AMBER 2022 / A&T 2017 / F&S 2002) ──':^80}\n",
+            f"  NVE primary:  σ(TE)/|⟨TE⟩| < 1e-4 GOOD (AMBER);  drift < 0.01 GOOD (GROMACS Manual);  r ≈ -1\n",
+            f"  NVT/NPT primary:  σ_obs/σ_canonical ∈ [0.5, 2.0] (F&S §6.1);  r(KE,PE) ≈ 0 (A&T §3.4)\n",
             f"  NVT/NPT secondary:  drift < 1.0 kJ/mol/ns/atom (gross instability threshold only)\n",
             f"  Drift fitted on production window (front {int(EQ_FRAC*100)}% skipped):"
             f"  F&S 2002 Box 4.1; GROMACS 2024 §3.4.2; AMBER 2023 §3.1\n",
@@ -902,10 +906,11 @@ class MDLogger:
                         f"  (skipped first {eq_time_ps:.2f} ps as NVE equilibration)\n")
                 if is_short_traj:
                     f.write(f"  (SHORT production window < 10 ps: drift rate is indicative only)\n")
-                f.write(f"    (Páll 2020: < 0.01 GOOD, < 0.1 OK, > 1.0 FAIL)\n")
+                f.write(f"    (GROMACS Manual 2024 §3.4 / Páll et al. 2020 JCP 153, 134110: < 0.01 GOOD, < 0.1 OK, > 1.0 FAIL)\n")
                 f.write(f"    (Equil. skip: Frenkel & Smit 2002 Box 4.1; GROMACS Manual 2024 §3.4.2)\n")
                 f.write(f"  r(KE,PE):                 {ke_pe_corr:.4f}                 [{corr_tag}]\n")
-                f.write(f"    (Shirts 2008: r ≈ -1 confirms Velocity Verlet symplecticity)\n\n")
+                f.write(f"    (Allen & Tildesley 2017 §3.4; Hammonds & Heyes 2020 JCP 152, 024114:\n"
+                        f"     r ≈ -1 confirms Velocity Verlet symplecticity)\n\n")
 
                 f.write("Temperature Statistics [NVE REFERENCE]:\n")
                 f.write(f"  Mean temperature:         {temp_mean:.2f} K\n")
@@ -920,7 +925,7 @@ class MDLogger:
                 f.write(f"  σ_canonical = T·√(2/N_dof): {t_sigma_ref:.2f} K  [Frenkel & Smit 2002 §6.1]\n")
                 f.write(f"  σ_obs/σ_canonical:        {t_ratio:.3f}  [target: 0.5–2.0]  [{temp_tag}]\n")
                 f.write(f"  r(KE,PE):                 {ke_pe_corr:.4f}                 [{corr_tag}]\n")
-                f.write(f"    (Shirts 2008: r ≈ 0 expected — thermostat decouples KE from PE)\n\n")
+                f.write(f"    (Allen & Tildesley 2017 §3.4: r ≈ 0 expected — thermostat decouples KE from PE)\n\n")
 
                 f.write(f"Energy Metrics [{self._ensemble.upper()} SECONDARY — TE fluctuates by design]:\n")
                 f.write(f"  σ(TE)/|⟨TE⟩|:            {rel_fluctuation:.2e}             (expected to be large)\n")
@@ -929,7 +934,7 @@ class MDLogger:
                         f"  (skipped first {eq_time_ps:.2f} ps as equilibration)\n")
                 if is_short_traj:
                     f.write(f"  (SHORT production window < 10 ps: drift rate is indicative only)\n")
-                f.write(f"    (Páll 2020: gross instability threshold only; accept if drift < 1.0)\n")
+                f.write(f"    (GROMACS Manual 2024 §3.4: gross instability threshold only; accept if drift < 1.0)\n")
                 f.write(f"    (Equil. skip: AMBER 2023 Manual §3.1)\n")
 
             if self.pressures:

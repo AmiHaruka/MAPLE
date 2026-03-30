@@ -85,6 +85,16 @@ class VRescaleThermostat:
         # exp(-dt/τ_T) precomputed
         self._decay = np.exp(-self.timestep / self.tau_t)
 
+        # COM treatment: V-rescale applies a global uniform scaling factor α to all
+        # velocities.  Unlike Langevin (which adds per-atom random impulses), uniform
+        # scaling does not change the COM velocity direction, only its magnitude by
+        # the same factor as all other velocities.  The N_dof accounting above already
+        # excludes the 3 COM translational modes for isolated systems (3N-3 vs 3N),
+        # so no explicit COM removal is needed here.
+        # Ref: Bussi et al. (2007) J. Chem. Phys. 126, 014101 — Eq. 14 derivation
+        # assumes the velocity distribution is sampled in the correct subspace.
+        self._is_periodic = any(atoms.pbc)
+
     def _sample_chi2(self, n: int) -> float:
         """
         Sample from χ²(n) distribution as sum of n squared normals.

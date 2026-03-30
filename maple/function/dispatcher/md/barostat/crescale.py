@@ -9,7 +9,7 @@ Algorithm (Bernetti & Bussi, 2020):
     The volume V is rescaled stochastically each step.  The new volume is
     drawn from the conditional distribution:
 
-        dV = V * β * (dt/τ_P) * (P_target - P)
+        dV = V * β * (dt/τ_P) * (P - P_target)
            + sqrt(2 * k_B * T * V * β * dt / τ_P) * W
 
     where W ~ N(0, 1) is a Wiener noise term.  This ensures the marginal
@@ -21,15 +21,20 @@ Algorithm (Bernetti & Bussi, 2020):
 Notes:
     - Produces the correct NPT ensemble, unlike plain Berendsen barostat.
     - Isotropic scaling only; anisotropic tensors not yet supported.
-    - Pressure is computed from the virial theorem using the stress tensor
-      if available; otherwise the ideal-gas approximation (W=0) is used.
+    - Pressure is computed from the virial theorem. In this implementation,
+      calculator stress is treated as the configurational/virial contribution,
+      and the kinetic term is computed explicitly from current velocities.
+      If stress is unavailable, the ideal-gas approximation (W=0) is used.
 
 Reference:
     Bernetti & Bussi, J. Chem. Phys. 153, 114107 (2020).
 """
 
+import warnings
+
 import numpy as np
 from ase import Atoms
+from ase.calculators.calculator import PropertyNotImplementedError
 from typing import Optional
 
 from ..utils import (
@@ -83,6 +88,9 @@ class CRescaleBarostat:
         self.compressibility = compressibility   # 1/bar
         self.rng = rng if rng is not None else np.random.default_rng()
 
+        # Warning flag: emit stress-unavailable warning at most once per instance
+        self._stress_warned = False
+
         # Deterministic prefactor: β * dt / τ_P  (dimensionless)
         self._det_prefactor = compressibility * timestep / tau_p
 
@@ -130,8 +138,17 @@ class CRescaleBarostat:
         try:
             stress = atoms.get_stress(voigt=True)   # eV/Å³
             virial_ev = -volume * (stress[0] + stress[1] + stress[2])
-        except Exception:
-            pass
+        except (PropertyNotImplementedError, RuntimeError):
+            # Calculator does not support stress; fall back to ideal-gas pressure (virial = 0).
+            # Warn once per barostat instance so the user is aware.
+            if not self._stress_warned:
+                warnings.warn(
+                    f"{self.__class__.__name__}: calculator does not provide a stress tensor; "
+                    "pressure estimated from kinetic term only (ideal-gas approximation). "
+                    "For accurate NPT simulations, use a calculator that supports stress.",
+                    UserWarning, stacklevel=2
+                )
+                self._stress_warned = True
 
         pressure_ev_ang3 = (2.0 * ke_ev + virial_ev) / (3.0 * volume)
         return pressure_ev_ang3 * EV_PER_ANG3_TO_BAR
@@ -143,7 +160,7 @@ class CRescaleBarostat:
         The volume change has both a deterministic Berendsen-like part and
         a stochastic part that ensures the correct NPT ensemble:
 
-            dV/V = β*(dt/τ_P)*(P_target - P)  +  noise * W / sqrt(V)
+            dV/V = β*(dt/τ_P)*(P - P_target)  +  noise * W / sqrt(V)
 
         Cell and positions are scaled isotropically by μ = (V_new/V)^(1/3).
         Velocities are not modified.
@@ -161,8 +178,9 @@ class CRescaleBarostat:
         pressure = self.get_pressure(velocities)
         volume = self.atoms.get_volume()   # Å³
 
-        # Deterministic part (Berendsen-like): β*(dt/τ_P)*(P_target - P)
-        dv_det = self._det_prefactor * (self.pressure_target - pressure)
+        # Deterministic part (Berendsen-like): β*(dt/τ_P)*(P - P_target)
+        # so that P < P_target shrinks the cell and P > P_target expands it.
+        dv_det = self._det_prefactor * (pressure - self.pressure_target)
 
         # Stochastic part: _noise_prefactor [√Å³] / sqrt(V [Å³]) * W
         #                = sqrt(2 k_B T β dt / (τ_P V)) * W  (dimensionless)

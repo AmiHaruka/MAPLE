@@ -24,6 +24,7 @@ from ase import Atoms
 from ...jobABC import JobABC
 from maple.function.timer import timer
 
+from ..integrator.velocity_verlet import VelocityVerlet
 from ..thermostat.langevin import LangevinThermostat
 from ..thermostat.vrescale import VRescaleThermostat
 from ..utils import (
@@ -34,9 +35,6 @@ from ..utils import (
     get_rng_state_hex,
     restore_rng_from_hex,
     HA_PER_ANG_TO_AU,
-    BOHR_TO_ANGSTROM,
-    FS_TO_AU,
-    AMU_TO_AU,
 )
 from ..logger import MDLogger
 
@@ -56,7 +54,7 @@ class NVTParams:
     # SHAKE/LINCS enable 2 fs in classical FF; ML potentials resolve the
     # full PES including stiff O-H modes, so constraints cannot be used.
     # Refs: Zhang et al. (2018) Phys. Rev. Lett. 120, 143001 (DeePMD, 0.5 fs);
-    #       Batatia et al. (2022) NeurIPS (MACE, 1 fs default);
+    #       Batatia et al. (2022) NeurIPS 35, 11423 (MACE, 1 fs default);
     #       LAMMPS metal units default: timestep 0.001 ps = 1 fs.
     # ------------------------------------------------------------------
     timestep:        float = 1.0          # fs  [Zhang 2018; Batatia 2022; LAMMPS metal]
@@ -85,8 +83,7 @@ class NVTParams:
     #
     # Theoretical basis: Langevin dynamics are governed by the
     # fluctuation-dissipation theorem (Kubo 1966), which guarantees
-    # the Boltzmann distribution as the stationary state.  Under BAOAB
-    # splitting, configurational averages are second-order accurate.
+    # the Boltzmann distribution as the stationary state.
     # Unlike Nose-Hoover, Langevin is ergodic by construction — each
     # DOF receives independent stochastic perturbations at every step,
     # preventing trapping in quasi-periodic orbits.
@@ -96,28 +93,28 @@ class NVTParams:
     #                 recommended for ML potentials and biomolecular NVT.
     #                 Slightly damps dynamical properties (diffusion,
     #                 viscosity) — use small γ for transport calculations.
-    #                 Refs: Leimkuhler & Matthews (2013) AMRX 2013, 34–56;
-    #                       Schneider & Stoll (1978) Phys. Rev. B 17, 1302;
-    #                       Basconi & Shirts (2013) JCTC 9, 2887.
+    #   Refs: Leimkuhler & Matthews (2013) Appl. Math. Res. eXpress 2013, 34–56;
+    #         Schneider & Stoll (1978) Phys. Rev. B 17, 1302;
+    #         Basconi & Shirts (2013) JCTC 9, 2887.
     #
     #   V-rescale   — correct canonical ensemble for kinetic energy
     #                 (Bussi et al. 2007); global rescaling only; ergodicity
     #                 in configuration space not rigorously proven; weaker
     #                 perturbation, preserves dynamics better than Langevin.
     #                 Default in GROMACS (since v4.5).
-    #                 Ref: Bussi, Donadio & Parrinello (2007) JCP 126, 014101.
+    #   Refs: Bussi, Donadio & Parrinello (2007) J. Chem. Phys. 126, 014101.
     #
     #   Nose-Hoover — deterministic, time-reversible; correct for large
     #                 ergodic systems.  Non-ergodic for small/harmonic
     #                 systems (Legoll et al. 2007).  Not implemented here.
-    #                 Refs: Nosé (1984) JCP 81, 511;
-    #                       Hoover (1985) Phys. Rev. A 31, 1695;
-    #                       Martyna et al. (1992) JCP 97, 2635 (chains).
+    #   Refs: Nosé (1984) J. Chem. Phys. 81, 511;
+    #         Hoover (1985) Phys. Rev. A 31, 1695;
+    #         Martyna et al. (1992) J. Chem. Phys. 97, 2635 (chains).
     #
     #   Berendsen   — NOT canonical; suppresses KE fluctuations; produces
     #                 wrong ensemble.  Use only for rapid pre-equilibration.
-    #                 Ref: Berendsen et al. (1984) JCP 81, 3684.
-    #                      Basconi & Shirts (2013) JCTC 9, 2887 (analysis).
+    #   Ref: Berendsen et al. (1984) J. Chem. Phys. 81, 3684.
+    #        Basconi & Shirts (2013) JCTC 9, 2887 (analysis).
     # ------------------------------------------------------------------
     thermostat:      str   = 'langevin'   # [AMBER ntt=3; NAMD; OpenMM; MACE; DeePMD-kit]
 
@@ -126,7 +123,7 @@ class NVTParams:
     # 0.001 1/fs = 1 ps⁻¹: balances fast sampling with realistic dynamics.
     # Lower values (~0.1 ps⁻¹) preserve dynamics; higher (~10 ps⁻¹) give
     # faster but over-damped equilibration.
-    # Refs: Leimkuhler & Matthews (2013) AMRX 2013, 34–56 (BAOAB, γ=1 ps⁻¹);
+    # Refs: Leimkuhler & Matthews (2013) Appl. Math. Res. eXpress 2013, 34–56;
     #       AMBER: gamma_ln = 1 ps⁻¹ (Case et al. 2023 Tutorial 1);
     #       NAMD UG §2.6: langevinDamping = 1 ps⁻¹ for production.
     # ------------------------------------------------------------------
@@ -155,7 +152,10 @@ class NVTParams:
     #   traj_every = 100 steps × 1.0 fs/step = 100 fs = 0.1 ps/frame
     #   10 ps → 100 frames  ✓   100 ps → 1000 frames  ✓
     #
-    # Refs: Fu et al. (2023) JCTC 19, 1863; Kovács et al. (2023) JPCL 14, 8725.
+    # Refs: Stocker et al. (2022) Mach. Learn.: Sci. Technol. 3, 045010 —
+    #         GNN-MD benchmarks, 10–100 ps runs with ps-scale trajectory output.
+    #       Kovács et al. (2023) J. Chem. Phys. 159, 044118 — MACE evaluation
+    #         with dense per-step output for monitoring convergence.
     # ------------------------------------------------------------------
     traj_every:      int   = 100          # steps (= 100 fs = 0.1 ps at 1 fs/step)
     log_every:       int   = 100          # steps (= 100 fs; dense logging is cheap vs ML force eval)
@@ -392,30 +392,27 @@ class NVT(JobABC):
             f"\nStarting NVT simulation ({self.params.thermostat})...\n\n"
         ])
 
-        dt = self.params.timestep * FS_TO_AU
-        masses = (self.atoms.get_masses() * AMU_TO_AU)[:, np.newaxis]
+        integrator = VelocityVerlet(self.atoms, self.params.timestep)
         v = velocities.copy()
 
-        # Cache forces at t=0 to avoid double get_forces() per step.
-        # Each step ends with forces at the new position; these are reused
-        # as the first B-step forces of the next step (standard BAOAB caching).
+        # Cache forces at t=0; complete_split_step() returns fresh forces each step
+        # so only one ML force evaluation occurs per BAOAB cycle.
         forces = self.atoms.get_forces() * HA_PER_ANG_TO_AU  # Ha/Å → a.u.
 
         for step in range(1, n_steps + 1):
-            # B: half-step velocity (uses cached forces from end of previous step)
-            v += 0.5 * forces / masses * dt
+            # BAOAB splitting (Leimkuhler & Matthews 2013):
+            #   B: half-kick  A(dt/2): half-position  O: thermostat
+            #   A(dt/2): half-position  B: half-kick
+            # Positions advance by dt/2 before and dt/2 after the O-step.
 
-            # A: full-step position
-            self.atoms.set_positions(self.atoms.get_positions() + v * dt * BOHR_TO_ANGSTROM)
-            if any(self.atoms.pbc):
-                self.atoms.wrap()
+            # B-A(half): half-kick + half-position; forces cached from prev step
+            v_half = integrator.split_step(v, forces)
 
-            # O: thermostat
-            v = self.thermostat.apply(v)
+            # O: thermostat (Langevin OU-step or V-rescale)
+            v_therm = self.thermostat.apply(v_half)
 
-            # B: half-step velocity with new forces; cache for next step
-            forces = self.atoms.get_forces() * HA_PER_ANG_TO_AU  # Ha/Å → a.u.
-            v += 0.5 * forces / masses * dt
+            # A(half)-B: half-position + force eval + half-kick; returns cached forces
+            v, forces = integrator.complete_split_step(v_therm)
 
             abs_step         = step_offset + step
             current_time     = abs_step * self.params.timestep

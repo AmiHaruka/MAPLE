@@ -135,21 +135,40 @@ class VelocityVerlet:
 
         return velocities
 
-    def full_step_r(self, velocities: np.ndarray):
+    def half_step_r(self, velocities: np.ndarray):
         """
-        Perform full-step position update: r(t+dt) = r(t) + v(t+dt/2) * dt
+        Perform half-step position update: r(t+dt/2) = r(t) + v(t+dt/2) * dt/2
+
+        Used in BAOAB splitting: called twice per step, once before and once
+        after the O-step (thermostat), so positions advance by a full dt total.
 
         Modifies atoms.positions in-place.
 
         Parameters
         ----------
         velocities : np.ndarray
-            Half-step velocities
+            Half-step velocities in atomic units (Bohr/a.u. time)
         """
-        dt = self.timestep
+        positions = self.atoms.get_positions()                          # Å
+        positions += velocities * (0.5 * self.timestep) * BOHR_TO_ANGSTROM
+        self.atoms.set_positions(positions)
+        if any(self.atoms.pbc):
+            self.atoms.wrap()
 
+    def full_step_r(self, velocities: np.ndarray):
+        """
+        Perform full-step position update: r(t+dt) = r(t) + v(t+dt/2) * dt
+
+        Used in NVE integration where no thermostat splits the position step.
+        Modifies atoms.positions in-place.
+
+        Parameters
+        ----------
+        velocities : np.ndarray
+            Half-step velocities in atomic units (Bohr/a.u. time)
+        """
         positions = self.atoms.get_positions()                   # Å
-        positions += velocities * dt * BOHR_TO_ANGSTROM          # Å
+        positions += velocities * self.timestep * BOHR_TO_ANGSTROM
         self.atoms.set_positions(positions)
         if any(self.atoms.pbc):
             self.atoms.wrap()
@@ -178,24 +197,60 @@ class VelocityVerlet:
 
         return velocities
 
-    def split_step(self, velocities: np.ndarray) -> np.ndarray:
+    def split_step(self, velocities: np.ndarray, forces: np.ndarray) -> np.ndarray:
         """
-        Perform B-A half-steps for thermostat insertion.
+        Perform B-A(half) steps for BAOAB thermostat insertion.
 
-        Applies the first half-step velocity update and the full-step position
-        update. The caller applies the thermostat (O-step) before calling
-        complete_step_v() for the second B half-step.
+        First leg of the BAOAB splitting scheme:
+            B: v(t+dt/2) = v(t) + F(t)/m * dt/2
+            A: r(t+dt/2) = r(t) + v(t+dt/2) * dt/2
+
+        The caller then applies the thermostat O-step and calls
+        complete_split_step() for the second A(half)-B leg.
 
         Parameters
         ----------
         velocities : np.ndarray
-            Current velocities
+            Current velocities in atomic units
+        forces : np.ndarray
+            Current forces in atomic units (Ha/Bohr), cached from previous step
 
         Returns
         -------
         np.ndarray
-            Half-step velocities (after first B, before O-step)
+            Half-step velocities (after B, before O-step)
         """
-        velocities_half = self.half_step_v(velocities)
-        self.full_step_r(velocities_half)
-        return velocities_half
+        dt = self.timestep
+        masses = self.masses[:, np.newaxis]
+        v_half = velocities + 0.5 * forces / masses * dt
+        self.half_step_r(v_half)
+        return v_half
+
+    def complete_split_step(self, velocities: np.ndarray) -> tuple:
+        """
+        Perform A(half)-B steps to complete the BAOAB cycle.
+
+        Second leg of the BAOAB splitting scheme:
+            A: r(t+dt) = r(t+dt/2) + v_O * dt/2
+            B: v(t+dt) = v_O + F(t+dt)/m * dt/2
+
+        Call after the thermostat O-step.
+
+        Parameters
+        ----------
+        velocities : np.ndarray
+            Velocities after O-step (thermostat output) in atomic units
+
+        Returns
+        -------
+        tuple of (np.ndarray, np.ndarray)
+            (full-step velocities, forces at t+dt) — forces are cached
+            for the next step's B half-kick.
+        """
+        dt = self.timestep
+        masses = self.masses[:, np.newaxis]
+
+        self.half_step_r(velocities)
+        forces = self.atoms.get_forces() * HA_PER_ANG_TO_AU   # Ha/Å → Ha/Bohr (a.u.)
+        v_new = velocities + 0.5 * forces / masses * dt
+        return v_new, forces

@@ -20,8 +20,10 @@ The instantaneous pressure is computed from the virial theorem:
 
     P = (2*KE + W) / (3*V)
 
-where W = -dU/dV is the virial, approximated here via the stress tensor
-from the calculator (if available), otherwise set to zero (ideal-gas limit).
+where W = -dU/dV is the virial. In this implementation, the stress tensor
+returned by the calculator is treated as the configurational/virial contribution,
+while the kinetic term is computed explicitly from the current velocities.
+If stress is unavailable, W is set to zero (ideal-gas fallback).
 
 Note:
     The Berendsen barostat does NOT generate a rigorously correct NPT
@@ -34,8 +36,11 @@ Reference:
     Berendsen et al., J. Chem. Phys. 81, 3684 (1984).
 """
 
+import warnings
+
 import numpy as np
 from ase import Atoms
+from ase.calculators.calculator import PropertyNotImplementedError
 
 from ..utils import (
     AMU_TO_AU, FS_TO_AU, AU_TO_FS, BOHR_TO_ANGSTROM,
@@ -82,6 +87,9 @@ class BerendsenBarostat:
         # Scaling prefactor (constant): β * dt / τ_P
         self._scale_prefactor = compressibility * timestep / tau_p
 
+        # Warning flag: emit stress-unavailable warning at most once per instance
+        self._stress_warned = False
+
     def get_pressure(self, velocities: np.ndarray) -> float:
         """
         Compute instantaneous pressure in bar via the virial theorem.
@@ -117,8 +125,17 @@ class BerendsenBarostat:
             stress = atoms.get_stress(voigt=True)   # eV/Å³, Voigt: xx,yy,zz,yz,xz,xy
             # Hydrostatic virial: W = -V * (σ_xx + σ_yy + σ_zz)
             virial_ev = -volume * (stress[0] + stress[1] + stress[2])
-        except Exception:
-            pass   # ideal-gas fallback: virial = 0
+        except (PropertyNotImplementedError, RuntimeError):
+            # Calculator does not support stress; fall back to ideal-gas pressure (virial = 0).
+            # Warn once per barostat instance so the user is aware.
+            if not self._stress_warned:
+                warnings.warn(
+                    f"{self.__class__.__name__}: calculator does not provide a stress tensor; "
+                    "pressure estimated from kinetic term only (ideal-gas approximation). "
+                    "For accurate NPT simulations, use a calculator that supports stress.",
+                    UserWarning, stacklevel=2
+                )
+                self._stress_warned = True
 
         # P = (2*KE + W) / (3*V)  in eV/Å³, then convert to bar
         pressure_ev_ang3 = (2.0 * ke_ev + virial_ev) / (3.0 * volume)
