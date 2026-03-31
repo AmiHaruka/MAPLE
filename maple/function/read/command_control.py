@@ -66,12 +66,8 @@ class CommandControl:
             "traj_every":      100,
             "log_every":       100,
             "init_velocities": True,
-            # init_from: path to *_md_final.xyz from a prior NVE/NVT/NPT run.
-            # When set, coordinates and velocities are loaded from that file,
-            # bypassing Maxwell-Boltzmann initialisation.
-            # Typical use: NVT pre-equilibration → NVE production.
-            #   #md(ensemble=nve, init_from=system_md_final.xyz, ...)
-            "init_from":       None,
+            "restart":         False,
+            "rst_every":       1000,
             "remove_com":      True,
             "random_seed":     None,
             # Thermostat (NVT / NPT)

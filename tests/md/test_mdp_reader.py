@@ -78,3 +78,26 @@ def test_inline_overrides_mdp(tmp_path):
     lines = [f"#md(ensemble=nve, mdp={mdp}, timestep=0.5)"]
     cc = CommandControl.from_settings(lines)
     assert cc.params['timestep'] == pytest.approx(0.5)
+
+
+def test_mdp_restart_and_rst_every_are_loaded(tmp_path):
+    from maple.function.read.command_control import CommandControl
+
+    mdp = tmp_path / "run.mdp"
+    mdp.write_text("restart = true\nrst_every = 250\n")
+    cc = CommandControl.from_settings([f"#md(ensemble=nvt, mdp={mdp})"])
+
+    assert cc.params["restart"] is True
+    assert cc.params["rst_every"] == 250
+
+
+def test_md_defaults_use_restart_not_resume():
+    from maple.function.read.command_control import CommandControl
+
+    cc = CommandControl.from_settings(["#md()"])
+
+    assert "restart" in cc.params
+    assert cc.params["restart"] is False
+    assert cc.params["rst_every"] == 1000
+    assert "resume" not in cc.params
+    assert "init_from" not in cc.params

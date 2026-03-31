@@ -39,7 +39,8 @@ from pathlib import Path
 from typing import Optional, TextIO
 from ase import Atoms
 
-from .utils import write_xyz_frame, read_last_xyz_frame
+from .utils import write_xyz_frame
+from .rst_io import read_rst, rotate_rst_checkpoint
 
 
 def _backup_file(path: Path) -> Optional[Path]:
@@ -133,10 +134,12 @@ class MDLogger:
         base   = Path(output_path).stem
         parent = Path(output_path).parent
 
-        self.thermo_path  = parent / f"{base}_md_thermo.dat"
-        self.traj_path    = parent / f"{base}_md_traj.xyz"
-        self.summary_path = parent / f"{base}_md_summary.txt"
-        self.final_path   = parent / f"{base}_md_final.xyz"
+        self.thermo_path   = parent / f"{base}_md_thermo.dat"
+        self.traj_path     = parent / f"{base}_md_traj.xyz"
+        self.summary_path  = parent / f"{base}_md_summary.txt"
+        self.rst_path      = parent / f"{base}_md.rst"
+        self.rst_prev_path = parent / f"{base}_md_prev.rst"
+        self.traj_format   = "xyz"
 
         # File handles (opened in start_simulation)
         self.thermo_file: Optional[TextIO] = None
@@ -204,7 +207,7 @@ class MDLogger:
 
             self.thermo_file = open(self.thermo_path, 'w')
             self.traj_file = open(self.traj_path, 'w')
-        # else: files already opened in append mode by resume_simulation()
+        # else: files already opened in append mode by restart_simulation()
 
         # Write main output header
         total_steps_display = n_steps + step_offset
@@ -295,7 +298,8 @@ class MDLogger:
                  kinetic_energy: float, potential_energy: float,
                  total_energy: float, atoms: Atoms, velocities: np.ndarray,
                  pressure: float = None, volume: float = None,
-                 rng_state: Optional[str] = None):
+                 rng_state: Optional[str] = None,
+                 rst_every: Optional[int] = None):
         """
         Log data for current step.
 
@@ -400,7 +404,7 @@ class MDLogger:
             ])
 
         # Write trajectory at traj_every frequency.
-        # frame_number stores the MD *step* number so that resume_simulation()
+        # frame_number stores the MD *step* number so that restart_simulation()
         # can recover step_offset directly without needing to know traj_every.
         if step % self.traj_every == 0:
             write_xyz_frame(
@@ -413,7 +417,21 @@ class MDLogger:
             )
             self.traj_file.flush()
 
-    def resume_simulation(
+        # Write restart checkpoint at rst_every frequency
+        if rst_every and step % rst_every == 0:
+            rotate_rst_checkpoint(
+                rst_path=self.rst_path,
+                rst_prev_path=self.rst_prev_path,
+                atoms=atoms,
+                velocities=velocities,
+                step=step,
+                timestep=self._timestep,
+                ensemble=self._ensemble,
+                energy=total_energy_hartree,
+                rng_state=rng_state,
+            )
+
+    def restart_simulation(
         self,
         ensemble: str,
         timestep: float,
@@ -423,177 +441,92 @@ class MDLogger:
         pressure: float = None,
     ):
         """
-        Restore state from the last trajectory frame, run 11 sanity checks,
-        open output files in append mode, and return (atoms_resumed, velocities_au, step_offset).
+        Restore state from a .rst checkpoint file, validate against input atoms,
+        open output files in append mode, and return (atoms, velocities, step_offset).
 
-        Returns None if already completed (step_offset >= n_steps).
-        Raises RuntimeError on hard failures.
+        Tries ``rst_path`` first; on parse failure falls back to ``rst_prev_path``.
+        Returns None if the checkpoint already completed the requested run.
+        Raises RuntimeError on hard failures (mismatch, missing files, etc.).
         """
-        import re as _re
         from ase.cell import Cell
 
-        check_lines = [
-            "\n" + "="*80 + "\n",
-            f"{'MD RESUME SANITY CHECK':^80}\n",
-            "="*80 + "\n",
-        ]
+        candidates = [self.rst_path, self.rst_prev_path]
+        state = None
+        errors = []
+        used_path = None
+        for path in candidates:
+            if not path.exists():
+                errors.append(f"missing: {path.name}")
+                continue
+            try:
+                state = read_rst(path)
+                used_path = path
+                break
+            except ValueError as exc:
+                errors.append(f"{path.name}: {exc}")
 
-        def _check(label: str, ok: bool, detail: str, fatal: bool = True):
-            tag = "[PASS]" if ok else ("[FAIL]" if fatal else "[WARN]")
-            line = f"  {label:<28} {detail:<36} {tag}\n"
-            check_lines.append(line)
-            if not ok and fatal:
-                check_lines.append("="*80 + "\n")
-                self.log_main(check_lines, echo=True)
-                raise RuntimeError(f"MD resume check failed — {label}: {detail}")
+        if state is None:
+            raise RuntimeError("MD restart failed: " + "; ".join(errors))
 
-        # CHECK 1: traj file exists
-        _check("Trajectory file:", self.traj_path.exists(),
-               f"{self.traj_path.name}  {'[FOUND]' if self.traj_path.exists() else '[MISSING]'}")
-
-        # Parse the last frame
-        try:
-            frame = read_last_xyz_frame(self.traj_path)
-        except ValueError as e:
-            check_lines.append(f"  ERROR: {e}\n" + "="*80 + "\n")
-            self.log_main(check_lines, echo=False)
-            raise RuntimeError(f"MD resume: failed to read trajectory: {e}")
-
+        # Validation checks
+        if state["natoms"] != len(atoms):
+            raise RuntimeError(
+                f"Atom count mismatch: rst has {state['natoms']}, input has {len(atoms)}"
+            )
         ref_symbols = atoms.get_chemical_symbols()
-
-        # CHECK 2: atom count
-        _check("Atom count:", frame['n_atoms'] == len(atoms),
-               f"{frame['n_atoms']} == {len(atoms)}")
-
-        # CHECK 3: chemical symbols
-        symbols_match = frame['symbols'] == ref_symbols
-        _check("Chemical symbols:", symbols_match,
-               f"{'match' if symbols_match else 'MISMATCH'}")
-
-        # CHECK 4: velocity columns present
-        _check("Velocity columns:", frame['velocities'] is not None,
-               "present" if frame['velocities'] is not None else "MISSING (old traj?)")
-
-        # CHECK 5: coordinates finite
-        coords_ok = bool(np.all(np.isfinite(frame['positions'])))
-        _check("Coordinates finite:", coords_ok, "yes" if coords_ok else "NaN/Inf detected")
-
-        # CHECK 6: velocities finite
-        vel_ok = bool(np.all(np.isfinite(frame['velocities'])))
-        _check("Velocities finite:", vel_ok, "yes" if vel_ok else "NaN/Inf detected")
-
-        # CHECK 7: velocities non-zero (warning only)
-        vel_nonzero = bool(np.any(frame['velocities'] != 0))
-        _check("Velocities non-zero:", vel_nonzero,
-               "yes" if vel_nonzero else "all zero (crashed?)", fatal=False)
-
-        # CHECK 8: timestep match (warning only)
-        ts_match = True
-        ts_file = None
-        try:
-            first_lines = self.thermo_path.read_text().splitlines()
-            for ln in first_lines[:5]:
-                m = _re.search(r"Timestep:\s*([\d\.eE\+\-]+)\s*fs", ln)
-                if m:
-                    ts_file = float(m.group(1))
-                    ts_match = abs(ts_file - timestep) < 1e-9
-                    break
-        except Exception:
-            pass
-        if ts_file is not None:
-            _check("Timestep match:", ts_match,
-                   f"{timestep:.3f} fs == {ts_file:.3f} fs" if ts_match
-                   else f"{timestep:.3f} fs != {ts_file:.3f} fs", fatal=False)
-        else:
-            check_lines.append(f"  {'Timestep match:':<28} {'could not parse .dat':<36} [SKIP]\n")
-
-        # CHECK 9: ensemble match (warning only)
-        ens_match = True
-        try:
-            first_line = self.thermo_path.read_text().splitlines()[0]
-            m = _re.search(r"MD Simulation - (\w+) Ensemble", first_line)
-            if m:
-                ens_file = m.group(1).lower()
-                ens_match = ens_file == ensemble.lower()
-                _check("Ensemble match:", ens_match,
-                       f"{ensemble.upper()} == {ens_file.upper()}" if ens_match
-                       else f"{ensemble.upper()} != {ens_file.upper()}", fatal=False)
-        except Exception:
-            check_lines.append(f"  {'Ensemble match:':<28} {'could not parse .dat':<36} [SKIP]\n")
-
-        # CHECK 10: steps remaining
-        # frame_num is now the MD *step* number written by write_xyz_frame(),
-        # so no multiplication by traj_every is needed here.
-        step_offset = frame['frame_num']
-        remaining = n_steps - step_offset
-        steps_ok = remaining > 0
-        _check("Steps remaining:", steps_ok,
-               f"{remaining} / {n_steps}")
-
-        if not steps_ok:
-            msg = f"MD resume: simulation already completed ({step_offset}/{n_steps} steps done)."
-            check_lines.append(f"\n{msg}\n" + "="*80 + "\n")
-            self.log_main(check_lines, echo=True)
+        for idx, (rst_sym, input_sym) in enumerate(zip(state["symbols"], ref_symbols), 1):
+            if rst_sym != input_sym:
+                raise RuntimeError(
+                    f"Element mismatch between rst and input at position {idx}"
+                )
+        if state["ensemble"] != ensemble:
+            raise RuntimeError(
+                f"Ensemble mismatch: rst has '{state['ensemble']}', "
+                f"input specifies '{ensemble}'"
+            )
+        if abs(state["timestep"] - timestep) > 1e-12:
+            raise RuntimeError(
+                f"Timestep mismatch: rst has {state['timestep']}, "
+                f"input specifies {timestep}"
+            )
+        if state["step"] >= n_steps:
+            self.log_main([
+                f"\nRestart checkpoint {used_path.name} already completed the "
+                f"requested run ({state['step']}/{n_steps} steps).\n"
+            ])
             return None
 
-        # CHECK 11: NPT — cell parameters present
-        if any(atoms.pbc):
-            cell_ok = frame['cell'] is not None
-            _check("Cell parameters (NPT):", cell_ok,
-                   "present" if cell_ok else "MISSING in traj (old format?)")
-
-        # CHECK 12: RNG state present in trajectory (warning only — NVE trajectories
-        # do not store RNG; NVT/NPT runs written before RNG logging was added also lack it.
-        # Missing RNG state means the stochastic thermostat/barostat will resume from a
-        # freshly-seeded generator rather than the exact saved state; the simulation is
-        # still physically valid but not bit-for-bit reproducible.)
-        rng_state = frame.get('rng_state', None)
-        rng_ok = rng_state is not None
-        _check("RNG state:", rng_ok,
-               "present (deterministic resume)" if rng_ok
-               else "absent (new seed; NVE or pre-RNG traj)", fatal=False)
-
-        # All checks passed — print summary
-        resume_ps = step_offset * timestep / 1000.0
-        check_lines += [
-            "-"*80 + "\n",
-            f"Resuming from step {step_offset} ({resume_ps:.3f} ps), "
-            f"{remaining} steps remaining.\n",
-            "="*80 + "\n",
-        ]
-        self.log_main(check_lines, echo=True)
-
         # Restore atoms state
-        atoms.set_positions(frame['positions'])
-        if frame['cell'] is not None:
-            atoms.set_cell(Cell.fromcellpar(frame['cell']))
-            atoms.set_pbc([True, True, True])
+        atoms.set_positions(state["positions"])
+        if state["cell"] is not None:
+            atoms.set_cell(Cell.fromcellpar(state["cell"]))
+        if state["pbc"] is not None:
+            atoms.set_pbc(state["pbc"])
 
-        # Store RNG state for the ensemble to restore
-        self.resumed_rng_state = rng_state
+        # Store RNG state for ensemble drivers (NVT/NPT) to restore
+        self.resumed_rng_state = state.get("rng_state")
 
         # Open output files in append mode
-        self.thermo_file = open(self.thermo_path, 'a')
-        self.traj_file   = open(self.traj_path,   'a')
-        # Mark resumption point in .dat
-        self.thermo_file.write(f"\n# --- RESUMED from step {step_offset} ---\n")
+        self.thermo_file = open(self.thermo_path, "a") if self.thermo_path.exists() else open(self.thermo_path, "w")
+        self.traj_file = open(self.traj_path, "a") if self.traj_path.exists() else open(self.traj_path, "w")
+        self.thermo_file.write(f"\n# --- RESTARTED from {used_path.name} step {state['step']} ---\n")
         self.thermo_file.flush()
 
-        return atoms, frame['velocities'], step_offset
+        return atoms, state["velocities"], state["step"]
 
     def end_simulation(self, atoms: Atoms = None, final_velocities: np.ndarray = None):
         """
         Finalize simulation, compute publication-quality conservation metrics,
-        write summary file, and write final structure (_md_final.xyz).
+        write summary file, and write final restart checkpoint.
 
         Parameters
         ----------
         atoms : ase.Atoms, optional
-            Final atomic configuration.  Required to write _md_final.xyz.
+            Final atomic configuration.
         final_velocities : np.ndarray, optional
             Final velocities in atomic units (Bohr/a.u. time).
-            Written alongside coordinates in _md_final.xyz so that a
-            subsequent NVE/NVT/NPT run can read them via init_from=.
+            Written to the restart checkpoint so that a subsequent
+            NVE/NVT/NPT run can restart from the exact end state.
             Analogous to GROMACS confout.gro (coordinates + velocities).
         """
         # End the \r progress line with a newline so the summary starts cleanly
@@ -958,24 +891,24 @@ class MDLogger:
             ], echo=True)
 
         # ------------------------------------------------------------------
-        # Write _md_final.xyz  (GROMACS confout.gro equivalent)
+        # Write final restart checkpoint  (GROMACS confout.gro equivalent)
         # Contains final coordinates + velocities so that a subsequent
-        # NVE/NVT/NPT run can start from the exact end state via init_from=.
+        # NVE/NVT/NPT run can restart from the exact end state.
         # ------------------------------------------------------------------
         final_written = False
         if atoms is not None and final_velocities is not None:
-            _backup_file(self.final_path)
-            final_energy = self.energies[-1] if self.energies else float('nan')
-            # frame_number = last absolute MD step (times in fs / timestep in fs)
-            final_step = (int(round(self.times[-1] / self._timestep))
-                          if self.times and self._timestep > 0 else 0)
-            with open(self.final_path, 'w') as f:
-                write_xyz_frame(
-                    f, atoms,
-                    energy=final_energy,
-                    frame_number=final_step,
-                    velocity=final_velocities,
-                )
+            final_energy = self.energies[-1] if self.energies else float("nan")
+            final_step = int(round(self.times[-1] / self._timestep)) if self.times and self._timestep > 0 else 0
+            rotate_rst_checkpoint(
+                rst_path=self.rst_path,
+                rst_prev_path=self.rst_prev_path,
+                atoms=atoms,
+                velocities=final_velocities,
+                step=final_step,
+                timestep=self._timestep,
+                ensemble=self._ensemble,
+                energy=final_energy,
+            )
             final_written = True
 
         self.log_main([
@@ -983,8 +916,8 @@ class MDLogger:
             f"  Thermodynamics:             {self.thermo_path.name}\n",
             f"  Trajectory:                 {self.traj_path.name}\n",
             f"  Summary:                    {self.summary_path.name}\n",
-            *([ f"  Final structure:            {self.final_path.name}"
-                f"  (coords + velocities; use init_from= for next run)\n"]
+            *([f"  Checkpoint:                 {self.rst_path.name}\n"
+               f"  Previous checkpoint:        {self.rst_prev_path.name}\n"]
               if final_written else []),
             "="*80 + "\n",
         ], echo=True)

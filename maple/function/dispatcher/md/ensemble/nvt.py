@@ -31,11 +31,9 @@ from ..utils import (
     calculate_temperature,
     calculate_kinetic_energy,
     initialize_velocities,
-    read_last_xyz_frame,
-    get_rng_state_hex,
-    restore_rng_from_hex,
     HA_PER_ANG_TO_AU,
 )
+from ..rst_io import get_rng_state_hex, restore_rng_from_hex
 from ..logger import MDLogger
 
 
@@ -162,11 +160,11 @@ class NVTParams:
     verbose:         int   = 1            # 0=off, 1=GROMACS-style progress, 2=verbose
 
     init_velocities: bool  = True
-    init_from: Optional[str] = None   # path to *_md_final.xyz from a prior run
-    remove_com:      bool  = True
-    remove_rotation: bool  = False
+    restart:          bool  = False
+    rst_every:        int   = 1000
+    remove_com:       bool  = True
+    remove_rotation:  bool  = False
     random_seed: Optional[int] = None
-    resume: bool = False
 
 
 class NVT(JobABC):
@@ -239,8 +237,8 @@ class NVT(JobABC):
         with timer("MD Simulation (NVT)"):
             self._log_parameters()
 
-            if self.params.resume:
-                result = self.logger.resume_simulation(
+            if self.params.restart:
+                result = self.logger.restart_simulation(
                     ensemble='nvt',
                     timestep=self.params.timestep,
                     n_steps=self.params.steps,
@@ -255,9 +253,7 @@ class NVT(JobABC):
                     restore_rng_from_hex(self._rng, self.logger.resumed_rng_state)
                 remaining = self.params.steps - step_offset
             else:
-                if self.params.init_from:
-                    velocities = self._load_from_final(self.params.init_from)
-                elif 'velocities' in self.atoms.arrays and self.params.init_velocities:
+                if 'velocities' in self.atoms.arrays and self.params.init_velocities:
                     velocities = self.atoms.arrays['velocities']
                     t_check = calculate_temperature(self.atoms, velocities)
                     self.log_info([
@@ -269,7 +265,7 @@ class NVT(JobABC):
                 else:
                     if 'velocities' not in self.atoms.arrays:
                         raise ValueError(
-                            "init_velocities=False and init_from not set, "
+                            "init_velocities=False, "
                             "but no velocities found in atoms.arrays"
                         )
                     velocities = self.atoms.arrays['velocities']
@@ -302,6 +298,8 @@ class NVT(JobABC):
             f"  Log every:        {self.params.log_every} steps\n",
             f"  Traj every:       {self.params.traj_every} steps\n",
             f"\nVelocity init:      {self.params.init_velocities}\n",
+            f"Restart mode:       {self.params.restart}\n",
+            f"RST every:          {self.params.rst_every} steps\n",
             f"Remove COM motion:  {self.params.remove_com}\n",
         ]
         if self.params.random_seed is not None:
@@ -322,52 +320,6 @@ class NVT(JobABC):
         actual_temp = calculate_temperature(self.atoms, velocities)
         self.log_info([f"Initial temperature: {actual_temp:.2f} K\n"])
         return velocities
-
-    def _load_from_final(self, path: str) -> np.ndarray:
-        """
-        Load coordinates and velocities from a *_md_final.xyz written by
-        a prior NVE/NVT/NPT run.  Mirrors NVE._load_from_final().
-        """
-        from pathlib import Path
-        from ase.cell import Cell
-
-        fpath = Path(path)
-        if not fpath.exists():
-            raise FileNotFoundError(
-                f"init_from: file not found: {path}"
-            )
-        frame = read_last_xyz_frame(fpath)
-        if frame['n_atoms'] != len(self.atoms):
-            raise ValueError(
-                f"init_from: atom count mismatch — "
-                f"file has {frame['n_atoms']}, system has {len(self.atoms)}"
-            )
-        if frame['symbols'] != self.atoms.get_chemical_symbols():
-            raise ValueError(
-                f"init_from: chemical symbols mismatch in '{fpath.name}'"
-            )
-        if frame['velocities'] is None:
-            raise ValueError(
-                f"init_from: '{fpath.name}' contains no velocity data"
-            )
-        if not np.all(np.isfinite(frame['positions'])):
-            raise ValueError(f"init_from: non-finite coordinates in '{fpath.name}'")
-        if not np.all(np.isfinite(frame['velocities'])):
-            raise ValueError(f"init_from: non-finite velocities in '{fpath.name}'")
-
-        self.atoms.set_positions(frame['positions'])
-        if frame['cell'] is not None:
-            self.atoms.set_cell(Cell.fromcellpar(frame['cell']))
-            self.atoms.set_pbc([True, True, True])
-
-        actual_temp = calculate_temperature(self.atoms, frame['velocities'])
-        self.log_info([
-            f"\nLoaded initial state from: {fpath.name}\n",
-            f"  Prior run step:    {frame['frame_num']}\n",
-            f"  Prior run energy:  {frame['energy']:.8f} Ha\n",
-            f"  Temperature from loaded velocities: {actual_temp:.2f} K\n",
-        ])
-        return frame['velocities']
 
     def _run_simulation(self, velocities: np.ndarray,
                         step_offset: int = 0, n_steps: int = None) -> np.ndarray:
@@ -430,6 +382,7 @@ class NVT(JobABC):
                 atoms=self.atoms,
                 velocities=v,
                 rng_state=get_rng_state_hex(self._rng),
+                rst_every=self.params.rst_every,
             )
 
         self.logger.end_simulation(atoms=self.atoms, final_velocities=v)

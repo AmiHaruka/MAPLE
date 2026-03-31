@@ -8,10 +8,7 @@ This module provides essential calculations for MD:
 - XYZ trajectory writing utilities
 """
 
-import json
-import re
 import numpy as np
-from pathlib import Path
 from ase import Atoms
 from typing import Optional
 
@@ -287,39 +284,6 @@ def initialize_velocities(
 
 # ========== Trajectory I/O ==========
 
-def get_rng_state_hex(rng: np.random.Generator) -> str:
-    """
-    Serialize a numpy Generator's bit-generator state to a compact hex string.
-
-    Parameters
-    ----------
-    rng : np.random.Generator
-
-    Returns
-    -------
-    str
-        Hex-encoded JSON of the bit-generator state dict.
-    """
-    state_json = json.dumps(rng.bit_generator.state, sort_keys=True)
-    return state_json.encode().hex()
-
-
-def restore_rng_from_hex(rng: np.random.Generator, hex_str: str) -> None:
-    """
-    Restore a numpy Generator's bit-generator state from a hex string produced
-    by get_rng_state_hex().
-
-    Parameters
-    ----------
-    rng : np.random.Generator
-        Generator whose state will be overwritten in-place.
-    hex_str : str
-        Hex string from get_rng_state_hex().
-    """
-    state = json.loads(bytes.fromhex(hex_str).decode())
-    rng.bit_generator.state = state
-
-
 def write_xyz_frame(
     file_handle,
     atoms: Atoms,
@@ -408,112 +372,6 @@ def write_xyz_trajectory(
     with open(filename, mode) as f:
         for i, (atoms, energy) in enumerate(zip(atoms_list, energies)):
             write_xyz_frame(f, atoms, energy, frame_number=i)
-
-
-_TRAJ_COMMENT_RE = re.compile(
-    r"Frame\s+(\d+)\s+Energy\s*=\s*([\d\.\-eE+]+)\s+Hartree"
-    r"(?:\s+Cell\s*=\s*([\d\.\s]+?))?"
-    r"(?:\s+RNG\s*=\s*(\S+))?"
-    r"\s*$"
-)
-
-
-def read_last_xyz_frame(traj_path) -> dict:
-    """
-    Scan a trajectory XYZ file from the end and return the last complete frame.
-
-    Returns a dict with keys:
-        n_atoms   : int
-        frame_num : int            # frame index written in comment line
-        energy    : float          # Ha
-        symbols   : list[str]
-        positions : np.ndarray (N,3)  Å
-        velocities: np.ndarray (N,3) a.u.  or None
-        cell      : np.ndarray (6,) cellpar or None
-        rng_state : str or None    # hex-encoded RNG state, or None if not present
-
-    Raises ValueError if no complete frame is found or parsing fails.
-    """
-    traj_path = Path(traj_path)
-    lines = traj_path.read_text().splitlines()
-    total = len(lines)
-
-    # Scan backwards to find start of each candidate frame (line contains an integer == n_atoms)
-    i = total - 1
-    while i >= 0:
-        stripped = lines[i].strip()
-        try:
-            n_atoms = int(stripped)
-        except ValueError:
-            i -= 1
-            continue
-
-        # Check that we have enough lines for a complete frame
-        if i + 2 + n_atoms > total:
-            i -= 1
-            continue
-
-        comment_line = lines[i + 1]
-        m = _TRAJ_COMMENT_RE.search(comment_line)
-        if m is None:
-            i -= 1
-            continue
-
-        frame_num = int(m.group(1))
-        energy    = float(m.group(2))
-        cell      = None
-        if m.group(3):
-            cell_vals = [float(x) for x in m.group(3).split()]
-            if len(cell_vals) == 6:
-                cell = np.array(cell_vals)
-        rng_state = m.group(4) if m.group(4) else None
-
-        # Parse atom lines
-        symbols   = []
-        positions = []
-        velocities_list = []
-        has_velocities = None
-        ok = True
-        for j in range(n_atoms):
-            parts = lines[i + 2 + j].split()
-            if len(parts) == 4:
-                if has_velocities is None:
-                    has_velocities = False
-                elif has_velocities:
-                    ok = False
-                    break
-                symbols.append(parts[0])
-                positions.append([float(x) for x in parts[1:4]])
-            elif len(parts) == 7:
-                if has_velocities is None:
-                    has_velocities = True
-                elif not has_velocities:
-                    ok = False
-                    break
-                symbols.append(parts[0])
-                positions.append([float(x) for x in parts[1:4]])
-                velocities_list.append([float(x) for x in parts[4:7]])
-            else:
-                ok = False
-                break
-
-        if not ok or len(symbols) != n_atoms:
-            i -= 1
-            continue
-
-        velocities = np.array(velocities_list) if has_velocities else None
-        return {
-            'n_atoms':    n_atoms,
-            'frame_num':  frame_num,
-            'energy':     energy,
-            'symbols':    symbols,
-            'positions':  np.array(positions),
-            'velocities': velocities,
-            'cell':       cell,
-            'rng_state':  rng_state,
-        }
-
-    raise ValueError(f"No complete XYZ frame found in {traj_path}")
 
 
 # ========== Velocity Utilities ==========

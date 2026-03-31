@@ -22,7 +22,6 @@ from ..utils import (
     calculate_temperature,
     calculate_kinetic_energy,
     initialize_velocities,
-    read_last_xyz_frame,
     HA_PER_ANG_TO_AU,
 )
 from ..logger import MDLogger
@@ -127,7 +126,8 @@ class NVEParams:
 
     verbose: int = 1                # 0=concise, 1=detailed
     init_velocities: bool = True
-    init_from: Optional[str] = None   # path to *_md_final.xyz from a prior run
+    restart: bool = False
+    rst_every: int = 1000
     remove_com: bool = True
     remove_rotation: bool = False
 
@@ -180,7 +180,6 @@ class NVEParams:
     # Set for reproducible velocity initialization; None = system entropy.
     # ------------------------------------------------------------------
     random_seed: Optional[int] = None
-    resume: bool = False
 
 
 class NVE(JobABC):
@@ -225,8 +224,8 @@ class NVE(JobABC):
             # Log parameters
             self._log_parameters()
 
-            if self.params.resume:
-                result = self.logger.resume_simulation(
+            if self.params.restart:
+                result = self.logger.restart_simulation(
                     ensemble='nve',
                     timestep=self.params.timestep,
                     n_steps=self.params.steps,
@@ -239,13 +238,7 @@ class NVE(JobABC):
                 remaining = self.params.steps - step_offset
             else:
                 # ── Velocity initialisation ───────────────────────────────
-                if self.params.init_from:
-                    # Load coordinates + velocities from a prior run's
-                    # _md_final.xyz (e.g., NVT pre-equilibration).
-                    # This is route A for NVT → NVE hand-off without losing
-                    # the thermalised velocity distribution.
-                    velocities = self._load_from_final(self.params.init_from)
-                elif 'velocities' in self.atoms.arrays and self.params.init_velocities:
+                if 'velocities' in self.atoms.arrays and self.params.init_velocities:
                     # Velocities were embedded in the input file (7-column XYZ) and
                     # parsed by InputReader into atoms.arrays['velocities'].
                     # Honour them instead of discarding with a fresh MB draw —
@@ -262,7 +255,7 @@ class NVE(JobABC):
                 else:
                     if 'velocities' not in self.atoms.arrays:
                         raise ValueError(
-                            "init_velocities=False and init_from not set, "
+                            "init_velocities=False, "
                             "but no velocities found in atoms.arrays"
                         )
                     velocities = self.atoms.arrays['velocities']
@@ -274,7 +267,7 @@ class NVE(JobABC):
                                                     step_offset=step_offset,
                                                     n_steps=remaining)
 
-            # Store final velocities and write _md_final.xyz
+            # Store final velocities
             self.atoms.arrays['velocities'] = final_velocities
 
     def _log_parameters(self):
@@ -299,6 +292,8 @@ class NVE(JobABC):
             f"  Log every:        {self.params.log_every} steps\n",
             f"  Traj every:       {self.params.traj_every} steps\n",
             f"\nVelocity init:      {self.params.init_velocities}\n",
+            f"Restart mode:       {self.params.restart}\n",
+            f"RST every:          {self.params.rst_every} steps\n",
             f"Remove COM motion:  {self.params.remove_com}\n",
             f"Remove COM every:   {com_status}\n",
         ])
@@ -344,11 +339,11 @@ class NVE(JobABC):
         # Recommended MAPLE workflow:
         #   #md(ensemble=nvt, steps=40000, timestep=0.5, temperature=300,
         #        thermostat=langevin, friction=0.001)   ; ≥ 10 ps NVT
-        #   #md(ensemble=nve, timestep=0.25, steps=400000, resume=true)
+        #   #md(ensemble=nve, timestep=0.25, steps=400000, restart=true)
         #
         # Only suppress this warning if you have already equilibrated the
-        # system with NVT (resume=true from a completed NVT run).
-        if not self.params.resume:
+        # system with NVT (restart=true from a completed NVT run).
+        if not self.params.restart:
             nvt_warn = (
                 "\n"
                 "  ┌─ NVT PRE-EQUILIBRATION ADVISORY ──────────────────────────────────────┐\n"
@@ -361,7 +356,7 @@ class NVE(JobABC):
                 "  │  Recommended workflow (GROMACS Manual 2024 §3.4.2; AMBER 2023 §3.1): │\n"
                 "  │    opt → NVT (≥ 10 ps, Langevin) → NVE (production)                  │\n"
                 "  │                                                                        │\n"
-                "  │  To suppress: set resume=true (assumes prior NVT was completed).      │\n"
+                "  │  To suppress: set restart=true (assumes prior NVT was completed).     │\n"
                 "  └────────────────────────────────────────────────────────────────────────┘\n"
                 "\n"
             )
@@ -412,76 +407,6 @@ class NVE(JobABC):
         ])
 
         return velocities
-
-    def _load_from_final(self, path: str) -> np.ndarray:
-        """
-        Load coordinates and velocities from a *_md_final.xyz written by
-        a prior NVE/NVT/NPT run.  Sets self.atoms positions (and cell if
-        present) in-place; returns velocities in atomic units.
-
-        This is the recommended way to hand off a thermalised NVT state
-        to an NVE production run without re-initialising velocities from
-        scratch (which would discard the equilibrated distribution).
-
-        Parameters
-        ----------
-        path : str
-            Path to the *_md_final.xyz file.
-
-        Returns
-        -------
-        np.ndarray  shape (N, 3), atomic units (Bohr/a.u. time)
-        """
-        from pathlib import Path
-        from ase.cell import Cell
-
-        fpath = Path(path)
-        if not fpath.exists():
-            raise FileNotFoundError(
-                f"init_from: file not found: {path}\n"
-                f"  Run the prior NVT/NPT equilibration first so that "
-                f"'{fpath.name}' is produced."
-            )
-
-        frame = read_last_xyz_frame(fpath)
-
-        # Sanity checks
-        if frame['n_atoms'] != len(self.atoms):
-            raise ValueError(
-                f"init_from: atom count mismatch — "
-                f"file has {frame['n_atoms']}, system has {len(self.atoms)}"
-            )
-        if frame['symbols'] != self.atoms.get_chemical_symbols():
-            raise ValueError(
-                f"init_from: chemical symbols mismatch between "
-                f"'{fpath.name}' and current system"
-            )
-        if frame['velocities'] is None:
-            raise ValueError(
-                f"init_from: '{fpath.name}' contains no velocity data. "
-                f"Ensure the prior run used traj_every > 0 and the file "
-                f"was written by MDLogger.end_simulation()."
-            )
-        if not np.all(np.isfinite(frame['positions'])):
-            raise ValueError(f"init_from: non-finite coordinates in '{fpath.name}'")
-        if not np.all(np.isfinite(frame['velocities'])):
-            raise ValueError(f"init_from: non-finite velocities in '{fpath.name}'")
-
-        # Apply state to atoms
-        self.atoms.set_positions(frame['positions'])
-        if frame['cell'] is not None:
-            self.atoms.set_cell(Cell.fromcellpar(frame['cell']))
-            self.atoms.set_pbc([True, True, True])
-
-        actual_temp = calculate_temperature(self.atoms, frame['velocities'])
-        self.log_info([
-            f"\nLoaded initial state from: {fpath.name}\n",
-            f"  Prior run step:    {frame['frame_num']}\n",
-            f"  Prior run energy:  {frame['energy']:.8f} Ha\n",
-            f"  Temperature from loaded velocities: {actual_temp:.2f} K\n",
-        ])
-
-        return frame['velocities']
 
     def _run_simulation(self, velocities: np.ndarray,
                         step_offset: int = 0, n_steps: int = None) -> np.ndarray:
@@ -581,7 +506,8 @@ class NVE(JobABC):
                 potential_energy=potential_energy,
                 total_energy=total_energy,
                 atoms=self.atoms,
-                velocities=v
+                velocities=v,
+                rst_every=self.params.rst_every,
             )
 
         # Finalize: write summary, final structure, close files
