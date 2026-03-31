@@ -11,6 +11,38 @@ except Exception:
 
 def main():
     """Command-line interface for MAPLE"""
+
+    # Pre-parse to check if 'md' subcommand is used
+    # This allows backward compatibility with: maple input.inp
+    if len(sys.argv) > 1 and sys.argv[1] == 'md':
+        # MD template generator mode
+        parser = argparse.ArgumentParser(
+            description='MAPLE: MAchine-learning Potential for Landscape Exploration - MD Template Generator',
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog="""
+Examples:
+  maple md nve                 # Generate nve.mdp in current directory
+  maple md nvt -o my_nvt.mdp   # Generate with custom filename
+  maple md npt -f              # Overwrite existing npt.mdp
+            """)
+        parser.add_argument('md', help='MD template command')
+        parser.add_argument('ensemble', choices=['nve', 'nvt', 'npt'],
+                          help='MD ensemble type')
+        parser.add_argument('-o', '--output', metavar='FILENAME',
+                          help='Output filename (default: {ensemble}.mdp)')
+        parser.add_argument('-f', '--force', action='store_true',
+                          help='Overwrite existing file without prompting')
+
+        args = parser.parse_args()
+        from maple.md_templates import generate_mdp_template
+        try:
+            generate_mdp_template(args.ensemble, args.output, args.force)
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+        return
+
+    # Normal MAPLE calculation mode
     parser = argparse.ArgumentParser(
         description='MAPLE: MAchine-learning Potential for Landscape Exploration',
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -19,17 +51,19 @@ Examples:
   maple inp1.inp              # Output to inp1.out
   maple inp1.inp result.out   # Output to result.out
   maple --test 1              # Run test case 1
+  maple md nve                # Generate nve.mdp template
+  maple md nvt -o my.mdp      # Generate custom named template
         """
     )
-    
     parser.add_argument('input_file', nargs='?', help='Input file path')
     parser.add_argument('output_file', nargs='?', help='Output file path (optional, auto-generated if not provided)')
     parser.add_argument('--test', type=int, choices=range(1, 9),
                         help='Run test case (1-8): 1=LBFGS, 2=NEB, 3=String, 4=Dimer, 5=RFO, 6=IRC, 7=Freq, 8=Scan')
     parser.add_argument('--version', action='version', version=f'%(prog)s {_VERSION}')
-    
+
     args = parser.parse_args()
-    
+
+    # Original MAPLE calculation logic (default behavior)
     # Test mode
     if args.test:
         # Get the package directory
