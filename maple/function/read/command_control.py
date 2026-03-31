@@ -67,6 +67,7 @@ class CommandControl:
             "log_every":       100,
             "init_velocities": True,
             "restart":         False,
+            "rst_file":        "",         # path to RST checkpoint (default: auto-detect)
             "rst_every":       1000,
             "remove_com":      True,
             "remove_com_every": 100,   # NVE only: steps between COM removal
