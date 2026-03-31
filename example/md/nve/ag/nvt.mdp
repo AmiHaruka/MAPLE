@@ -4,20 +4,18 @@
 integrator  = md
 
 timestep    = 0.1        ; fs
-nsteps      = 100000     ; steps (= 10 ps)
+steps       = 100000     ; steps (= 10 ps)
 
-ref-t       = 300.0      ; K
-tcoupl      = langevin   ; langevin or v-rescale
+temperature = 300.0      ; K
+thermostat  = langevin   ; langevin or v-rescale
 
 friction    = 0.001      ; 1/fs (Langevin only)
-; tau-t      = 0.1       ; ps (V-rescale only)
+; tau_t     = 100.0      ; fs (V-rescale only)
 
-nstxout     = 100
-nstenergy   = 100
-traj-format = dcd
+traj_every  = 100
+log_every   = 100
+traj_format = xyz
 
-gen-vel     = yes
-gen-temp    = 300.0      ; K
-
+init_velocities = yes
 restart     = no
-nst-rst      = 1000
+rst_every   = 1000

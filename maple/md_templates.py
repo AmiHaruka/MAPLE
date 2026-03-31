@@ -1,14 +1,14 @@
 """
 MDP template generator for MAPLE MD ensembles.
 
-Provides GROMACS-style MDP template files for NVE, NVT, and NPT ensembles.
+Provides MDP template files for NVE, NVT, and NPT ensembles.
 """
 
 import os
 from pathlib import Path
 
 
-# MDP template definitions
+# MDP template definitions (MAPLE internal parameter names)
 _MDP_TEMPLATES = {
     'nve': """\
 ; NVE (microcanonical) ensemble - Constant N, V, E
@@ -17,22 +17,20 @@ _MDP_TEMPLATES = {
 integrator  = md          ; Velocity Verlet
 
 timestep    = 0.1        ; fs
-nsteps      = 400000     ; steps (= 40 ps)
+steps       = 400000     ; steps (= 40 ps)
 
-ref-t       = 300.0      ; K (initial temperature for velocity init)
+temperature = 300.0      ; K (initial temperature for velocity init)
 
-nstxout     = 100        ; trajectory output every N steps
-nstenergy   = 100        ; log energy every N steps
-traj-format = xyz        ; xyz (text) or dcd (binary)
+traj_every  = 100        ; trajectory output every N steps
+log_every   = 100        ; log energy every N steps
+traj_format = xyz        ; xyz (text) or dcd (binary)
 
-nstcomm     = 100        ; remove COM motion every N steps
+remove_com_every = 100   ; remove COM motion every N steps
 
-gen-vel     = yes
-gen-temp    = 300.0      ; K
-
+init_velocities = yes
 restart     = no
-nst-rst      = 1000       ; checkpoint frequency
-; random-seed = 12345   ; uncomment for reproducibility
+rst_every   = 1000       ; checkpoint frequency
+; random_seed = 12345    ; uncomment for reproducibility
 """,
 
     'nvt': """\
@@ -42,23 +40,21 @@ nst-rst      = 1000       ; checkpoint frequency
 integrator  = md
 
 timestep    = 0.1        ; fs
-nsteps      = 100000     ; steps (= 10 ps)
+steps       = 100000     ; steps (= 10 ps)
 
-ref-t       = 300.0      ; K
-tcoupl      = langevin   ; langevin or v-rescale
+temperature = 300.0      ; K
+thermostat  = langevin   ; langevin or v-rescale
 
 friction    = 0.001      ; 1/fs (Langevin only)
-; tau-t      = 0.1       ; ps (V-rescale only)
+; tau_t     = 100.0      ; fs (V-rescale only)
 
-nstxout     = 100
-nstenergy   = 100
-traj-format = dcd
+traj_every  = 100
+log_every   = 100
+traj_format = xyz
 
-gen-vel     = yes
-gen-temp    = 300.0      ; K
-
+init_velocities = yes
 restart     = no
-nst-rst      = 1000
+rst_every   = 1000
 """,
 
     'npt': """\
@@ -68,26 +64,24 @@ nst-rst      = 1000
 integrator  = md
 
 timestep    = 0.1        ; fs
-nsteps      = 20000      ; steps (= 2 ps)
+steps       = 20000      ; steps (= 2 ps)
 
-ref-t       = 300.0      ; K
-tcoupl      = v-rescale  ; langevin or v-rescale
-; tau-t      = 0.2       ; ps (V-rescale only)
+temperature = 300.0      ; K
+thermostat  = v-rescale  ; langevin or v-rescale
+; tau_t     = 100.0      ; fs (V-rescale only)
 
-ref-p       = 1.0        ; bar
-pcoupl      = c-rescale  ; berendsen or c-rescale
-tau-p       = 2.0        ; ps
+pressure    = 1.0        ; bar
+barostat    = c-rescale  ; berendsen or c-rescale
+tau_p       = 2000.0     ; fs
 compressibility = 4.5e-5 ; 1/bar
 
-nstxout     = 100
-nstenergy   = 100
-traj-format = dcd
+traj_every  = 100
+log_every   = 100
+traj_format = xyz
 
-gen-vel     = yes
-gen-temp    = 300.0      ; K
-
+init_velocities = yes
 restart     = no
-nst-rst      = 1000
+rst_every   = 1000
 """,
 }
 

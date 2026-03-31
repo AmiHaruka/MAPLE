@@ -69,6 +69,8 @@ class CommandControl:
             "restart":         False,
             "rst_every":       1000,
             "remove_com":      True,
+            "remove_com_every": 100,   # NVE only: steps between COM removal
+            "remove_rotation": False,   # NVE only: remove initial angular momentum
             "random_seed":     None,
             # Thermostat (NVT / NPT)
             # Langevin default: correct canonical ensemble + ergodic by construction.
