@@ -46,6 +46,10 @@ def parse_mdp(path: str) -> dict:
             key, _, val = line.partition('=')
             key = key.strip().lower()
             val = val.strip()
+            if not key:
+                raise ValueError(f"{path}:{lineno}: empty key in MDP entry")
+            if not val:
+                raise ValueError(f"{path}:{lineno}: empty value for key '{key}'")
             result[key] = _coerce(val)
     return result
 

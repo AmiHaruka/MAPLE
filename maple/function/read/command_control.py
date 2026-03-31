@@ -142,12 +142,19 @@ class CommandControl:
                 log_lines.append(f"Task set to '{task}'\n")
 
                 # Task options inside parentheses
+                inline_md_keys = set()
                 if paren_val:
                     cls._parse_nested(params, paren_val)
+                    if task == 'md':
+                        inline_md_keys = {
+                            kv.split('=', 1)[0].strip()
+                            for kv in paren_val.split(',')
+                            if '=' in kv
+                        }
 
                 # Load MDP file if specified (inline params override MDP)
                 if task == 'md' and params.get('mdp'):
-                    cls._load_mdp(params, output_path)
+                    cls._load_mdp(params, inline_md_keys, output_path)
 
                 continue
 
@@ -259,16 +266,17 @@ class CommandControl:
                 target[kv.strip()] = True
 
     @classmethod
-    def _load_mdp(cls, params: dict, output_path: Optional[str] = None) -> None:
+    def _load_mdp(cls, params: dict, inline_keys: set[str], output_path: Optional[str] = None) -> None:
         """
         Load parameters from a GROMACS-style MDP file into params.
 
-        Inline parameters (already in params from the #md(...) line)
-        take precedence over MDP file values. MDP values are only applied
-        for keys that are still at their default values.
+        Inline parameters from the #md(...) line take precedence over MDP file
+        values. MDP values are only applied to known MD keys that were not
+        specified inline.
 
         Args:
             params: Parameter dict to update in-place
+            inline_keys: Keys explicitly provided inline in #md(...)
             output_path: Output file path for error logging
         """
         from ..dispatcher.md.mdp_reader import parse_mdp
@@ -283,9 +291,8 @@ class CommandControl:
             raise
 
         defaults = cls.DEFAULTS.get('md', {})
-        # Only apply MDP value if the current param is still at its default
         for key, mdp_val in mdp_params.items():
-            if key in params and params[key] == defaults.get(key):
+            if key in defaults and key not in inline_keys:
                 params[key] = mdp_val
 
     @staticmethod

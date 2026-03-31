@@ -105,34 +105,34 @@ class XYZReader:
         * Extra columns after z are allowed and ignored.
 
     Input format:
-      - Simple: '/path/to/file.xyz'
+      - Simple: '/path/to/file.xyz' or 'ag.xyz' or './ag.xyz'
       - With charge/mult: 'XYZ -14 2 /path/to/file.xyz' or '/path/to/file.xyz -14 2'
-      
+
     The charge and multiplicity will be stored in atoms.info['charge'] and atoms.info['mult']
     for UMA to use.
 
-    Behavior:
-      - The file path must be absolute. If not found, the reader tries case-insensitive lookup in the same directory.
-      - Returns an ASE Atoms with float64 positions.
-      - Raises ValueError only when no valid coordinate lines can be parsed.
-
-    Args:
-        file_path (str): Path to XYZ file, optionally with charge and multiplicity.
+    Path resolution:
+      - Absolute paths are used directly.
+      - Relative paths are resolved relative to base_dir (defaults to current working directory).
 
     Returns:
         Atoms: ASE Atoms object parsed from the file, with charge/mult in .info dict.
     """
 
-    def __new__(cls, file_path: str, charge: Optional[int] = None, mult: Optional[int] = None) -> Atoms:
+    def __new__(cls, file_path: str, charge: Optional[int] = None, mult: Optional[int] = None, base_dir: Optional[str] = None) -> Atoms:
         # Parse input string if charge and mult not explicitly provided
         if charge is None and mult is None:
             parsed_path, parsed_charge, parsed_mult = _parse_charge_mult(file_path)
             file_path = parsed_path
             charge = parsed_charge
             mult = parsed_mult
-        
+
+        # Resolve path: absolute paths used directly, relative paths resolved against base_dir
         if not os.path.isabs(file_path):
-            raise ValueError(f"XYZ file path must be absolute: {file_path}")
+            if base_dir is not None:
+                file_path = os.path.join(base_dir, file_path)
+            else:
+                file_path = os.path.abspath(file_path)
 
         # Try exact path; if missing, attempt case-insensitive lookup
         resolved = _case_insensitive_lookup(file_path)
@@ -242,8 +242,9 @@ class XYZReader:
         if charge is not None:
             atoms.info['charge'] = charge
         if mult is not None:
+            if mult < 1:
+                raise ValueError(f"Invalid multiplicity: {mult}. Must be >= 1")
             atoms.info['mult'] = mult
-        if mult is not None:
             atoms.info['spin'] = (mult -1)/2
 
         return atoms

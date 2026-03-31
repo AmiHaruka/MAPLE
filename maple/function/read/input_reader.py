@@ -403,6 +403,9 @@ class InputReader():
             atoms_list: List[Atoms] = []
             group_counter = 0
 
+            # Get input file directory for resolving relative paths
+            input_dir = os.path.dirname(self.input)
+
             for block in blocks:
                 # Normalize tokens for this block
                 tokens = [b.strip() for b in block if b.strip()]
@@ -425,7 +428,7 @@ class InputReader():
                         
                         if keyword == 'XYZTRAJ':
                             # Read trajectory file, returns Molecules object
-                            molecules_obj = XYZTrajReader(file_path)
+                            molecules_obj = XYZTrajReader(file_path, base_dir=input_dir)
 
                             # Apply PBC to all frames if specified
                             if self.pbc is not None:
@@ -445,7 +448,7 @@ class InputReader():
                             info_message.append('-' * 20 + '\n')
                         elif keyword == 'XYZ':
                             # Regular XYZ file
-                            atoms = XYZReader(file_path)
+                            atoms = XYZReader(file_path, base_dir=input_dir)
 
                             # Apply PBC if specified
                             if self.pbc is not None:

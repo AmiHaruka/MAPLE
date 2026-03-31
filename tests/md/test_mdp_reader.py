@@ -80,6 +80,30 @@ def test_inline_overrides_mdp(tmp_path):
     assert cc.params['timestep'] == pytest.approx(0.5)
 
 
+def test_inline_default_value_still_overrides_mdp(tmp_path):
+    """Explicit inline values must win even when equal to the built-in default."""
+    from maple.function.read.command_control import CommandControl
+    mdp = tmp_path / "run.mdp"
+    mdp.write_text("temperature = 400.0\n")
+    lines = [f"#md(ensemble=nve, mdp={mdp}, temperature=300.0)"]
+    cc = CommandControl.from_settings(lines)
+    assert cc.params['temperature'] == pytest.approx(300.0)
+
+
+def test_parse_mdp_rejects_empty_key(tmp_path):
+    mdp = tmp_path / "bad_key.mdp"
+    mdp.write_text("= 1\n")
+    with pytest.raises(ValueError, match="empty key"):
+        parse_mdp(str(mdp))
+
+
+def test_parse_mdp_rejects_empty_value(tmp_path):
+    mdp = tmp_path / "bad_value.mdp"
+    mdp.write_text("timestep =\n")
+    with pytest.raises(ValueError, match="empty value"):
+        parse_mdp(str(mdp))
+
+
 def test_mdp_restart_and_rst_every_are_loaded(tmp_path):
     from maple.function.read.command_control import CommandControl
 

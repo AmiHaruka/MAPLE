@@ -107,6 +107,12 @@ class Dispatcher():
             if isinstance(atoms, (list, Molecules)):
                 raise NotImplementedError('For MD job, only one Atoms object is allowed.')
 
+            if 'charge' not in atoms.info or 'mult' not in atoms.info:
+                raise ValueError(
+                    "MD requires explicit charge and multiplicity. "
+                    "Provide either 'XYZ <charge> <mult> <path>' or an inline 'charge mult' line before coordinates."
+                )
+
             ensemble = commandcontrol.params.get('ensemble', 'nve').lower()
             if ensemble == 'nve':
                 md = NVE(output=output, atoms=atoms, paras=commandcontrol.params)
