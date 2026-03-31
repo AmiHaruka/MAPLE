@@ -492,6 +492,9 @@ class MDLogger:
             rst = Path(rst_file)
             if rst.suffix == '':
                 rst = rst.with_suffix('.rst')
+            # If relative path, resolve relative to output file's directory
+            if not rst.is_absolute():
+                rst = Path(self.main_output).parent / rst
             candidates = [rst]
         else:
             candidates = [self.rst_path, self.rst_prev_path]
