@@ -13,6 +13,7 @@ _MDP_TEMPLATES = {
     'nve': """\
 ; NVE (microcanonical) ensemble - Constant N, V, E
 ; MAPLE MD template - Velocity Verlet integrator
+; Typical workflow: NVT equilibration -> NVE production
 
 integrator  = md          ; Velocity Verlet
 ensemble    = nve
@@ -20,7 +21,7 @@ ensemble    = nve
 timestep    = 0.1        ; fs
 steps       = 400000     ; steps (= 40 ps)
 
-temperature = 300.0      ; K (initial temperature for velocity init)
+temperature = 300.0      ; K (used only if init_velocities = yes)
 
 traj_every  = 100        ; trajectory output every N steps
 log_every   = 100        ; log energy every N steps
@@ -28,9 +29,9 @@ traj_format = xyz        ; xyz (text) or dcd (binary)
 
 remove_com_every = 100   ; remove COM motion every N steps
 
-init_velocities = yes
-restart     = no
-; rst_file  = nvt_md.rst  ; load state from another run (e.g. NVT -> NVE)
+init_velocities = no     ; load velocities from rst_file (NVT -> NVE)
+restart     = yes
+rst_file    = nvt_md.rst ; load state from NVT equilibration
 rst_every   = 1000       ; checkpoint frequency
 ; random_seed = 12345    ; uncomment for reproducibility
 """,
