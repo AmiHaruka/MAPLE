@@ -140,6 +140,7 @@ class NVEParams:
     verbose: int = 1                # 0=concise, 1=detailed
     init_velocities: bool = True
     restart: bool = False
+    rst_file: str = ""               # Path to RST checkpoint file (default: auto-detect from output name)
     rst_every: int = 1000
     remove_com: bool = True
     remove_rotation: bool = False
@@ -245,6 +246,7 @@ class NVE(JobABC):
                     n_steps=self.params.steps,
                     temperature=self.params.temperature,
                     atoms=self.atoms,
+                    rst_file=self.params.rst_file if self.params.rst_file else None,
                 )
                 if result is None:   # already completed
                     return

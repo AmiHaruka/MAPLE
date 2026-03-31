@@ -136,3 +136,73 @@ def test_rng_state_restores_deterministically():
     restore_rng_from_hex(rng2, state_hex)
 
     assert np.allclose(rng1.standard_normal(4), rng2.standard_normal(4))
+
+
+def test_cross_ensemble_load_with_rst_file(tmp_path):
+    """rst_file= allows NVT -> NVE transition: no ensemble/timestep checks, step_offset=0."""
+    atoms = build_atoms()
+    velocities = np.array([[0.001, 0.002, 0.003], [0.004, 0.005, 0.006]])
+
+    # Write an NVT checkpoint with dt=1.0
+    nvt_rst = tmp_path / "nvt_run_md.rst"
+    write_rst(
+        nvt_rst,
+        atoms=atoms,
+        velocities=velocities,
+        step=5000,
+        timestep=1.0,
+        ensemble="nvt",
+        energy=-1.23,
+    )
+
+    # Load it into an NVE run with dt=0.25 — should succeed
+    out = tmp_path / "nve_job.out"
+    logger = MDLogger(str(out), log_every=10, traj_every=10, verbose=0)
+
+    result = logger.restart_simulation(
+        ensemble="nve",
+        timestep=0.25,
+        n_steps=40000,
+        temperature=300.0,
+        atoms=atoms,
+        rst_file=str(nvt_rst),
+    )
+
+    assert result is not None
+    resumed_atoms, resumed_velocities, step_offset = result
+    assert step_offset == 0  # fresh run, not resume
+    assert np.allclose(resumed_velocities, velocities)
+
+
+def test_rst_file_auto_appends_suffix(tmp_path):
+    """rst_file without .rst suffix should still find the file."""
+    atoms = build_atoms()
+    velocities = np.array([[0.001, 0.002, 0.003], [0.004, 0.005, 0.006]])
+
+    rst_path = tmp_path / "myrun.rst"
+    write_rst(
+        rst_path,
+        atoms=atoms,
+        velocities=velocities,
+        step=100,
+        timestep=0.5,
+        ensemble="nvt",
+        energy=-1.0,
+    )
+
+    out = tmp_path / "job.out"
+    logger = MDLogger(str(out), log_every=10, traj_every=10, verbose=0)
+
+    # Pass path WITHOUT .rst suffix
+    result = logger.restart_simulation(
+        ensemble="nve",
+        timestep=0.25,
+        n_steps=1000,
+        temperature=300.0,
+        atoms=atoms,
+        rst_file=str(tmp_path / "myrun"),  # no .rst suffix
+    )
+
+    assert result is not None
+    _, _, step_offset = result
+    assert step_offset == 0

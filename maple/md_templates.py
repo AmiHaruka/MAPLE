@@ -30,6 +30,7 @@ remove_com_every = 100   ; remove COM motion every N steps
 
 init_velocities = yes
 restart     = no
+; rst_file  = nvt_md.rst  ; load state from another run (e.g. NVT -> NVE)
 rst_every   = 1000       ; checkpoint frequency
 ; random_seed = 12345    ; uncomment for reproducibility
 """,
@@ -56,6 +57,7 @@ traj_format = xyz
 
 init_velocities = yes
 restart     = no
+; rst_file  =            ; load state from a .rst checkpoint
 rst_every   = 1000
 """,
 
@@ -84,6 +86,7 @@ traj_format = xyz
 
 init_velocities = yes
 restart     = no
+; rst_file  =            ; load state from a .rst checkpoint
 rst_every   = 1000
 """,
 }

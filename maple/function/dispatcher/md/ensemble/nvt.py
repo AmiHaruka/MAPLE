@@ -168,6 +168,7 @@ class NVTParams:
 
     init_velocities: bool  = True
     restart:          bool  = False
+    rst_file:         str   = ""           # Path to RST checkpoint file (default: auto-detect)
     rst_every:        int   = 1000
     remove_com:       bool  = True
     remove_rotation:  bool  = False
@@ -252,6 +253,7 @@ class NVT(JobABC):
                     n_steps=self.params.steps,
                     temperature=self.params.temperature,
                     atoms=self.atoms,
+                    rst_file=self.params.rst_file if self.params.rst_file else None,
                 )
                 if result is None:   # already completed
                     return
@@ -393,6 +395,10 @@ class NVT(JobABC):
                 rst_every=self.params.rst_every,
             )
 
-        self.logger.end_simulation(atoms=self.atoms, final_velocities=v)
+        self.logger.end_simulation(
+            atoms=self.atoms,
+            final_velocities=v,
+            rng_state=get_rng_state_hex(self._rng)
+        )
         self.logger.log_main(["\nNVT simulation completed successfully.\n"])
         return v
