@@ -16,8 +16,8 @@ _MDP_TEMPLATES = {
 
 integrator  = md          ; Velocity Verlet
 
-timestep    = 0.25       ; fs
-nsteps      = 400000     ; steps (= 100 ps)
+timestep    = 0.1        ; fs
+nsteps      = 400000     ; steps (= 40 ps)
 
 ref-t       = 300.0      ; K (initial temperature for velocity init)
 
@@ -41,8 +41,8 @@ nst-rst      = 1000       ; checkpoint frequency
 
 integrator  = md
 
-timestep    = 1.0        ; fs
-nsteps      = 100000     ; steps (= 100 ps)
+timestep    = 0.1        ; fs
+nsteps      = 100000     ; steps (= 10 ps)
 
 ref-t       = 300.0      ; K
 tcoupl      = langevin   ; langevin or v-rescale
@@ -67,8 +67,8 @@ nst-rst      = 1000
 
 integrator  = md
 
-timestep    = 0.5        ; fs
-nsteps      = 20000      ; steps (= 10 ps)
+timestep    = 0.1        ; fs
+nsteps      = 20000      ; steps (= 2 ps)
 
 ref-t       = 300.0      ; K
 tcoupl      = v-rescale  ; langevin or v-rescale
