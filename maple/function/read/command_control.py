@@ -90,6 +90,7 @@ class CommandControl:
             "tau_p":           2000.0,    # fs
             "compressibility": 4.5e-5,    # 1/bar (water at 300 K, CRC Handbook)
             "mdp":             None,      # path to GROMACS-style .mdp file
+            "traj_format":     "xyz",      # trajectory format: "xyz" (text, default) or "dcd" (binary)
         },
         "solv": {"solvent": "water", "explicit": None},
     }
@@ -152,8 +153,35 @@ class CommandControl:
                             if '=' in kv
                         }
 
-                # Load MDP file if specified (inline params override MDP)
-                if task == 'md' and params.get('mdp'):
+                # Load MDP file - REQUIRED for MD tasks (inline params override MDP)
+                if task == 'md':
+                    if not params.get('mdp'):
+                        error_msg = """
+ERROR: MD tasks require an MDP configuration file.
+
+MAPLE uses GROMACS-style MDP files as the primary input format for MD parameters.
+
+Example MDP file (save as 'md_config.mdp'):
+    ; NVT production run
+    integrator = md
+    timestep = 1.0     ; fs
+    nsteps = 100000    ; total steps
+    ref-t = 300.0      ; K
+    tcoupl = langevin
+
+Usage in your input file:
+    #md(mdp=md_config.mdp)
+
+You can override MDP parameters inline:
+    #md(mdp=md_config.mdp, ref-t=400.0)
+
+For a complete parameter reference, see the MAPLE MD documentation.
+"""
+                        cls._log_error(output_path, error_msg)
+                        raise ValueError(
+                            "MD tasks require an MDP file. "
+                            "Add 'mdp=path/to/config.mdp' to your #md(...) directive."
+                        )
                     cls._load_mdp(params, inline_md_keys, output_path)
 
                 continue

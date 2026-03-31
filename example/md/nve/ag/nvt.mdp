@@ -1,0 +1,23 @@
+; NVT (canonical) ensemble - Constant N, V, T
+; MAPLE MD template - Langevin or V-rescale thermostat
+
+integrator  = md
+
+dt          = 0.001      ; ps (1 fs)
+nsteps      = 100000     ; steps (= 100 ps)
+
+ref-t       = 300.0      ; K
+tcoupl      = langevin   ; langevin or v-rescale
+
+friction    = 0.001      ; 1/fs (Langevin only)
+; tau-t      = 0.1       ; ps (V-rescale only)
+
+nstxout     = 100
+nstenergy   = 100
+traj-format = dcd
+
+gen-vel     = yes
+gen-temp    = 300.0      ; K
+
+restart     = no
+nst-rst      = 1000
