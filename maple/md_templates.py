@@ -15,6 +15,7 @@ _MDP_TEMPLATES = {
 ; MAPLE MD template - Velocity Verlet integrator
 
 integrator  = md          ; Velocity Verlet
+ensemble    = nve
 
 timestep    = 0.1        ; fs
 steps       = 400000     ; steps (= 40 ps)
@@ -38,6 +39,7 @@ rst_every   = 1000       ; checkpoint frequency
 ; MAPLE MD template - Langevin or V-rescale thermostat
 
 integrator  = md
+ensemble    = nvt
 
 timestep    = 0.1        ; fs
 steps       = 100000     ; steps (= 10 ps)
@@ -62,6 +64,7 @@ rst_every   = 1000
 ; MAPLE MD template - V-rescale thermostat + C-rescale barostat
 
 integrator  = md
+ensemble    = npt
 
 timestep    = 0.1        ; fs
 steps       = 20000      ; steps (= 2 ps)

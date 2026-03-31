@@ -30,16 +30,15 @@ Reference:
     Bernetti & Bussi, J. Chem. Phys. 153, 114107 (2020).
 """
 
-import warnings
-
 import numpy as np
 from ase import Atoms
-from ase.calculators.calculator import PropertyNotImplementedError
 from typing import Optional
 
 from ..utils import (
-    AMU_TO_AU, FS_TO_AU, AU_TO_FS, BOHR_TO_ANGSTROM, KELVIN_TO_HARTREE,
-    EV_PER_ANG3_TO_BAR, DEFAULT_COMPRESSIBILITY, AMU_ANG2_PER_FS2_TO_EV,
+    KELVIN_TO_HARTREE,
+    EV_PER_ANG3_TO_BAR,
+    DEFAULT_COMPRESSIBILITY,
+    compute_instantaneous_pressure,
 )
 
 
@@ -123,35 +122,10 @@ class CRescaleBarostat:
         float
             Instantaneous pressure in bar
         """
-        atoms = self.atoms
-        volume = atoms.get_volume()   # Å³
-
-        # Kinetic energy in eV
-        masses_amu = atoms.get_masses()
-        # v in a.u. (Bohr/a.u.time) → convert to Å/fs
-        v_ang_per_fs = velocities * BOHR_TO_ANGSTROM / AU_TO_FS
-        # KE in eV: 0.5 * m[amu] * v²[Å²/fs²] * (amu·Å²/fs² → eV)
-        ke_ev = 0.5 * np.sum(masses_amu[:, np.newaxis] * v_ang_per_fs ** 2) * AMU_ANG2_PER_FS2_TO_EV
-
-        # Virial from stress tensor (eV)
-        virial_ev = 0.0
-        try:
-            stress = atoms.get_stress(voigt=True)   # eV/Å³
-            virial_ev = -volume * (stress[0] + stress[1] + stress[2])
-        except (PropertyNotImplementedError, RuntimeError):
-            # Calculator does not support stress; fall back to ideal-gas pressure (virial = 0).
-            # Warn once per barostat instance so the user is aware.
-            if not self._stress_warned:
-                warnings.warn(
-                    f"{self.__class__.__name__}: calculator does not provide a stress tensor; "
-                    "pressure estimated from kinetic term only (ideal-gas approximation). "
-                    "For accurate NPT simulations, use a calculator that supports stress.",
-                    UserWarning, stacklevel=2
-                )
-                self._stress_warned = True
-
-        pressure_ev_ang3 = (2.0 * ke_ev + virial_ev) / (3.0 * volume)
-        return pressure_ev_ang3 * EV_PER_ANG3_TO_BAR
+        pressure, self._stress_warned = compute_instantaneous_pressure(
+            self.atoms, velocities, self._stress_warned, self.__class__.__name__
+        )
+        return pressure
 
     def apply(self, velocities: np.ndarray) -> float:
         """

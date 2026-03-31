@@ -5,12 +5,16 @@ This module provides essential calculations for MD:
 - Temperature from velocities
 - Kinetic energy calculations
 - Velocity initialization from Maxwell-Boltzmann distribution
+- Instantaneous pressure calculation
 - XYZ trajectory writing utilities
 """
 
+import warnings
+
 import numpy as np
 from ase import Atoms
-from typing import Optional
+from ase.calculators.calculator import PropertyNotImplementedError
+from typing import Optional, Tuple
 
 
 # ========== Physical Constants and Unit Conversions ==========
@@ -120,6 +124,81 @@ def calculate_kinetic_energy(atoms: Atoms, velocities: np.ndarray) -> float:
     masses = atoms.get_masses() * AMU_TO_AU
     kinetic = 0.5 * np.sum(masses[:, np.newaxis] * velocities**2)
     return kinetic
+
+
+def compute_instantaneous_pressure(
+    atoms: Atoms,
+    velocities: np.ndarray,
+    stress_warned: bool = False,
+    class_name: str = "Barostat",
+) -> Tuple[float, bool]:
+    """
+    Compute instantaneous pressure from the virial theorem.
+
+    P = (2*KE + W) / (3*V)
+
+    where W = -V * (σ_xx + σ_yy + σ_zz) is the virial from the stress tensor.
+
+    Parameters
+    ----------
+    atoms : ase.Atoms
+        Atomic system with attached calculator.
+    velocities : np.ndarray
+        Current velocities in atomic units (Bohr/a.u. time), shape (N_atoms, 3).
+    stress_warned : bool, default=False
+        Flag indicating whether stress-unavailable warning has already been issued.
+        If False and stress is unavailable, a warning is emitted and the flag is
+        set to True in the return value.
+    class_name : str, default="Barostat"
+        Class name to include in warning message.
+
+    Returns
+    -------
+    tuple of (float, bool)
+        (pressure_in_bar, new_stress_warned_flag)
+        pressure_in_bar: Instantaneous pressure in bar.
+        new_stress_warned_flag: Updated warning flag (True if warning was issued).
+
+    Notes
+    -----
+    If the calculator does not support stress tensor, the ideal-gas approximation
+    (W=0) is used, which underestimates pressure for dense systems.
+
+    References
+    ----------
+    Allen & Tildesley, Computer Simulation of Liquids, 2nd ed. (2017), §3.3.
+    """
+    volume = atoms.get_volume()   # Å³
+
+    # Kinetic contribution (in eV)
+    masses_amu = atoms.get_masses()
+    # v in a.u. (Bohr/a.u.time) → convert to Å/fs
+    v_ang_per_fs = velocities * BOHR_TO_ANGSTROM / AU_TO_FS
+    # KE in eV: 0.5 * m[amu] * v²[Å²/fs²] * (amu·Å²/fs² → eV)
+    ke_ev = 0.5 * np.sum(masses_amu[:, np.newaxis] * v_ang_per_fs**2) * AMU_ANG2_PER_FS2_TO_EV
+
+    # Virial contribution from stress tensor (eV)
+    virial_ev = 0.0
+    new_stress_warned = stress_warned
+    try:
+        stress = atoms.get_stress(voigt=True)   # eV/Å³, Voigt: xx,yy,zz,yz,xz,xy
+        # Hydrostatic virial: W = -V * (σ_xx + σ_yy + σ_zz)
+        virial_ev = -volume * (stress[0] + stress[1] + stress[2])
+    except (PropertyNotImplementedError, RuntimeError):
+        # Calculator does not support stress; fall back to ideal-gas pressure (virial = 0).
+        # Warn once per barostat instance so the user is aware.
+        if not stress_warned:
+            warnings.warn(
+                f"{class_name}: calculator does not provide a stress tensor; "
+                "pressure estimated from kinetic term only (ideal-gas approximation). "
+                "For accurate NPT simulations, use a calculator that supports stress.",
+                UserWarning, stacklevel=2
+            )
+            new_stress_warned = True
+
+    # P = (2*KE + W) / (3*V)  in eV/Å³, then convert to bar
+    pressure_ev_ang3 = (2.0 * ke_ev + virial_ev) / (3.0 * volume)
+    return pressure_ev_ang3 * EV_PER_ANG3_TO_BAR, new_stress_warned
 
 
 def initialize_velocities(

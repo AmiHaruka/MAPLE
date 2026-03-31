@@ -2,6 +2,7 @@
 ; MAPLE MD template - Langevin or V-rescale thermostat
 
 integrator  = md
+ensemble    = nvt
 
 timestep    = 0.1        ; fs
 steps       = 100000     ; steps (= 10 ps)
