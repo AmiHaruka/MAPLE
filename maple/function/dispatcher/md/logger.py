@@ -36,11 +36,12 @@ Energy conservation metrics follow published standards:
 import time as _time
 import numpy as np
 from pathlib import Path
-from typing import Optional, TextIO
+from typing import Optional, TextIO, Any
 from ase import Atoms
 
 from .utils import write_xyz_frame
 from .rst_io import read_rst, rotate_rst_checkpoint
+from .dcd_writer import DCDWriter
 
 
 def _backup_file(path: Path) -> Optional[Path]:
@@ -112,6 +113,7 @@ class MDLogger:
         log_every: int = 100,
         traj_every: int = 10,
         verbose: int = 1,
+        traj_format: str = "xyz",
     ):
         """
         Initialize MD logger.
@@ -124,26 +126,27 @@ class MDLogger:
                            0 = no progress lines (thermo file still written)
                            1 = GROMACS-style progress line every log_every steps
                            2 = verbose (step-level timing detail)
+            traj_format: Trajectory output format: "xyz" (text) or "dcd" (binary)
         """
         self.main_output = output_path
         self.log_every   = log_every
         self.traj_every  = traj_every
         self.verbose      = verbose
+        self.traj_format  = traj_format.lower()
 
         # Generate file paths
         base   = Path(output_path).stem
         parent = Path(output_path).parent
 
         self.thermo_path   = parent / f"{base}_md_thermo.dat"
-        self.traj_path     = parent / f"{base}_md_traj.xyz"
+        self.traj_path     = parent / f"{base}_md_traj.{self.traj_format}"
         self.summary_path  = parent / f"{base}_md_summary.txt"
         self.rst_path      = parent / f"{base}_md.rst"
         self.rst_prev_path = parent / f"{base}_md_prev.rst"
-        self.traj_format   = "xyz"
 
         # File handles (opened in start_simulation)
         self.thermo_file: Optional[TextIO] = None
-        self.traj_file:   Optional[TextIO] = None
+        self.traj_file:   Any = None  # TextIO for XYZ, DCDWriter for DCD
 
         # Statistics tracking
         self.energies            = []
@@ -206,7 +209,17 @@ class MDLogger:
                     backup_msgs.append(f"  Backed up existing file: {p.name} -> {backup.name}\n")
 
             self.thermo_file = open(self.thermo_path, 'w')
-            self.traj_file = open(self.traj_path, 'w')
+            # Open trajectory file based on format
+            if self.traj_format == 'dcd':
+                self.traj_file = DCDWriter(
+                    path=self.traj_path,
+                    natoms=len(atoms),
+                    timestep=timestep,
+                    is_periodic=any(atoms.pbc),
+                    first_step=step_offset,
+                )
+            else:  # xyz
+                self.traj_file = open(self.traj_path, 'w')
         # else: files already opened in append mode by restart_simulation()
 
         # Write main output header
@@ -407,15 +420,19 @@ class MDLogger:
         # frame_number stores the MD *step* number so that restart_simulation()
         # can recover step_offset directly without needing to know traj_every.
         if step % self.traj_every == 0:
-            write_xyz_frame(
-                self.traj_file,
-                atoms,
-                energy=total_energy_hartree,
-                frame_number=step,          # MD step number, NOT sequential frame index
-                velocity=velocities,
-                rng_state=rng_state,
-            )
-            self.traj_file.flush()
+            if self.traj_format == 'dcd':
+                # DCD writer handles its own writing
+                self.traj_file.write_frame(atoms, step=step)
+            else:  # xyz
+                write_xyz_frame(
+                    self.traj_file,
+                    atoms,
+                    energy=total_energy_hartree,
+                    frame_number=step,          # MD step number, NOT sequential frame index
+                    velocity=velocities,
+                    rng_state=rng_state,
+                )
+                self.traj_file.flush()
 
         # Write restart checkpoint at rst_every frequency
         if rst_every and step % rst_every == 0:
@@ -508,7 +525,19 @@ class MDLogger:
 
         # Open output files in append mode
         self.thermo_file = open(self.thermo_path, "a") if self.thermo_path.exists() else open(self.thermo_path, "w")
-        self.traj_file = open(self.traj_path, "a") if self.traj_path.exists() else open(self.traj_path, "w")
+        if self.traj_format == 'dcd':
+            if self.traj_path.exists():
+                self.traj_file = DCDWriter.open_for_append(self.traj_path)
+            else:
+                self.traj_file = DCDWriter(
+                    path=self.traj_path,
+                    natoms=len(atoms),
+                    timestep=timestep,
+                    is_periodic=any(atoms.pbc),
+                    first_step=state["step"],
+                )
+        else:  # xyz
+            self.traj_file = open(self.traj_path, "a") if self.traj_path.exists() else open(self.traj_path, "w")
         self.thermo_file.write(f"\n# --- RESTARTED from {used_path.name} step {state['step']} ---\n")
         self.thermo_file.flush()
 

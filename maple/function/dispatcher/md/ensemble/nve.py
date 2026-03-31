@@ -124,6 +124,19 @@ class NVEParams:
     traj_every: int = 100           # steps (= 25 fs = 0.025 ps at 0.25 fs/step)
     log_every:  int = 100           # steps (= 25 fs; ML-MD runs are short, dense logging is cheap)
 
+    # ------------------------------------------------------------------
+    # Trajectory format: xyz (text) or dcd (binary)
+    #
+    # DCD is a CHARMM/NAMD compatible binary format that stores coordinates
+    # as float32 (4 bytes/coord) vs XYZ's ~16 bytes/coord. A 1000-atom
+    # 10000-frame trajectory:
+    #   XYZ: ~480 MB (text, 16 chars/coord)
+    #   DCD: ~120 MB (binary, 4 bytes/coord)
+    # DCD files are ~3-4x smaller and faster to read/write.
+    # Ref: CHARMM documentation; NAMD User Guide; VMD molfile plugin.
+    # ------------------------------------------------------------------
+    traj_format: str = "xyz"        # "xyz" (text, default) or "dcd" (binary)
+
     verbose: int = 1                # 0=concise, 1=detailed
     init_velocities: bool = True
     restart: bool = False
@@ -213,6 +226,7 @@ class NVE(JobABC):
             output_path=output,
             log_every=self.params.log_every,
             traj_every=self.params.traj_every,
+            traj_format=self.params.traj_format,
             verbose=self.params.verbose,
         )
 

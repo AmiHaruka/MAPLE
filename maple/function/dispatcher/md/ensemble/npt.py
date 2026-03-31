@@ -155,6 +155,13 @@ class NPTParams:
     # ------------------------------------------------------------------
     traj_every:      int   = 100          # steps (= 50 fs = 0.05 ps at 0.5 fs/step)
     log_every:       int   = 100          # steps (= 50 fs)
+        # ------------------------------------------------------------------
+    # Trajectory format: xyz (text) or dcd (binary)
+    # DCD binary format is ~3-4x smaller than XYZ and faster to read/write.
+    # Ref: CHARMM documentation; VMD molfile plugin.
+    # ------------------------------------------------------------------
+    traj_format:     str   = "xyz"        # "xyz" (text, default) or "dcd" (binary)
+
     verbose:         int   = 1
     init_velocities: bool  = True
     restart:          bool  = False
@@ -256,6 +263,7 @@ class NPT(JobABC):
             output_path=output,
             log_every=self.params.log_every,
             traj_every=self.params.traj_every,
+            traj_format=self.params.traj_format,
             verbose=self.params.verbose,
         )
 

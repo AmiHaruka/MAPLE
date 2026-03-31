@@ -157,6 +157,13 @@ class NVTParams:
     # ------------------------------------------------------------------
     traj_every:      int   = 100          # steps (= 100 fs = 0.1 ps at 1 fs/step)
     log_every:       int   = 100          # steps (= 100 fs; dense logging is cheap vs ML force eval)
+    # ------------------------------------------------------------------
+    # Trajectory format: xyz (text) or dcd (binary)
+    # DCD binary format is ~3-4x smaller than XYZ and faster to read/write.
+    # Ref: CHARMM documentation; VMD molfile plugin.
+    # ------------------------------------------------------------------
+    traj_format:     str   = "xyz"        # "xyz" (text, default) or "dcd" (binary)
+
     verbose:         int   = 1            # 0=off, 1=GROMACS-style progress, 2=verbose
 
     init_velocities: bool  = True
@@ -229,6 +236,7 @@ class NVT(JobABC):
             output_path=output,
             log_every=self.params.log_every,
             traj_every=self.params.traj_every,
+            traj_format=self.params.traj_format,
             verbose=self.params.verbose,
         )
 

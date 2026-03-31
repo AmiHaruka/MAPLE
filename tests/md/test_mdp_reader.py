@@ -115,10 +115,14 @@ def test_mdp_restart_and_rst_every_are_loaded(tmp_path):
     assert cc.params["rst_every"] == 250
 
 
-def test_md_defaults_use_restart_not_resume():
+def test_md_defaults_use_restart_not_resume(tmp_path):
     from maple.function.read.command_control import CommandControl
 
-    cc = CommandControl.from_settings(["#md()"])
+    # Create a minimal MDP file
+    mdp = tmp_path / "test.mdp"
+    mdp.write_text("integrator = md\n")
+
+    cc = CommandControl.from_settings([f"#md(mdp={mdp})"])
 
     assert "restart" in cc.params
     assert cc.params["restart"] is False
