@@ -69,6 +69,7 @@ class MACEModelCalculator(CalcABC):
     """使用traced MACE模型的ASE计算器"""
 
     implemented_properties = ['energy', 'forces', 'free_energy', 'hessian']
+    supported_hessian_modes = ("analytic", "numerical")
 
     def __init__(self, 
         device: torch.device, 
@@ -103,6 +104,7 @@ class MACEModelCalculator(CalcABC):
 
         self.r_max = float(self.model.r_max)
         self.atomic_numbers = [int(z) for z in self.model.atomic_numbers]
+        self.hessian = "analytic"
 
         # 初始化隐式溶剂
         self.implicit_solv_init(implicit=implicit, solvent=solvent)
@@ -157,6 +159,7 @@ class MACEModelCalculator(CalcABC):
                 create_graph=False,
                 retain_graph=False
             )[0]
+            forces = forces * EV2HARTREE
 
             if self.solvent_correction:
                 solvent_energy, solvent_force = self.implicit_solv_energy_and_force(atoms)
@@ -187,8 +190,8 @@ class MACEModelCalculator(CalcABC):
             hessian[i, :] = grad2
         return hessian
 
-    def get_hessian(self, atoms=None) -> np.ndarray:
-        """计算Hessian矩阵"""
+    def _get_hessian_analytic(self, atoms=None) -> np.ndarray:
+        """使用自动微分计算Hessian矩阵"""
         positions = torch.tensor(
             atoms.get_positions(),
             dtype=self.dtype,
@@ -211,3 +214,51 @@ class MACEModelCalculator(CalcABC):
 
         hessian = self.compute_hessian(positions, energy)
         return hessian.detach().cpu().numpy()
+
+    def _get_hessian_numerical(self, atoms, delta: float = 0.002) -> np.ndarray:
+        from ase.constraints import FixAtoms
+
+        N = len(atoms)
+        pos0 = atoms.get_positions().copy()
+        fixed = {
+            i for c in getattr(atoms, "constraints", [])
+            if isinstance(c, FixAtoms)
+            for i in c.get_indices()
+        }
+        movable = [i for i in range(N) if i not in fixed]
+        H = np.zeros((3 * N, 3 * N), dtype=np.float64)
+
+        if len(movable) == 0:
+            return H
+
+        def force_at(positions: np.ndarray) -> np.ndarray:
+            atoms_tmp = atoms.copy()
+            atoms_tmp.set_positions(positions)
+            if getattr(atoms, "constraints", None):
+                atoms_tmp.set_constraint(atoms.constraints)
+            self.calculate(atoms_tmp, properties=["forces"], system_changes=all_changes)
+            return np.asarray(self.results["forces"], dtype=np.float64)
+
+        for a in movable:
+            for k in range(3):
+                row = 3 * a + k
+                pos_p = pos0.copy()
+                pos_p[a, k] += delta
+                Fp = force_at(pos_p)
+
+                pos_m = pos0.copy()
+                pos_m[a, k] -= delta
+                Fm = force_at(pos_m)
+
+                H[row, :] = (-(Fp - Fm) / (2.0 * delta)).reshape(-1)
+
+        return H
+
+    def get_hessian(self, atoms=None, delta: float = 0.002) -> np.ndarray:
+        if self.hessian == "analytic":
+            return self._get_hessian_analytic(atoms)
+        if self.hessian == "numerical":
+            return self._get_hessian_numerical(atoms, delta)
+        raise ValueError(
+            f"Unknown hessian method: {self.hessian}. Must be 'analytic' or 'numerical'"
+        )

@@ -78,16 +78,41 @@ class TransitionState(JobABC):
                 string.run()
                 
             elif self.method == 'dimer':
-                # TODO: Update Dimer to accept Molecules object instead of list
-                if not isinstance(self.atoms, list):
-                    raise ValueError('For Dimer method, you should provide a list of structures.')
                 from .algorithm import Dimer
+                # Dimer takes a single Atoms as TS guess
+                if isinstance(self.atoms, list):
+                    atoms_input = self.atoms[0]
+                else:
+                    atoms_input = self.atoms
                 dimer = Dimer(
                     output=self.output,
-                    atoms_init=self.atoms,
+                    atoms_init=atoms_input,
                     paras=self.params
                 )
                 dimer.run()
                 
+            elif self.method == 'autoneb':
+                # AutoNEB: automated multi-step reaction pathway exploration
+                if isinstance(self.atoms, Molecules):
+                    from .algorithm import AutoNEB
+                    autoneb = AutoNEB(
+                        output=self.output,
+                        atoms_or_molecules=self.atoms,
+                        paras=self.params
+                    )
+                    autoneb.run()
+                elif isinstance(self.atoms, list):
+                    if len(self.atoms) < 2:
+                        raise ValueError('For AutoNEB method, you should provide at least two structures.')
+                    from .algorithm import AutoNEB
+                    autoneb = AutoNEB(
+                        output=self.output,
+                        atoms_or_molecules=self.atoms,
+                        paras=self.params
+                    )
+                    autoneb.run()
+                else:
+                    raise ValueError('For AutoNEB method, you should provide a Molecules object or a list of structures.')
+
             else:
-                raise ValueError(f'Method {self.method} not recognized. Available methods are: newton, prfo, neb, string, dimer.')
+                raise ValueError(f'Method {self.method} not recognized. Available methods are: newton, prfo, neb, string, dimer, autoneb.')

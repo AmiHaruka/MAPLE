@@ -1,8 +1,0 @@
-#model=aimnet2nse
-#ts(method=neb,ifidpp=0)
-#device=gpu0
-
-XYZTRAJ -10 2 /home/user/software/maple/example/ts/neb/neb_mep.xyz
-
-
-

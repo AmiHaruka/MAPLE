@@ -3,6 +3,7 @@ from typing import List, Optional
 
 from ase import Atoms
 from ase.constraints import FixInternals
+from ase.neighborlist import NeighborList, natural_cutoffs
 
 from ..jobABC import JobABC
 
@@ -10,7 +11,7 @@ from maple.function.timer import timer
 
 class Scan(JobABC):
     """
-    N-dimensional relaxed scan (supports 1D, 2D, 3D).
+    N-dimensional relaxed/rigid scan (supports 1D, 2D, 3D).
     Uses hierarchical continuous scanning strategy with streaming output.
     """
 
@@ -22,7 +23,10 @@ class Scan(JobABC):
         self.method = method.upper() if method is not None else "LBFGS"
         self.output = output
         self.params = params if params is not None else {}
-        
+        self.mode = str(self.params.get("mode", "relaxed")).lower()
+        if self.mode not in ("relaxed", "rigid"):
+            raise ValueError(f"mode must be 'relaxed' or 'rigid', got: {self.mode}")
+        self._adj = self._build_connectivity(self.atoms)
         if constraints is None:
             raise ValueError("Constraints must be provided for scan.")
         self.constraints = self._convert_constraints(constraints)
@@ -132,9 +136,9 @@ class Scan(JobABC):
     def _print_progress(self, idx: int, total: int, coord: List[float]):
         """Print progress header before calling optimizer."""
         coord_str = "[" + ", ".join(f"{v:.2f}" for v in coord) + "]"
-        self.log_info("\n")
-        self.log_info("-" * 70)
-        self.log_info(f"\n            Scanning combination {idx}/{total}: {coord_str}\n")
+        self.log_info(["\n"])
+        self.log_info(["-" * 70])
+        self.log_info([f"\n            Scanning combination {idx}/{total}: {coord_str}\n"])
 
     def _apply_constraints(self, atoms: Atoms, coord: List[float]) -> Atoms:
         """
@@ -150,8 +154,36 @@ class Scan(JobABC):
         
         return atoms
 
+    def _apply_rigid_geometry(self, atoms: Atoms, coord: List[float]) -> Atoms:
+        """ 
+        Moving rigid body subgroup according to constraints
+        Recongnize the moving fragment automatically.
+        """
+        atoms.set_constraint(None)
+    
+        for idx, con in enumerate(self.constraints):
+            val = coord[idx]
+            ctype = con["type"]
+            if ctype == "distance":
+                mask, a0, a1 = self._get_rigid_mask(con)
+                atoms.set_distance(a0, a1, val, fix=0, mask=mask)  # fix a0, move a1 fragment
+            elif ctype == "angle":
+                mask, a1, a2, a3 = self._get_rigid_mask(con)
+                atoms.set_angle(a1, a2, a3, val, mask=mask)
+            elif ctype == "dihedral":
+                mask, a1, a2, a3, a4 = self._get_rigid_mask(con)
+                atoms.set_dihedral(a1, a2, a3, a4, val, mask=mask)
+            else:
+                raise ValueError(f"Unknown constraint type: {ctype}")
+    
+        if atoms.calc is None:
+            atoms.calc = self.initial_calc
+        return atoms
+
     def _run_optimizer(self, atoms: Atoms) -> Atoms:
         """Run geometry optimization."""
+        if self.mode == "rigid":
+            return atoms
         self.params["verbose"] = 0  # suppress optimizer output
         
         if self.method == "LBFGS":
@@ -184,6 +216,17 @@ class Scan(JobABC):
         coords_list.append(coord[:])
         energies.append(e)
 
+        # For rigid scan, log coordinates to output
+        if self.mode == "rigid":
+            info = []
+            info.append(f'\n{"Coordinates".center(70)}\n')
+            info.append('-' * 70 + '\n')
+            for atom_index, atom in enumerate(atoms):
+                x, y, z = atom.position
+                info.append(f"{atom_index:<4} {atom.symbol:<2} {x:>20.4f} {y:>20.4f} {z:>20.4f}\n")
+            info.append(f"\n\nEnergy:                {e:>12.6f}\n")
+            self.log_info(info)
+
     def _scan_1d(self, scan_values: List[List[float]]):
         """Execute 1D scan."""
         x_values = scan_values[0]
@@ -195,7 +238,10 @@ class Scan(JobABC):
             coord = [xv]
             self._current_index += 1
             self._print_progress(self._current_index, self._total_combinations, coord)
-            atoms_current = self._apply_constraints(atoms_current, coord)
+            if self.mode == "rigid":
+                atoms_current = self._apply_rigid_geometry(atoms_current, coord)
+            else:
+                atoms_current = self._apply_constraints(atoms_current, coord)
             atoms_current = self._run_optimizer(atoms_current)
             self._record_result(atoms_current, coord, coords_list, energies)
 
@@ -214,7 +260,10 @@ class Scan(JobABC):
             self._current_index += 1
             self._print_progress(self._current_index, self._total_combinations, coord)
 
-            atoms_current = self._apply_constraints(atoms_current, coord)
+            if self.mode == "rigid":
+                atoms_current = self._apply_rigid_geometry(atoms_current, coord)
+            else:
+                atoms_current = self._apply_constraints(atoms_current, coord)
             atoms_current = self._run_optimizer(atoms_current)
             
             grid_xy[(ix, 0)] = self._safe_copy(atoms_current)  # Keep initial line
@@ -228,7 +277,10 @@ class Scan(JobABC):
                 coord = [xv, y_values[iy]]
                 self._current_index += 1
                 self._print_progress(self._current_index, self._total_combinations, coord)
-                atoms_current = self._apply_constraints(atoms_current, coord)
+                if self.mode == "rigid":
+                    atoms_current = self._apply_rigid_geometry(atoms_current, coord)
+                else:
+                    atoms_current = self._apply_constraints(atoms_current, coord)
                 atoms_current = self._run_optimizer(atoms_current)
                 self._record_result(atoms_current, coord, coords_list, energies)
 
@@ -247,7 +299,10 @@ class Scan(JobABC):
             self._current_index += 1
             self._print_progress(self._current_index, self._total_combinations, coord)
 
-            atoms_current = self._apply_constraints(atoms_current, coord)
+            if self.mode == "rigid":
+                atoms_current = self._apply_rigid_geometry(atoms_current, coord)
+            else:
+                atoms_current = self._apply_constraints(atoms_current, coord)
             atoms_current = self._run_optimizer(atoms_current)
             
             grid_xy[(ix, 0)] = self._safe_copy(atoms_current)
@@ -261,7 +316,10 @@ class Scan(JobABC):
                 coord = [xv, y_values[iy], z_values[0]]
                 self._current_index += 1
                 self._print_progress(self._current_index, self._total_combinations, coord)
-                atoms_current = self._apply_constraints(atoms_current, coord)
+                if self.mode == "rigid":
+                    atoms_current = self._apply_rigid_geometry(atoms_current, coord)
+                else:
+                    atoms_current = self._apply_constraints(atoms_current, coord)
                 atoms_current = self._run_optimizer(atoms_current)
                 
                 grid_xy[(ix, iy)] = self._safe_copy(atoms_current)  # Keep initial plane
@@ -283,7 +341,10 @@ class Scan(JobABC):
                     coord = [xv, yv, zv]
                     self._current_index += 1
                     self._print_progress(self._current_index, self._total_combinations, coord)
-                    atoms_current = self._apply_constraints(atoms_current, coord)
+                    if self.mode == "rigid":
+                        atoms_current = self._apply_rigid_geometry(atoms_current, coord)
+                    else:
+                        atoms_current = self._apply_constraints(atoms_current, coord)
                     atoms_current = self._run_optimizer(atoms_current)
                     self._record_result(atoms_current, coord, coords_list, energies)
                 
@@ -319,11 +380,11 @@ class Scan(JobABC):
             else:
                 raise ValueError(f"Only 1D, 2D, 3D scans are supported, got {dim}D")
             
-            self.log_info("\n")
-            self.log_info("=" * 70)
-            self.log_info(f"\nScan completed! Total points: {len(energies)}")
-            self.log_info(f"Results saved to: {xyz_filename}")
-            self.log_info(f"Energy range: {min(energies):.6f} to {max(energies):.6f} eV\n")
+            self.log_info(["\n"])
+            self.log_info(["=" * 70])
+            self.log_info([f"\nScan completed! Total points: {len(energies)}"])
+            self.log_info([f"Results saved to: {xyz_filename}\n"])
+            self.log_info([f"Energy range: {min(energies):.6f} to {max(energies):.6f} eV\n"])
             
         finally:
             if self.xyz_file is not None:
@@ -333,3 +394,76 @@ class Scan(JobABC):
         """JobABC interface."""
         with timer("Scan"):
             self.run_scan()
+            self._cleanup_opt_files(self.output)  # cleanup opt temp files
+
+  
+    @staticmethod
+    def _cleanup_opt_files(output_path):
+        from pathlib import Path
+        base, _ = os.path.splitext(str(output_path))
+        for f in (base + "_opt.xyz", base + "_traj.xyz"):
+            Path(f).unlink(missing_ok=True)
+
+    def _build_connectivity(self, atoms: Atoms):
+        """Build adjacency list(bond graph) based on neighbor list."""
+        cutoffs = natural_cutoffs(atoms)
+        nl = NeighborList(cutoffs, self_interaction=False, bothways=True)
+        nl.update(atoms)
+    
+        n = len(atoms)
+        adj = [set() for _ in range(n)]
+        for i in range(n):
+            neigh, _ = nl.get_neighbors(i)
+            for j in neigh:
+                j = int(j)
+                adj[i].add(j)
+                adj[j].add(i)
+        return adj
+    
+    def _fragment(self, start: int, blocked_edge=None):
+        """Find connected fragment from start, optionally blocking an edge."""
+        # blocked_edge: tuple(u, v) meaning forbid traversing u<->v
+        u, v = blocked_edge if blocked_edge else (None, None)
+        stack = [start]
+        seen = {start}
+        while stack:
+            i = stack.pop()
+            for j in self._adj[i]:
+                if blocked_edge is not None and ((i == u and j == v) or (i == v and j == u)):
+                    continue
+                if j not in seen:
+                    seen.add(j)
+                    stack.append(j)
+        return seen
+    
+    def _mask_from_set(self, n, idx_set):
+        mask = [False] * n
+        for i in idx_set:
+            mask[i] = True
+        return mask
+    
+    def _get_rigid_mask(self, con):
+        n = len(self.atoms)
+        atoms_idx = [a - 1 for a in con["atoms"]]
+        ctype = con["type"]
+    
+        if ctype == "distance":
+            a0, a1 = atoms_idx
+            blocked = (a0, a1) if a1 in self._adj[a0] else None
+            frag = self._fragment(start=a1, blocked_edge=blocked)
+            return self._mask_from_set(n, frag), a0, a1
+    
+        if ctype == "angle":
+            a1, a2, a3 = atoms_idx
+            blocked = (a2, a3) if a3 in self._adj[a2] else None
+            frag = self._fragment(start=a3, blocked_edge=blocked)
+            return self._mask_from_set(n, frag), a1, a2, a3
+    
+        if ctype == "dihedral":
+            a1, a2, a3, a4 = atoms_idx
+            blocked = (a2, a3) if a3 in self._adj[a2] else None
+            frag = self._fragment(start=a4, blocked_edge=blocked)
+            return self._mask_from_set(n, frag), a1, a2, a3, a4
+    
+        raise ValueError(ctype)
+    

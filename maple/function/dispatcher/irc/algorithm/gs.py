@@ -6,7 +6,7 @@ Intrinsic Reaction Coordinate (IRC) integrator using Gonzalez–Schlegel (GS) sc
 - Pivot step + constrained optimization on a hypersphere
 - Micro-cycles using a (quasi-)Newton step with a Lagrange multiplier λ
   to enforce |p|^2 = (step_length/2)^2 in mass-weighted space
-- Hessian reuse with BFGS updates (optional periodic full recalculation)
+- Hessian updated by BFGS/Bofill (optional periodic full recalculation)
 - Forward and backward paths from the TS geometry, starting along the
   lowest negative eigenmode of the mass-weighted Hessian
 - Path merge with the lower-energy endpoint set as dE=0 and the TS
@@ -110,9 +110,8 @@ class GSParams:
     # Which negative eigenmode (1 = most negative) to use for initial direction
     target_mode: int = 1
 
-    # GS macro step length in mass-weighted coordinates (same units as q_mw)
-    # User-facing name kept in "Bohr" for compatibility with old inputs.
-    step_length_bohr: float = 0.30
+    # GS step length in Bohr
+    step_length_bohr: float = 0.10
 
     # Number of macro steps per direction
     max_steps: int = 50
@@ -121,12 +120,15 @@ class GSParams:
     max_micro_cycles: int = 20
     micro_step_thresh: float = 1e-3
 
-    # Recalculate Hessian every N micro-steps (None = never, only BFGS updates)
+    # Recalculate Hessian every N micro-steps (None = never)
     hessian_recalc: Optional[int] = None
 
+    # Hessian update method: "bfgs" or "bofill"
+    hessian_update: str = "bofill"
+
     # Convergence on forces in Cartesian space (Eh/Å)
-    tol_maxf: float = 2e-3
-    tol_rmsf: float = 5e-4
+    f_max_th: float = 2e-3
+    f_rms_th: float = 5e-4
 
     # Output controls
     print_each: bool = True
@@ -142,7 +144,7 @@ class GS:
     - Each macro step:
         pivot half-step along negative gradient,
         then constrained optimization on a hypersphere via micro-cycles.
-    - Uses BFGS updates of the mass-weighted Hessian, with optional
+    - Uses BFGS/Bofill updates of the mass-weighted Hessian, with optional
       periodic full recalculation.
     - Integrates forward and backward from the TS along the lowest
       negative eigenmode of H_mw, then merges paths.
@@ -173,12 +175,15 @@ class GS:
                 "sd_len_bohr": "step_length_bohr",
                 "steplength_bohr": "step_length_bohr",
                 "max_points": "max_steps",
+                "hessian_update": "hessian_update",
                 "max_micro_cycles": "max_micro_cycles",
                 "micro_step_thresh": "micro_step_thresh",
                 "hessian_recalc": "hessian_recalc",
                 "target_mode": "target_mode",
-                "tol_maxf": "tol_maxf",
-                "tol_rmsf": "tol_rmsf",
+                "f_max_th": "f_max_th",
+                "f_rms_th": "f_rms_th",
+                "tol_maxf": "f_max_th",       # backward compatibility
+                "tol_rmsf": "f_rms_th",       # backward compatibility
                 "print_each": "print_each",
                 "write_traj": "write_traj",
             }
@@ -191,7 +196,7 @@ class GS:
 
         # Internal state for GS integration
         self._D: Optional[np.ndarray] = None  # mass-weight scaling vector
-        self._step_len_mw: float = float(self.p.step_length_bohr)
+        self._step_len_mw: float = float(self.p.step_length_bohr * BOHR_TO_ANG)
 
         self.mw_coords: Optional[np.ndarray] = None
         self.mw_hessian: Optional[np.ndarray] = None
@@ -217,7 +222,7 @@ class GS:
         """
         # Prepare mass weights once at TS geometry
         self._D = masses_D(self.atoms)
-        self._step_len_mw = float(self.p.step_length_bohr)
+        self._step_len_mw = float(self.p.step_length_bohr * BOHR_TO_ANG)
 
         # Diagonalize mass-weighted Hessian at TS to get negative mode
         H_cart_ts = self._get_hessian_cart()
@@ -363,6 +368,28 @@ class GS:
         return H + term1 - term2
 
     @staticmethod
+    def _bofill_update(H: np.ndarray,
+                       s: np.ndarray,
+                       y: np.ndarray) -> np.ndarray:
+        """
+        Bofill update:
+        Combines Murtagh-Sargent and Powell-symmetric-Broyden updates using the Bofill mixing factor.
+        """
+        dx, dg = s, y
+
+        z = dg - H.dot(dx)
+        # MS
+        ms = np.outer(z, z) / z.dot(dx)
+        # PSB
+        dx2 = dx.dot(dx)
+        psb = ((np.outer(dx, z) + np.outer(z, dx)) / dx2) - (z.dot(dx)) * np.outer(dx, dx) / (dx2 * dx2)
+        # Bofill mixing
+        mix = (z.dot(dx) ** 2) / (z.dot(z) * dx2)
+
+        dH = mix * ms + (1.0 - mix) * psb
+        return H + dH
+
+    @staticmethod
     def _newton_1d(on_sphere,
                    lambda_0: float,
                    maxiter: int = 50,
@@ -402,7 +429,7 @@ class GS:
         _, F_cart = self._energy_forces_from_mw(self.mw_coords)
         gradient = self._gradient_mw_from_forces(F_cart)
 
-        # BFGS update (or optional full Hessian recalculation)
+        # Hessian update (or optional full Hessian recalculation)
         gradient_diff = gradient - self.prev_grad
         coords_diff = self.mw_coords - self.prev_coords
 
@@ -419,8 +446,10 @@ class GS:
             H_cart = self._get_hessian_cart()
             self.mw_hessian = (self._D[:, None] * H_cart) * self._D[None, :]
         else:
-            self.mw_hessian = self._bfgs_update(self.mw_hessian, coords_diff, gradient_diff)
-
+            if str(self.p.hessian_update).lower() == "bofill":
+                self.mw_hessian = self._bofill_update(self.mw_hessian, coords_diff, gradient_diff)
+            else:
+                self.mw_hessian = self._bfgs_update(self.mw_hessian, coords_diff, gradient_diff)
         eigvals, eigvecs = np.linalg.eigh(self.mw_hessian)
 
         # Constraint radius in MW space (half of the macro step length)
@@ -488,7 +517,7 @@ class GS:
         title = "FORWARD GS-IRC" if forward else "BACKWARD GS-IRC"
 
         self._print_header(title)
-        self._print_conv_thresholds(p.tol_maxf, p.tol_rmsf)
+        self._print_conv_thresholds(p.f_max_th, p.f_rms_th)
 
         # Initial MW coordinates at TS
         q_ts_mw = self._mw_from_cart(q_ts_cart)
@@ -592,7 +621,7 @@ class GS:
             )
 
             # Convergence in terms of Cartesian forces
-            if (maxF <= p.tol_maxf) and (rmsF <= p.tol_rmsf):
+            if (maxF <= p.f_max_th) and (rmsF <= p.f_rms_th):
                 self._print_hurray()
                 break
 
@@ -703,11 +732,11 @@ class GS:
             self.output,
         )
 
-    def _print_conv_thresholds(self, tol_maxf: float, tol_rmsf: float):
+    def _print_conv_thresholds(self, f_max_th: float, f_rms_th: float):
         log_info(
             [
                 "Iteration    E(Eh)      dE(kcal/mol)  max(|G|)   RMS(G) \n",
-                f"Convergence thresholds                {tol_maxf:0.6f}  {tol_rmsf:0.6f}\n",
+                f"Convergence thresholds                {f_max_th:0.6f}  {f_rms_th:0.6f}\n",
             ],
             self.output,
         )
