@@ -1,5 +1,0 @@
-#model=uma
-#md(ensemble=nve,steps=5000,timestep=0.25,temperature=300)
-#device=cuda
-
-XYZ 0 1 /home/axie/MAPLE/MAPLE-fork/example/md/nve/AG_opt.xyz

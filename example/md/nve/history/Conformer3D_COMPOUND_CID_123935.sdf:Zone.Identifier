@@ -1,4 +1,0 @@
-[ZoneTransfer]
-ZoneId=3
-ReferrerUrl=https://pubchem.ncbi.nlm.nih.gov/compound/123935
-HostUrl=https://pubchem.ncbi.nlm.nih.gov/rest/pug/conformers/0001E41F00000001/SDF?response_type=save&response_basename=Conformer3D_COMPOUND_CID_123935
