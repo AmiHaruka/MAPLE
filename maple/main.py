@@ -3,10 +3,13 @@ import os
 import argparse
 
 try:
-    from importlib.metadata import version as _pkg_version
-    _VERSION = _pkg_version('maple')
+    from maple import __version__ as _VERSION
 except Exception:
-    _VERSION = '0.1.1+apr'
+    try:
+        from importlib.metadata import version as _pkg_version
+        _VERSION = _pkg_version('maple')
+    except Exception:
+        _VERSION = '0.1.2'
 
 
 def main():
