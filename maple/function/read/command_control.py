@@ -16,7 +16,7 @@ class CommandControl:
         "egret", "aimnet2", "uma", "maceomol", "aimnet2nse"
     }
 
-    SUPPORTED_TASKS = {"sp", "opt", "ts", "scan", "freq", "irc"}
+    SUPPORTED_TASKS = {"sp", "opt", "ts", "scan", "freq", "irc", "md"}
 
     # Defaults assigned only when task is selected
     DEFAULTS = {
@@ -36,16 +36,76 @@ class CommandControl:
             "treat_imag_as_real": False,
             "device": "cpu",
         },
+        "md": {
+            "ensemble":        "nve",
+            # timestep: NVE default 0.25 fs (optimal for universal MLFFs).
+            #
+            # dt-sweep on Ala-Glu dipeptide (30 atoms, gas phase, UMA-S-1p1, NVE)
+            # showed σ(TE) is nearly flat across dt = 0.125–0.5 fs
+            # (1.30, 1.06, 1.18 kcal/mol), confirming
+            # that the energy-conservation floor is set by MLFF prediction noise,
+            # not by VV integrator error (which would scale as dt²).
+            # dt = 0.25 fs achieves the minimum σ(TE) of the three candidates.
+            # Refs: Fu et al. (2023) JCTC 19, 1863; Kovács et al. (2023) JPCL 14, 8725;
+            #       Zhang et al. (2023) J. Chem. Phys. 159, 054801 §III.C.
+            # NVT/NPT ensembles override to 1 fs via their dataclass defaults
+            # (thermostat damps integrator errors, allowing larger dt).
+            "timestep":        0.25,
+            # steps: NVE default 400000 = 100 ps at 0.25 fs (Páll 2020; AMBER 2023).
+            #        NVT/NPT override to 100000 = 100 ps at 1 fs.
+            "steps":           400000,
+            "temperature":     300.0,
+            # traj_every/log_every: ML potentials are ~1000-3000x slower than
+            # classical FFs (UMA: ~0.22 ns/day vs GROMACS ~100-1000 ns/day).
+            # GROMACS defaults (nstxout=500×2fs=1ps) target μs-scale runs.
+            # ML-MD runs are typically 10-100 ps; 1ps/frame gives only 10-100
+            # frames — too sparse for MSD/RDF analysis.
+            # Target: 100-500 frames per 10 ps → 100 steps (0.025-0.1 ps/frame).
+            # NVT/NPT ensemble classes override to 100 via their dataclass defaults.
+            # Refs: Fu et al. (2023) JCTC 19, 1863; Kovács et al. (2023) JPCL 14, 8725.
+            "traj_every":      100,
+            "log_every":       100,
+            "init_velocities": True,
+            "restart":         False,
+            "rst_file":        "",         # path to RST checkpoint (default: auto-detect)
+            "rst_every":       1000,
+            "remove_com":      True,
+            "remove_com_every": 100,   # NVE only: steps between COM removal
+            "remove_rotation": False,   # NVE only: remove initial angular momentum
+            "random_seed":     None,
+            # Thermostat (NVT / NPT)
+            # Langevin default: correct canonical ensemble + ergodic by construction.
+            # Default in AMBER (ntt=3), NAMD, OpenMM (LangevinMiddleIntegrator),
+            # LAMMPS (fix langevin), MACE (ASE Langevin), DeePMD-kit.
+            # Refs: Leimkuhler & Matthews (2013) AMRX 2013, 34–56 (BAOAB);
+            #       Basconi & Shirts (2013) JCTC 9, 2887 (thermostat comparison).
+            # V-rescale is available as alternative (Bussi et al. 2007 JCP 126, 014101).
+            "thermostat":      "langevin",
+            # friction = 0.001 1/fs = 1 ps⁻¹ (Langevin only)
+            # Leimkuhler & Matthews (2013) AMRX; AMBER gamma_ln=1; NAMD langevinDamping=1.
+            "friction":        0.001,
+            # tau_t = 100 fs: GROMACS default (Manual 2024); Bussi 2007 test value;
+            #   LAMMPS fix nvt Tdamp=0.1 ps (metal units).
+            "tau_t":           100.0,
+            # Barostat (NPT only)
+            "barostat":        "c-rescale",
+            "pressure":        1.0,       # bar
+            "tau_p":           2000.0,    # fs
+            "compressibility": 4.5e-5,    # 1/bar (water at 300 K, CRC Handbook)
+            "mdp":             None,      # path to GROMACS-style .mdp file
+            "traj_format":     "xyz",      # trajectory format: "xyz" (text, default) or "dcd" (binary)
+        },
         "solv": {"solvent": "water", "explicit": None},
     }
 
     IMPLEMENTATION_MAP = {
-        "opt": {"lbfgs", "rfo", "cg", ""},
+        "opt":  {"lbfgs", "rfo", "cg", ""},
         "scan": {"lbfgs", "cg"},
-        "ts": {"prfo", "string", "neb", "dimer", "afir", "descafir", "autoneb",},
+        "ts":   {"prfo", "string", "neb", "dimer", "afir", "descafir", "autoneb"},
         "freq": {"mw", "nonmw", "both"},
-        "sp": set(),
-        "irc": {"gs"},
+        "sp":   set(),
+        "irc":  {"gs"},
+        "md":   {"nve", "nvt", "npt"},
     }
 
     def __init__(self, params: Dict[str, Any], task: str, output_path: Optional[str] = None):
@@ -86,8 +146,46 @@ class CommandControl:
                 log_lines.append(f"Task set to '{task}'\n")
 
                 # Task options inside parentheses
+                inline_md_keys = set()
                 if paren_val:
                     cls._parse_nested(params, paren_val)
+                    if task == 'md':
+                        inline_md_keys = {
+                            kv.split('=', 1)[0].strip()
+                            for kv in paren_val.split(',')
+                            if '=' in kv
+                        }
+
+                # Load MDP file - REQUIRED for MD tasks (inline params override MDP)
+                if task == 'md':
+                    if not params.get('mdp'):
+                        error_msg = """
+ERROR: MD tasks require an MDP configuration file.
+
+MAPLE uses GROMACS-style MDP files as the primary input format for MD parameters.
+
+Example MDP file (save as 'md_config.mdp'):
+    ; NVT production run
+    integrator = md
+    timestep = 1.0     ; fs
+    nsteps = 100000    ; total steps
+    ref-t = 300.0      ; K
+    tcoupl = langevin
+
+Usage in your input file:
+    #md(mdp=md_config.mdp)
+
+You can override MDP parameters inline:
+    #md(mdp=md_config.mdp, ref-t=400.0)
+
+For a complete parameter reference, see the MAPLE MD documentation.
+"""
+                        cls._log_error(output_path, error_msg)
+                        raise ValueError(
+                            "MD tasks require an MDP file. "
+                            "Add 'mdp=path/to/config.mdp' to your #md(...) directive."
+                        )
+                    cls._load_mdp(params, inline_md_keys, output_path)
 
                 continue
 
@@ -198,6 +296,36 @@ class CommandControl:
             else:
                 target[kv.strip()] = True
 
+    @classmethod
+    def _load_mdp(cls, params: dict, inline_keys: set[str], output_path: Optional[str] = None) -> None:
+        """
+        Load parameters from a GROMACS-style MDP file into params.
+
+        Inline parameters from the #md(...) line take precedence over MDP file
+        values. MDP values are only applied to known MD keys that were not
+        specified inline.
+
+        Args:
+            params: Parameter dict to update in-place
+            inline_keys: Keys explicitly provided inline in #md(...)
+            output_path: Output file path for error logging
+        """
+        from ..dispatcher.md.mdp_reader import parse_mdp
+        mdp_path = params['mdp']
+        try:
+            mdp_params = parse_mdp(mdp_path)
+        except FileNotFoundError:
+            cls._log_error(output_path, f"MDP file not found: {mdp_path!r}")
+            raise
+        except ValueError as e:
+            cls._log_error(output_path, str(e))
+            raise
+
+        defaults = cls.DEFAULTS.get('md', {})
+        for key, mdp_val in mdp_params.items():
+            if key in defaults and key not in inline_keys:
+                params[key] = mdp_val
+
     @staticmethod
     def _auto_cast(value: str) -> Any:
         if value.lower() in {"true", "false"}:
@@ -286,10 +414,33 @@ class CommandControl:
 
         # check method compatibility
         if "method" in params:
+            if task == "md":
+                # MD uses 'ensemble', not 'method'
+                cls._log_error(output_path,
+                    f"'method' is not a valid MD parameter. Did you mean 'ensemble={params['method']}'?")
+                raise ValueError(
+                    f"'method' is not a valid MD parameter. Use 'ensemble=' to specify the MD ensemble "
+                    f"(nve, nvt, npt). Did you mean 'ensemble={params['method']}'?")
             allowed = cls.IMPLEMENTATION_MAP.get(task, set())
             if allowed and params["method"] not in allowed:
                 cls._log_error(output_path, f"Method '{params['method']}' not implemented for task '{task}'.")
                 raise ValueError(f"Method '{params['method']}' not implemented for task '{task}'.")
+
+        # check md ensemble compatibility
+        if task == "md":
+            if "ensemble" in params:
+                allowed = cls.IMPLEMENTATION_MAP.get("md", set())
+                if params["ensemble"] not in allowed:
+                    cls._log_error(output_path, f"MD ensemble '{params['ensemble']}' not supported.")
+                    raise ValueError(f"MD ensemble '{params['ensemble']}' not supported. Choose from: {allowed}")
+        else:
+            if "ensemble" in params:
+                cls._log_error(output_path,
+                    f"'ensemble' is not a valid parameter for task '{task}'. "
+                    f"'ensemble' is only used with #md(ensemble=nve/nvt/npt).")
+                raise ValueError(
+                    f"'ensemble' is not a valid parameter for task '{task}'. "
+                    f"'ensemble' is only used with #md(ensemble=nve/nvt/npt).")
 
     @staticmethod
     def _log_info(output_path: Optional[str], lines: List[str]) -> None:
