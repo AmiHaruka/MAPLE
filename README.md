@@ -1,23 +1,22 @@
 # **MA**chine-learning **P**otential for **L**andscape **E**xploration (**MAPLE**)
 
-**MA**chine Learning **P**otential for **L**andscape **E**xploration
+![MAPLE Concept](./maple.jpg)
 
-MAPLE is a computational chemistry toolkit that leverages machine learning potentials for efficient molecular simulations, including structure optimization, transition state searching, and reaction pathway analysis.
+MAPLE is a machine-learning-potential-native computational chemistry toolkit for
+geometry optimization, transition-state search, reaction-path analysis, molecular
+dynamics, and related post-processing workflows.
 
----
-
-## Features
+## Core Capabilities
 
 | Category | Methods |
 |----------|---------|
-| **Optimization** | LBFGS, RFO |
-| **Transition State** | NEB, CI-NEB, PRFO, Dimer, String (GSM), AFIR |
-| **Reaction Path** | IRC (GS method) |
+| **Optimization** | L-BFGS, RFO, SD, CG, SD-CG, GDIIS |
+| **Transition State** | NEB, CI-NEB, P-RFO, Dimer, String/GSM, AutoNEB |
+| **Reaction Path** | IRC with GS, LQA, HPC, EulerPC |
+| **Dynamics** | NVE, NVT, NPT |
 | **Analysis** | Frequency, PES Scan, Single Point |
-| **ML Potentials** | AIMNet2, ANI, MACE, UMA |
-| **Corrections** | DFT-D4 dispersion, GBSA solvation |
-
----
+| **ML Potentials** | ANI, AIMNet2, MACE, MACEPol, UMA |
+| **Extras** | D4 dispersion, GBSA solvation, PBC, restart files, DCD output |
 
 ## Installation
 
@@ -25,204 +24,130 @@ MAPLE is a computational chemistry toolkit that leverages machine learning poten
 
 - Python >= 3.9
 - PyTorch >= 2.0
-- CUDA-capable GPU (recommended)
+- CUDA-capable GPU recommended for production workloads
 
-### Install
+### Install MAPLE
 
 ```bash
-git clone https://github.com/ClickFF/maple.git
-cd maple
+git clone https://github.com/ClickFF/MAPLE.git
+cd MAPLE
 pip install -e .
 ```
 
-### Dependencies
+### Install Dependencies
 
 ```bash
-# Core
-pip install numpy scipy ase
+# Core scientific stack
+pip install numpy scipy matplotlib ase
 
-# PyTorch (CUDA 11.8)
+# PyTorch example: CUDA 11.8
 pip install torch --index-url https://download.pytorch.org/whl/cu118
 
-# PyTorch (CPU only)
+# CPU-only PyTorch
 pip install torch --index-url https://download.pytorch.org/whl/cpu
 
 # ML potentials
 pip install fairchem-core
 ```
 
----
-
-## Usage
+## Quick Start
 
 ### Command Line
 
 ```bash
-maple input.inp              # Output: input.out
-maple input.inp result.out   # Custom output file
-maple --test 1               # Run test case
+maple input.inp
+maple input.inp output.out
+maple --version
+maple md nve
 ```
 
-### Test Cases
+### Minimal Example
 
-```bash
-maple --test 1   # LBFGS optimization
-maple --test 2   # NEB transition state
-maple --test 3   # String method
-maple --test 4   # Dimer method
-maple --test 5   # RFO optimization
-maple --test 6   # IRC
-maple --test 7   # Frequency
-maple --test 8   # PES Scan
+```text
+#model=uma(size=uma-s-1p2)
+#opt(method=lbfgs)
+#device=gpu0
+
+C   -0.748   0.014   0.025
+C    0.748  -0.014  -0.025
+O    1.170   0.016   1.330
+H   -1.155  -0.888  -0.460
+H   -1.096   0.888  -0.530
+H   -1.155   0.049   1.065
+H    1.148  -0.912   0.457
+H    1.096   0.869   0.513
+H    0.802   0.842   1.742
 ```
 
----
+## Input Overview
 
-## Input File Format
+### Header Keywords
 
-### Header Options
-
+```text
+#model=<model>
+#<task>(options)
+#device=<device>
 ```
-#model=<model>           # ML potential: uma, aimnet2, ani, mace
-#<jobtype>(options)      # Job type with optional parameters
-#device=<device>         # gpu0, gpu1, cpu
-```
+
+### Common Tasks
+
+| Header | Description |
+|--------|-------------|
+| `#opt(method=lbfgs)` | Geometry optimization |
+| `#sp` | Single-point energy |
+| `#ts(method=neb)` | Transition-state search |
+| `#freq` | Frequency analysis |
+| `#irc(method=gs)` | Intrinsic reaction coordinate |
+| `#scan(method=lbfgs)` | PES scan |
+| `#md(ensemble=nvt,mdp=nvt.mdp)` | Molecular dynamics |
 
 ### Coordinates
 
-Two ways to specify coordinates:
+Inline coordinates:
 
-1. **Inline XYZ** - directly in input file:
-```
+```text
 #model=uma
-#opt(method=lbfgs)
-#device=gpu0
+#sp
 
 C   0.000   0.000   0.000
 H   1.089   0.000   0.000
 ...
 ```
 
-2. **External XYZ file** - reference path:
-```
-#model=uma
-#opt(method=lbfgs)
-#device=gpu0
+External coordinates:
 
+```text
 XYZ /path/to/molecule.xyz
 ```
 
-For multi-structure jobs (NEB, etc.), use multiple XYZ lines:
-```
-XYZ /path/to/reactant.xyz
-XYZ /path/to/product.xyz
-```
-
-### Job Types
-
-| Header | Description |
-|--------|-------------|
-| `#opt(method=lbfgs)` | Geometry optimization |
-| `#sp` | Single point energy |
-| `#ts(method=neb)` | Transition state search |
-| `#freq` | Frequency analysis |
-| `#irc` | Intrinsic reaction coordinate |
-| `#scan` | PES scan |
-
-### ML Models
-
-| Model | Description |
-|-------|-------------|
-| `uma` | UMA (universal materials) |
-| `aimnet2` | AIMNet2 (general organic) |
-| `ANI-1xnr` | ANI (CHNO molecules) |
-| `mace` | MACE (universal potential) |
-
----
-
-## Examples
-
-### Geometry Optimization
-
-```
-#model=uma
-#opt(method=lbfgs)
-#device=gpu0
-
-C      -0.77812600     -1.06756100      0.32105900
-C       1.30255300      0.05212000     -0.02829900
-...
-```
-
-### NEB Transition State
-
-```
-#model=ANI-1xnr
-#ts(method=neb,refine=nebts)
-#device=gpu0
-
-XYZ /path/to/reactant.xyz
-XYZ /path/to/product.xyz
-```
-
-### Frequency Calculation
-
-```
-#model=ANI-1xnr
-#freq
-#device=gpu0
-
-XYZ /path/to/optimized.xyz
-```
-
-### PES Scan
-
-```
-#model=uma
-#scan
-#device=gpu0
-
-C   0.000   0.000   0.000
-...
-
-S 15 31 -0.05 50
-S 13 34 -0.05 50
-```
-
-Scan format: `S <atom1> <atom2> <step_size> <n_steps>`
-
----
+Multi-structure jobs such as NEB accept multiple `XYZ` records.
 
 ## Documentation
 
-For detailed architecture and algorithm documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
-
----
+- Website: https://www.maplechem.org/
+- Release history: https://github.com/ClickFF/MAPLE/releases
+- Architecture notes: [ARCHITECTURE.md](ARCHITECTURE.md)
 
 ## Citation
 
-```
+```text
 https://github.com/ClickFF/MAPLE
 ```
 
----
-
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Make changes with clear commit messages
-4. Submit a pull request
-
----
+1. Fork the repository.
+2. Create a feature branch.
+3. Make changes with clear commits.
+4. Open a pull request.
 
 ## Acknowledgments
 
-- [ASE](https://wiki.fysik.dtu.dk/ase/) - Atomic Simulation Environment
+- [ASE](https://wiki.fysik.dtu.dk/ase/)
 - [PyTorch](https://pytorch.org/)
 - [AIMNet2](https://github.com/isayevlab/AIMNet2)
-- [fair-chem](https://github.com/FAIR-Chem/fairchem)
+- [FAIR-Chem](https://github.com/FAIR-Chem/fairchem)
 
----
-
-**Version**: 0.1.0 | **Status**: Active Development | **Updated**: January 2026
+**Version**: 0.1.2  
+**Status**: Active Development  
+**Updated**: April 2026
