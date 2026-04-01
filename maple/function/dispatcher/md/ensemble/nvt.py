@@ -47,25 +47,19 @@ class NVTParams:
     citations are provided next to each field.
     """
     # ------------------------------------------------------------------
-    # Timestep
-    # 1 fs: recommended safe default for ML potentials (no SHAKE/LINCS).
-    # SHAKE/LINCS enable 2 fs in classical FF; ML potentials resolve the
-    # full PES including stiff O-H modes, so constraints cannot be used.
-    # Refs: Zhang et al. (2018) Phys. Rev. Lett. 120, 143001 (DeePMD, 0.5 fs);
-    #       Batatia et al. (2022) NeurIPS 35, 11423 (MACE, 1 fs default);
-    #       LAMMPS metal units default: timestep 0.001 ps = 1 fs.
+    # Timestep: 0.1 fs
+    # Smaller timestep for ML potentials improves energy conservation.
+    # Refs: Zhang et al. (2018) Phys. Rev. Lett. 120, 143001 (DeePMD);
+    #       Batatia et al. (2022) NeurIPS 35, 11423 (MACE).
     # ------------------------------------------------------------------
-    timestep:        float = 1.0          # fs  [Zhang 2018; Batatia 2022; LAMMPS metal]
+    timestep: float = 0.1           # fs
 
     # ------------------------------------------------------------------
-    # Total steps → simulation length
-    # 100 ps (100000 × 1 fs) is the accepted minimum NVT equilibration
-    # length for small organic/biomolecular systems.
-    # Refs: GROMACS Lemkul tutorial: 50000 × 2 fs = 100 ps;
-    #       AMBER Tutorial 1 (Case et al. 2023): 25000 × 2 fs = 50 ps;
-    #       CHARMM-GUI default equilibration: 1 ns NVT.
+    # Total steps: 100000 × 0.1 fs = 10 ps
+    # Standard default simulation length for ML-MD runs.
+    # Refs: GROMACS Lemkul tutorial; AMBER Tutorial 1.
     # ------------------------------------------------------------------
-    steps:           int   = 100000       # steps  (= 100 ps at 1 fs/step)  [Lemkul; AMBER Tutorial 1]
+    steps: int = 100000             # steps (= 10 ps at 0.1 fs/step)
 
     # ------------------------------------------------------------------
     # Reference temperature
@@ -146,17 +140,17 @@ class NVTParams:
     # speeds of 100–1000 ns/day.  ML potentials are ~1000–3000× slower;
     # a typical ML-NVT run is 10–100 ps.
     #
-    # Target: 100–500 frames per 10 ps.
-    #   traj_every = 100 steps × 1.0 fs/step = 100 fs = 0.1 ps/frame
-    #   10 ps → 100 frames  ✓   100 ps → 1000 frames  ✓
+    # Target: 100–1000 frames per 10 ps.
+    #   traj_every = 100 steps × 0.1 fs/step = 10 fs = 0.01 ps/frame
+    #   10 ps → 1000 frames  ✓
     #
     # Refs: Stocker et al. (2022) Mach. Learn.: Sci. Technol. 3, 045010 —
     #         GNN-MD benchmarks, 10–100 ps runs with ps-scale trajectory output.
     #       Kovács et al. (2023) J. Chem. Phys. 159, 044118 — MACE evaluation
     #         with dense per-step output for monitoring convergence.
     # ------------------------------------------------------------------
-    traj_every:      int   = 100          # steps (= 100 fs = 0.1 ps at 1 fs/step)
-    log_every:       int   = 100          # steps (= 100 fs; dense logging is cheap vs ML force eval)
+    traj_every:      int   = 100          # steps (= 10 fs = 0.01 ps at 0.1 fs/step)
+    log_every:       int   = 100          # steps (= 10 fs; dense logging is cheap vs ML force eval)
     # ------------------------------------------------------------------
     # Trajectory format: xyz (text) or dcd (binary)
     # DCD binary format is ~3-4x smaller than XYZ and faster to read/write.

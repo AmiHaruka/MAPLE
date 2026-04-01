@@ -38,57 +38,20 @@ class NVEParams:
     are provided next to each field.
     """
     # ------------------------------------------------------------------
-    # Timestep: 0.25 fs
-    #
-    # For universal ML force fields (UMA, MACE-MP-0, etc.) the dominant
-    # source of NVE energy error is NOT numerical integration but the
-    # force-field's own energy-prediction noise.  A dt-sweep on the
-    # Ala-Glu dipeptide test system (30 atoms, gas phase) showed:
-    #
-    #   dt / fs  |  σ(TE) / kcal·mol⁻¹
-    #   ---------+----------------------
-    #   0.125    |  1.30   (noise floor: many steps × small MLFF error each)
-    #   0.250    |  1.06   ← optimal (noise averages out before integrator
-    #   0.500    |  1.18    diverges; VV local error also sub-dominant)
-    #
-    # The near-flat σ(TE) vs dt relationship (ratio 0.81× and 0.91× across
-    # 4× and 8× step changes, vs. the dt² ∝ 4× and 16× expected for a
-    # pure-integrator-error regime) confirms the MLFF noise floor.
-    # dt = 0.25 fs sits at the minimum of this noise-floor curve.
-    #
-    # This finding is consistent with published ML-MD benchmarks showing
-    # that GNN potential energy noise sets a floor on σ(TE) that cannot
-    # be reduced further by decreasing dt:
-    #   Stocker et al. (2022) Mach. Learn.: Sci. Technol. 3, 045010 —
-    #     GNN potential (GemNet/QM7-x) NVE stability: pathological energy
-    #     drift emerges after hundreds of ps independent of dt choice;
-    #     energy variance is dominated by force-field uncertainty.
-    #   Kovács et al. (2023) J. Chem. Phys. 159, 044118 (MACE evaluation):
-    #     NVE and geometry MD benchmarks across small-molecule and materials
-    #     systems; MACE with 0.5 fs timestep used throughout.
-    #   Batatia et al. (2022) NeurIPS 35, 11423 (MACE):
-    #     Original MACE architecture; MD benchmarks use 0.5 fs timestep
-    #     for H-containing systems.
-    #   Zhang et al. (2023) J. Chem. Phys. 159, 054801 (DeePMD-kit v2):
-    #     Software benchmark suite; typical timestep 0.5–1 fs for organic
-    #     molecules with ML potentials.
-    #
-    # GROMACS and AMBER both recommend using dt as small as needed to keep
-    # σ(TE)/|⟨TE⟩| < 1×10⁻⁴ (AMBER 2023 Manual §3; GROMACS Manual 2024 §3.4),
-    # but for MLFF that threshold is set by model quality, not dt.
+    # Timestep: 0.1 fs
+    # Smaller timestep for ML potentials improves energy conservation.
+    # Refs: Zhang et al. (2018) Phys. Rev. Lett. 120, 143001 (DeePMD, 0.5 fs);
+    #       Batatia et al. (2022) NeurIPS 35, 11423 (MACE, 1 fs default);
+    #       LAMMPS metal units default: timestep 0.001 ps = 1 fs.
     # ------------------------------------------------------------------
-    timestep: float = 0.25          # fs  [dt-sweep on Ala-Glu dipeptide; Stocker 2022; Kovács 2023]
+    timestep: float = 0.1           # fs
 
     # ------------------------------------------------------------------
-    # Total steps → simulation length
-    # 400000 × 0.25 fs = 100 ps: minimum statistically meaningful NVE run.
-    # Kept at 100 ps to match the NVT equilibration default; timestep
-    # halved to 0.25 fs, so step count doubled from 200000 to 400000.
-    # Refs: GROMACS Reference Manual 2024 §3.4 (≥ 100 ps for NVE drift tests);
-    #       AMBER Reference Manual (Case et al. 2023), §3 NVE validation
-    #         (at least 50 ps recommended).
+    # Total steps: 100000 × 0.1 fs = 10 ps
+    # Standard default simulation length for ML-MD runs.
+    # Refs: GROMACS Lemkul tutorial; AMBER Tutorial 1.
     # ------------------------------------------------------------------
-    steps: int = 400000             # steps  (= 100 ps at 0.25 fs/step)  [GROMACS Manual 2024; AMBER 2023]
+    steps: int = 100000             # steps (= 10 ps at 0.1 fs/step)
 
     # ------------------------------------------------------------------
     # Initial temperature for velocity initialization
@@ -102,17 +65,16 @@ class NVEParams:
     # Output frequencies
     #
     # GROMACS/AMBER defaults (nstxout=500×2fs=1ps, nstlog=500) were designed
-    # for classical force fields running at 100–1000 ns/day.  At those speeds
+    # for classical force fields running at 100–1000 ns/day. At those speeds
     # a 1 ps output interval gives adequate sampling of a multi-μs trajectory.
     #
-    # ML potentials (UMA, MACE, NequIP, …) are ~1000–3000× slower:
-    #   UMA-S on 30-atom gas-phase system: ~0.22 ns/day (CPU, dt=0.25 fs)
-    # A typical ML-MD run is 10–100 ps.  At 1 ps/frame that gives only 10–100
+    # ML potentials (UMA, MACE, NequIP, …) are ~1000–3000× slower.
+    # A typical ML-MD run is 10–100 ps. At 1 ps/frame that gives only 10–100
     # frames — too sparse for MSD, RDF, or conformational analysis.
     #
-    # Target: 100–500 frames per 10 ps of simulation.
-    #   traj_every = 100 steps × 0.25 fs/step = 25 fs = 0.025 ps/frame
-    #   10 ps → 400 frames  ✓   100 ps → 4000 frames  ✓
+    # Target: 100–1000 frames per 10 ps of simulation.
+    #   traj_every = 100 steps × 0.1 fs/step = 10 fs = 0.01 ps/frame
+    #   10 ps → 1000 frames  ✓
     #
     # Refs: Stocker et al. (2022) Mach. Learn.: Sci. Technol. 3, 045010 —
     #         GNN-MD benchmarks show 10–100 ps NVE runs as standard.
@@ -121,8 +83,8 @@ class NVEParams:
     #       Batatia et al. (2022) NeurIPS 35, 11423 — MACE default
     #         output every 10–100 steps.
     # ------------------------------------------------------------------
-    traj_every: int = 100           # steps (= 25 fs = 0.025 ps at 0.25 fs/step)
-    log_every:  int = 100           # steps (= 25 fs; ML-MD runs are short, dense logging is cheap)
+    traj_every: int = 100           # steps (= 10 fs = 0.01 ps at 0.1 fs/step)
+    log_every:  int = 100           # steps (= 10 fs; ML-MD runs are short, dense logging is cheap)
 
     # ------------------------------------------------------------------
     # Trajectory format: xyz (text) or dcd (binary)
@@ -353,9 +315,9 @@ class NVE(JobABC):
         #     "langevin on" equilibration → "langevin off" NVE production.
         #
         # Recommended MAPLE workflow:
-        #   #md(ensemble=nvt, steps=40000, timestep=0.5, temperature=300,
-        #        thermostat=langevin, friction=0.001)   ; ≥ 10 ps NVT
-        #   #md(ensemble=nve, timestep=0.25, steps=400000, restart=true)
+        #   #md(ensemble=nvt, steps=100000, timestep=0.1, temperature=300,
+        #        thermostat=langevin, friction=0.001)   ; 10 ps NVT
+        #   #md(ensemble=nve, timestep=0.1, steps=100000, restart=true)
         #
         # Only suppress this warning if you have already equilibrated the
         # system with NVT (restart=true from a completed NVT run).

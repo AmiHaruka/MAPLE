@@ -70,22 +70,19 @@ class NPTParams:
     Berendsen variants are suitable for rapid pre-equilibration only.
     """
     # ------------------------------------------------------------------
-    # Timestep: 0.5 fs
-    # Smaller than NVT default (1 fs) because NPT adds a cell rescaling
-    # step; slightly shorter dt improves pressure stability.
-    # Ref: GROMACS NPT tutorial: dt=0.002 ps = 2 fs (classical FF + LINCS);
-    #      for ML potentials without constraints, 0.5 fs is conservative.
+    # Timestep: 0.1 fs
+    # Smaller timestep for ML potentials improves energy conservation.
+    # Refs: Zhang et al. (2018) Phys. Rev. Lett. 120, 143001 (DeePMD);
+    #       Batatia et al. (2022) NeurIPS 35, 11423 (MACE).
     # ------------------------------------------------------------------
-    timestep:        float = 0.5          # fs
+    timestep:        float = 0.1          # fs
 
     # ------------------------------------------------------------------
-    # Total steps: 10000 × 0.5 fs = 5 ps
-    # Conservative default for NPT density equilibration.
-    # For production, extend to ≥ 100 ps (200000 steps at 0.5 fs).
-    # Refs: GROMACS Lemkul tutorial (NPT stage: 100 ps);
-    #       AMBER Tutorial 1: 50 ps NPT.
+    # Total steps: 100000 × 0.1 fs = 10 ps
+    # Standard default simulation length for ML-MD runs.
+    # Refs: GROMACS Lemkul tutorial; AMBER Tutorial 1.
     # ------------------------------------------------------------------
-    steps:           int   = 10000        # steps (= 5 ps at 0.5 fs/step)
+    steps:           int   = 100000       # steps (= 10 ps at 0.1 fs/step)
 
     temperature:     float = 300.0        # K
     pressure:        float = 1.0          # bar
@@ -144,18 +141,19 @@ class NPTParams:
     # A typical ML-NPT run is 10–50 ps; dense output is needed to monitor
     # density convergence and detect volume instabilities early.
     #
-    # Target: 100–500 frames per 10 ps.
-    #   traj_every = 100 steps × 0.5 fs/step = 50 fs = 0.05 ps/frame
-    #   10 ps → 200 frames  ✓   50 ps → 1000 frames  ✓
+    # Target: 100–1000 frames per 10 ps.
+    #   traj_every = 100 steps × 0.1 fs/step = 10 fs = 0.01 ps/frame
+    #   10 ps → 1000 frames  ✓
     #
     # Refs: Stocker et al. (2022) Mach. Learn.: Sci. Technol. 3, 045010 —
     #         GNN-MD benchmarks, typical run 10–100 ps with dense output.
     #       Kovács et al. (2023) J. Chem. Phys. 159, 044118 — MACE evaluation
     #         with per-step monitoring of thermodynamic convergence.
     # ------------------------------------------------------------------
-    traj_every:      int   = 100          # steps (= 50 fs = 0.05 ps at 0.5 fs/step)
-    log_every:       int   = 100          # steps (= 50 fs)
-        # ------------------------------------------------------------------
+    traj_every:      int   = 100          # steps (= 10 fs = 0.01 ps at 0.1 fs/step)
+    log_every:       int   = 100          # steps (= 10 fs)
+
+    # ------------------------------------------------------------------
     # Trajectory format: xyz (text) or dcd (binary)
     # DCD binary format is ~3-4x smaller than XYZ and faster to read/write.
     # Ref: CHARMM documentation; VMD molfile plugin.

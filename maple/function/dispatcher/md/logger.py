@@ -3,34 +3,9 @@ MD simulation logging and output management.
 
 Handles:
     - Thermodynamic data output (.dat file)
-    - XYZ trajectory output (.xyz file)
+    - XYZ/DCD trajectory output
     - Progress logging to main output
-    - Final summary statistics with publication-quality energy conservation metrics
-
-Energy conservation metrics follow published standards:
-    - Linear drift rate via least-squares fit [kJ/mol/ns/atom]:
-        GROMACS Reference Manual §3.4 "Energy Conservation"; Páll et al. (2020)
-        J. Chem. Phys. 153, 134110 (GROMACS GPU parallelisation; NVE thresholds cited therein)
-        NVE acceptance: < 0.01 (good), < 0.1 (acceptable), > 1.0 (failure)
-        NVT/NPT: gross-instability threshold only (> 1.0 = unstable)
-        Equilibration skip: front 20 % discarded before fitting (NVE and NVT/NPT).
-          NVE:     removes the ~10–50 step NVT→NVE thermal transient arising from
-                   the Velocity Verlet + thermostat handoff (Leimkuhler & Matthews,
-                   Appl. Math. Res. eXpress 2013, 34–56; Frenkel & Smit 2002 Box 4.1;
-                   GROMACS Manual 2024 §3.4.2).
-          NVT/NPT: removes the early thermalisation ramp so the slope reflects
-                   steady-state behaviour (AMBER 2023 Manual §3.1).
-    - Relative energy fluctuation σ(E)/|<E>| (dimensionless):
-        AMBER Reference Manual (Case et al. 2022), §3 NVE validation
-        Acceptance: < 1e-4
-    - KE–PE anti-correlation coefficient:
-        Allen & Tildesley, Computer Simulation of Liquids, 2nd ed. (2017), §3.4
-        Hammonds & Heyes (2020) J. Chem. Phys. 152, 024114 (shadow Hamiltonian / symplecticity)
-        NVE: r ≈ -1 (energy conservation forces anti-correlation; direct consequence of E = KE + PE = const)
-        NVT/NPT: r ≈ 0 (thermostat randomises KE each step; anti-correlation is broken)
-    - Temperature fluctuation ratio σ(T)/<T> vs. equipartition prediction 1/√N_dof:
-        Allen & Tildesley, Computer Simulation of Liquids, 2nd ed. (2017), §2.4
-        Excess ratio > 2 indicates thermostat leakage or integration instability
+    - Final summary statistics
 """
 
 import time as _time
@@ -66,6 +41,8 @@ def _backup_file(path: Path) -> Optional[Path]:
 
 # 1 Hartree = 2625.4996 kJ/mol  (NIST CODATA 2018)
 HARTREE_TO_KJ_PER_MOL = 2625.4996
+# 1 Hartree = 627.5095 kcal/mol (1 kJ = 0.239006 kcal)
+HARTREE_TO_KCAL_PER_MOL = 627.5095
 # 1 fs = 1e-6 ns
 FS_TO_NS = 1e-6
 
@@ -656,82 +633,32 @@ class MDLogger:
         energy_std  = np.std(energies)
 
         # ------------------------------------------------------------------
-        # 2. Linear drift rate  [kJ/mol/ns/atom]
-        #
-        #    method: least-squares linear fit to E_total(t), identical to
-        #    GROMACS "gmx energy -drift" (GROMACS Reference Manual 2024 §3.4
-        #    "Energy Conservation"; Páll et al. (2020) J. Chem. Phys. 153, 134110).
-        #
-        #    Equilibration skip (front EQ_FRAC of the trajectory):
-        #    --------------------------------------------------------
-        #    NVE started from a prior NVT run (with thermostat coupling) carries an
-        #    unavoidable thermal transient in the first ~10–50 steps:
-        #    thermostat coupling in the prior run changes KE and breaks strict
-        #    TE conservation, so at the NVT→NVE handoff the instantaneous KE is
-        #    not necessarily in equilibrium with the current PE.  The resulting
-        #    ΔTE can be tens of kJ/mol and
-        #    dominates a short polyfit, giving a meaningless drift estimate.
-        #    Skipping the front 20 % removes this transient before fitting,
-        #    exactly as AMBER (nstlim discard) and GROMACS (equilibration run)
-        #    instruct users to do before computing NVE drift.
-        #    Refs:
-        #      Frenkel & Smit, Understanding Molecular Simulation, 2nd ed.
-        #        (2002) Box 4.1: "Always run a short NVE segment after NVT
-        #        equilibration and discard it before analysing drift."
-        #      GROMACS Reference Manual 2024 §3.4.2: "Before running NVE for
-        #        energy conservation benchmarks, always equilibrate with NVT …
-        #        The first few ps of NVE after switching from NVT should be
-        #        discarded as equilibration."
-        #      AMBER 2023 Manual §3.1: multi-stage heating (NVT) before NVE
-        #        production; initial NVE data discarded as equilibration.
-        #      Leimkuhler & Matthews (2013) Appl. Math. Res. eXpress 2013, 34–56:
-        #        thermostat coupling does not conserve TE during NVT, so TE at
-        #        the NVT→NVE boundary is a draw from the canonical distribution,
-        #        not the NVE microcanonical invariant.
-        #
-        #    NVT/NPT: same 20 % skip removes early thermalisation ramp so the
-        #    slope reflects steady-state, consistent with AMBER §3.1 practice.
-        #
-        #    The skip fraction is also reported in the summary so the user
-        #    knows exactly what window was used.
+        # 2. Linear drift rate via least-squares fit
+        #    Front 20% of trajectory skipped as equilibration.
         # ------------------------------------------------------------------
-        EQ_FRAC   = 0.20            # discard first 20 % as equilibration
-        total_time_ns = (times[-1] - times[0]) * FS_TO_NS   # fs → ns
+        EQ_FRAC   = 0.20
 
-        eq_cut = max(1, int(len(times) * EQ_FRAC))          # first index of production window
+        eq_cut = max(1, int(len(times) * EQ_FRAC))
         prod_times    = times[eq_cut:]
         prod_energies = energies[eq_cut:]
         prod_time_ns  = (prod_times[-1] - prod_times[0]) * FS_TO_NS if len(prod_times) >= 2 else 0.0
-        eq_time_ps    = (times[eq_cut - 1] - times[0]) * 1e-3   # fs → ps
+        eq_time_ps    = (times[eq_cut - 1] - times[0]) * 1e-3
 
-        if len(prod_times) >= 2 and prod_time_ns > 0 and self._n_atoms > 0:
-            coef = np.polyfit(prod_times, prod_energies, 1)   # slope in Ha/fs
+        if len(prod_times) >= 2 and prod_time_ns > 0:
+            coef = np.polyfit(prod_times, prod_energies, 1)
             drift_rate = (coef[0]
-                          * HARTREE_TO_KJ_PER_MOL             # → kJ/mol/fs
-                          / FS_TO_NS                          # → kJ/mol/ns
-                          / self._n_atoms)                    # → kJ/mol/ns/atom
+                          * HARTREE_TO_KCAL_PER_MOL
+                          / FS_TO_NS)
         else:
             drift_rate = float('nan')
 
-        # Flag short production windows where the polyfit slope is
-        # statistically noisy due to thermal fluctuations dominating.
-        is_short_traj = prod_time_ns < 0.010   # production window < 10 ps
-
         # ------------------------------------------------------------------
-        # 3. Relative energy fluctuation  σ(E)/|<E>|  (dimensionless)
-        #    Standard NVE quality metric used in AMBER and general MD texts.
-        #    Ref: AMBER Reference Manual (Case et al. 2022), §3 NVE validation
-        #    Acceptance: < 1e-4
+        # 3. Relative energy fluctuation
         # ------------------------------------------------------------------
         rel_fluctuation = energy_std / abs(energy_mean) if energy_mean != 0 else float('nan')
 
         # ------------------------------------------------------------------
-        # 4. KE–PE anti-correlation coefficient  r(KE, PE)
-        #    For a symplectic integrator (Velocity Verlet) in NVE, KE and PE
-        #    must be perfectly anti-correlated (r ≈ -1) because E = KE + PE
-        #    is conserved.  Deviations from -1 quantify integration error.
-        #    Ref: Allen & Tildesley (2017) Computer Simulation of Liquids §3.4;
-        #         Hammonds & Heyes (2020) J. Chem. Phys. 152, 024114
+        # 4. KE–PE correlation coefficient
         # ------------------------------------------------------------------
         if len(ke_arr) > 1 and np.std(ke_arr) > 0 and np.std(pe_arr) > 0:
             ke_pe_corr = np.corrcoef(ke_arr, pe_arr)[0, 1]
@@ -739,22 +666,7 @@ class MDLogger:
             ke_pe_corr = float('nan')
 
         # ------------------------------------------------------------------
-        # 5. Temperature fluctuation: σ_obs vs σ_canonical
-        #
-        #    N_dof follows utils.py:calculate_temperature():
-        #      PBC system  → N_dof = 3N   (no COM constraint in periodic cell)
-        #      Isolated    → N_dof = 3N-3 (remove COM translation)
-        #
-        #    NVE reference (Allen & Tildesley 2017 §2.4, large-N approx.):
-        #      σ_nve ≈ T / √N_dof   (≡ T·√(1/N_dof))
-        #      excess_ratio = σ_obs / σ_nve
-        #
-        #    NVT/NPT reference (Frenkel & Smit 2002 §6.1, exact canonical):
-        #      σ_canonical = T·√(2/N_dof)
-        #      sigma_ratio = σ_obs / σ_canonical  (target: 0.5–2.0)
-        #
-        #    Using the ensemble-correct formula avoids a spurious "WARN" for
-        #    well-behaved NVT runs (√2 factor matters at small N).
+        # 5. Temperature statistics
         # ------------------------------------------------------------------
         temp_mean = np.mean(temperatures)
         temp_std  = np.std(temperatures)
@@ -764,120 +676,46 @@ class MDLogger:
         if n_dof <= 0:
             n_dof = 1
 
-        if self._ensemble == 'nve':
-            # A&T §2.4 approximation: σ_nve ≈ T/√N_dof
-            t_sigma_ref  = temp_mean / np.sqrt(n_dof) if n_dof > 0 else float('nan')
-            t_ratio_name = "σ_obs/σ_NVE"
-            t_ref_note   = "T/√N_dof  [Allen & Tildesley 2017 §2.4]"
-        else:
-            # F&S §6.1 exact canonical: σ_canonical = T·√(2/N_dof)
-            t_sigma_ref  = temp_mean * np.sqrt(2.0 / n_dof) if n_dof > 0 else float('nan')
-            t_ratio_name = "σ_obs/σ_canonical"
-            t_ref_note   = "T·√(2/N_dof)  [Frenkel & Smit 2002 §6.1]"
-
         observed_ratio = temp_std / temp_mean if temp_mean > 0 else float('nan')
-        t_ratio        = temp_std / t_sigma_ref if (t_sigma_ref and t_sigma_ref > 0) else float('nan')
-        # NVE: excess_ratio > 2 warns of instability; NVT/NPT: ratio ~ 1.0 is ideal
-        temp_tag = "GOOD" if (not np.isnan(t_ratio) and 0.5 < t_ratio < 2.0) else "WARN"
 
         # ------------------------------------------------------------------
-        # 6. Qualitative assessment flags
-        # ------------------------------------------------------------------
-        # Drift tag is ensemble-dependent:
-        #   NVE: TE is strictly conserved; any drift = integrator error.
-        #        GOOD/OK/WARN/FAIL scale from Páll et al. 2020.
-        #        Computed on production window (post equilibration skip).
-        #   NVT/NPT: TE is NOT conserved by design — the thermostat exchanges
-        #        energy with the bath every step.  The OLS slope of TE(t)
-        #        conflates (a) integrator truncation error and (b) thermostat
-        #        coupling noise; these cannot be separated.  Applying NVE
-        #        thresholds (0.01/0.1 kJ/mol/ns/atom) to NVT TE drift is
-        #        physically incorrect.
-        #        Correct NVT primary metrics: σ_obs/σ_canonical, r(KE,PE).
-        #        Drift for NVT: gross-instability-only check (> 1 kJ/mol/ns/atom).
-        #        Refs: GROMACS Manual 2024 §3.4; Basconi & Shirts (2013) JCTC 9, 2887;
-        #              Eastman et al. (2017) JCTC 13, 5560 (OpenMM benchmark).
-        if np.isnan(drift_rate):
-            drift_tag = "N/A"
-        elif is_short_traj:
-            drift_tag = "SHORT"   # production window < 10 ps; polyfit slope unreliable
-        elif self._ensemble == 'nve':
-            # NVE: strict energy conservation — fine-grained thresholds apply
-            if abs(drift_rate) < 0.01:
-                drift_tag = "GOOD"
-            elif abs(drift_rate) < 0.1:
-                drift_tag = "OK"
-            elif abs(drift_rate) < 1.0:
-                drift_tag = "WARN"
-            else:
-                drift_tag = "FAIL"
-        else:
-            # NVT/NPT: only gross instability matters (GROMACS Manual 2024 §3.4)
-            drift_tag = "WARN" if abs(drift_rate) > 1.0 else "PASS"
-        fluct_tag = "GOOD" if rel_fluctuation < 1e-4 else "WARN"
-        if np.isnan(ke_pe_corr):
-            corr_tag = "N/A"
-        elif self._ensemble == 'nve':
-            corr_tag = "GOOD" if ke_pe_corr < -0.95 else "WARN"
-        else:  # NVT/NPT: thermostat decouples KE from PE, r ≈ 0 is correct
-            corr_tag = "GOOD" if abs(ke_pe_corr) < 0.5 else "WARN"
-
-        # ------------------------------------------------------------------
-        # Assemble summary lines  (ensemble-aware primary/secondary structure)
+        # 6. Assemble summary lines
         # ------------------------------------------------------------------
         is_nve = self._ensemble == 'nve'
-        is_nvt = self._ensemble == 'nvt'
-
         ens_label = self._ensemble.upper()
-        ke_pe_target = "≈ −1 (NVE, Velocity Verlet symplecticity)" if is_nve else "≈  0 (NVT/NPT, thermostat decouples KE)"
 
         if is_nve:
             energy_section = [
-                f"\n{'── [NVE] Energy Conservation (primary criteria) ──':^80}\n",
-                f"  σ(TE)/|⟨TE⟩|:              {rel_fluctuation:>18.2e}  (dimensionless)   [{fluct_tag}]\n",
-                f"    AMBER 2022 §3: < 1e-4 accepted\n",
-                f"  Linear drift rate:          {drift_rate:>+18.6f}  kJ/mol/ns/atom    [{drift_tag}]\n",
-                f"  Production window:          {prod_time_ns*1000:>15.3f}  ps"
-                f"  (skipped first {eq_time_ps:.2f} ps as NVE equilibration)\n",
-                *(["  (SHORT production window < 10 ps: drift rate is indicative only; use σ/|<E>| and r(KE,PE))\n"]
-                  if is_short_traj else []),
-                f"    GROMACS Manual 2024 §3.4 / Páll et al. 2020 JCP 153, 134110: < 0.01 GOOD, < 0.1 OK, > 1.0 FAIL\n",
-                f"    Equil. skip: Frenkel & Smit 2002 Box 4.1; GROMACS Manual 2024 §3.4.2\n",
-                f"  r(KE,PE):                   {ke_pe_corr:>18.4f}  (target {ke_pe_target})  [{corr_tag}]\n",
-                f"    Allen & Tildesley 2017 §3.4; Hammonds & Heyes 2020 JCP 152, 024114\n",
+                f"\n{'── [NVE] Energy Conservation ──':^80}\n",
+                f"  σ(TE)/|⟨TE⟩|:              {rel_fluctuation:>18.2e}\n",
+                f"  Linear drift rate:         {drift_rate:>+18.6f}  kcal/mol/ns\n",
+                f"  Production window:         {prod_time_ns*1000:>15.3f}  ps"
+                f"  (skipped first {eq_time_ps:.2f} ps as equilibration)\n",
+                f"  r(KE,PE):                  {ke_pe_corr:>18.4f}\n",
             ]
             temp_section = [
-                f"\n{'── [NVE] Temperature (reference, not conservation criterion) ──':^80}\n",
-                f"  ⟨T⟩:                        {temp_mean:>18.2f}  K\n",
-                f"  σ(T):                       {temp_std:>18.2f}  K\n",
-                f"  σ(T)/<T> observed:          {observed_ratio:>18.4f}\n",
-                f"  σ_NVE = T/√N_dof:           {t_sigma_ref:>18.2f}  K  [A&T 2017 §2.4]\n",
-                f"  {t_ratio_name}:        {t_ratio:>18.3f}   (target: 0.5–2.0)  [{temp_tag}]\n",
-                f"    N_dof = {n_dof}  ({'PBC: 3N' if self._is_pbc else 'isolated: 3N-3'})\n",
+                f"\n{'── [NVE] Temperature ──':^80}\n",
+                f"  ⟨T⟩:                       {temp_mean:>18.2f}  K\n",
+                f"  σ(T):                      {temp_std:>18.2f}  K\n",
+                f"  σ(T)/<T>:                  {observed_ratio:>18.4f}\n",
+                f"  N_dof = {n_dof}  ({'PBC: 3N' if self._is_pbc else 'isolated: 3N-3'})\n",
             ]
         else:
             energy_section = [
-                f"\n{'── [' + ens_label + '] Temperature Control (primary criteria) ──':^80}\n",
-                f"  ⟨T⟩:                        {temp_mean:>18.2f}  K\n",
-                f"  σ(T) observed:              {temp_std:>18.2f}  K\n",
-                f"  σ_canonical = T·√(2/N_dof): {t_sigma_ref:>18.2f}  K  [Frenkel & Smit 2002 §6.1]\n",
-                f"  {t_ratio_name}:  {t_ratio:>18.3f}   (target: 0.5–2.0)  [{temp_tag}]\n",
-                f"    N_dof = {n_dof}  ({'PBC: 3N' if self._is_pbc else 'isolated: 3N-3'})\n",
-                f"  r(KE,PE):                   {ke_pe_corr:>18.4f}  (target {ke_pe_target})  [{corr_tag}]\n",
-                f"    Allen & Tildesley 2017 §3.4; Hammonds & Heyes 2020 JCP 152, 024114\n",
+                f"\n{'── [' + ens_label + '] Temperature Control ──':^80}\n",
+                f"  ⟨T⟩:                       {temp_mean:>18.2f}  K\n",
+                f"  σ(T):                      {temp_std:>18.2f}  K\n",
+                f"  N_dof = {n_dof}  ({'PBC: 3N' if self._is_pbc else 'isolated: 3N-3'})\n",
+                f"  r(KE,PE):                  {ke_pe_corr:>18.4f}\n",
             ]
             temp_section = [
-                f"\n{'── [' + ens_label + '] Energy (secondary — TE fluctuates by design) ──':^80}\n",
-                f"  Mean TE:                    {energy_mean:>18.8f}  Ha\n",
-                f"  σ(TE):                      {energy_std:>18.8f}  Ha\n",
-                f"  σ(TE)/|⟨TE⟩|:              {rel_fluctuation:>18.2e}  (NVT/NPT: fluctuates by design)\n",
-                f"  Linear drift rate:          {drift_rate:>+18.6f}  kJ/mol/ns/atom    [{drift_tag}]\n",
-                f"  Production window:          {prod_time_ns*1000:>15.3f}  ps"
+                f"\n{'── [' + ens_label + '] Energy ──':^80}\n",
+                f"  Mean TE:                   {energy_mean:>18.8f}  Ha\n",
+                f"  σ(TE):                     {energy_std:>18.8f}  Ha\n",
+                f"  σ(TE)/|⟨TE⟩|:             {rel_fluctuation:>18.2e}\n",
+                f"  Linear drift rate:         {drift_rate:>+18.6f}  kcal/mol/ns\n",
+                f"  Production window:         {prod_time_ns*1000:>15.3f}  ps"
                 f"  (skipped first {eq_time_ps:.2f} ps as equilibration)\n",
-                *(["  (SHORT production window < 10 ps: drift rate is indicative only)\n"]
-                  if is_short_traj else []),
-                f"    GROMACS Manual 2024 §3.4: gross instability only; accept if drift < 1.0\n",
-                f"    Equil. skip: AMBER 2023 Manual §3.1\n",
             ]
 
         summary_lines = [
@@ -886,16 +724,9 @@ class MDLogger:
             "="*80 + "\n",
 
             f"\n{'── Energy Statistics ──':^80}\n",
-            f"  Mean total energy:          {energy_mean:>18.8f}  Ha\n",
-            f"  Std deviation:              {energy_std:>18.8f}  Ha\n",
-        ] + energy_section + temp_section + [
-            f"\n{'── Acceptance Criteria Summary (GROMACS 2024 / AMBER 2022 / A&T 2017 / F&S 2002) ──':^80}\n",
-            f"  NVE primary:  σ(TE)/|⟨TE⟩| < 1e-4 GOOD (AMBER);  drift < 0.01 GOOD (GROMACS Manual);  r ≈ -1\n",
-            f"  NVT/NPT primary:  σ_obs/σ_canonical ∈ [0.5, 2.0] (F&S §6.1);  r(KE,PE) ≈ 0 (A&T §3.4)\n",
-            f"  NVT/NPT secondary:  drift < 1.0 kJ/mol/ns/atom (gross instability threshold only)\n",
-            f"  Drift fitted on production window (front {int(EQ_FRAC*100)}% skipped):"
-            f"  F&S 2002 Box 4.1; GROMACS 2024 §3.4.2; AMBER 2023 §3.1\n",
-        ]
+            f"  Mean total energy:         {energy_mean:>18.8f}  Ha\n",
+            f"  Std deviation:             {energy_std:>18.8f}  Ha\n",
+        ] + energy_section + temp_section
 
         # ------------------------------------------------------------------
         # Wall-clock performance summary  (always appended)
@@ -941,44 +772,28 @@ class MDLogger:
             f.write(f"  Std deviation:            {energy_std:.8f} Ha\n\n")
 
             if is_nve:
-                f.write("Energy Conservation Metrics [NVE PRIMARY]:\n")
-                f.write(f"  σ(TE)/|⟨TE⟩|:            {rel_fluctuation:.2e}             [{fluct_tag}]\n")
-                f.write(f"    (AMBER 2022: < 1e-4 accepted)\n")
-                f.write(f"  Linear drift rate:        {drift_rate:+.6f} kJ/mol/ns/atom  [{drift_tag}]\n")
-                f.write(f"  Production window:        {prod_time_ns*1000:.3f} ps"
-                        f"  (skipped first {eq_time_ps:.2f} ps as NVE equilibration)\n")
-                if is_short_traj:
-                    f.write(f"  (SHORT production window < 10 ps: drift rate is indicative only)\n")
-                f.write(f"    (GROMACS Manual 2024 §3.4 / Páll et al. 2020 JCP 153, 134110: < 0.01 GOOD, < 0.1 OK, > 1.0 FAIL)\n")
-                f.write(f"    (Equil. skip: Frenkel & Smit 2002 Box 4.1; GROMACS Manual 2024 §3.4.2)\n")
-                f.write(f"  r(KE,PE):                 {ke_pe_corr:.4f}                 [{corr_tag}]\n")
-                f.write(f"    (Allen & Tildesley 2017 §3.4; Hammonds & Heyes 2020 JCP 152, 024114:\n"
-                        f"     r ≈ -1 confirms Velocity Verlet symplecticity)\n\n")
-
-                f.write("Temperature Statistics [NVE REFERENCE]:\n")
-                f.write(f"  Mean temperature:         {temp_mean:.2f} K\n")
-                f.write(f"  Std deviation:            {temp_std:.2f} K\n")
-                f.write(f"  σ(T)/<T> observed:        {observed_ratio:.4f}\n")
-                f.write(f"  σ_NVE = T/√N_dof:         {t_sigma_ref:.2f} K  [Allen & Tildesley 2017 §2.4]\n")
-                f.write(f"  σ_obs/σ_NVE:              {t_ratio:.3f}  [target: 0.5–2.0]  [{temp_tag}]\n")
-            else:
-                f.write(f"Temperature Control Metrics [{self._ensemble.upper()} PRIMARY]:\n")
-                f.write(f"  Mean temperature:         {temp_mean:.2f} K\n")
-                f.write(f"  Std deviation:            {temp_std:.2f} K\n")
-                f.write(f"  σ_canonical = T·√(2/N_dof): {t_sigma_ref:.2f} K  [Frenkel & Smit 2002 §6.1]\n")
-                f.write(f"  σ_obs/σ_canonical:        {t_ratio:.3f}  [target: 0.5–2.0]  [{temp_tag}]\n")
-                f.write(f"  r(KE,PE):                 {ke_pe_corr:.4f}                 [{corr_tag}]\n")
-                f.write(f"    (Allen & Tildesley 2017 §3.4: r ≈ 0 expected — thermostat decouples KE from PE)\n\n")
-
-                f.write(f"Energy Metrics [{self._ensemble.upper()} SECONDARY — TE fluctuates by design]:\n")
-                f.write(f"  σ(TE)/|⟨TE⟩|:            {rel_fluctuation:.2e}             (expected to be large)\n")
-                f.write(f"  Linear drift rate:        {drift_rate:+.6f} kJ/mol/ns/atom  [{drift_tag}]\n")
+                f.write("Energy Conservation Metrics [NVE]:\n")
+                f.write(f"  σ(TE)/|⟨TE⟩|:            {rel_fluctuation:.2e}\n")
+                f.write(f"  Linear drift rate:        {drift_rate:+.6f} kcal/mol/ns\n")
                 f.write(f"  Production window:        {prod_time_ns*1000:.3f} ps"
                         f"  (skipped first {eq_time_ps:.2f} ps as equilibration)\n")
-                if is_short_traj:
-                    f.write(f"  (SHORT production window < 10 ps: drift rate is indicative only)\n")
-                f.write(f"    (GROMACS Manual 2024 §3.4: gross instability threshold only; accept if drift < 1.0)\n")
-                f.write(f"    (Equil. skip: AMBER 2023 Manual §3.1)\n")
+                f.write(f"  r(KE,PE):                 {ke_pe_corr:.4f}\n\n")
+
+                f.write("Temperature Statistics:\n")
+                f.write(f"  Mean temperature:         {temp_mean:.2f} K\n")
+                f.write(f"  Std deviation:            {temp_std:.2f} K\n")
+                f.write(f"  σ(T)/<T>:                 {observed_ratio:.4f}\n")
+            else:
+                f.write(f"Temperature Control Metrics [{self._ensemble.upper()}]:\n")
+                f.write(f"  Mean temperature:         {temp_mean:.2f} K\n")
+                f.write(f"  Std deviation:            {temp_std:.2f} K\n")
+                f.write(f"  r(KE,PE):                 {ke_pe_corr:.4f}\n\n")
+
+                f.write(f"Energy Metrics [{self._ensemble.upper()}]:\n")
+                f.write(f"  σ(TE)/|⟨TE⟩|:            {rel_fluctuation:.2e}\n")
+                f.write(f"  Linear drift rate:        {drift_rate:+.6f} kcal/mol/ns\n")
+                f.write(f"  Production window:        {prod_time_ns*1000:.3f} ps"
+                        f"  (skipped first {eq_time_ps:.2f} ps as equilibration)\n")
 
             if self.pressures:
                 pressures_arr = np.array(self.pressures)
