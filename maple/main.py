@@ -34,7 +34,7 @@ Examples:
                           help='Overwrite existing file without prompting')
 
         args = parser.parse_args()
-        from maple.md_templates import generate_mdp_template
+        from maple.function.dispatcher.md.md_templates import generate_mdp_template
         try:
             generate_mdp_template(args.ensemble, args.output, args.force)
         except Exception as e:
