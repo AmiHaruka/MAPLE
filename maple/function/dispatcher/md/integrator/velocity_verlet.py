@@ -21,7 +21,7 @@ from ase import Atoms
 from typing import Tuple
 
 # Import unit conversions from utils
-from ..utils import FS_TO_AU, AMU_TO_AU
+from ..utils import FS_TO_AU, AMU_TO_AU, EV_ANG_TO_EH_BOHR, BOHR_TO_ANGSTROM
 
 
 class VelocityVerlet:
@@ -80,16 +80,18 @@ class VelocityVerlet:
         masses = self.masses[:, np.newaxis]  # Shape: (N_atoms, 1)
 
         # Step 1: Half-step velocity update
-        forces = self.atoms.get_forces()  # ← Calculator call (expensive!)
+        # Forces from ASE are in eV/Å; convert to Eh/Bohr for atomic unit consistency
+        forces = self.atoms.get_forces() * EV_ANG_TO_EH_BOHR
         velocities += 0.5 * forces / masses * dt
 
         # Step 2: Full-step position update
+        # Velocities are in Bohr/au_time; convert displacement to Å for ASE
         positions = self.atoms.get_positions()
-        positions += velocities * dt
+        positions += velocities * dt * BOHR_TO_ANGSTROM
         self.atoms.set_positions(positions)
 
         # Step 3: Recalculate forces at new positions
-        forces = self.atoms.get_forces()  # ← Calculator call again
+        forces = self.atoms.get_forces() * EV_ANG_TO_EH_BOHR
 
         # Step 4: Final half-step velocity update
         velocities += 0.5 * forces / masses * dt
@@ -115,7 +117,7 @@ class VelocityVerlet:
         dt = self.timestep
         masses = self.masses[:, np.newaxis]
 
-        forces = self.atoms.get_forces()
+        forces = self.atoms.get_forces() * EV_ANG_TO_EH_BOHR
         velocities += 0.5 * forces / masses * dt
 
         return velocities
@@ -134,7 +136,7 @@ class VelocityVerlet:
         dt = self.timestep
 
         positions = self.atoms.get_positions()
-        positions += velocities * dt
+        positions += velocities * dt * BOHR_TO_ANGSTROM
         self.atoms.set_positions(positions)
 
     def complete_step_v(self, velocities: np.ndarray) -> np.ndarray:
@@ -156,7 +158,7 @@ class VelocityVerlet:
         dt = self.timestep
         masses = self.masses[:, np.newaxis]
 
-        forces = self.atoms.get_forces()
+        forces = self.atoms.get_forces() * EV_ANG_TO_EH_BOHR
         velocities += 0.5 * forces / masses * dt
 
         return velocities
@@ -305,10 +307,10 @@ def integrate_nve(
         # Record
         trajectory.append(atoms.copy())
 
-        potential = integrator.get_potential_energy()
-        from ..utils import calculate_kinetic_energy
-        kinetic = calculate_kinetic_energy(atoms, velocities)
-        total = kinetic + potential
+        potential = integrator.get_potential_energy()  # eV
+        from ..utils import calculate_kinetic_energy, EV_TO_HARTREE
+        kinetic = calculate_kinetic_energy(atoms, velocities)  # Hartree
+        total = kinetic + potential * EV_TO_HARTREE  # all in Hartree
 
         energies.append(total)
         velocities_traj.append(velocities.copy())

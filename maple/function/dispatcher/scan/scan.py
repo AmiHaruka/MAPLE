@@ -136,9 +136,9 @@ class Scan(JobABC):
     def _print_progress(self, idx: int, total: int, coord: List[float]):
         """Print progress header before calling optimizer."""
         coord_str = "[" + ", ".join(f"{v:.2f}" for v in coord) + "]"
-        self.log_info("\n")
-        self.log_info("-" * 70)
-        self.log_info(f"\n            Scanning combination {idx}/{total}: {coord_str}\n")
+        self.log_info(["\n"])
+        self.log_info(["-" * 70])
+        self.log_info([f"\n            Scanning combination {idx}/{total}: {coord_str}\n"])
 
     def _apply_constraints(self, atoms: Atoms, coord: List[float]) -> Atoms:
         """
@@ -380,11 +380,11 @@ class Scan(JobABC):
             else:
                 raise ValueError(f"Only 1D, 2D, 3D scans are supported, got {dim}D")
             
-            self.log_info("\n")
-            self.log_info("=" * 70)
-            self.log_info(f"\nScan completed! Total points: {len(energies)}")
-            self.log_info(f"Results saved to: {xyz_filename}\n")
-            self.log_info(f"Energy range: {min(energies):.6f} to {max(energies):.6f} eV\n")
+            self.log_info(["\n"])
+            self.log_info(["=" * 70])
+            self.log_info([f"\nScan completed! Total points: {len(energies)}"])
+            self.log_info([f"Results saved to: {xyz_filename}\n"])
+            self.log_info([f"Energy range: {min(energies):.6f} to {max(energies):.6f} eV\n"])
             
         finally:
             if self.xyz_file is not None:

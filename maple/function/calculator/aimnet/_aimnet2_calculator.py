@@ -63,6 +63,7 @@ def maybe_pad_dim0(a: torch.Tensor, N: int, value=0.0) -> torch.Tensor:
 # ==========================================================
 class AIMNet2Calculator(CalcABC):
     implemented_properties = ["energy", "forces", "hessian", "free_energy"]
+    supported_hessian_modes = ("analytic", "numerical")
 
     def __init__(self, device: torch.device, 
                 model: str = "aimnet2", 

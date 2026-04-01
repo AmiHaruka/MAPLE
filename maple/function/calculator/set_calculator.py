@@ -1,4 +1,6 @@
 import torch
+import urllib.request
+import shutil
 from typing import Optional
 
 import ase
@@ -22,6 +24,9 @@ IMPLEMENTATION_MODELs = [
             'uma',
             'maceomol',
             'aimnet2nse',
+            'macepols',
+            'macepolm',
+            'macepoll',
         ]
 
 # Model name to filename mapping for HuggingFace download
@@ -35,9 +40,30 @@ MODEL_NAME_TO_FILE = {
     'maceoff23m': 'maceoff23m.pt',
     'maceomol': 'maceomol.pt',
     'egret': 'egret1s.pt',
+    'macepols': 'macepols.pt',
+    'macepolm': 'macepolm.pt',
+    'macepoll': 'macepoll.pt',
 }
 
 HF_REPO_ID = "Wayne7815/MAPLE_model"
+
+MODEL_HESSIAN_SUPPORT = {
+    'ani2x': ('analytic', 'numerical'),
+    'ani1x': ('analytic', 'numerical'),
+    'ani1ccx': ('analytic', 'numerical'),
+    'ani1xnr': ('analytic', 'numerical'),
+    'maceoff23s': ('analytic', 'numerical'),
+    'maceoff23m': ('analytic', 'numerical'),
+    'maceoff23l': ('analytic', 'numerical'),
+    'egret': ('analytic', 'numerical'),
+    'aimnet2': ('analytic', 'numerical'),
+    'aimnet2nse': ('analytic', 'numerical'),
+    'uma': ('numerical',),
+    'maceomol': ('analytic', 'numerical'),
+    'macepols': ('analytic', 'numerical'),
+    'macepolm': ('analytic', 'numerical'),
+    'macepoll': ('analytic', 'numerical'),
+}
 
 class SetClaculator():
 
@@ -47,7 +73,8 @@ class SetClaculator():
             atoms: Optional[Atoms] = None,
             d4:bool=False,
             implicit:str = 'None',
-            solvent: str = 'None') -> None:
+            solvent: str = 'None',
+            model_options: Optional[dict] = None) -> None:
         self.output = output
         self.model = model
         self.d4 = d4
@@ -56,6 +83,44 @@ class SetClaculator():
         self.atoms = atoms
         self.implicit = implicit
         self.solvent = solvent
+        self.model_options = model_options or {}
+
+    def _validate_requested_hessian_mode(self) -> None:
+        mode = self.model_options.get("hessian")
+        if mode is None:
+            return
+
+        mode = str(mode).lower()
+        declared = MODEL_HESSIAN_SUPPORT.get(self.model)
+        if declared is not None and mode not in declared:
+            supported_text = ", ".join(sorted(declared))
+            raise ValueError(
+                f"Model '{self.model}' does not support hessian='{mode}'. "
+                f"Supported modes: {supported_text}"
+            )
+
+    def _apply_hessian_mode(self, calculator) -> None:
+        mode = self.model_options.get("hessian")
+        if mode is None:
+            return
+
+        mode = str(mode).lower()
+
+        supported = getattr(calculator, "supported_hessian_modes", None)
+
+        if supported is not None and mode not in supported:
+            supported_text = ", ".join(sorted(supported))
+            raise ValueError(
+                f"Model '{self.model}' does not support hessian='{mode}'. "
+                f"Supported modes: {supported_text}"
+            )
+
+        if not hasattr(calculator, "hessian"):
+            raise ValueError(
+                f"Model '{self.model}' does not expose configurable Hessian modes."
+            )
+
+        calculator.hessian = mode
 
     def _get_model_dir(self) -> Path:
         """Get model directory path (model folder in the same directory as this script)"""
@@ -122,6 +187,8 @@ class SetClaculator():
             self.log_error(error_message)
             raise ValueError(error_message)
 
+        self._validate_requested_hessian_mode()
+
         # Initialize calculator based on model
         if self.model in ['ani2x', 'ani1x', 'ani1ccx', 'ani1xnr']:
             calculator = ANICalculator(model=self.model, d4=self.d4, device=self.device, implicit = self.implicit, solvent = self.solvent)
@@ -135,10 +202,18 @@ class SetClaculator():
                 calculator = AIMNet2Calculator(model=self.model, device=self.device, implicit = self.implicit, solvent = self.solvent)
             elif self.model in ['uma']:
                 from .uma._uma_calculator import UMACalculator
-                calculator = UMACalculator(model=self.model, device=self.device, implicit = self.implicit, solvent = self.solvent)
+                uma_task = self.model_options.get('task', 'omol')
+                uma_size = self.model_options.get('size', None)
+                calculator = UMACalculator(model=self.model, device=self.device,
+                    implicit=self.implicit, solvent=self.solvent,
+                    task=uma_task, size=uma_size)
             elif self.model in ['maceomol']:
                 from .mace._mace_general_calculator import MACEModelCalculator
                 calculator = MACEModelCalculator(model=self.model, device=self.device, implicit = self.implicit, solvent = self.solvent)
+            elif self.model in ['macepols', 'macepolm', 'macepoll']:
+                from .mace._macepol_calculator import MACEPolCalculator
+                model_path = self.model_options.get('model_path', None)
+                calculator = MACEPolCalculator(model=self.model, device=self.device, model_path=model_path, implicit=self.implicit, solvent=self.solvent)
             else:
                 raise ValueError(f"Model '{self.model}' is not implemented yet.")
 
@@ -152,6 +227,7 @@ class SetClaculator():
                 unsupported_models = ['ani2x', 'ani1x', 'ani1ccx', 'ani1xnr',
                                      'maceoff23s', 'maceoff23m', 'maceoff23l',
                                      'egret', 'maceomol']
+                # Note: macepols/m/l, aimnet2, uma support charge/mult
 
                 if self.model in unsupported_models:
                     charge_val = self.atoms.info.get('charge', 0)
@@ -163,6 +239,7 @@ class SetClaculator():
                         f"           Supported models: aimnet2, aimnet2nse, uma\n"
                     ])
 
+        self._apply_hessian_mode(calculator)
         return calculator
         
 

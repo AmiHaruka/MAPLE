@@ -1,4 +1,6 @@
 import importlib
+import os
+from pathlib import Path
 import torch
 import numpy as np
 from typing import Literal
@@ -9,18 +11,137 @@ from ase.calculators.calculator import Calculator
 try:
     from fairchem.core import pretrained_mlip
     from fairchem.core.calculate.ase_calculator import FAIRChemCalculator
-    from fairchem.core.datasets import data_list_collater
+    from fairchem.core.units.mlip_unit import load_predict_unit
+    from fairchem.core._config import CACHE_DIR
+    from huggingface_hub import hf_hub_download
+    from omegaconf import OmegaConf
 except ImportError:
     raise ImportError("fairchem-core is not installed. Please install it first.")
 
 EV2HARTREE = 1.0 / 27.211386245988
+
+UMA_MODELS_MAP = {
+    "uma": "uma-s-1p2",
+    "uma-s-1p1": "uma-s-1p1",
+    "uma-s-1p2": "uma-s-1p2",
+    "uma-m-1p1": "uma-m-1p1",
+}
+
+UMA_FALLBACK_HF_MODELS = {"uma-s-1p2"}
+
+SUPPORTED_UMA_TASKS = {"omol", "omat", "oc20", "odac", "omc", "oc22", "oc25"}
 
 
 class UMACalculator(FAIRChemCalculator):
     """
     UMA Calculator: extends Meta's FAIRChemCalculator with additional methods for
     total energy and Hessian calculation. Default task is 'omol' (molecular systems).
+
+    Supported tasks:
+        omol  - Organic molecules (wB97M-V/def2-TZVPD)
+        omat  - Inorganic materials (PBE/PBE+U)
+        oc20  - Heterogeneous catalysis (RPBE)
+        odac  - Metal-organic frameworks / direct air capture (PBE+D3)
+        omc   - Molecular crystals (PBE+D3)
+        oc22  - Oxide catalysis (PBE+U spin-polarized)  [UMA 1.2+]
+        oc25  - Electrocatalysis / electrolyte interfaces (RPBE+D3)  [UMA 1.2+]
+
+    Supported sizes:
+        uma-s-1p2  - Small model v1.2 (~50% faster, ~40% more accurate)
+        uma-s-1p1  - Small model v1.1
+        uma-m-1p1  - Medium model v1.1
     """
+    supported_hessian_modes = ("numerical",)
+
+    @staticmethod
+    def _build_predictor(
+        checkpoint: str,
+        overrides: dict | None,
+        device: str,
+    ):
+        if checkpoint in pretrained_mlip.available_models:
+            return pretrained_mlip.get_predict_unit(
+                checkpoint,
+                inference_settings="default",
+                overrides=overrides,
+                device=device,
+            )
+
+        if os.path.isfile(checkpoint):
+            return load_predict_unit(
+                checkpoint,
+                inference_settings="default",
+                overrides=overrides,
+                device=device,
+            )
+
+        if checkpoint in UMA_FALLBACK_HF_MODELS:
+            checkpoint_path = hf_hub_download(
+                repo_id="facebook/UMA",
+                subfolder="checkpoints",
+                filename=f"{checkpoint}.pt",
+                cache_dir=CACHE_DIR,
+            )
+            compat_path = UMACalculator._prepare_compat_checkpoint(
+                checkpoint, checkpoint_path
+            )
+            atom_refs = OmegaConf.load(
+                hf_hub_download(
+                    repo_id="facebook/UMA",
+                    subfolder="references",
+                    filename="iso_atom_elem_refs.yaml",
+                    cache_dir=CACHE_DIR,
+                )
+            )
+            form_elem_refs = OmegaConf.load(
+                hf_hub_download(
+                    repo_id="facebook/UMA",
+                    subfolder="references",
+                    filename="form_elem_refs.yaml",
+                    cache_dir=CACHE_DIR,
+                )
+            )["refs"]
+            return load_predict_unit(
+                compat_path,
+                inference_settings="default",
+                overrides=overrides,
+                device=device,
+                atom_refs=atom_refs,
+                form_elem_refs=form_elem_refs,
+            )
+
+        raise ValueError(
+            f"Unsupported UMA checkpoint '{checkpoint}'. "
+            f"Built-in models: {sorted(pretrained_mlip.available_models)}"
+        )
+
+    @staticmethod
+    def _prepare_compat_checkpoint(checkpoint_name: str, checkpoint_path: str) -> str:
+        compat_dir = Path(CACHE_DIR) / "maple_compat"
+        compat_dir.mkdir(parents=True, exist_ok=True)
+        compat_path = compat_dir / f"{checkpoint_name}.pt"
+
+        raw_checkpoint = torch.load(
+            checkpoint_path, map_location="cpu", weights_only=False
+        )
+        model_config = raw_checkpoint.model_config
+        model_config.pop("model_id", None)
+        model_config.pop("supports_single_atoms", None)
+
+        backbone = model_config.get("backbone", {})
+        backbone.pop("charge_balanced_channels", None)
+        backbone.pop("composition_dropout", None)
+        dataset_mapping = backbone.pop("dataset_mapping", None)
+        if dataset_mapping is not None and "dataset_list" not in backbone:
+            backbone["dataset_list"] = list(dataset_mapping)
+
+        for head_config in model_config.get("heads", {}).values():
+            head_mapping = head_config.pop("dataset_mapping", None)
+            if head_mapping is not None and "dataset_names" not in head_config:
+                head_config["dataset_names"] = list(head_mapping)
+
+        torch.save(raw_checkpoint, compat_path)
+        return str(compat_path)
 
     def __init__(
         self,
@@ -29,17 +150,34 @@ class UMACalculator(FAIRChemCalculator):
         overrides: dict | None = None,
         implicit: Literal["gbsa", "none"] = "gbsa",
         solvent: str = 'none',
+        task: str = 'omol',
+        size: str | None = None,
     ):
         """
         Initialize UMA Calculator.
 
         Args:
             device (torch.device): Target device ('cuda' or 'cpu').
-            model (str): UMA model name or local checkpoint path.
+            model (str): UMA model name (used as fallback for checkpoint resolution).
             overrides (dict, optional): Additional inference configuration overrides.
+            implicit: Implicit solvent method ('gbsa' or 'none').
+            solvent: Solvent name for GBSA correction.
+            task: UMA task/domain name (omol, omat, oc20, odac, omc, oc22, oc25).
+            size: UMA checkpoint to use (uma-s-1p1, uma-s-1p2, uma-m-1p1).
+                  If None, defaults based on model name mapping. Bare 'uma'
+                  now defaults to the v1.2 small checkpoint.
         """
-        UMA_MODELS_MAP = {"uma": "uma-s-1p1"}
-        model = UMA_MODELS_MAP.get(model)
+        # Resolve checkpoint name: explicit size > model name mapping
+        if size is not None:
+            checkpoint = UMA_MODELS_MAP.get(size, size)
+        else:
+            checkpoint = UMA_MODELS_MAP.get(model, "uma-s-1p2")
+
+        # Validate task
+        if task not in SUPPORTED_UMA_TASKS:
+            raise ValueError(
+                f"Unsupported UMA task: '{task}'. Supported: {sorted(SUPPORTED_UMA_TASKS)}"
+            )
 
         device = str(device)
         device = "cuda" if device.startswith("cuda") else "cpu"
@@ -47,14 +185,10 @@ class UMACalculator(FAIRChemCalculator):
         if not importlib.util.find_spec("fairchem"):
             raise ImportError("fairchem-core is not installed. Please install it first.")
 
-        predictor = pretrained_mlip.get_predict_unit(
-            model,
-            inference_settings="default",
-            overrides=overrides,
-            device=device,
-        )
-        super().__init__(predict_unit=predictor, task_name="omol")
+        predictor = self._build_predictor(checkpoint, overrides, device)
+        super().__init__(predict_unit=predictor, task_name=task)
         self.device = torch.device(device)
+        self.hessian = "numerical"
         
         if implicit == "gbsa" and solvent != 'none':
 

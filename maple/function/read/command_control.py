@@ -13,10 +13,15 @@ class CommandControl:
     SUPPORTED_MODELS = {
         "ani2x", "ani1x", "ani1ccx", "ani1xnr",
         "maceoff23s", "maceoff23m", "maceoff23l",
-        "egret", "aimnet2", "uma", "maceomol", "aimnet2nse"
+        "egret", "aimnet2", "uma", "maceomol", "aimnet2nse",
+        "macepols", "macepolm", "macepoll",
     }
 
     SUPPORTED_TASKS = {"sp", "opt", "ts", "scan", "freq", "irc"}
+
+    SUPPORTED_UMA_TASKS = {"omol", "omat", "oc20", "odac", "omc", "oc22", "oc25"}
+    SUPPORTED_UMA_SIZES = {"uma-s-1p1", "uma-s-1p2", "uma-m-1p1"}
+    SUPPORTED_HESSIAN_MODES = {"analytic", "numerical"}
 
     # Defaults assigned only when task is selected
     DEFAULTS = {
@@ -97,6 +102,15 @@ class CommandControl:
                 raise ValueError(f"Duplicate parameter: '{key}'.")
             seen_keys.add(key)
 
+            # Combined form: #key=value(sub_params)
+            if paren_val is not None and assign_val is not None:
+                sub = {}
+                cls._parse_nested(sub, paren_val)
+                params[key] = cls._auto_cast(assign_val.strip())
+                params[key + "_options"] = sub
+                log_lines.append(f"Global parameter: {key} = {params[key]} with options {sub}\n")
+                continue
+
             # Parenthesized nested form
             if paren_val:
                 sub = {}
@@ -138,9 +152,9 @@ class CommandControl:
             kv = kv.strip()
             if "=" in kv:
                 k, v = kv.split("=", 1)
-                target[k.strip()] = CommandControl._auto_cast(v.strip())
+                target[k.strip().lower()] = CommandControl._auto_cast(v.strip())
             else:
-                target[kv.strip()] = True
+                target[kv.strip().lower()] = True
 
     @staticmethod
     def _auto_cast(value: str) -> Any:
@@ -179,6 +193,29 @@ class CommandControl:
             if allowed and params["method"] not in allowed:
                 cls._log_error(output_path, f"Method '{params['method']}' not implemented for task '{task}'.")
                 raise ValueError(f"Method '{params['method']}' not implemented for task '{task}'.")
+
+        # validate UMA model options
+        if params.get("model") == "uma" and "model_options" in params:
+            opts = params["model_options"]
+            if "task" in opts and opts["task"] not in cls.SUPPORTED_UMA_TASKS:
+                msg = f"Unsupported UMA task: '{opts['task']}'. Supported: {sorted(cls.SUPPORTED_UMA_TASKS)}"
+                cls._log_error(output_path, msg)
+                raise ValueError(msg)
+            if "size" in opts and opts["size"] not in cls.SUPPORTED_UMA_SIZES:
+                msg = f"Unsupported UMA size: '{opts['size']}'. Supported: {sorted(cls.SUPPORTED_UMA_SIZES)}"
+                cls._log_error(output_path, msg)
+                raise ValueError(msg)
+
+        if "model_options" in params and "hessian" in params["model_options"]:
+            hessian_mode = str(params["model_options"]["hessian"]).lower()
+            params["model_options"]["hessian"] = hessian_mode
+            if hessian_mode not in cls.SUPPORTED_HESSIAN_MODES:
+                msg = (
+                    f"Unsupported Hessian mode: '{hessian_mode}'. "
+                    f"Supported: {sorted(cls.SUPPORTED_HESSIAN_MODES)}"
+                )
+                cls._log_error(output_path, msg)
+                raise ValueError(msg)
 
     @staticmethod
     def _log_info(output_path: Optional[str], lines: List[str]) -> None:

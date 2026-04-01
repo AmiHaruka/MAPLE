@@ -112,6 +112,7 @@ class MACECalculator(CalcABC):
     """ASE-style calculator wrapping a scripted Wrapper MACE model."""
 
     implemented_properties = ['energy', 'forces', 'free_energy']
+    supported_hessian_modes = ("analytic", "numerical")
 
     def __init__(self, 
         device: torch.device, 
@@ -145,6 +146,7 @@ class MACECalculator(CalcABC):
 
         self.r_max = float(self.model.r_max)
         self.atomic_numbers = [int(z) for z in self.model.atomic_numbers]
+        self.hessian = "analytic"
 
         # Initialize implicit solvent
         self.implicit_solv_init(implicit=implicit, solvent=solvent)
@@ -188,6 +190,7 @@ class MACECalculator(CalcABC):
                 create_graph=False,
                 retain_graph=False
             )[0]
+            forces = forces * EV2HARTREE
 
             if self.solvent_correction:
                 solvent_energy, solvent_force = self.implicit_solv_energy_and_force(atoms)
@@ -223,7 +226,56 @@ class MACECalculator(CalcABC):
             hessian[i, :] = grad2
         return hessian
 
-    def get_hessian(self, atoms=None) -> np.ndarray:
+    def _build_graph_inputs(self, atoms, positions: Optional[torch.Tensor] = None):
+        if positions is None:
+            positions = torch.tensor(
+                atoms.get_positions(), dtype=self.dtype, device=self.device
+            )
+        Z = torch.tensor(atoms.get_atomic_numbers(), dtype=torch.long, device=self.device)
+        node_attrs = _one_hot_node_attrs(Z, self.atomic_numbers, dtype=self.dtype)
+        edge_index, shifts = _radius_graph_no_pbc(positions, self.r_max)
+        N = positions.size(0)
+        batch = torch.zeros(N, dtype=torch.int64, device=self.device)
+        cell = torch.zeros(3, 3, dtype=self.dtype, device=self.device)
+        charge = torch.zeros(N, dtype=self.dtype, device=self.device)
+        dipole = torch.zeros(1, 3, dtype=self.dtype, device=self.device)
+        energy = torch.tensor([0.0], dtype=self.dtype, device=self.device)
+        energy_weight = torch.tensor([0.0], dtype=self.dtype, device=self.device)
+        force = torch.zeros(N, 3, dtype=self.dtype, device=self.device)
+        forces_weight = torch.tensor([0.0], dtype=self.dtype, device=self.device)
+        ptr = torch.tensor([0, N], dtype=torch.int64, device=self.device)
+        stress = torch.zeros(1, 3, 3, dtype=self.dtype, device=self.device)
+        stress_weight = torch.tensor([0.0], dtype=self.dtype, device=self.device)
+        unit_shifts = torch.zeros(edge_index.size(1), 3, dtype=self.dtype, device=self.device)
+        virials = torch.zeros(1, 3, 3, dtype=self.dtype, device=self.device)
+        virials_weight = torch.tensor([0.0], dtype=self.dtype, device=self.device)
+        weight = torch.tensor([1.0], dtype=self.dtype, device=self.device)
+
+        data_dict = {
+            'batch': batch,
+            'cell': cell,
+            'charges': charge,
+            'dipole': dipole,
+            'edge_index': edge_index,
+            'energy': energy,
+            'energy_weight': energy_weight,
+            'forces': force,
+            'forces_weight': forces_weight,
+            'node_attrs': node_attrs,
+            'positions': positions,
+            'ptr': ptr,
+            'shifts': shifts,
+            'stress': stress,
+            'stress_weight': stress_weight,
+            'unit_shifts': unit_shifts,
+            'virials': virials,
+            'virials_weight': virials_weight,
+            'weight': weight
+        }
+        local_or_ghost = torch.ones(N, dtype=self.dtype, device=self.device)
+        return data_dict, local_or_ghost
+
+    def _get_hessian_analytic(self, atoms=None) -> np.ndarray:
         """Compute the Hessian matrix for an ASE Atoms object."""
         positions = torch.tensor(
             atoms.get_positions(),
@@ -231,19 +283,62 @@ class MACECalculator(CalcABC):
             device=self.device,
             requires_grad=True
         )
-        species = torch.tensor(atoms.get_atomic_numbers(), dtype=torch.long, device=self.device)
 
-        data_dict, local_or_ghost = build_data_from_atoms(
-            atoms, self.model, device=self.device
-        )
-
+        data_dict, local_or_ghost = self._build_graph_inputs(atoms, positions=positions)
         total_energy_local = self.model.forward(
             data=data_dict,
             local_or_ghost=local_or_ghost,
             compute_virials=False
         )
-        energy = total_energy_local.sum()
-        energy = energy * EV2HARTREE
+        energy = total_energy_local.sum() * EV2HARTREE
 
         hessian = self.compute_hessian(positions, energy)
         return hessian.detach().cpu().numpy()
+
+    def _get_hessian_numerical(self, atoms, delta: float = 0.002) -> np.ndarray:
+        from ase.constraints import FixAtoms
+
+        N = len(atoms)
+        pos0 = atoms.get_positions().copy()
+        fixed = {
+            i for c in getattr(atoms, "constraints", [])
+            if isinstance(c, FixAtoms)
+            for i in c.get_indices()
+        }
+        movable = [i for i in range(N) if i not in fixed]
+        H = np.zeros((3 * N, 3 * N), dtype=np.float64)
+
+        if len(movable) == 0:
+            return H
+
+        def force_at(positions: np.ndarray) -> np.ndarray:
+            atoms_tmp = atoms.copy()
+            atoms_tmp.set_positions(positions)
+            if getattr(atoms, "constraints", None):
+                atoms_tmp.set_constraint(atoms.constraints)
+            self.calculate(atoms_tmp, properties=["forces"], system_changes=all_changes)
+            return np.asarray(self.results["forces"], dtype=np.float64)
+
+        for a in movable:
+            for k in range(3):
+                row = 3 * a + k
+                pos_p = pos0.copy()
+                pos_p[a, k] += delta
+                Fp = force_at(pos_p)
+
+                pos_m = pos0.copy()
+                pos_m[a, k] -= delta
+                Fm = force_at(pos_m)
+
+                H[row, :] = (-(Fp - Fm) / (2.0 * delta)).reshape(-1)
+
+        return H
+
+    def get_hessian(self, atoms=None, delta: float = 0.002) -> np.ndarray:
+        if self.hessian == "analytic":
+            return self._get_hessian_analytic(atoms)
+        if self.hessian == "numerical":
+            return self._get_hessian_numerical(atoms, delta)
+        raise ValueError(
+            f"Unknown hessian method: {self.hessian}. Must be 'analytic' or 'numerical'"
+        )
