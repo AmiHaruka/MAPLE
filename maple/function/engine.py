@@ -79,6 +79,7 @@ class engine():
             self.model = reader.model
             self.jobtype = reader.jobtype
             self.d4 = reader.d4
+            self.model_params = getattr(reader, 'model_params', None)
 
             self.extra = {}
 
@@ -120,7 +121,8 @@ class engine():
                     atoms_for_check = atoms_list[0]
 
             setcalculator = SetClaculator(device, model, self.output, atoms=atoms_for_check,
-                            d4=self.d4, implicit=implicit_method, solvent=solvent)
+                            d4=self.d4, implicit=implicit_method, solvent=solvent,
+                            model_params=self.model_params)
             self.calulator = setcalculator.set_calculator()
     
     def _jobtype_dispatcher(self, commandcontrol, jobtype:int, atoms:Union[Atoms, Molecules, List[Atoms]], output:str, extra:dict=None) -> None:

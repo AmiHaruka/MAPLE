@@ -1,44 +1,67 @@
 """
 Molecular Dynamics (MD) module for MAPLE.
 
-This module provides classical molecular dynamics simulation capabilities
-using machine learning potentials.
+Provides classical molecular dynamics simulation with machine learning potentials.
 
-Supported ensembles:
-    - NVE (microcanonical)
-    - NVT (canonical) - future
-    - NPT (isothermal-isobaric) - future
+Supported ensembles
+-------------------
+NVE : microcanonical (constant energy)
+NVT : canonical (constant temperature) — Langevin or V-rescale thermostat
+NPT : isothermal-isobaric — Berendsen or C-rescale barostat
 
-Main components:
-    - Integrators: Velocity Verlet (symplectic)
-    - Thermostats: Langevin, Berendsen - future
-    - Barostats: Berendsen, Parrinello-Rahman - future
+Typical usage
+-------------
+    from maple.function.dispatcher.md import NVT
+    sim = NVT(output='run', atoms=atoms, paras={'timestep': 1.0, 'steps': 100000})
+    sim.run()
 
-Author: Claude
-Date: 2026-01-30
+Components
+----------
+Integrator  : VelocityVerlet (symplectic, second-order)
+Thermostats : LangevinThermostat (BAOAB), VRescaleThermostat (Bussi 2007)
+Barostats   : BerendsenBarostat, CRescaleBarostat (Bernetti & Bussi 2020)
+Logger      : MDLogger
 """
 
 __version__ = '0.1.0'
 __author__ = 'MAPLE Development Team'
 
-# Main MD dispatcher will be imported here when implemented
-# from .md import MDDispatcher
+# Ensembles (primary public API)
+from .ensemble.nve import NVE
+from .ensemble.nvt import NVT
+from .ensemble.npt import NPT
 
-# Utilities
+# Thermostats
+from .thermostat.langevin import LangevinThermostat
+from .thermostat.vrescale import VRescaleThermostat
+
+# Barostats
+from .barostat.berendsen import BerendsenBarostat
+from .barostat.crescale import CRescaleBarostat
+
+# Integrator
+from .integrator.velocity_verlet import VelocityVerlet
+
+# Utilities (retained for backwards compatibility and direct use)
 from .utils import (
     calculate_temperature,
     calculate_kinetic_energy,
     initialize_velocities,
     KELVIN_TO_HARTREE,
     AMU_TO_AU,
-    FS_TO_AU
+    FS_TO_AU,
 )
 
 __all__ = [
-    'calculate_temperature',
-    'calculate_kinetic_energy',
-    'initialize_velocities',
-    'KELVIN_TO_HARTREE',
-    'AMU_TO_AU',
-    'FS_TO_AU',
+    # Ensembles
+    'NVE', 'NVT', 'NPT',
+    # Thermostats
+    'LangevinThermostat', 'VRescaleThermostat',
+    # Barostats
+    'BerendsenBarostat', 'CRescaleBarostat',
+    # Integrator
+    'VelocityVerlet',
+    # Utilities
+    'calculate_temperature', 'calculate_kinetic_energy', 'initialize_velocities',
+    'KELVIN_TO_HARTREE', 'AMU_TO_AU', 'FS_TO_AU',
 ]
