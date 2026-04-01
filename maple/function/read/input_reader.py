@@ -285,15 +285,16 @@ class InputReader():
             self.command_control = cc
             params = cc.as_dict()
 
-            # Assign key parameters
-            # Extract model name (handle both string and dict formats)
+            # Normalize model/options into the merged `model + model_options` contract.
             model_val = params.get("model")
+            model_options = dict(params.get("model_options", {}))
             if isinstance(model_val, dict):
-                self.model = model_val.get('name', '').lower()
-                self.model_params = model_val
+                self.model = model_val.get("name", "").lower()
+                model_options.update({k: v for k, v in model_val.items() if k != "name"})
             else:
                 self.model = model_val.lower() if model_val else None
-                self.model_params = None
+            self.model_options = model_options
+            self.model_params = model_options
 
             dev_str: str = params.get("device", "cpu").lower()
 

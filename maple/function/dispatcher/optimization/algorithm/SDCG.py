@@ -571,7 +571,6 @@ class SDCG(JobABC):
                 write_xyz(opt_file, [atoms], energies=[energy])
 
                 if self.params.verbose == 1:
-                    log_info(self._last_iter_info, self.output)
                     log_info([
                         f"\nSDCG converged at iteration {iteration} "
                         f"(phase: {self._phase.upper()}). "

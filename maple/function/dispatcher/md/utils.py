@@ -30,6 +30,10 @@ AMU_TO_AU = 1822.888486209  # atomic mass unit to atomic units
 FS_TO_AU = 41.341374575751  # femtoseconds to atomic units
 AU_TO_FS = 1.0 / FS_TO_AU
 
+# Energy conversions
+HARTREE_TO_EV = 27.211386245988
+EV_TO_HARTREE = 1.0 / HARTREE_TO_EV
+
 # Length conversions
 # NIST CODATA 2018: 1 Bohr = 0.529177210903 Å (exact to 12 sig. fig.)
 BOHR_TO_ANGSTROM = 0.529177210903

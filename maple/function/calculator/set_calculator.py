@@ -1,66 +1,86 @@
-import urllib.request
 import shutil
-import torch
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
 import ase
+import torch
 from ase import Atoms
-
-from pathlib import Path
 
 from .ani._ani_calculator import ANICalculator
 from .mace._mace_calculator import MACECalculator
 
-# ---------------------------------------------------------------------------
-# Supported model identifiers
-# ---------------------------------------------------------------------------
 
-IMPLEMENTATION_MODELs = [
-    'ani2x', 'ani1x', 'ani1ccx', 'ani1xnr',
-    'maceoff23s', 'maceoff23m', 'maceoff23l', 'egret',
-    'aimnet2', 'aimnet2nse',
-    'uma',
-    'maceomol',
+IMPLEMENTATION_MODELS = [
+    "ani2x",
+    "ani1x",
+    "ani1ccx",
+    "ani1xnr",
+    "maceoff23s",
+    "maceoff23m",
+    "maceoff23l",
+    "egret",
+    "aimnet2",
+    "aimnet2nse",
+    "uma",
+    "maceomol",
+    "macepols",
+    "macepolm",
+    "macepoll",
 ]
 
-# Models whose weights are stored locally in calculator/model/<filename>.pt
-# and can be auto-downloaded from HuggingFace when absent.
-_MODEL_FILE = {
-    'ani2x':      'ani2x.pt',
-    'ani1x':      'ani1x.pt',
-    'ani1ccx':    'ani1ccx.pt',
-    'ani1xnr':    'ani1xnr.pt',
-    'aimnet2':    'aimnet2.pt',
-    'aimnet2nse': 'aimnet2nse.pt',
-    'maceoff23m': 'maceoff23m.pt',
-    'maceomol':   'maceomol.pt',
-    'egret':      'egret1s.pt',
-    'uma-s-1p1':  'uma-s-1p1.pt',
-    'uma-m-1p1':  'uma-m-1p1.pt',
-}
-
-_HF_REPO = "Wayne7815/MAPLE_model"
-_MODEL_DIR = Path(__file__).parent / "model"
-
-
-# Model name to filename mapping for HuggingFace download
 MODEL_NAME_TO_FILE = {
-    'ani2x': 'ani2x.pt',
-    'ani1x': 'ani1x.pt',
-    'ani1ccx': 'ani1ccx.pt',
-    'ani1xnr': 'ani1xnr.pt',
-    'aimnet2': 'aimnet2.pt',
-    'aimnet2nse': 'aimnet2nse.pt',
-    'maceoff23m': 'maceoff23m.pt',
-    'maceomol': 'maceomol.pt',
-    'egret': 'egret1s.pt',
+    "ani2x": "ani2x.pt",
+    "ani1x": "ani1x.pt",
+    "ani1ccx": "ani1ccx.pt",
+    "ani1xnr": "ani1xnr.pt",
+    "aimnet2": "aimnet2.pt",
+    "aimnet2nse": "aimnet2nse.pt",
+    "maceoff23m": "maceoff23m.pt",
+    "maceomol": "maceomol.pt",
+    "egret": "egret1s.pt",
+    "uma-s-1p1": "uma-s-1p1.pt",
+    "uma-m-1p1": "uma-m-1p1.pt",
+    "macepols": "macepols.pt",
+    "macepolm": "macepolm.pt",
+    "macepoll": "macepoll.pt",
 }
 
 HF_REPO_ID = "Wayne7815/MAPLE_model"
 
-class SetClaculator():
+MODEL_HESSIAN_SUPPORT = {
+    "ani2x": ("analytic", "numerical"),
+    "ani1x": ("analytic", "numerical"),
+    "ani1ccx": ("analytic", "numerical"),
+    "ani1xnr": ("analytic", "numerical"),
+    "maceoff23s": ("analytic", "numerical"),
+    "maceoff23m": ("analytic", "numerical"),
+    "maceoff23l": ("analytic", "numerical"),
+    "egret": ("analytic", "numerical"),
+    "aimnet2": ("analytic", "numerical"),
+    "aimnet2nse": ("analytic", "numerical"),
+    "uma": ("numerical",),
+    "maceomol": ("analytic", "numerical"),
+    "macepols": ("analytic", "numerical"),
+    "macepolm": ("analytic", "numerical"),
+    "macepoll": ("analytic", "numerical"),
+}
 
+UNSUPPORTED_CHARGE_MULT_MODELS = {
+    "ani2x",
+    "ani1x",
+    "ani1ccx",
+    "ani1xnr",
+    "maceoff23s",
+    "maceoff23m",
+    "maceoff23l",
+    "egret",
+    "maceomol",
+}
+
+
+class SetClaculator:
     def __init__(
         self,
         device: torch.device,
@@ -68,224 +88,207 @@ class SetClaculator():
         output: str,
         atoms: Optional[Atoms] = None,
         d4: bool = False,
-        implicit: str = 'None',
-        solvent: str = 'None',
-        model_params: Optional[dict] = None,
+        implicit: str = "None",
+        solvent: str = "None",
+        model_options: Optional[dict] = None,
     ) -> None:
-        self.output      = output
-        self.model       = model
-        self.d4          = d4
-        self.device      = device
-        self.atoms       = atoms
-        self.implicit    = implicit
-        self.solvent     = solvent
-        self.model_params = model_params
+        self.output = output
+        self.model = model
+        self.d4 = d4
+        self.device = device
+        self.atoms = atoms
+        self.implicit = implicit
+        self.solvent = solvent
+        self.model_options = model_options or {}
 
-    # ------------------------------------------------------------------
-    # Public entry point
-    # ------------------------------------------------------------------
+    def _validate_requested_hessian_mode(self) -> None:
+        mode = self.model_options.get("hessian")
+        if mode is None:
+            return
 
-    def _get_model_dir(self) -> Path:
-        """Get model directory path (model folder in the same directory as this script)"""
-        current_file_dir = Path(__file__).parent
-        model_dir = current_file_dir / "model"
-        return model_dir
+        mode = str(mode).lower()
+        declared = MODEL_HESSIAN_SUPPORT.get(self.model)
+        if declared is not None and mode not in declared:
+            supported_text = ", ".join(sorted(declared))
+            raise ValueError(
+                f"Model '{self.model}' does not support hessian='{mode}'. "
+                f"Supported modes: {supported_text}"
+            )
 
-    def _download_model(self, model_name: str) -> Path:
-        """
-        Download model from HuggingFace if not exists locally.
+    def _apply_hessian_mode(self, calculator) -> None:
+        mode = self.model_options.get("hessian")
+        if mode is None:
+            return
 
-        Args:
-            model_name: Model name (e.g., 'ani2x', 'aimnet2')
+        mode = str(mode).lower()
+        supported = getattr(calculator, "supported_hessian_modes", None)
+        if supported is not None and mode not in supported:
+            supported_text = ", ".join(sorted(supported))
+            raise ValueError(
+                f"Model '{self.model}' does not support hessian='{mode}'. "
+                f"Supported modes: {supported_text}"
+            )
 
-        Returns:
-            Path to the model file
-        """
-        if model_name not in MODEL_NAME_TO_FILE:
-            return None
+        if not hasattr(calculator, "hessian"):
+            raise ValueError(f"Model '{self.model}' does not expose configurable Hessian modes.")
 
-        model_dir = self._get_model_dir()
-        model_filename = MODEL_NAME_TO_FILE[model_name]
-        model_path = model_dir / model_filename
+        calculator.hessian = mode
 
-        # Create model directory if not exists
-        if not model_dir.exists():
-            self.log_info([f" [INFO] Creating model directory: {model_dir}\n"])
-            model_dir.mkdir(parents=True, exist_ok=True)
-
-        # Download if model file not exists
-        if not model_path.exists():
-            download_url = f"https://huggingface.co/{HF_REPO_ID}/resolve/main/{model_filename}"
-            self.log_info([f" [INFO] Model {model_filename} not found locally.\n"])
-            self.log_info([f" [INFO] Downloading from: {download_url}\n"])
-
-            try:
-                with urllib.request.urlopen(download_url) as response:
-                    total_size = response.headers.get('Content-Length')
-                    if total_size:
-                        total_size = int(total_size)
-                        self.log_info([f" [INFO] File size: {total_size / 1024 / 1024:.2f} MB\n"])
-
-                    temp_path = model_path.with_suffix('.tmp')
-                    with open(temp_path, 'wb') as f:
-                        shutil.copyfileobj(response, f)
-                    temp_path.rename(model_path)
-
-                self.log_info([f" [INFO] Download complete: {model_path}\n"])
-
-            except urllib.error.HTTPError as e:
-                error_message = f" [ERROR] Download failed (HTTP {e.code}): {download_url}\n"
-                self.log_error(error_message)
-                raise RuntimeError(error_message)
-            except urllib.error.URLError as e:
-                error_message = f" [ERROR] Network error: {e.reason}\n"
-                self.log_error(error_message)
-                raise RuntimeError(error_message)
-
-        return model_path
-
-    def set_calculator(self) -> ase.calculators.calculator.Calculator:
-        if self.model not in IMPLEMENTATION_MODELs:
-            self.log_error(f"\n [ERROR] Unsupported model: {self.model}\n")
-            raise ValueError(f"Unsupported model: '{self.model}'.")
-
-        if self.d4 and self.model not in ['ani2x', 'ani1x', 'ani1ccx', 'ani1xnr']:
-            self.log_info([f"\n [WARNING] D4 is not supported for model '{self.model}'. D4 will be ignored.\n"])
-
-        calculator = self._build_calculator()
-        self._warn_charge_mult(calculator)
-        return calculator
-
-    # ------------------------------------------------------------------
-    # Model file management
-    # ------------------------------------------------------------------
-
-    def _ensure_model_file(self, key: str) -> Path:
-        """Return path to a local model file, downloading it if absent."""
-        filename = _MODEL_FILE.get(key)
+    def _ensure_model_file(self, model_name: str) -> Optional[Path]:
+        filename = MODEL_NAME_TO_FILE.get(model_name)
         if filename is None:
             return None
 
-        path = _MODEL_DIR / filename
-        if path.exists():
-            return path
+        model_dir = Path(__file__).parent / "model"
+        model_dir.mkdir(parents=True, exist_ok=True)
+        model_path = model_dir / filename
+        if model_path.exists():
+            return model_path
 
-        # Auto-download from HuggingFace
-        _MODEL_DIR.mkdir(parents=True, exist_ok=True)
-        url = f"https://huggingface.co/{_HF_REPO}/resolve/main/{filename}"
-        self.log_info([f" [INFO] Model file '{filename}' not found locally.\n",
-                       f" [INFO] Downloading from: {url}\n"])
+        url = f"https://huggingface.co/{HF_REPO_ID}/resolve/main/{filename}"
+        self.log_info(
+            [
+                f" [INFO] Model file '{filename}' not found locally.\n",
+                f" [INFO] Downloading from: {url}\n",
+            ]
+        )
+
+        temp_path = model_path.with_suffix(".tmp")
         try:
-            tmp = path.with_suffix('.tmp')
-            with urllib.request.urlopen(url) as resp:
-                size = resp.headers.get('Content-Length')
+            with urllib.request.urlopen(url) as response:
+                size = response.headers.get("Content-Length")
                 if size:
                     self.log_info([f" [INFO] File size: {int(size) / 1024 / 1024:.1f} MB\n"])
-                with open(tmp, 'wb') as f:
-                    shutil.copyfileobj(resp, f)
-            tmp.rename(path)
-            self.log_info([f" [INFO] Download complete: {path}\n"])
-        except urllib.error.HTTPError as e:
-            tmp.unlink(missing_ok=True)
-            self.log_error(f" [ERROR] Download failed (HTTP {e.code}): {url}\n")
-            raise RuntimeError(f"Failed to download model '{key}': HTTP {e.code}")
-        except urllib.error.URLError as e:
-            tmp.unlink(missing_ok=True)
-            self.log_error(f" [ERROR] Network error: {e.reason}\n")
-            raise RuntimeError(f"Failed to download model '{key}': {e.reason}")
+                with open(temp_path, "wb") as handle:
+                    shutil.copyfileobj(response, handle)
+            temp_path.rename(model_path)
+            self.log_info([f" [INFO] Download complete: {model_path}\n"])
+        except urllib.error.HTTPError as exc:
+            temp_path.unlink(missing_ok=True)
+            self.log_error(f" [ERROR] Download failed (HTTP {exc.code}): {url}\n")
+            raise RuntimeError(f"Failed to download model '{model_name}': HTTP {exc.code}") from exc
+        except urllib.error.URLError as exc:
+            temp_path.unlink(missing_ok=True)
+            self.log_error(f" [ERROR] Network error: {exc.reason}\n")
+            raise RuntimeError(f"Failed to download model '{model_name}': {exc.reason}") from exc
 
-        return path
+        return model_path
 
-    # ------------------------------------------------------------------
-    # Calculator construction
-    # ------------------------------------------------------------------
+    def _warn_charge_mult(self) -> None:
+        if self.atoms is None:
+            return
+
+        has_charge = self.atoms.info.get("charge", 0) != 0
+        has_mult = self.atoms.info.get("mult", 1) != 1
+        if (has_charge or has_mult) and self.model in UNSUPPORTED_CHARGE_MULT_MODELS:
+            self.log_info(
+                [
+                    f"\n [WARNING] Model '{self.model}' does not support charge/multiplicity.\n",
+                    f"           charge={self.atoms.info.get('charge', 0)}, ",
+                    f"mult={self.atoms.info.get('mult', 1)} will be IGNORED.\n",
+                    "           Models with charge/mult support: aimnet2, aimnet2nse, uma, macepols/m/l\n",
+                ]
+            )
 
     def _build_calculator(self) -> ase.calculators.calculator.Calculator:
         model = self.model
 
-        if model in ['ani2x', 'ani1x', 'ani1ccx', 'ani1xnr']:
+        if model in {"ani2x", "ani1x", "ani1ccx", "ani1xnr"}:
             self._ensure_model_file(model)
-            return ANICalculator(
-                model=model, d4=self.d4, device=self.device,
-                implicit=self.implicit, solvent=self.solvent,
+            calculator = ANICalculator(
+                model=model,
+                d4=self.d4,
+                device=self.device,
+                implicit=self.implicit,
+                solvent=self.solvent,
             )
-
-        if model in ['maceoff23s', 'maceoff23m', 'maceoff23l', 'egret']:
+        elif model in {"maceoff23s", "maceoff23m", "maceoff23l", "egret"}:
             self._ensure_model_file(model)
-            from .mace._mace_calculator import MACECalculator
-            return MACECalculator(
-                model=model, device=self.device,
-                implicit=self.implicit, solvent=self.solvent,
+            calculator = MACECalculator(
+                model=model,
+                device=self.device,
+                implicit=self.implicit,
+                solvent=self.solvent,
             )
-
-        if model in ['aimnet2', 'aimnet2nse']:
+        elif model in {"aimnet2", "aimnet2nse"}:
             self._ensure_model_file(model)
             from .aimnet._aimnet2_calculator import AIMNet2Calculator
-            return AIMNet2Calculator(
-                model=model, device=self.device,
-                implicit=self.implicit, solvent=self.solvent,
-            )
 
-        if model == 'uma':
-            uma_task = None
-            uma_size = None
-            if self.model_params is not None:
-                uma_task = self.model_params.get('task')
-                uma_size = self.model_params.get('size')
-            # Resolve the model size key for local file lookup
-            size_key = uma_size if uma_size else 'uma-s-1p1'
-            model_path = self._ensure_model_file(size_key)
+            calculator = AIMNet2Calculator(
+                model=model,
+                device=self.device,
+                implicit=self.implicit,
+                solvent=self.solvent,
+            )
+        elif model == "uma":
             from .uma._uma_calculator import UMACalculator
-            return UMACalculator(
-                model=model, device=self.device,
-                implicit=self.implicit, solvent=self.solvent,
-                task=uma_task, size=uma_size,
-                checkpoint_path=str(model_path),
-            )
 
-        if model == 'maceomol':
+            uma_task = self.model_options.get("task")
+            uma_size = self.model_options.get("size")
+            checkpoint_path = None
+            if uma_size in {"uma-s-1p1", "uma-m-1p1"}:
+                checkpoint = self._ensure_model_file(uma_size)
+                checkpoint_path = str(checkpoint) if checkpoint is not None else None
+
+            calculator = UMACalculator(
+                model=model,
+                device=self.device,
+                implicit=self.implicit,
+                solvent=self.solvent,
+                task=uma_task,
+                size=uma_size,
+                checkpoint_path=checkpoint_path,
+            )
+        elif model == "maceomol":
             self._ensure_model_file(model)
             from .mace._mace_general_calculator import MACEModelCalculator
-            return MACEModelCalculator(
-                model=model, device=self.device,
-                implicit=self.implicit, solvent=self.solvent,
+
+            calculator = MACEModelCalculator(
+                model=model,
+                device=self.device,
+                implicit=self.implicit,
+                solvent=self.solvent,
             )
+        elif model in {"macepols", "macepolm", "macepoll"}:
+            from .mace._macepol_calculator import MACEPolCalculator
 
-        raise ValueError(f"Model '{model}' is not implemented yet.")
+            model_path = self.model_options.get("model_path")
+            if model_path is None:
+                downloaded = self._ensure_model_file(model)
+                model_path = str(downloaded) if downloaded is not None else None
 
-    # ------------------------------------------------------------------
-    # Charge / multiplicity compatibility warning
-    # ------------------------------------------------------------------
+            calculator = MACEPolCalculator(
+                model=model,
+                device=self.device,
+                model_path=model_path,
+                implicit=self.implicit,
+                solvent=self.solvent,
+            )
+        else:
+            raise ValueError(f"Model '{model}' is not implemented yet.")
 
-    _NO_CHARGE_MULT = {
-        'ani2x', 'ani1x', 'ani1ccx', 'ani1xnr',
-        'maceoff23s', 'maceoff23m', 'maceoff23l', 'egret', 'maceomol',
-    }
+        self._apply_hessian_mode(calculator)
+        return calculator
 
-    def _warn_charge_mult(self, calculator) -> None:
-        if self.atoms is None:
-            return
-        has_charge = self.atoms.info.get('charge', 0) != 0
-        has_mult   = self.atoms.info.get('mult',   1) != 1
-        if (has_charge or has_mult) and self.model in self._NO_CHARGE_MULT:
-            self.log_info([
-                f"\n [WARNING] Model '{self.model}' does not support charge/multiplicity.\n"
-                f"           charge={self.atoms.info.get('charge', 0)}, "
-                f"mult={self.atoms.info.get('mult', 1)} will be IGNORED.\n"
-                f"           Models with charge/mult support: aimnet2, aimnet2nse, uma\n"
-            ])
+    def set_calculator(self) -> ase.calculators.calculator.Calculator:
+        if self.model not in IMPLEMENTATION_MODELS:
+            self.log_error(f"\n [ERROR] Unsupported model: {self.model}\n")
+            raise ValueError(f"Unsupported model: '{self.model}'.")
 
-    # ------------------------------------------------------------------
-    # Logging
-    # ------------------------------------------------------------------
+        self._validate_requested_hessian_mode()
+
+        if self.d4 and self.model not in {"ani2x", "ani1x", "ani1ccx", "ani1xnr"}:
+            self.log_info([f"\n [WARNING] D4 is not supported for model '{self.model}'. D4 will be ignored.\n"])
+
+        calculator = self._build_calculator()
+        self._warn_charge_mult()
+        return calculator
 
     def log_error(self, error_message: str) -> None:
-        """Log an error message to the output file."""
-        with open(self.output, 'a') as f:
-            f.write(f"ERROR: {error_message}\n")
+        with open(self.output, "a") as handle:
+            handle.write(f"ERROR: {error_message}\n")
 
     def log_info(self, info_message: list) -> None:
-        """Log info messages to the output file."""
-        with open(self.output, 'a') as f:
+        with open(self.output, "a") as handle:
             for line in info_message:
-                f.write(line)
+                handle.write(line)

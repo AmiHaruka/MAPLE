@@ -79,7 +79,7 @@ class engine():
             self.model = reader.model
             self.jobtype = reader.jobtype
             self.d4 = reader.d4
-            self.model_params = getattr(reader, 'model_params', None)
+            self.model_options = getattr(reader, "model_options", {}) or {}
 
             self.extra = {}
 
@@ -109,7 +109,6 @@ class engine():
 
             implicit_method = self.commandcontrol.get('solv', {}).get('method', None)
             solvent = self.commandcontrol.get('solv', {}).get('implicit', None)
-
             # Get first atoms object for charge/mult checking
             atoms_for_check = None
             if isinstance(self.atoms, Atoms):
@@ -122,7 +121,7 @@ class engine():
 
             setcalculator = SetClaculator(device, model, self.output, atoms=atoms_for_check,
                             d4=self.d4, implicit=implicit_method, solvent=solvent,
-                            model_params=self.model_params)
+                            model_options=self.model_options)
             self.calulator = setcalculator.set_calculator()
     
     def _jobtype_dispatcher(self, commandcontrol, jobtype:int, atoms:Union[Atoms, Molecules, List[Atoms]], output:str, extra:dict=None) -> None:
@@ -142,7 +141,6 @@ class engine():
             dispatcher = Dispatcher()
             dispatcher(commandcontrol, jobtype, atoms, output, extra)
     
-
 
 
 

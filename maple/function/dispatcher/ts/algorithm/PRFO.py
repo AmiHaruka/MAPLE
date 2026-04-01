@@ -549,7 +549,7 @@ class PRFO(JobABC):
         )
         
         log_info(info_message, self.output)
-    
+
     def update_mode_tracking(self, w_mw: np.ndarray, V_mw: np.ndarray,
                            gp_mw: np.ndarray) -> int:
         """
