@@ -29,7 +29,7 @@ UMA_MODELS_MAP = {
     "uma-m-1p1": "uma-m-1p1",
 }
 
-UMA_FALLBACK_HF_MODELS = {"uma-s-1p2"}
+UMA_FALLBACK_HF_MODELS = {"uma-s-1p1", "uma-s-1p2", "uma-m-1p1"}
 SUPPORTED_UMA_TASKS = {"omol", "omat", "oc20", "odac", "omc", "oc22", "oc25"}
 
 
@@ -150,6 +150,8 @@ class UMACalculator(FAIRChemCalculator):
         size: str | None = None,
         checkpoint_path: str | None = None,
     ):
+        if size is not None:
+            size = str(size).lower()
         checkpoint = UMA_MODELS_MAP.get(size, size) if size else UMA_MODELS_MAP.get(model, "uma-s-1p1")
 
         if task is not None:
@@ -206,6 +208,7 @@ class UMACalculator(FAIRChemCalculator):
             max_neigh=max_neigh,
             radius=6.0,
         )
+        self.task_name = task
 
     def get_energy(self, atoms: Atoms) -> torch.Tensor:
         self.calculate(atoms, properties=["energy"], system_changes=all_changes)
@@ -278,8 +281,11 @@ class UMACalculator(FAIRChemCalculator):
         if self.solvent_correction:
             atoms.atomic_charges = self.chargecalc(atoms)
             solvent_energy, solvent_force = self.solvent_correction.get_energy_and_force(atoms)
-            self.results["energy"] += solvent_energy.item()
-            self.results["free_energy"] += solvent_energy.item()
-            self.results["forces"] += solvent_force.detach().cpu().numpy()
+            if "energy" in self.results:
+                self.results["energy"] += solvent_energy.item()
+            if "free_energy" in self.results:
+                self.results["free_energy"] += solvent_energy.item()
+            if "forces" in self.results:
+                self.results["forces"] += solvent_force.detach().cpu().numpy()
 
         return self.results
