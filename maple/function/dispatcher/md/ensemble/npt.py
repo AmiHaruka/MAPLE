@@ -402,7 +402,13 @@ class NPT(JobABC):
             v_half = integrator.split_step(v, forces)
 
             # O: thermostat (V-rescale or Langevin)
-            v_therm = self.thermostat.apply(v_half)
+            # Note: V-rescale returns (velocities, delta_w) but the thermostat
+            # work is not tracked here — Bussi 2007 Eq. 15 conserved quantity
+            # is only valid for NVT, not NPT where the barostat also does work.
+            if isinstance(self.thermostat, VRescaleThermostat):
+                v_therm, _delta_w = self.thermostat.apply(v_half)
+            else:
+                v_therm = self.thermostat.apply(v_half)
 
             # A(half)-B: half-position + force eval + half-kick; returns cached forces
             v, forces = integrator.complete_split_step(v_therm)

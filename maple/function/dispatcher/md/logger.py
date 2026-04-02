@@ -133,6 +133,7 @@ class MDLogger:
         self.pressures           = []   # NPT only
         self.kinetic_energies    = []   # for KE–PE anti-correlation
         self.potential_energies  = []   # for KE–PE anti-correlation
+        self.conserved_energies  = []   # V-rescale H̃ = H + W_bath (Bussi 2007 Eq. 15)
         self._n_atoms            = 0    # set in start_simulation
         self._is_pbc             = False  # set in start_simulation; affects N_dof
 
@@ -248,6 +249,12 @@ class MDLogger:
                     f"{'KE(Ha)':>15} {'PE(Ha)':>15} {'TE(Ha)':>15} "
                     f"{'Press(bar)':>12} {'Vol(A^3)':>12}\n"
                 )
+            elif self._ensemble == 'nvt':
+                self.thermo_file.write(
+                    f"# {'Step':>8} {'Time(fs)':>12} {'Temp(K)':>12} "
+                    f"{'KE(Ha)':>15} {'PE(Ha)':>15} {'TE(Ha)':>15} "
+                    f"{'H_cons(Ha)':>15}\n"
+                )
             else:
                 self.thermo_file.write(
                     f"# {'Step':>8} {'Time(fs)':>12} {'Temp(K)':>12} "
@@ -290,7 +297,8 @@ class MDLogger:
                  total_energy: float, atoms: Atoms, velocities: np.ndarray,
                  pressure: float = None, volume: float = None,
                  rng_state: Optional[str] = None,
-                 rst_every: Optional[int] = None):
+                 rst_every: Optional[int] = None,
+                 conserved_energy: Optional[float] = None):
         """
         Log data for current step.
 
@@ -306,6 +314,8 @@ class MDLogger:
             pressure: Instantaneous pressure in bar (NPT only)
             volume: Cell volume in Å³ (NPT only)
             rng_state: Hex-encoded RNG state to embed in trajectory frame (NVT/NPT only)
+            conserved_energy: V-rescale conserved energy H̃ = H − Σ ΔW (Hartree).
+                Bussi 2007 Eq. 15.  None for NVE or Langevin thermostat.
         """
         # PE and KE are both passed in Hartree (UMACalculator already converts)
         potential_energy_hartree = potential_energy
@@ -318,15 +328,24 @@ class MDLogger:
         self.times.append(time)
         self.kinetic_energies.append(kinetic_energy_hartree)
         self.potential_energies.append(potential_energy_hartree)
+        if conserved_energy is not None:
+            self.conserved_energies.append(conserved_energy)
         if pressure is not None:
             self.pressures.append(pressure)
 
         # Write thermodynamic data every step
+        # H_cons column is included only for NVT with V-rescale (Bussi 2007 Eq. 15)
         if self._ensemble == 'npt' and pressure is not None and volume is not None:
             self.thermo_file.write(
                 f"{step:>10} {time:>12.3f} {temperature:>12.2f} "
                 f"{kinetic_energy_hartree:>15.8f} {potential_energy_hartree:>15.8f} "
                 f"{total_energy_hartree:>15.8f} {pressure:>12.3f} {volume:>12.4f}\n"
+            )
+        elif conserved_energy is not None:
+            self.thermo_file.write(
+                f"{step:>10} {time:>12.3f} {temperature:>12.2f} "
+                f"{kinetic_energy_hartree:>15.8f} {potential_energy_hartree:>15.8f} "
+                f"{total_energy_hartree:>15.8f} {conserved_energy:>15.8f}\n"
             )
         else:
             self.thermo_file.write(
@@ -625,6 +644,8 @@ class MDLogger:
         times        = np.array(self.times)          # fs
         ke_arr       = np.array(self.kinetic_energies)
         pe_arr       = np.array(self.potential_energies)
+        has_conserved = len(self.conserved_energies) > 0
+        cons_arr     = np.array(self.conserved_energies) if has_conserved else None
 
         # ------------------------------------------------------------------
         # 1. Basic energy statistics  (full trajectory, no skip)
@@ -656,6 +677,29 @@ class MDLogger:
         # 3. Relative energy fluctuation
         # ------------------------------------------------------------------
         rel_fluctuation = energy_std / abs(energy_mean) if energy_mean != 0 else float('nan')
+
+        # ------------------------------------------------------------------
+        # 3b. V-rescale conserved energy H̃ drift (Bussi 2007, Eq. 15)
+        #     H̃ = H − Σ ΔW should be constant; its drift measures integration
+        #     accuracy, analogous to TE drift in NVE.
+        # ------------------------------------------------------------------
+        if has_conserved and len(cons_arr) == len(times):
+            cons_mean = np.mean(cons_arr)
+            cons_std  = np.std(cons_arr)
+            cons_rel  = cons_std / abs(cons_mean) if cons_mean != 0 else float('nan')
+            prod_cons = cons_arr[eq_cut:]
+            if len(prod_times) >= 2 and prod_time_ns > 0:
+                cons_coef = np.polyfit(prod_times, prod_cons, 1)
+                cons_drift = (cons_coef[0]
+                              * HARTREE_TO_KCAL_PER_MOL
+                              / FS_TO_NS)
+            else:
+                cons_drift = float('nan')
+        else:
+            cons_mean  = float('nan')
+            cons_std   = float('nan')
+            cons_rel   = float('nan')
+            cons_drift = float('nan')
 
         # ------------------------------------------------------------------
         # 4. KE–PE correlation coefficient
@@ -717,6 +761,21 @@ class MDLogger:
                 f"  Production window:         {prod_time_ns*1000:>15.3f}  ps"
                 f"  (skipped first {eq_time_ps:.2f} ps as equilibration)\n",
             ]
+            # V-rescale conserved energy section (NVT only)
+            # Discrete form of Bussi 2007 Eq. 15:
+            #   H̃_N = H_N − Σ_{k=0}^{N-1} (α²_k − 1)·K_k
+            # H̃ drift measures timestep accuracy, analogous to TE drift in NVE.
+            if has_conserved:
+                temp_section += [
+                    f"\n{'── [' + ens_label + '] Conserved Energy H̃ (Bussi 2007) ──':^80}\n",
+                    f"  H̃ = H − Σ ΔW_thermostat\n",
+                    f"  ⟨H̃⟩:                      {cons_mean:>18.8f}  Ha\n",
+                    f"  σ(H̃):                     {cons_std:>18.8f}  Ha\n",
+                    f"  σ(H̃)/|⟨H̃⟩|:             {cons_rel:>18.2e}\n",
+                    f"  H̃ drift rate:             {cons_drift:>+18.6f}  kcal/mol/ns\n",
+                    f"  Production window:         {prod_time_ns*1000:>15.3f}  ps"
+                    f"  (skipped first {eq_time_ps:.2f} ps as equilibration)\n",
+                ]
 
         summary_lines = [
             "\n" + "="*80 + "\n",
@@ -794,6 +853,16 @@ class MDLogger:
                 f.write(f"  Linear drift rate:        {drift_rate:+.6f} kcal/mol/ns\n")
                 f.write(f"  Production window:        {prod_time_ns*1000:.3f} ps"
                         f"  (skipped first {eq_time_ps:.2f} ps as equilibration)\n")
+
+                if has_conserved:
+                    f.write(f"\nConserved Energy H̃ (Bussi 2007 Eq. 15):\n")
+                    f.write(f"  H̃ = H − Σ ΔW_thermostat\n")
+                    f.write(f"  ⟨H̃⟩:                    {cons_mean:.8f} Ha\n")
+                    f.write(f"  σ(H̃):                   {cons_std:.8f} Ha\n")
+                    f.write(f"  σ(H̃)/|⟨H̃⟩|:           {cons_rel:.2e}\n")
+                    f.write(f"  H̃ drift rate:           {cons_drift:+.6f} kcal/mol/ns\n")
+                    f.write(f"  Production window:        {prod_time_ns*1000:.3f} ps"
+                            f"  (skipped first {eq_time_ps:.2f} ps as equilibration)\n")
 
             if self.pressures:
                 pressures_arr = np.array(self.pressures)

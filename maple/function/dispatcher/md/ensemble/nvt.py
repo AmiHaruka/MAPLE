@@ -355,6 +355,17 @@ class NVT(JobABC):
         # so only one ML force evaluation occurs per BAOAB cycle.
         forces = self.atoms.get_forces() * HA_PER_ANG_TO_AU  # Ha/Å → a.u.
 
+        # V-rescale conserved energy — discrete form of Bussi 2007 Eq. 15:
+        #   H̃_N = H_N − Σ_{k=0}^{N-1} ΔW_k
+        # where ΔW_k = (α²_k − 1)·K_k is the energy injected by the thermostat
+        # at step k.  Equivalently:
+        #   H̃_{n+1} = H̃_n + (H_n^{after Verlet} − H_n^{before Verlet})
+        # i.e. H̃ only accumulates the Verlet integration error.
+        # Its drift measures timestep accuracy, analogous to TE drift in NVE.
+        # Only valid for NVT with V-rescale; Langevin has no analogous quantity.
+        is_vrescale = self.params.thermostat == 'v-rescale'
+        w_bath = 0.0
+
         for step in range(1, n_steps + 1):
             # BAOAB splitting (Leimkuhler & Matthews 2013):
             #   B: half-kick  A(dt/2): half-position  O: thermostat
@@ -365,7 +376,11 @@ class NVT(JobABC):
             v_half = integrator.split_step(v, forces)
 
             # O: thermostat (Langevin OU-step or V-rescale)
-            v_therm = self.thermostat.apply(v_half)
+            if is_vrescale:
+                v_therm, delta_w = self.thermostat.apply(v_half)
+                w_bath += delta_w
+            else:
+                v_therm = self.thermostat.apply(v_half)
 
             # A(half)-B: half-position + force eval + half-kick; returns cached forces
             v, forces = integrator.complete_split_step(v_therm)
@@ -375,6 +390,9 @@ class NVT(JobABC):
             temperature      = calculate_temperature(self.atoms, v)
             kinetic_energy   = calculate_kinetic_energy(self.atoms, v)
             potential_energy = self.atoms.get_potential_energy()  # Ha
+
+            # Conserved energy: H̃ = H − Σ ΔW (V-rescale only)
+            conserved = (kinetic_energy + potential_energy - w_bath) if is_vrescale else None
 
             self.logger.log_step(
                 step=abs_step,
@@ -387,6 +405,7 @@ class NVT(JobABC):
                 velocities=v,
                 rng_state=get_rng_state_hex(self._rng),
                 rst_every=self.params.rst_every,
+                conserved_energy=conserved,
             )
 
         self.logger.end_simulation(

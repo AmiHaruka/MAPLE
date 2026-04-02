@@ -106,7 +106,7 @@ class VRescaleThermostat:
         w = self.rng.standard_normal(n)
         return float(np.dot(w, w))
 
-    def apply(self, velocities: np.ndarray) -> np.ndarray:
+    def apply(self, velocities: np.ndarray) -> tuple[np.ndarray, float]:
         """
         Apply one V-rescale step: globally rescale velocities.
 
@@ -119,6 +119,9 @@ class VRescaleThermostat:
         where K̄ = (N_f/2)·kT is the target kinetic energy, K is the current
         kinetic energy, and R₁...R_{N_f} are independent standard normals.
 
+        Also returns the thermostat work ΔW = (α² − 1)·K for computing the
+        conserved energy H̃ (Bussi 2007, Eq. 15).
+
         Parameters
         ----------
         velocities : np.ndarray
@@ -126,13 +129,14 @@ class VRescaleThermostat:
 
         Returns
         -------
-        np.ndarray
-            Rescaled velocities in atomic units
+        tuple[np.ndarray, float]
+            (rescaled_velocities, delta_w) where delta_w = (α² − 1)·K
+            is the energy injected by the thermostat this step (Hartree).
         """
         ke = 0.5 * np.sum(self.masses[:, np.newaxis] * velocities ** 2)
 
         if ke < 1e-30:
-            return velocities
+            return velocities, 0.0
 
         f = self._decay                     # e^{-Δt/τ}
         ke_ref = self._ke_target            # K̄ = N_f/2 · kT
@@ -153,5 +157,19 @@ class VRescaleThermostat:
                     + 2.0 * np.sqrt(f) * np.sqrt(c * one_minus_f) * r1)
         alpha_sq = max(alpha_sq, 0.0)
 
+        # Thermostat work per step: ΔW_k = (α²_k − 1)·K_k
+        #
+        # Discrete form of Bussi 2007 Eq. 15:
+        #   H̃_N = H_N − Σ_{k=0}^{N-1} ΔW_k
+        #        = H_0 + Σ_{k=0}^{N-1} (H_k^{after Verlet} − H_k^{before Verlet})
+        #
+        # The rescaling step uses the exact propagator (Eq. A7) and satisfies
+        # detailed balance, so it does not change H̃.  Only the Verlet
+        # integration error accumulates into H̃, making its drift a direct
+        # measure of timestep accuracy — analogous to TE drift in NVE.
+        #
+        # Valid only for NVT; NPT has additional barostat work not tracked here.
+        delta_w = (alpha_sq - 1.0) * ke
+
         alpha = np.sqrt(alpha_sq)
-        return alpha * velocities
+        return alpha * velocities, delta_w
