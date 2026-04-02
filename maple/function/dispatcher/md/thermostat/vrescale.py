@@ -4,28 +4,24 @@ V-rescale (stochastic velocity rescaling) thermostat for NVT molecular dynamics.
 V-rescale corrects the Berendsen thermostat by adding a stochastic term to the
 kinetic energy update, ensuring the canonical (NVT) distribution is sampled
 exactly. The kinetic energy after rescaling follows a chi-squared distribution
-with N_dof degrees of freedom.
+with N_f degrees of freedom.
 
-Algorithm (Bussi et al., 2007):
-    At each step, the kinetic energy KE is rescaled to a new value KE_new drawn
-    from the conditional distribution:
+Algorithm (Bussi et al., 2007, Eq. A7):
+    At each step, velocities are uniformly scaled by α where α² is drawn from:
 
-        KE_new = KE_ref + (KE - KE_ref) * exp(-dt/τ_T)
-               + sqrt(KE_ref * KE / N_dof * (1 - exp(-dt/τ_T)))
-                 * (W1² + W2 + ... + W_{N_dof-1}² - 1)   [noise term]
+        α² = e^{-Δt/τ}
+           + (K̄/(N_f·K))·(1 - e^{-Δt/τ})·(R₁² + Σᵢ₌₂^{N_f} Rᵢ²)
+           + 2·e^{-Δt/(2τ)}·sqrt(K̄/(N_f·K)·(1 - e^{-Δt/τ}))·R₁
 
-    In practice the noise is computed via:
-        dKE = KE_ref * [(1-f)*χ²_{N_dof} / N_dof + f - 1]   (Eq. 14 of the paper)
-    where f = exp(-dt/τ_T), and χ²_{N_dof} is sampled using the sum-of-squares
-    of N_dof standard normals.
-
-    Velocities are uniformly scaled by α = sqrt(KE_new / KE).
+    where K̄ = (N_f/2)·kT is the target kinetic energy, K is the current
+    kinetic energy, N_f is the number of degrees of freedom, and
+    R₁, R₂, ..., R_{N_f} are independent standard normal variates.
 
 Notes:
     - Produces the correct canonical ensemble unlike plain Berendsen rescaling.
     - No per-atom friction; global kinetic energy is rescaled uniformly.
-    - τ_T → 0 reduces to instantaneous rescaling (isokinetic, incorrect ensemble).
-    - τ_T → ∞ reduces to NVE (no coupling).
+    - τ → 0 reduces to instantaneous rescaling (isokinetic, incorrect ensemble).
+    - τ → ∞ reduces to NVE (no coupling).
 
 Reference:
     Bussi, Donadio & Parrinello, J. Chem. Phys. 126, 014101 (2007).
@@ -114,14 +110,14 @@ class VRescaleThermostat:
         """
         Apply one V-rescale step: globally rescale velocities.
 
-        Draws a new kinetic energy from the canonical distribution:
+        Implements Eq. A7 of Bussi, Donadio & Parrinello, J. Chem. Phys.
+        126, 014101 (2007):
 
-            KE_new = KE_ref + f*(KE - KE_ref)
-                   + sqrt(KE_ref * KE * (1-f²) / N_dof) * W₁
-                   + KE_ref * (1-f²) / (2*N_dof) * (χ²(N_dof-1) - (N_dof-1))
+            α² = e^{-Δt/τ} + (K̄/(N_f·K))·(1 - e^{-Δt/τ})·(R₁² + Σᵢ₌₂^{N_f} Rᵢ²)
+               + 2·e^{-Δt/(2τ)}·sqrt(K̄/(N_f·K)·(1 - e^{-Δt/τ}))·R₁
 
-        where f = exp(-dt/τ_T).  Both stochastic terms have zero mean,
-        so there is no systematic drift.
+        where K̄ = (N_f/2)·kT is the target kinetic energy, K is the current
+        kinetic energy, and R₁...R_{N_f} are independent standard normals.
 
         Parameters
         ----------
@@ -138,21 +134,24 @@ class VRescaleThermostat:
         if ke < 1e-30:
             return velocities
 
-        f = self._decay
-        ke_ref = self._ke_target
-        n_dof = self._n_dof
-        one_minus_f2 = 1.0 - f * f
+        f = self._decay                     # e^{-Δt/τ}
+        ke_ref = self._ke_target            # K̄ = N_f/2 · kT
+        n_dof = self._n_dof                 # N_f
 
-        # Linear stochastic term: E = 0, Var = ke_ref * ke * (1-f²) / n_dof
-        w1 = self.rng.standard_normal()
-        cross = np.sqrt(ke_ref * ke * one_minus_f2 / n_dof) * w1
+        one_minus_f = 1.0 - f               # 1 - e^{-Δt/τ}
+        c = ke_ref / (n_dof * ke)           # K̄ / (N_f · K)
 
-        # Quadratic stochastic term: chi2(n_dof-1) centered at (n_dof-1)
-        chi2 = self._sample_chi2(n_dof - 1)
-        quad = ke_ref * one_minus_f2 / (2.0 * n_dof) * (chi2 - (n_dof - 1))
+        # R₁ (shared between cross and quadratic terms)
+        r1 = self.rng.standard_normal()
 
-        ke_new = ke_ref + f * (ke - ke_ref) + cross + quad
-        ke_new = max(ke_new, 0.0)
+        # Σᵢ₌₂^{N_f} Rᵢ²  ~  χ²(N_f - 1)
+        sum_r2 = self._sample_chi2(n_dof - 1)
 
-        alpha = np.sqrt(ke_new / ke)
+        # Eq. A7: α² = f + c·(1-f)·(R₁² + Σ Rᵢ²) + 2·sqrt(f)·sqrt(c·(1-f))·R₁
+        alpha_sq = (f
+                    + c * one_minus_f * (r1 * r1 + sum_r2)
+                    + 2.0 * np.sqrt(f) * np.sqrt(c * one_minus_f) * r1)
+        alpha_sq = max(alpha_sq, 0.0)
+
+        alpha = np.sqrt(alpha_sq)
         return alpha * velocities
