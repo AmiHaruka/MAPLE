@@ -181,7 +181,8 @@ class MDLogger:
         if step_offset == 0:
             # Open files (back up any pre-existing files first, GROMACS-style)
             backup_msgs = []
-            for p in (self.thermo_path, self.traj_path, self.summary_path, self.final_path):
+            main_out_path = Path(self.main_output)
+            for p in (main_out_path, self.thermo_path, self.traj_path, self.summary_path, self.final_path):
                 backup = _backup_file(p)
                 if backup is not None:
                     backup_msgs.append(f"  Backed up existing file: {p.name} -> {backup.name}\n")
