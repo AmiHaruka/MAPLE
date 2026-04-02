@@ -182,10 +182,21 @@ class MDLogger:
             # Open files (back up any pre-existing files first, GROMACS-style)
             backup_msgs = []
             main_out_path = Path(self.main_output)
+
+            # Preserve content already written to .out by InputReader
+            # (banner, parsed configuration, coordinates) before backup.
+            prior_content = ""
+            if main_out_path.exists():
+                prior_content = main_out_path.read_text()
+
             for p in (main_out_path, self.thermo_path, self.traj_path, self.summary_path, self.final_path):
                 backup = _backup_file(p)
                 if backup is not None:
                     backup_msgs.append(f"  Backed up existing file: {p.name} -> {backup.name}\n")
+
+            # Restore prior .out content so banner/config/coordinates are kept
+            if prior_content:
+                main_out_path.write_text(prior_content)
 
             self.thermo_file = open(self.thermo_path, 'w')
             # Open trajectory file based on format
