@@ -460,15 +460,13 @@ class InputReader():
 
                             atoms_list.append(atoms)
 
-                        # Multiple structures from multiple files
-
-                        # group_counter += 1
-                        # info_message.append(f"\nGroup {group_counter} (from file: {file_path})\n")
-                        # info_message.append('-' * 20 + '\n')
-                        # syms = atoms.get_chemical_symbols()
-                        # poss = atoms.get_positions()
-                        # for i, (e, (x, y, z)) in enumerate(zip(syms, poss), start=1):
-                        #     info_message.append(f"{i:<4} {e:<2} {x:>20.6f} {y:>20.6f} {z:>20.6f}\n")
+                            group_counter += 1
+                            info_message.append(f"\nGroup {group_counter} (from file: {file_path})\n")
+                            info_message.append('-' * 20 + '\n')
+                            syms = atoms.get_chemical_symbols()
+                            poss = atoms.get_positions()
+                            for i, (e, (x, y, z)) in enumerate(zip(syms, poss), start=1):
+                                info_message.append(f"{i:<4} {e:<2} {x:>20.6f} {y:>20.6f} {z:>20.6f}\n")
                     continue
 
                 # Case 2: mixed XYZ + inline in the same block -> force user to split
