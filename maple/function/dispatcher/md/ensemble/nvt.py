@@ -328,10 +328,27 @@ class NVT(JobABC):
     def _run_simulation(self, velocities: np.ndarray,
                         step_offset: int = 0, n_steps: int = None) -> np.ndarray:
         """
-        Run NVT simulation with Velocity Verlet + midstep thermostat.
+        Run NVT simulation.
 
-        The O-step is either the Langevin Ornstein-Uhlenbeck step or the
-        V-rescale global kinetic energy rescaling, depending on thermostat choice.
+        Integration scheme depends on the thermostat:
+
+        Langevin — BAOAB splitting (Leimkuhler & Matthews, AMRX 2013):
+            B(dt/2) → A(dt/2) → O(OU-step) → A(dt/2) → B(dt/2)
+            The OU step is an exact analytical propagator whose detailed
+            balance does not depend on the input velocity distribution,
+            so mid-step placement is optimal (highest configurational
+            accuracy among splittings).
+
+        V-rescale — VV + post-step rescaling (Bussi et al., JCP 2007):
+            B(dt/2) → A(dt) → force eval → B(dt/2) → rescale(v_full)
+            Bussi Eq. A7 assumes the input kinetic energy K is drawn from
+            the canonical chi²(N_f) distribution.  Full-step velocities
+            satisfy this; half-step velocities carry an O(dt) bias from
+            the B kick, which breaks detailed balance of the rescaling
+            step and contaminates the conserved energy H̃.  Placing the
+            rescale after a complete VV step — as GROMACS does — restores
+            exact detailed balance and makes H̃ a reliable measure of
+            integration quality.
         """
         if n_steps is None:
             n_steps = self.params.steps
@@ -351,39 +368,34 @@ class NVT(JobABC):
         integrator = VelocityVerlet(self.atoms, self.params.timestep)
         v = velocities.copy()
 
-        # Cache forces at t=0; complete_split_step() returns fresh forces each step
-        # so only one ML force evaluation occurs per BAOAB cycle.
+        # Cache forces at t=0; reused as first B-step forces each cycle.
         forces = self.atoms.get_forces() * HA_PER_ANG_TO_AU  # Ha/Å → a.u.
 
         # V-rescale conserved energy — discrete form of Bussi 2007 Eq. 15:
         #   H̃_N = H_N − Σ_{k=0}^{N-1} ΔW_k
         # where ΔW_k = (α²_k − 1)·K_k is the energy injected by the thermostat
-        # at step k.  Equivalently:
-        #   H̃_{n+1} = H̃_n + (H_n^{after Verlet} − H_n^{before Verlet})
-        # i.e. H̃ only accumulates the Verlet integration error.
+        # at step k.  H̃ only accumulates the Verlet integration error.
         # Its drift measures timestep accuracy, analogous to TE drift in NVE.
         # Only valid for NVT with V-rescale; Langevin has no analogous quantity.
         is_vrescale = self.params.thermostat == 'v-rescale'
         w_bath = 0.0
 
         for step in range(1, n_steps + 1):
-            # BAOAB splitting (Leimkuhler & Matthews 2013):
-            #   B: half-kick  A(dt/2): half-position  O: thermostat
-            #   A(dt/2): half-position  B: half-kick
-            # Positions advance by dt/2 before and dt/2 after the O-step.
 
-            # B-A(half): half-kick + half-position; forces cached from prev step
-            v_half = integrator.split_step(v, forces)
-
-            # O: thermostat (Langevin OU-step or V-rescale)
             if is_vrescale:
-                v_therm, delta_w = self.thermostat.apply(v_half)
+                # VV + post-step rescale (Bussi 2007 / GROMACS scheme):
+                #   1. Full Velocity Verlet step (forces cached across steps)
+                #   2. Rescale full-step velocities with V-rescale Eq. A7
+                v, forces = integrator.step(v, forces)
+                v, delta_w = self.thermostat.apply(v)
                 w_bath += delta_w
             else:
+                # BAOAB splitting (Leimkuhler & Matthews 2013):
+                #   B: half-kick  A(dt/2): half-position  O: thermostat
+                #   A(dt/2): half-position  B: half-kick
+                v_half = integrator.split_step(v, forces)
                 v_therm = self.thermostat.apply(v_half)
-
-            # A(half)-B: half-position + force eval + half-kick; returns cached forces
-            v, forces = integrator.complete_split_step(v_therm)
+                v, forces = integrator.complete_split_step(v_therm)
 
             abs_step         = step_offset + step
             current_time     = abs_step * self.params.timestep
