@@ -81,14 +81,9 @@ class VRescaleThermostat:
         # exp(-dt/τ_T) precomputed
         self._decay = np.exp(-self.timestep / self.tau_t)
 
-        # COM treatment: V-rescale applies a global uniform scaling factor α to all
-        # velocities.  Unlike Langevin (which adds per-atom random impulses), uniform
-        # scaling does not change the COM velocity direction, only its magnitude by
-        # the same factor as all other velocities.  The N_dof accounting above already
-        # excludes the 3 COM translational modes for isolated systems (3N-3 vs 3N),
-        # so no explicit COM removal is needed here.
-        # Ref: Bussi et al. (2007) J. Chem. Phys. 126, 014101 — Eq. 14 derivation
-        # assumes the velocity distribution is sampled in the correct subspace.
+        # Whether the system is periodic.  For non-periodic systems the caller
+        # should project out the COM velocity before applying the thermostat so
+        # that the input kinetic energy lives in the intended 3N-3 subspace.
         self._is_periodic = any(atoms.pbc)
 
     def _sample_chi2(self, n: int) -> float:
@@ -157,19 +152,15 @@ class VRescaleThermostat:
                     + 2.0 * np.sqrt(f) * np.sqrt(c * one_minus_f) * r1)
         alpha_sq = max(alpha_sq, 0.0)
 
+        alpha = np.sqrt(alpha_sq)
+        v_new = alpha * velocities
+
         # Thermostat work per step: ΔW_k = (α²_k − 1)·K_k
         #
-        # Discrete form of Bussi 2007 Eq. 15:
-        #   H̃_N = H_N − Σ_{k=0}^{N-1} ΔW_k
-        #        = H_0 + Σ_{k=0}^{N-1} (H_k^{after Verlet} − H_k^{before Verlet})
-        #
-        # The rescaling step uses the exact propagator (Eq. A7) and satisfies
-        # detailed balance, so it does not change H̃.  Only the Verlet
-        # integration error accumulates into H̃, making its drift a direct
-        # measure of timestep accuracy — analogous to TE drift in NVE.
-        #
-        # Valid only for NVT; NPT has additional barostat work not tracked here.
+        # This is the standard Bussi 2007 definition.  The caller is responsible
+        # for projecting out COM motion (for isolated systems) before invoking
+        # apply(), so that K is already the kinetic energy in the intended 3N-3
+        # subspace.
         delta_w = (alpha_sq - 1.0) * ke
 
-        alpha = np.sqrt(alpha_sq)
-        return alpha * velocities, delta_w
+        return v_new, delta_w

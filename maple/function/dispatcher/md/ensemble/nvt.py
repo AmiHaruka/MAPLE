@@ -366,6 +366,8 @@ class NVT(JobABC):
         ])
 
         integrator = VelocityVerlet(self.atoms, self.params.timestep)
+        masses_1d = integrator.masses
+        total_mass = masses_1d.sum()
         v = velocities.copy()
 
         # Cache forces at t=0; reused as first B-step forces each cycle.
@@ -383,12 +385,25 @@ class NVT(JobABC):
         for step in range(1, n_steps + 1):
 
             if is_vrescale:
-                # VV + post-step rescale (Bussi 2007 / GROMACS scheme):
+                # VV + COM projection + post-step rescale (Bussi 2007 / GROMACS scheme):
                 #   1. Full Velocity Verlet step (forces cached across steps)
-                #   2. Rescale full-step velocities with V-rescale Eq. A7
+                #   2. For isolated systems, project out numerical COM drift so the
+                #      thermostat acts in the intended 3N-3 subspace
+                #   3. Rescale full-step velocities with V-rescale Eq. A7
+                #
+                # H̃ must track all non-Hamiltonian energy changes applied after the
+                # Verlet step. Therefore we include both the COM-projection kinetic
+                # energy change and the thermostat work in w_bath.
                 v, forces = integrator.step(v, forces)
+                ke_before_proj = calculate_kinetic_energy(self.atoms, v)
+                delta_w_com = 0.0
+                if not any(self.atoms.pbc):
+                    p_com = np.sum(masses_1d[:, np.newaxis] * v, axis=0)
+                    v -= p_com / total_mass
+                    ke_after_proj = calculate_kinetic_energy(self.atoms, v)
+                    delta_w_com = ke_after_proj - ke_before_proj
                 v, delta_w = self.thermostat.apply(v)
-                w_bath += delta_w
+                w_bath += delta_w_com + delta_w
             else:
                 # BAOAB splitting (Leimkuhler & Matthews 2013):
                 #   B: half-kick  A(dt/2): half-position  O: thermostat
