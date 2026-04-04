@@ -42,8 +42,9 @@ ANGSTROM_TO_BOHR = 1.0 / BOHR_TO_ANGSTROM
 # Force conversions
 # MAPLE calculators (AIMNet2, MACE, UMA) return forces in Ha/Å.
 # The MD integrator needs Ha/Bohr (atomic units).
-# Ha/Å → Ha/Bohr: multiply by Å/Bohr = ANGSTROM_TO_BOHR ≈ 1.8897
-HA_PER_ANG_TO_AU = ANGSTROM_TO_BOHR  # Ha/Å → Ha/Bohr
+# Ha/Å → Ha/Bohr:  F[Ha/Bohr] = F[Ha/Å] × (dr_Å / dr_Bohr) = F[Ha/Å] × BOHR_TO_ANGSTROM
+# (1 Bohr = 0.5292 Å, so force per Bohr is smaller than force per Å)
+HA_PER_ANG_TO_AU = BOHR_TO_ANGSTROM  # Ha/Å → Ha/Bohr ≈ 0.5292
 
 # Legacy alias kept for backward compatibility (was used when forces were assumed eV/Å)
 EV_PER_ANG_TO_AU = 1.0 / (27.211386245988 * BOHR_TO_ANGSTROM)  # ≈ 0.019447
