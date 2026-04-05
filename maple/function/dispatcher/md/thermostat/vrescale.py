@@ -49,6 +49,7 @@ class VRescaleThermostat:
         tau_t: float,
         timestep: float,
         rng: Optional[np.random.Generator] = None,
+        n_dof: Optional[int] = None,
     ):
         """
         Parameters
@@ -73,8 +74,9 @@ class VRescaleThermostat:
         self.rng = rng if rng is not None else np.random.default_rng()
 
         n_atoms = len(atoms)
-        # Periodic systems have no overall translation; isolated molecules lose 3 COM DOF.
-        self._n_dof = 3 * n_atoms if any(atoms.pbc) else 3 * n_atoms - 3
+        # Runtime N_dof should be provided by the central DOF policy; fall back to
+        # the legacy rule only for not-yet-migrated callers.
+        self._n_dof = n_dof if n_dof is not None else (3 * n_atoms if any(atoms.pbc) else 3 * n_atoms - 3)
         self._kT_target = temperature * KELVIN_TO_HARTREE
         self._ke_target = 0.5 * self._n_dof * self._kT_target
 

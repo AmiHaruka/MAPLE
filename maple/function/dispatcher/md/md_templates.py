@@ -27,7 +27,10 @@ traj_every  = 100        ; trajectory output every N steps
 log_every   = 100        ; log energy every N steps
 traj_format = xyz        ; xyz (text) or dcd (binary)
 
-remove_com_every = 100   ; remove COM motion every N steps
+remove_com = yes         ; initialization-only: remove COM
+remove_angular = no      ; initialization-only: remove COM + rigid-body rotation (parallel to remove_com, not a switch)
+remove_com_every = 100   ; runtime-only: remove COM every N steps
+remove_angular_every = 0 ; runtime-only: remove COM + rigid-body rotation every N steps (parallel to remove_com_every, not a switch)
 
 init_velocities = no
 restart     = no
@@ -56,6 +59,11 @@ friction    = 0.001      ; 1/fs (Langevin only)
 traj_every  = 100
 log_every   = 100
 traj_format = xyz
+
+remove_com = yes         ; initialization-only: remove COM
+remove_angular = no      ; initialization-only: remove COM + rigid-body rotation (parallel to remove_com, not a switch)
+remove_com_every = 100   ; runtime-only: remove COM every N steps
+remove_angular_every = 0 ; runtime-only: remove COM + rigid-body rotation every N steps (parallel to remove_com_every, not a switch)
 
 init_velocities = yes
 restart     = no         ; resume from checkpoint step
@@ -86,6 +94,11 @@ compressibility = 4.5e-5 ; 1/bar
 traj_every  = 100
 log_every   = 100
 traj_format = xyz
+
+remove_com = yes         ; initialization-only: remove COM
+remove_angular = no      ; initialization-only: remove COM + rigid-body rotation (parallel to remove_com, ignored under PBC)
+remove_com_every = 100   ; runtime-only: remove COM every N steps
+remove_angular_every = 0 ; runtime-only: remove COM + rigid-body rotation every N steps (parallel to remove_com_every, ignored under PBC)
 
 init_velocities = yes
 restart     = no         ; resume from checkpoint step

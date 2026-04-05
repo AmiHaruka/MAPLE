@@ -65,6 +65,8 @@ class CommandControl:
             "remove_com": True,
             "remove_com_every": 100,
             "remove_rotation": False,
+            "remove_angular": False,
+            "remove_angular_every": 0,
             "random_seed": None,
             "thermostat": "langevin",
             "friction": 0.001,
@@ -263,8 +265,16 @@ class CommandControl:
             if key in defaults and key not in inline_keys:
                 params[key] = mdp_val
 
+        if "remove_rotation" in mdp_params and "remove_angular" not in mdp_params:
+            params["remove_angular"] = params["remove_rotation"]
+
     @classmethod
     def _normalize_params(cls, params: Dict[str, Any]) -> None:
+        if "remove_angular" not in params and "remove_rotation" in params:
+            params["remove_angular"] = params["remove_rotation"]
+        if params.get("remove_angular"):
+            params["remove_com"] = True
+
         if "model" in params and params["model"] is not None:
             params["model"] = (
                 str(params["model"])
