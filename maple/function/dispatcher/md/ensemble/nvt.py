@@ -2,18 +2,16 @@
 NVT (canonical) ensemble implementation.
 
 Supports two thermostat algorithms:
-    - langevin: Langevin dynamics (Leimkuhler & Matthews, AMRX 2013)
+    - langevin: LFMiddle Langevin dynamics (Leimkuhler & Matthews, AMRX 2013)
                 Strong coupling; per-atom stochastic force.
                 Good for equilibration or when strong damping is wanted.
     - v-rescale: Stochastic velocity rescaling (Bussi et al., 2007)
                  Correct canonical ensemble; global velocity scaling.
                  Less perturbation to dynamics; preferred for production.
 
-Integration loop (Velocity Verlet with midstep thermostat):
-    B: half-step velocity with conservative force  (cached from previous step)
-    A: full-step position update + PBC wrap
-    O: thermostat step (Langevin O-U step  OR  V-rescale global rescaling)
-    B: half-step velocity with newly computed forces (cached for next step)
+Integration loop:
+    - langevin: LFMiddle sequence with thermostat applied between position updates
+    - v-rescale: Velocity Verlet step followed by global velocity rescaling
 """
 
 import numpy as np
@@ -28,10 +26,17 @@ from ..integrator.velocity_verlet import VelocityVerlet
 from ..thermostat.langevin import LangevinThermostat
 from ..thermostat.vrescale import VRescaleThermostat
 from ..utils import (
+    VELOCITY_REPR_LFMIDDLE_CARRIED,
+    VELOCITY_REPR_STANDARD,
     calculate_temperature,
     calculate_kinetic_energy,
+    get_atoms_velocity_representation,
     initialize_velocities,
     HA_PER_ANG_TO_AU,
+    lfmiddle_carried_to_standard,
+    set_atoms_velocity_representation,
+    standard_to_lfmiddle_carried,
+    FS_TO_AU,
 )
 from ..rst_io import get_rng_state_hex, restore_rng_from_hex
 from ..logger import MDLogger
@@ -238,6 +243,36 @@ class NVT(JobABC):
             debug=self.params.debug,
         )
 
+    def _prepare_langevin_velocities(
+        self,
+        velocities: np.ndarray,
+        representation: str,
+        forces: np.ndarray,
+        source_timestep_au: Optional[float] = None,
+    ) -> tuple[np.ndarray, str]:
+        """Return LF-Middle carried velocities for the Langevin path."""
+        if representation == VELOCITY_REPR_LFMIDDLE_CARRIED:
+            standard_velocities = lfmiddle_carried_to_standard(
+                self.atoms,
+                velocities,
+                forces,
+                source_timestep_au if source_timestep_au is not None else self.thermostat.timestep,
+            )
+            carried = standard_to_lfmiddle_carried(
+                self.atoms,
+                standard_velocities,
+                forces,
+                self.thermostat.timestep,
+            )
+            return carried, VELOCITY_REPR_LFMIDDLE_CARRIED
+        carried = standard_to_lfmiddle_carried(
+            self.atoms,
+            velocities,
+            forces,
+            self.thermostat.timestep,
+        )
+        return carried, VELOCITY_REPR_LFMIDDLE_CARRIED
+
     def run(self):
         """Execute NVT simulation."""
         with timer("MD Simulation (NVT)"):
@@ -258,6 +293,11 @@ class NVT(JobABC):
                     load_state=True,
                 )
                 self.atoms, velocities, step_offset = result
+                velocity_representation = self.logger.resumed_velocity_representation
+                resumed_timestep_au = (
+                    self.logger.resumed_timestep * FS_TO_AU
+                    if self.logger.resumed_timestep is not None else None
+                )
                 if self.logger.resumed_rng_state is not None:
                     restore_rng_from_hex(self._rng, self.logger.resumed_rng_state)
                 remaining = self.params.steps
@@ -278,6 +318,8 @@ class NVT(JobABC):
                 if result is None:   # already completed
                     return
                 self.atoms, velocities, step_offset = result
+                velocity_representation = self.logger.resumed_velocity_representation
+                resumed_timestep_au = None
                 # Restore RNG state for deterministic continuation
                 if self.logger.resumed_rng_state is not None:
                     restore_rng_from_hex(self._rng, self.logger.resumed_rng_state)
@@ -285,6 +327,7 @@ class NVT(JobABC):
             else:
                 if 'velocities' in self.atoms.arrays and self.params.init_velocities:
                     velocities = self.atoms.arrays['velocities']
+                    velocity_representation = get_atoms_velocity_representation(self.atoms)
                     t_check = calculate_temperature(self.atoms, velocities)
                     self.log_info([
                         f"\nVelocities loaded from input file "
@@ -292,6 +335,7 @@ class NVT(JobABC):
                     ])
                 elif self.params.init_velocities:
                     velocities = self._initialize_velocities()
+                    velocity_representation = VELOCITY_REPR_STANDARD
                 else:
                     if 'velocities' not in self.atoms.arrays:
                         raise ValueError(
@@ -299,15 +343,28 @@ class NVT(JobABC):
                             "but no velocities found in atoms.arrays"
                         )
                     velocities = self.atoms.arrays['velocities']
+                    velocity_representation = get_atoms_velocity_representation(self.atoms)
+                resumed_timestep_au = None
                 step_offset = 0
                 remaining   = self.params.steps
                 source = "input_xyz" if 'velocities' in self.atoms.arrays and not self.params.init_velocities else ("input_xyz" if 'velocities' in self.atoms.arrays and self.params.init_velocities else "init_velocities")
-                self.logger.log_debug_initial_state(self.atoms, velocities, mode=source, effective_step=step_offset)
+                self.logger.log_debug_initial_state(
+                    self.atoms,
+                    velocities,
+                    mode=source,
+                    effective_step=step_offset,
+                    velocity_representation=velocity_representation,
+                )
 
-            final_velocities = self._run_simulation(velocities,
-                                                    step_offset=step_offset,
-                                                    n_steps=remaining)
+            final_velocities, final_representation = self._run_simulation(
+                velocities,
+                velocity_representation=velocity_representation,
+                step_offset=step_offset,
+                n_steps=remaining,
+                source_timestep_au=resumed_timestep_au,
+            )
             self.atoms.arrays['velocities'] = final_velocities
+            set_atoms_velocity_representation(self.atoms, final_representation)
 
     def _log_parameters(self):
         """Log NVT parameters to output."""
@@ -355,18 +412,17 @@ class NVT(JobABC):
         return velocities
 
     def _run_simulation(self, velocities: np.ndarray,
-                        step_offset: int = 0, n_steps: int = None) -> np.ndarray:
+                        velocity_representation: str,
+                        step_offset: int = 0, n_steps: int = None,
+                        source_timestep_au: Optional[float] = None) -> tuple[np.ndarray, str]:
         """
         Run NVT simulation.
 
         Integration scheme depends on the thermostat:
 
-        Langevin — BAOAB splitting (Leimkuhler & Matthews, AMRX 2013):
-            B(dt/2) → A(dt/2) → O(OU-step) → A(dt/2) → B(dt/2)
-            The OU step is an exact analytical propagator whose detailed
-            balance does not depend on the input velocity distribution,
-            so mid-step placement is optimal (highest configurational
-            accuracy among splittings).
+        Langevin — LFMiddle (Leimkuhler & Matthews, AMRX 2013):
+            full kick → half-step position update → thermostat →
+            post-thermostat position/force completion
 
         V-rescale — VV + post-step rescaling (Bussi et al., JCP 2007):
             B(dt/2) → A(dt) → force eval → B(dt/2) → rescale(v_full)
@@ -382,6 +438,29 @@ class NVT(JobABC):
         if n_steps is None:
             n_steps = self.params.steps
 
+        is_langevin = self.params.thermostat == 'langevin'
+        force_for_conversion = None
+        if velocity_representation == VELOCITY_REPR_LFMIDDLE_CARRIED or is_langevin:
+            force_for_conversion = self.atoms.get_forces() * HA_PER_ANG_TO_AU
+        conversion_timestep_au = source_timestep_au if source_timestep_au is not None else self.thermostat.timestep
+        if is_langevin:
+            velocities, velocity_representation = self._prepare_langevin_velocities(
+                velocities,
+                velocity_representation,
+                force_for_conversion,
+                source_timestep_au=conversion_timestep_au,
+            )
+        elif velocity_representation == VELOCITY_REPR_LFMIDDLE_CARRIED:
+            velocities = lfmiddle_carried_to_standard(
+                self.atoms,
+                velocities,
+                force_for_conversion,
+                conversion_timestep_au,
+            )
+            velocity_representation = VELOCITY_REPR_STANDARD
+        else:
+            velocity_representation = VELOCITY_REPR_STANDARD
+
         self.logger.start_simulation(
             ensemble='nvt',
             timestep=self.params.timestep,
@@ -389,6 +468,7 @@ class NVT(JobABC):
             temperature=self.params.temperature,
             atoms=self.atoms,
             step_offset=step_offset,
+            velocity_representation=velocity_representation,
         )
         self.logger.log_main([
             f"\nStarting NVT simulation ({self.params.thermostat})...\n\n"
@@ -398,9 +478,19 @@ class NVT(JobABC):
         masses_1d = integrator.masses
         total_mass = masses_1d.sum()
         v = velocities.copy()
+        remove_runtime_com_langevin = (
+            is_langevin and self.params.remove_com and not any(self.atoms.pbc)
+        )
+
+        def project_out_com_motion(velocities_to_project: np.ndarray) -> np.ndarray:
+            """Project out center-of-mass translation from Cartesian velocities."""
+            p_com = np.sum(masses_1d[:, np.newaxis] * velocities_to_project, axis=0)
+            return velocities_to_project - p_com / total_mass
 
         # Cache forces at t=0; reused as first B-step forces each cycle.
-        forces = self.atoms.get_forces() * HA_PER_ANG_TO_AU  # Ha/Å → a.u.
+        forces = force_for_conversion if force_for_conversion is not None else (
+            self.atoms.get_forces() * HA_PER_ANG_TO_AU
+        )  # Ha/Å → a.u.
 
         # V-rescale conserved energy — discrete form of Bussi 2007 Eq. 15:
         #   H̃_N = H_N − Σ_{k=0}^{N-1} ΔW_k
@@ -427,19 +517,22 @@ class NVT(JobABC):
                 ke_before_proj = calculate_kinetic_energy(self.atoms, v)
                 delta_w_com = 0.0
                 if not any(self.atoms.pbc):
-                    p_com = np.sum(masses_1d[:, np.newaxis] * v, axis=0)
-                    v -= p_com / total_mass
+                    v = project_out_com_motion(v)
                     ke_after_proj = calculate_kinetic_energy(self.atoms, v)
                     delta_w_com = ke_after_proj - ke_before_proj
                 v, delta_w = self.thermostat.apply(v)
                 w_bath += delta_w_com + delta_w
             else:
-                # BAOAB splitting (Leimkuhler & Matthews 2013):
-                #   B: half-kick  A(dt/2): half-position  O: thermostat
-                #   A(dt/2): half-position  B: half-kick
-                v_half = integrator.split_step(v, forces)
-                v_therm = self.thermostat.apply(v_half)
-                v, forces = integrator.complete_split_step(v_therm)
+                # LFMiddle sequence (Leimkuhler & Matthews 2013):
+                #   full kick → half-step position update → thermostat →
+                #   runtime COM projection for isolated systems if requested →
+                #   post-thermostat position/force completion
+                v = integrator.lfmiddle_full_kick(v, forces)
+                integrator.half_step_r(v)
+                v = self.thermostat.apply(v)
+                if remove_runtime_com_langevin:
+                    v = project_out_com_motion(v)
+                v, forces = integrator.lfmiddle_post_thermostat(v)
 
             abs_step         = step_offset + step
             current_time     = abs_step * self.params.timestep
@@ -462,12 +555,14 @@ class NVT(JobABC):
                 rng_state=get_rng_state_hex(self._rng),
                 rst_every=self.params.rst_every,
                 conserved_energy=conserved,
+                velocity_representation=velocity_representation,
             )
 
         self.logger.end_simulation(
             atoms=self.atoms,
             final_velocities=v,
-            rng_state=get_rng_state_hex(self._rng)
+            rng_state=get_rng_state_hex(self._rng),
+            velocity_representation=velocity_representation,
         )
         self.logger.log_main(["\nNVT simulation completed successfully.\n"])
-        return v
+        return v, velocity_representation

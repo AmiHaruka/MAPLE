@@ -63,6 +63,14 @@ AMU_ANG2_PER_FS2_TO_EV = 1.03642695e+2
 # Reference: CRC Handbook of Chemistry and Physics
 DEFAULT_COMPRESSIBILITY = 4.5e-5   # 1/bar
 
+# Velocity representation metadata
+VELOCITY_REPR_STANDARD = "standard"
+VELOCITY_REPR_LFMIDDLE_CARRIED = "lfmiddle_carried"
+_VALID_VELOCITY_REPRESENTATIONS = {
+    VELOCITY_REPR_STANDARD,
+    VELOCITY_REPR_LFMIDDLE_CARRIED,
+}
+
 
 # ========== Core MD Calculations ==========
 
@@ -374,14 +382,16 @@ def write_xyz_frame(
     energy: float,
     frame_number: int,
     velocity: Optional[np.ndarray] = None,
+    include_velocities: bool = False,
     rng_state: Optional[str] = None,
+    velocity_representation: Optional[str] = None,
 ):
     """
     Write a single frame to XYZ file.
 
     Format:
         N_atoms
-        Frame <number>  Energy = <energy> Hartree[  Cell = ...][ RNG = <hex>]
+        Frame <number>  Energy = <energy> Hartree[  Cell = ...]
         Symbol  x  y  z  [vx  vy  vz]
 
     Parameters
@@ -395,11 +405,16 @@ def write_xyz_frame(
     frame_number : int
         Frame index
     velocity : np.ndarray, optional
-        Velocities to write (in atomic units)
+        Velocities available for optional debug output (in atomic units)
         Shape: (N_atoms, 3)
+    include_velocities : bool, default=False
+        Whether to include velocity columns in the XYZ atom lines.
     rng_state : str, optional
-        Hex-encoded RNG state from get_rng_state_hex(). When provided, appended
-        to the comment line as ``  RNG = <hex>`` for deterministic resume.
+        Reserved for API compatibility. Strict restart state is written only to
+        RST checkpoints, never to XYZ comment lines.
+    velocity_representation : str, optional
+        Reserved for API compatibility. Velocity representation metadata is
+        stored only in RST checkpoints, never in XYZ comment lines.
     """
     positions = atoms.get_positions()
     symbols = atoms.get_chemical_symbols()
@@ -409,18 +424,22 @@ def write_xyz_frame(
     cell_str = ""
     if any(atoms.pbc):
         cp = atoms.cell.cellpar()  # [a, b, c, alpha, beta, gamma]
+        pbc_tokens = ["T" if periodic else "F" for periodic in atoms.pbc]
         cell_str = (f"  Cell = {cp[0]:.6f} {cp[1]:.6f} {cp[2]:.6f}"
-                    f" {cp[3]:.6f} {cp[4]:.6f} {cp[5]:.6f}")
-    rng_str = f"  RNG = {rng_state}" if rng_state is not None else ""
+                    f" {cp[3]:.6f} {cp[4]:.6f} {cp[5]:.6f}"
+                    f"  PBC = {' '.join(pbc_tokens)}")
     # frame_number stores the MD step number (not sequential frame index) so that
     # resume_simulation() can recover the exact step offset without knowing traj_every.
-    file_handle.write(f"Frame {frame_number}  Energy = {energy:.10f} Hartree{cell_str}{rng_str}\n")
+    file_handle.write(
+        f"Frame {frame_number}  Energy = {energy:.10f} Hartree"
+        f"{cell_str}\n"
+    )
     # NOTE: frame_number is the MD *step* number (passed as `step` from the ensemble loop).
     # The regex _TRAJ_COMMENT_RE parses this as frame_num; resume_simulation uses it
     # directly as step_offset (no multiplication by traj_every needed).
 
     # Atomic coordinates (and optionally velocities)
-    if velocity is not None:
+    if include_velocities and velocity is not None:
         for symbol, (x, y, z), (vx, vy, vz) in zip(symbols, positions, velocity):
             file_handle.write(
                 f"{symbol:2s} {x:15.8f} {y:15.8f} {z:15.8f}  "
@@ -483,6 +502,74 @@ def remove_center_of_mass_motion(atoms: Atoms, velocities: np.ndarray) -> np.nda
 
     velocities_corrected = velocities - total_momentum / total_mass
     return velocities_corrected
+
+
+def normalize_velocity_representation(representation: Optional[str]) -> str:
+    """Return a supported velocity representation label."""
+    if representation in _VALID_VELOCITY_REPRESENTATIONS:
+        return representation
+    return VELOCITY_REPR_STANDARD
+
+
+def get_atoms_velocity_representation(atoms: Atoms) -> str:
+    """Read velocity representation metadata from ``atoms.info``."""
+    return normalize_velocity_representation(atoms.info.get("velocity_representation"))
+
+
+def set_atoms_velocity_representation(atoms: Atoms, representation: str) -> str:
+    """Store normalized velocity representation metadata on ``atoms.info``."""
+    normalized = normalize_velocity_representation(representation)
+    atoms.info["velocity_representation"] = normalized
+    return normalized
+
+
+def standard_to_lfmiddle_carried(
+    atoms: Atoms,
+    velocities: np.ndarray,
+    forces: np.ndarray,
+    timestep_au: float,
+) -> np.ndarray:
+    """
+    Convert standard velocities into the carried LF-Middle velocities.
+
+    Zhang et al. (JPCA 2019, Eq. 16/19) formulate LF-Middle with leapfrog
+    carried momentum/velocity as the internal state. For a fresh start from a
+    standard velocity defined at the same coordinates, the corresponding
+    carried velocity is obtained by a backward half-kick:
+
+        v_carried = v_standard - 0.5 * (F / m) * dt
+
+    Parameters
+    ----------
+    atoms : Atoms
+        Atomic system.
+    velocities : np.ndarray
+        Standard velocities in atomic units.
+    forces : np.ndarray
+        Forces in atomic units (Ha/Bohr).
+    timestep_au : float
+        Timestep in atomic units.
+    """
+    masses = atoms.get_masses() * AMU_TO_AU
+    return velocities - 0.5 * timestep_au * forces / masses[:, np.newaxis]
+
+
+def lfmiddle_carried_to_standard(
+    atoms: Atoms,
+    velocities: np.ndarray,
+    forces: np.ndarray,
+    timestep_au: float,
+) -> np.ndarray:
+    """
+    Convert carried LF-Middle velocities back into standard velocities.
+
+    This is the inverse of ``standard_to_lfmiddle_carried()`` at the same
+    coordinates/forces:
+
+        v_standard = v_carried + 0.5 * (F / m) * dt
+    """
+    masses = atoms.get_masses() * AMU_TO_AU
+    return velocities + 0.5 * timestep_au * forces / masses[:, np.newaxis]
 
 
 def scale_velocities_to_temperature(

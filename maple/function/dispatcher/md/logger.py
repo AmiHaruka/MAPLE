@@ -14,7 +14,12 @@ from pathlib import Path
 from typing import Optional, TextIO, Any
 from ase import Atoms
 
-from .utils import write_xyz_frame
+from .utils import (
+    VELOCITY_REPR_STANDARD,
+    normalize_velocity_representation,
+    set_atoms_velocity_representation,
+    write_xyz_frame,
+)
 from .rst_io import read_rst, rotate_rst_checkpoint
 from .dcd_writer import DCDWriter
 
@@ -152,6 +157,9 @@ class MDLogger:
 
         # RNG state restored from the last trajectory frame on resume (None if not present)
         self.resumed_rng_state: Optional[str] = None
+        self.resumed_velocity_representation: str = VELOCITY_REPR_STANDARD
+        self.resumed_timestep: Optional[float] = None
+        self.velocity_representation: str = VELOCITY_REPR_STANDARD
         # Fresh-start backup should not archive checkpoint files that are being
         # used as explicit rst_file inputs for the current run.
         self._protected_restart_inputs: set[Path] = set()
@@ -159,7 +167,8 @@ class MDLogger:
     def log_debug_initial_state(self, atoms: Atoms, velocities: np.ndarray,
                                 mode: str, effective_step: int,
                                 source: Optional[str] = None,
-                                rst_step: Optional[int] = None):
+                                rst_step: Optional[int] = None,
+                                velocity_representation: Optional[str] = None):
         if not self.debug:
             return
 
@@ -189,12 +198,17 @@ class MDLogger:
         if rst_step is not None:
             insert_at = 3 if source is not None else 2
             lines.insert(insert_at, f"  rst_step:         {rst_step}\n")
+        if velocity_representation is not None:
+            normalized = normalize_velocity_representation(velocity_representation)
+            insert_at = 4 if (source is not None and rst_step is not None) else (3 if (source is not None or rst_step is not None) else 2)
+            lines.insert(insert_at, f"  velocity_repr:    {normalized}\n")
 
         self.log_main(lines)
 
     def start_simulation(self, ensemble: str, timestep: float, n_steps: int,
                         temperature: float, atoms: Atoms,
-                        pressure: float = None, step_offset: int = 0):
+                        pressure: float = None, step_offset: int = 0,
+                        velocity_representation: str = VELOCITY_REPR_STANDARD):
         """
         Initialize output files and write headers.
 
@@ -206,8 +220,11 @@ class MDLogger:
             atoms: ASE Atoms object
             pressure: Target pressure in bar (NPT only)
             step_offset: Step number already completed (for resume)
+            velocity_representation: Velocity semantics used for stored velocities.
         """
         self._ensemble    = ensemble.lower()
+        self.velocity_representation = normalize_velocity_representation(velocity_representation)
+        set_atoms_velocity_representation(atoms, self.velocity_representation)
         self._n_atoms     = len(atoms)
         self._is_pbc      = bool(any(atoms.pbc))
         self._timestep    = timestep
@@ -261,6 +278,7 @@ class MDLogger:
             f"Timestep:        {timestep:.3f} fs\n",
             f"Total steps:     {total_steps_display}\n",
             f"Simulation time: {total_steps_display * timestep:.2f} fs\n",
+            f"Velocity repr:   {self.velocity_representation}\n",
         ])
 
         if step_offset > 0:
@@ -348,7 +366,8 @@ class MDLogger:
                  pressure: float = None, volume: float = None,
                  rng_state: Optional[str] = None,
                  rst_every: Optional[int] = None,
-                 conserved_energy: Optional[float] = None):
+                 conserved_energy: Optional[float] = None,
+                 velocity_representation: Optional[str] = None):
         """
         Log data for current step.
 
@@ -366,7 +385,14 @@ class MDLogger:
             rng_state: Hex-encoded RNG state to embed in trajectory frame (NVT/NPT only)
             conserved_energy: V-rescale conserved energy H̃ = H − Σ ΔW (Hartree).
                 Bussi 2007 Eq. 15.  None for NVE or Langevin thermostat.
+            velocity_representation: Label describing the semantics of ``velocities``.
         """
+        velocity_representation = normalize_velocity_representation(
+            velocity_representation or self.velocity_representation
+        )
+        self.velocity_representation = velocity_representation
+        set_atoms_velocity_representation(atoms, velocity_representation)
+
         # PE and KE are both passed in Hartree (UMACalculator already converts)
         potential_energy_hartree = potential_energy
         kinetic_energy_hartree = kinetic_energy
@@ -476,8 +502,10 @@ class MDLogger:
                     atoms,
                     energy=total_energy_hartree,
                     frame_number=step,          # MD step number, NOT sequential frame index
-                    velocity=velocities,
+                    velocity=velocities if self.debug else None,
+                    include_velocities=self.debug,
                     rng_state=rng_state,
+                    velocity_representation=velocity_representation,
                 )
                 self.traj_file.flush()
 
@@ -493,6 +521,7 @@ class MDLogger:
                 ensemble=self._ensemble,
                 energy=total_energy_hartree,
                 rng_state=rng_state,
+                velocity_representation=velocity_representation,
             )
 
     def restart_simulation(
@@ -608,13 +637,17 @@ class MDLogger:
                     atoms.set_positions(state["positions"])
                     if state["cell"] is not None:
                         atoms.set_cell(Cell.fromcellpar(state["cell"]))
+                    if state["pbc"] is not None:
+                        atoms.set_pbc(state["pbc"])
                     with open(self.final_path, 'w') as f:
                         write_xyz_frame(
                             f,
                             atoms=atoms,
                             energy=state["energy"],
                             frame_number=state["step"],
-                            velocity=state["velocities"],
+                            velocity=state["velocities"] if self.debug else None,
+                            include_velocities=self.debug,
+                            velocity_representation=state.get("velocity_representation"),
                         )
                     self.log_main([
                         f"  Exported final structure: {self.final_path.name}\n"
@@ -648,6 +681,12 @@ class MDLogger:
 
         # Store RNG state for ensemble drivers (NVT/NPT) to restore
         self.resumed_rng_state = state.get("rng_state")
+        self.resumed_velocity_representation = normalize_velocity_representation(
+            state.get("velocity_representation")
+        )
+        self.resumed_timestep = state["timestep"]
+        self.velocity_representation = self.resumed_velocity_representation
+        set_atoms_velocity_representation(atoms, self.velocity_representation)
 
         self.log_debug_initial_state(
             atoms=atoms,
@@ -656,6 +695,7 @@ class MDLogger:
             source=str(used_path),
             rst_step=state["step"],
             effective_step=step_offset,
+            velocity_representation=self.velocity_representation,
         )
 
         # ------------------------------------------------------------------
@@ -689,7 +729,8 @@ class MDLogger:
         return atoms, state["velocities"], step_offset
 
     def end_simulation(self, atoms: Atoms = None, final_velocities: np.ndarray = None,
-                       rng_state: str = None):
+                       rng_state: str = None,
+                       velocity_representation: Optional[str] = None):
         """
         Finalize simulation, compute publication-quality conservation metrics,
         write summary file, and write final restart checkpoint.
@@ -706,7 +747,16 @@ class MDLogger:
         rng_state : str, optional
             Hex-encoded RNG state (for NVT/NPT). Written to RST checkpoint
             for deterministic continuation. NVE does not need this.
+        velocity_representation : str, optional
+            Label describing the semantics of ``final_velocities``.
         """
+        velocity_representation = normalize_velocity_representation(
+            velocity_representation or self.velocity_representation
+        )
+        self.velocity_representation = velocity_representation
+        if atoms is not None:
+            set_atoms_velocity_representation(atoms, velocity_representation)
+
         # End the \r progress line with a newline so the summary starts cleanly
         if self.verbose >= 1:
             print(flush=True)
@@ -983,6 +1033,7 @@ class MDLogger:
                 ensemble=self._ensemble,
                 energy=final_energy,
                 rng_state=rng_state,
+                velocity_representation=velocity_representation,
             )
             final_written = True
 
@@ -997,7 +1048,9 @@ class MDLogger:
                     atoms=atoms,
                     energy=final_energy,
                     frame_number=final_step,
-                    velocity=final_velocities,
+                    velocity=final_velocities if self.debug else None,
+                    include_velocities=self.debug,
+                    velocity_representation=velocity_representation,
                 )
             final_xyz_written = True
 
@@ -1007,7 +1060,7 @@ class MDLogger:
             f"  Trajectory:                 {self.traj_path.name}\n",
             f"  Summary:                    {self.summary_path.name}\n",
             *([f"  Final structure:           {self.final_path.name}\n"
-               f"    (Use as input for next stage with velocities)\n"]
+               f"    (Structure handoff only; strict restart state is in {self.rst_path.name})\n"]
               if final_xyz_written else []),
             *([f"  Checkpoint:                 {self.rst_path.name}\n"
                f"  Previous checkpoint:        {self.rst_prev_path.name}\n"]

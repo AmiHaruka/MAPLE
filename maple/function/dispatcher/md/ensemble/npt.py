@@ -12,12 +12,9 @@ Recommended combination for production MLP runs:
 Berendsen variants are suitable for rapid pre-equilibration but suppress
 pressure/temperature fluctuations and do not generate correct ensemble averages.
 
-Integration order each step (Velocity Verlet with midstep thermostat):
-    1. B  half-step velocity  (conservative force, cached from previous step)
-    2. A  full-step position + PBC wrap
-    3. O  thermostat step
-    4. B  half-step velocity  (new forces, cached for next step)
-    5. Barostat: stochastic/deterministic cell rescaling
+Integration order each step:
+    - Langevin: LFMiddle carried-velocity sequence, then barostat.
+    - V-rescale: existing split Velocity Verlet sequence, then barostat.
 
 Requirements:
     - Atoms object must have a periodic cell (atoms.pbc must be True)
@@ -43,10 +40,18 @@ from ..thermostat.vrescale import VRescaleThermostat
 from ..barostat.berendsen import BerendsenBarostat
 from ..barostat.crescale import CRescaleBarostat
 from ..utils import (
+    VELOCITY_REPR_LFMIDDLE_CARRIED,
+    VELOCITY_REPR_STANDARD,
     calculate_temperature,
     calculate_kinetic_energy,
+    compute_instantaneous_pressure,
+    get_atoms_velocity_representation,
     initialize_velocities,
     HA_PER_ANG_TO_AU,
+    lfmiddle_carried_to_standard,
+    set_atoms_velocity_representation,
+    standard_to_lfmiddle_carried,
+    FS_TO_AU,
 )
 from ..rst_io import get_rng_state_hex, restore_rng_from_hex
 from ..logger import MDLogger
@@ -269,6 +274,36 @@ class NPT(JobABC):
             debug=self.params.debug,
         )
 
+    def _prepare_langevin_velocities(
+        self,
+        velocities: np.ndarray,
+        representation: str,
+        forces: np.ndarray,
+        source_timestep_au: Optional[float] = None,
+    ) -> tuple[np.ndarray, str]:
+        """Return LF-Middle carried velocities for the Langevin path."""
+        if representation == VELOCITY_REPR_LFMIDDLE_CARRIED:
+            standard_velocities = lfmiddle_carried_to_standard(
+                self.atoms,
+                velocities,
+                forces,
+                source_timestep_au if source_timestep_au is not None else self.thermostat.timestep,
+            )
+            carried = standard_to_lfmiddle_carried(
+                self.atoms,
+                standard_velocities,
+                forces,
+                self.thermostat.timestep,
+            )
+            return carried, VELOCITY_REPR_LFMIDDLE_CARRIED
+        carried = standard_to_lfmiddle_carried(
+            self.atoms,
+            velocities,
+            forces,
+            self.thermostat.timestep,
+        )
+        return carried, VELOCITY_REPR_LFMIDDLE_CARRIED
+
     def run(self):
         """Execute NPT simulation."""
         with timer("MD Simulation (NPT)"):
@@ -290,6 +325,11 @@ class NPT(JobABC):
                     load_state=True,
                 )
                 self.atoms, velocities, step_offset = result
+                velocity_representation = self.logger.resumed_velocity_representation
+                resumed_timestep_au = (
+                    self.logger.resumed_timestep * FS_TO_AU
+                    if self.logger.resumed_timestep is not None else None
+                )
                 if self.logger.resumed_rng_state is not None:
                     restore_rng_from_hex(self._rng, self.logger.resumed_rng_state)
                 remaining = self.params.steps
@@ -311,6 +351,8 @@ class NPT(JobABC):
                 if result is None:   # already completed
                     return
                 self.atoms, velocities, step_offset = result
+                velocity_representation = self.logger.resumed_velocity_representation
+                resumed_timestep_au = None
                 # Restore RNG state for deterministic continuation
                 if self.logger.resumed_rng_state is not None:
                     restore_rng_from_hex(self._rng, self.logger.resumed_rng_state)
@@ -318,6 +360,7 @@ class NPT(JobABC):
             else:
                 if 'velocities' in self.atoms.arrays and self.params.init_velocities:
                     velocities = self.atoms.arrays['velocities']
+                    velocity_representation = get_atoms_velocity_representation(self.atoms)
                     t_check = calculate_temperature(self.atoms, velocities)
                     self.log_info([
                         f"\nVelocities loaded from input file "
@@ -325,6 +368,7 @@ class NPT(JobABC):
                     ])
                 elif self.params.init_velocities:
                     velocities = self._initialize_velocities()
+                    velocity_representation = VELOCITY_REPR_STANDARD
                 else:
                     if 'velocities' not in self.atoms.arrays:
                         raise ValueError(
@@ -332,15 +376,28 @@ class NPT(JobABC):
                             "but no velocities found in atoms.arrays"
                         )
                     velocities = self.atoms.arrays['velocities']
+                    velocity_representation = get_atoms_velocity_representation(self.atoms)
+                resumed_timestep_au = None
                 step_offset = 0
                 remaining   = self.params.steps
                 source = "input_xyz" if 'velocities' in self.atoms.arrays and not self.params.init_velocities else ("input_xyz" if 'velocities' in self.atoms.arrays and self.params.init_velocities else "init_velocities")
-                self.logger.log_debug_initial_state(self.atoms, velocities, mode=source, effective_step=step_offset)
+                self.logger.log_debug_initial_state(
+                    self.atoms,
+                    velocities,
+                    mode=source,
+                    effective_step=step_offset,
+                    velocity_representation=velocity_representation,
+                )
 
-            final_velocities = self._run_simulation(velocities,
-                                                    step_offset=step_offset,
-                                                    n_steps=remaining)
+            final_velocities, final_representation = self._run_simulation(
+                velocities,
+                velocity_representation=velocity_representation,
+                step_offset=step_offset,
+                n_steps=remaining,
+                source_timestep_au=resumed_timestep_au,
+            )
             self.atoms.arrays['velocities'] = final_velocities
+            set_atoms_velocity_representation(self.atoms, final_representation)
 
     def _log_parameters(self):
         """Log NPT parameters to output."""
@@ -392,15 +449,40 @@ class NPT(JobABC):
         return velocities
 
     def _run_simulation(self, velocities: np.ndarray,
-                        step_offset: int = 0, n_steps: int = None) -> np.ndarray:
+                        velocity_representation: str,
+                        step_offset: int = 0, n_steps: int = None,
+                        source_timestep_au: Optional[float] = None) -> tuple[np.ndarray, str]:
         """
         Run NPT simulation.
 
-        Velocity Verlet with midstep thermostat + barostat step after each
-        complete integration cycle.
+        Langevin uses LF-Middle carried velocities followed by the barostat.
+        V-rescale keeps the existing split Velocity Verlet + barostat path.
         """
         if n_steps is None:
             n_steps = self.params.steps
+
+        is_langevin = self.params.thermostat == 'langevin'
+        force_for_conversion = None
+        if velocity_representation == VELOCITY_REPR_LFMIDDLE_CARRIED or is_langevin:
+            force_for_conversion = self.atoms.get_forces() * HA_PER_ANG_TO_AU
+        conversion_timestep_au = source_timestep_au if source_timestep_au is not None else self.thermostat.timestep
+        if is_langevin:
+            velocities, velocity_representation = self._prepare_langevin_velocities(
+                velocities,
+                velocity_representation,
+                force_for_conversion,
+                source_timestep_au=conversion_timestep_au,
+            )
+        elif velocity_representation == VELOCITY_REPR_LFMIDDLE_CARRIED:
+            velocities = lfmiddle_carried_to_standard(
+                self.atoms,
+                velocities,
+                force_for_conversion,
+                conversion_timestep_au,
+            )
+            velocity_representation = VELOCITY_REPR_STANDARD
+        else:
+            velocity_representation = VELOCITY_REPR_STANDARD
 
         self.logger.start_simulation(
             ensemble='npt',
@@ -410,6 +492,7 @@ class NPT(JobABC):
             atoms=self.atoms,
             pressure=self.params.pressure,
             step_offset=step_offset,
+            velocity_representation=velocity_representation,
         )
         self.logger.log_main([
             f"\nStarting NPT simulation "
@@ -419,32 +502,42 @@ class NPT(JobABC):
         integrator = VelocityVerlet(self.atoms, self.params.timestep)
         v = velocities.copy()
 
-        # Cache forces at t=0; complete_split_step() returns fresh forces each step
-        # so only one ML force evaluation occurs per BAOAB cycle.
-        forces = self.atoms.get_forces() * HA_PER_ANG_TO_AU  # Ha/Å → a.u.
+        # Cache forces at t=0; the Langevin LFMiddle path reuses the same initial
+        # forces for the standard→carried conversion and for the first kick.
+        forces = force_for_conversion if force_for_conversion is not None else (
+            self.atoms.get_forces() * HA_PER_ANG_TO_AU
+        )  # Ha/Å → a.u.
+        pressure_stress_warned = False
 
         for step in range(1, n_steps + 1):
-            # BAOAB splitting (Leimkuhler & Matthews 2013) + barostat after full step:
-            #   B: half-kick  A(dt/2): half-position  O: thermostat
-            #   A(dt/2): half-position  B: half-kick  Barostat: cell rescale
-
-            # B-A(half): half-kick + half-position; forces cached from prev step
-            v_half = integrator.split_step(v, forces)
-
-            # O: thermostat (V-rescale or Langevin)
-            # Note: V-rescale returns (velocities, delta_w) but the thermostat
-            # work is not tracked here — Bussi 2007 Eq. 15 conserved quantity
-            # is only valid for NVT, not NPT where the barostat also does work.
-            if isinstance(self.thermostat, VRescaleThermostat):
-                v_therm, _delta_w = self.thermostat.apply(v_half)
+            if is_langevin:
+                # LFMiddle sequence with carried velocities, then barostat.
+                v = integrator.lfmiddle_full_kick(v, forces)
+                integrator.half_step_r(v)
+                v = self.thermostat.apply(v)
+                v, forces = integrator.lfmiddle_post_thermostat(v)
             else:
-                v_therm = self.thermostat.apply(v_half)
+                # Keep the existing V-rescale split chain unchanged.
+                v_half = integrator.split_step(v, forces)
 
-            # A(half)-B: half-position + force eval + half-kick; returns cached forces
-            v, forces = integrator.complete_split_step(v_therm)
+                # O: thermostat (V-rescale)
+                # Note: V-rescale returns (velocities, delta_w) but the thermostat
+                # work is not tracked here — Bussi 2007 Eq. 15 conserved quantity
+                # is only valid for NVT, not NPT where the barostat also does work.
+                v, _delta_w = self.thermostat.apply(v_half)
 
-            # Barostat: rescale cell after full BAOAB cycle, returns instantaneous pressure
-            pressure = self.barostat.apply(v)
+                # A(half)-B: half-position + force eval + half-kick; returns cached forces
+                v, forces = integrator.complete_split_step(v)
+
+            # Barostat: rescale cell after the thermostat/integrator cycle.
+            self.barostat.apply(v)
+            forces = self.atoms.get_forces() * HA_PER_ANG_TO_AU
+            pressure, pressure_stress_warned = compute_instantaneous_pressure(
+                self.atoms,
+                v,
+                stress_warned=pressure_stress_warned,
+                class_name=type(self.barostat).__name__,
+            )
 
             abs_step         = step_offset + step
             current_time     = abs_step * self.params.timestep
@@ -466,12 +559,14 @@ class NPT(JobABC):
                 volume=volume,
                 rng_state=get_rng_state_hex(self._rng),
                 rst_every=self.params.rst_every,
+                velocity_representation=velocity_representation,
             )
 
         self.logger.end_simulation(
             atoms=self.atoms,
             final_velocities=v,
-            rng_state=get_rng_state_hex(self._rng)
+            rng_state=get_rng_state_hex(self._rng),
+            velocity_representation=velocity_representation,
         )
         self.logger.log_main(["\nNPT simulation completed successfully.\n"])
-        return v
+        return v, velocity_representation
