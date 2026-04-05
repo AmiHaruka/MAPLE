@@ -143,7 +143,9 @@ class MDLogger:
         self.potential_energies  = []   # for KE–PE anti-correlation
         self.conserved_energies  = []   # V-rescale H̃ = H + W_bath (Bussi 2007 Eq. 15)
         self._n_atoms            = 0    # set in start_simulation
-        self._is_pbc             = False  # set in start_simulation; affects N_dof
+        self._is_pbc             = False  # set in start_simulation; affects fallback N_dof
+        self._n_dof_override: Optional[int] = None
+        self._dof_description: Optional[str] = None
 
         # Performance / progress tracking (set in start_simulation)
         self._n_steps:    int   = 0
@@ -208,7 +210,9 @@ class MDLogger:
     def start_simulation(self, ensemble: str, timestep: float, n_steps: int,
                         temperature: float, atoms: Atoms,
                         pressure: float = None, step_offset: int = 0,
-                        velocity_representation: str = VELOCITY_REPR_STANDARD):
+                        velocity_representation: str = VELOCITY_REPR_STANDARD,
+                        n_dof: Optional[int] = None,
+                        dof_description: Optional[str] = None):
         """
         Initialize output files and write headers.
 
@@ -229,6 +233,8 @@ class MDLogger:
         self._is_pbc      = bool(any(atoms.pbc))
         self._timestep    = timestep
         self._step_offset = step_offset
+        self._n_dof_override = n_dof
+        self._dof_description = dof_description
         # Total steps across the full run (for progress %)
         self._n_steps     = n_steps + step_offset
 
@@ -837,10 +843,13 @@ class MDLogger:
         temp_mean = np.mean(temperatures)
         temp_std  = np.std(temperatures)
 
-        n_dof = (3 * self._n_atoms if (self._is_pbc or self._n_atoms == 0)
-                 else 3 * self._n_atoms - 3)
+        n_dof = self._n_dof_override
+        if n_dof is None:
+            n_dof = (3 * self._n_atoms if (self._is_pbc or self._n_atoms == 0)
+                     else 3 * self._n_atoms - 3)
         if n_dof <= 0:
             n_dof = 1
+        dof_description = self._dof_description or ('legacy fallback: PBC 3N' if self._is_pbc else 'legacy fallback: isolated 3N')
 
         observed_ratio = temp_std / temp_mean if temp_mean > 0 else float('nan')
 
@@ -864,14 +873,14 @@ class MDLogger:
                 f"  ⟨T⟩:                       {temp_mean:>18.2f}  K\n",
                 f"  σ(T):                      {temp_std:>18.2f}  K\n",
                 f"  σ(T)/<T>:                  {observed_ratio:>18.4f}\n",
-                f"  N_dof = {n_dof}  ({'PBC: 3N' if self._is_pbc else 'isolated: 3N-3'})\n",
+                f"  N_dof = {n_dof}  {dof_description}\n",
             ]
         else:
             energy_section = [
                 f"\n{'── [' + ens_label + '] Temperature Control ──':^80}\n",
                 f"  ⟨T⟩:                       {temp_mean:>18.2f}  K\n",
                 f"  σ(T):                      {temp_std:>18.2f}  K\n",
-                f"  N_dof = {n_dof}  ({'PBC: 3N' if self._is_pbc else 'isolated: 3N-3'})\n",
+                f"  N_dof = {n_dof}  {dof_description}\n",
                 f"  r(KE,PE):                  {ke_pe_corr:>18.4f}\n",
             ]
             temp_section = [
@@ -946,7 +955,7 @@ class MDLogger:
             f.write(f"Total time:                 {self.times[-1]:.2f} fs\n")
             f.write(f"Number of atoms:            {self._n_atoms}\n")
             f.write(f"N_dof:                      {n_dof}  "
-                    f"({'PBC: 3N' if self._is_pbc else 'isolated: 3N-3'})\n\n")
+                    f"{dof_description}\n\n")
 
             f.write("Energy Statistics:\n")
             f.write(f"  Mean total energy:        {energy_mean:.8f} Ha\n")

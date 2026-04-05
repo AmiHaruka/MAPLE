@@ -14,7 +14,7 @@ import warnings
 import numpy as np
 from ase import Atoms
 from ase.calculators.calculator import PropertyNotImplementedError
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 
 # ========== Physical Constants and Unit Conversions ==========
@@ -74,15 +74,147 @@ _VALID_VELOCITY_REPRESENTATIONS = {
 
 # ========== Core MD Calculations ==========
 
-def calculate_temperature(atoms: Atoms, velocities: np.ndarray) -> float:
+def is_linear_molecule(atoms: Atoms, tol: float = 1e-8) -> bool:
+    """Return True if a non-periodic system is effectively linear."""
+    if any(atoms.pbc):
+        return False
+
+    n_atoms = len(atoms)
+    if n_atoms <= 1:
+        return False
+    if n_atoms == 2:
+        return True
+
+    positions = atoms.get_positions()
+    masses = atoms.get_masses()
+    total_mass = np.sum(masses)
+    if total_mass <= 0:
+        return False
+
+    com = np.sum(masses[:, np.newaxis] * positions, axis=0) / total_mass
+    centered = positions - com
+    if np.linalg.matrix_rank(centered, tol=tol) <= 1:
+        return True
+
+    centered_bohr = centered * ANGSTROM_TO_BOHR
+    masses_au = masses * AMU_TO_AU
+    inertia = np.zeros((3, 3))
+    for mi, ri in zip(masses_au, centered_bohr):
+        inertia += mi * (np.dot(ri, ri) * np.eye(3) - np.outer(ri, ri))
+    eigvals = np.sort(np.linalg.eigvalsh(inertia))
+    return bool(eigvals[0] < tol * max(eigvals[-1], 1.0))
+
+
+def get_initialization_dof_policy(
+    atoms: Atoms,
+    remove_com: bool = True,
+    remove_angular: bool = False,
+) -> Dict[str, object]:
+    """Return initialization DOF policy for velocity generation.
+
+    `remove_com` and `remove_angular` are parallel initialization settings.
+    `remove_com` controls initialization-only COM removal. `remove_angular`
+    controls initialization-only angular projection and always includes COM
+    removal first.
+    """
+    warnings_list = []
+    is_pbc = any(atoms.pbc)
+    angular_active = bool(remove_angular and not is_pbc)
+    if remove_angular and is_pbc:
+        warnings_list.append(
+            "remove_angular is ignored for periodic systems because global rigid-body rotation is not well-defined under PBC."
+        )
+
+    linear_active = bool(remove_com or angular_active)
+    rotational_removed = 0
+    if angular_active:
+        rotational_removed = 2 if is_linear_molecule(atoms) else 3
+
+    return {
+        "atoms": atoms,
+        "is_pbc": is_pbc,
+        "angular_active": angular_active,
+        "linear_active": linear_active,
+        "rotational_dof_removed": rotational_removed,
+        "warnings": warnings_list,
+    }
+
+
+def get_runtime_dof_policy(
+    atoms: Atoms,
+    remove_com_every: int = 0,
+    remove_angular_every: int = 0,
+) -> Dict[str, object]:
+    """Return runtime DOF policy for temperature control and logging."""
+    warnings_list = []
+    is_pbc = any(atoms.pbc)
+    angular_requested = remove_angular_every > 0
+    linear_requested = remove_com_every > 0
+
+    if is_pbc and angular_requested:
+        warnings_list.append(
+            "remove_angular_every is ignored for periodic systems because global rigid-body rotation is not well-defined under PBC."
+        )
+        angular_requested = False
+
+    angular_active = bool(angular_requested)
+    linear_active = bool(angular_active or linear_requested)
+    rotational_removed = 0
+    if angular_active:
+        rotational_removed = 2 if is_linear_molecule(atoms) else 3
+
+    return {
+        "atoms": atoms,
+        "is_pbc": is_pbc,
+        "angular_active": angular_active,
+        "linear_active": linear_active,
+        "rotational_dof_removed": rotational_removed,
+        "warnings": warnings_list,
+    }
+
+
+def get_n_dof_from_policy(policy: Dict[str, object], n_atoms: Optional[int] = None) -> int:
+    """Convert a DOF policy dictionary into an active N_dof count."""
+    if n_atoms is None:
+        atoms = policy.get("atoms")
+        if atoms is None:
+            raise ValueError("n_atoms is required when policy does not include atoms")
+        n_atoms = len(atoms)
+
+    n_dof = 3 * n_atoms
+    if policy.get("linear_active", False):
+        n_dof -= 3
+    n_dof -= int(policy.get("rotational_dof_removed", 0))
+    return max(n_dof, 1)
+
+
+def describe_dof_policy(policy: Dict[str, object]) -> str:
+    """Return a short human-readable DOF description for logs/summaries."""
+    if policy.get("is_pbc", False):
+        if policy.get("linear_active", False):
+            return "PBC: 3N - 3 (runtime COM removal)"
+        return "PBC: 3N"
+
+    rotational = int(policy.get("rotational_dof_removed", 0))
+    if policy.get("angular_active", False):
+        return f"isolated: 3N - 3 - {rotational} (runtime angular removal)"
+    if policy.get("linear_active", False):
+        return "isolated: 3N - 3 (runtime COM removal)"
+    return "isolated: 3N"
+
+
+def calculate_temperature(atoms: Atoms, velocities: np.ndarray, n_dof: Optional[int] = None) -> float:
     """
     Calculate instantaneous temperature from velocities.
 
     Uses the equipartition theorem:
         T = 2 * KE / (N_dof * k_B)
 
-    where N_dof = 3N - 3 for isolated molecules (removing COM translation),
-          or 3N for periodic systems (no overall translation constraint)
+    In the migrated MD code paths, `n_dof` is supplied explicitly from the
+    runtime motion/DOF policy so that temperature reporting, thermostat target
+    kinetic energy, and logger summaries all use the same active subspace.
+    The built-in fallback (`3N` for PBC, `3N-3` for non-PBC) is retained only
+    for legacy callers that have not yet been migrated to the central policy.
 
     Parameters
     ----------
@@ -91,6 +223,9 @@ def calculate_temperature(atoms: Atoms, velocities: np.ndarray) -> float:
     velocities : np.ndarray
         Atomic velocities in atomic units (Bohr/a.u. time)
         Shape: (N_atoms, 3)
+    n_dof : int, optional
+        Active number of degrees of freedom. When omitted, a legacy fallback is
+        used (`3N` for PBC, `3N-3` for non-PBC).
 
     Returns
     -------
@@ -100,13 +235,13 @@ def calculate_temperature(atoms: Atoms, velocities: np.ndarray) -> float:
     masses = atoms.get_masses() * AMU_TO_AU  # Convert to atomic units
     kinetic = 0.5 * np.sum(masses[:, np.newaxis] * velocities**2)
 
-    n_atoms = len(atoms)
-    # Periodic systems have no overall translation; isolated molecules lose 3 COM DOF.
-    # Allen & Tildesley, Computer Simulation of Liquids, 2nd ed., §3.3
-    if any(atoms.pbc):
-        n_dof = 3 * n_atoms
-    else:
-        n_dof = 3 * n_atoms - 3
+    if n_dof is None:
+        n_atoms = len(atoms)
+        # Backward-compatible default until all callers migrate to explicit policy.
+        if any(atoms.pbc):
+            n_dof = 3 * n_atoms
+        else:
+            n_dof = 3 * n_atoms - 3
 
     if n_dof <= 0:
         return 0.0
@@ -219,81 +354,60 @@ def initialize_velocities(
     temperature: float,
     remove_com: bool = True,
     remove_rotation: bool = False,
+    remove_angular: Optional[bool] = None,
+    target_n_dof: Optional[int] = None,
     rng: Optional[np.random.Generator] = None
 ) -> np.ndarray:
     """
-    Initialize velocities from Maxwell-Boltzmann distribution.
+    Initialize velocities from a Maxwell-Boltzmann distribution.
 
     For each atom i with mass m_i at temperature T:
         v_i ~ N(0, sqrt(k_B * T / m_i))
 
+    Initialization projection and runtime projection are intentionally distinct:
+    `remove_com` / `remove_angular` act only on the initial velocity draw,
+    whereas `remove_com_every` / `remove_angular_every` act during dynamics in
+    the ensemble loops. To keep initialization and runtime thermodynamic targets
+    consistent, callers should pass `target_n_dof` from the runtime DOF policy.
+    If `target_n_dof` is omitted, a legacy fallback based on the initialization
+    projection is used.
+
     Parameters
     ----------
     atoms : ase.Atoms
-        Atomic system
+        Atomic system.
     temperature : float
-        Target temperature in Kelvin
+        Target temperature in Kelvin.
     remove_com : bool, default=True
-        Remove center of mass translational motion (3 DOF).
-        Ref: Allen & Tildesley, Computer Simulation of Liquids,
-             2nd ed. (2017), §3.2
+        Initialization-only COM removal.
     remove_rotation : bool, default=False
-        Remove overall rigid-body rotational motion (up to 3 DOF).
-        Only meaningful for non-periodic isolated molecules.
-        For periodic systems this parameter is ignored.
-
-        Scientific rationale
-        --------------------
-        A Maxwell-Boltzmann draw generically yields a non-zero net angular
-        momentum L = Σ_i r_i × (m_i v_i).  For an isolated molecule in NVE,
-        L is a conserved quantity, so any initial L causes the entire molecule
-        to rotate as a rigid body throughout the simulation, obscuring internal
-        dynamics in visualisation.
-
-        The standard remedy is to project out the three rotational DOF from the
-        velocities immediately after COM removal.  The projection is exact for a
-        rigid body and removes only the infinitesimal rigid-rotation component
-        from the velocity field; internal (vibrational) DOF are unaffected.
-
-        After projection, velocities are rescaled to restore the target
-        temperature, accounting for the reduced DOF count (3N − 6 for a
-        non-linear molecule, analogous to the COM correction).
-
-        This procedure is the default in several major MD codes:
-          • GROMACS: `comm-mode = Angular` removes both translation and
-            rotation; recommended for isolated molecules in vacuum.
-            Ref: GROMACS Reference Manual 2024, §3.4.1 "Removing COM motion"
-          • AMBER: `nscm` option; rotation removal is standard for gas-phase
-            peptide simulations.
-            Ref: Case et al. (2023) AMBER 2023 Reference Manual, §3.1
-          • NAMD: `zeroMomentum yes` + angular momentum zeroing described in
-            the User's Guide §2.6 for vacuum simulations.
-          • LAMMPS: `fix momentum ... angular` explicitly zeroes angular
-            momentum.
-            Ref: LAMMPS documentation, fix momentum command.
-
-        Theoretical basis: the projection is equivalent to constraining the
-        three rigid-rotation modes of the molecule, reducing the effective DOF
-        from 3N−3 to 3N−6 (non-linear) or 3N−5 (linear).  The equipartition
-        theorem still holds for the remaining DOF after rescaling.
-        Ref: Shirts (2013) J. Chem. Theory Comput. 9, 909, §2 "Removing rigid
-             body motion"; Eastman & Pande (2010) J. Chem. Theory Comput. 6,
-             434, §2.
-
-        Limitation: for periodic (PBC) systems there is no well-defined
-        rigid-body rotation of the whole cell, so this flag is silently ignored
-        when any(atoms.pbc) is True.
+        Legacy alias path used to support older call sites. Prefer
+        `remove_angular`, which represents initialization-only COM + rigid-body
+        rotation projection.
+    remove_angular : bool, optional
+        Initialization-only angular projection. When true, COM removal is always
+        applied first and rigid-body rotation is projected out for non-periodic
+        systems.
+    target_n_dof : int, optional
+        DOF used for the final temperature rescaling. In migrated MD paths this
+        should come from the runtime policy so initialization and thermostat
+        targets remain consistent.
     rng : np.random.Generator, optional
-        Random number generator (for reproducibility)
+        Random number generator for reproducibility.
 
     Returns
     -------
     np.ndarray
-        Velocities in atomic units
-        Shape: (N_atoms, 3)
+        Velocities in atomic units with shape ``(N_atoms, 3)``.
     """
     if rng is None:
         rng = np.random.default_rng()
+
+    if remove_angular is None:
+        remove_angular = bool(remove_rotation)
+    if remove_angular:
+        remove_com = True
+        remove_rotation = True
 
     kT = temperature * KELVIN_TO_HARTREE
     masses = atoms.get_masses() * AMU_TO_AU
@@ -355,17 +469,22 @@ def initialize_velocities(
         # Step 5 — Subtract rigid rotation from each atom
         velocities -= np.cross(omega, r)  # v_i -= ω × r_i
 
-    # Rescale to exact target temperature via velocity scaling.
-    #
-    # The DOF count used here must match calculate_temperature(), which uses
-    # 3N − 3 for non-PBC systems (COM translation removed) and 3N for PBC.
-    # Rotational constraints are NOT subtracted here: the equipartition
-    # temperature estimator calculate_temperature() is unaware of them, so
-    # keeping consistent DOF counts ensures the reported initial temperature
-    # matches the target.
-    # Ref: Allen & Tildesley (2017) §3.2 (temperature from kinetic energy, DOF counting).
-    is_pbc = any(atoms.pbc)
-    n_dof = 3 * n_atoms - (0 if is_pbc else 3)
+    # Rescale to exact target temperature using the runtime DOF policy.
+    # Initialization projection (`remove_com` / `remove_angular`) and runtime
+    # projection (`remove_com_every` / `remove_angular_every`) are parallel
+    # concepts. To keep initialization and thermostat targets consistent, the
+    # target DOF for velocity scaling is provided explicitly by the caller and
+    # should match the runtime policy. Fall back to the initialization policy only
+    # for legacy callers that do not pass target_n_dof.
+    if target_n_dof is None:
+        init_policy = get_initialization_dof_policy(
+            atoms,
+            remove_com=bool(remove_com),
+            remove_angular=bool(remove_angular),
+        )
+        n_dof = get_n_dof_from_policy(init_policy, n_atoms=n_atoms)
+    else:
+        n_dof = target_n_dof
     current_ke2 = np.sum(masses[:, np.newaxis] * velocities**2)  # 2*KE
     if n_dof > 0 and current_ke2 > 0:
         actual_temp = current_ke2 / (n_dof * KELVIN_TO_HARTREE)
@@ -478,6 +597,62 @@ def write_xyz_trajectory(
 
 
 # ========== Velocity Utilities ==========
+
+def remove_rigid_body_rotation(atoms: Atoms, velocities: np.ndarray) -> np.ndarray:
+    """Project out rigid-body rotation in the center-of-mass frame."""
+    if any(atoms.pbc) or len(atoms) <= 1:
+        return velocities.copy()
+
+    masses = atoms.get_masses() * AMU_TO_AU
+    positions_au = atoms.get_positions() * ANGSTROM_TO_BOHR
+    total_mass = np.sum(masses)
+    com = np.sum(masses[:, np.newaxis] * positions_au, axis=0) / total_mass
+    r = positions_au - com
+
+    L = np.sum(masses[:, np.newaxis] * np.cross(r, velocities), axis=0)
+    I = np.zeros((3, 3))
+    for mi, ri in zip(masses, r):
+        I += mi * (np.dot(ri, ri) * np.eye(3) - np.outer(ri, ri))
+
+    try:
+        omega = np.linalg.solve(I, L)
+    except np.linalg.LinAlgError:
+        omega = np.linalg.lstsq(I, L, rcond=None)[0]
+
+    return velocities - np.cross(omega, r)
+
+
+def apply_runtime_motion_projection(
+    atoms: Atoms,
+    velocities: np.ndarray,
+    step: int,
+    remove_com_every: int = 0,
+    remove_angular_every: int = 0,
+) -> tuple[np.ndarray, str]:
+    """Apply runtime COM/angular projection according to the configured cadence.
+
+    `remove_com_every` and `remove_angular_every` are parallel settings, not
+    enable/disable toggles. The former controls runtime COM removal only; the
+    latter controls runtime angular projection. If an angular projection fires,
+    it always includes COM removal first and therefore supersedes COM-only
+    removal for that step.
+    """
+    out = velocities.copy()
+    if any(atoms.pbc):
+        if remove_com_every and step % remove_com_every == 0:
+            return remove_center_of_mass_motion(atoms, out), "com"
+        return out, "none"
+
+    if remove_angular_every and step % remove_angular_every == 0:
+        out = remove_center_of_mass_motion(atoms, out)
+        out = remove_rigid_body_rotation(atoms, out)
+        return out, "angular"
+
+    if remove_com_every and step % remove_com_every == 0:
+        return remove_center_of_mass_motion(atoms, out), "com"
+
+    return out, "none"
+
 
 def remove_center_of_mass_motion(atoms: Atoms, velocities: np.ndarray) -> np.ndarray:
     """

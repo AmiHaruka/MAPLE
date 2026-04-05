@@ -68,6 +68,7 @@ class LangevinThermostat:
         self.masses      = atoms.get_masses() * AMU_TO_AU  # amu → a.u.
         self.rng         = rng if rng is not None else np.random.default_rng()
 
+        # Motion projection is handled by the ensemble-level central policy.
         # Precompute OU coefficients for the LFMiddle thermostat step:
         #   c1 = exp(-γ dt)
         #   c2 = sqrt((1 - c1²) k_B T / m)
@@ -83,6 +84,9 @@ class LangevinThermostat:
         runtime constraint is the caller's responsibility.
 
             v' = c1 * v + c2 * xi,   xi ~ N(0, 1)
+
+        Any runtime COM or angular projection is applied by the ensemble-level
+        central motion policy after the thermostat step.
 
         Parameters
         ----------

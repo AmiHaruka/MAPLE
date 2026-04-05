@@ -42,10 +42,15 @@ from ..barostat.crescale import CRescaleBarostat
 from ..utils import (
     VELOCITY_REPR_LFMIDDLE_CARRIED,
     VELOCITY_REPR_STANDARD,
+    apply_runtime_motion_projection,
     calculate_temperature,
     calculate_kinetic_energy,
     compute_instantaneous_pressure,
+    describe_dof_policy,
     get_atoms_velocity_representation,
+    get_initialization_dof_policy,
+    get_n_dof_from_policy,
+    get_runtime_dof_policy,
     initialize_velocities,
     HA_PER_ANG_TO_AU,
     lfmiddle_carried_to_standard,
@@ -172,8 +177,11 @@ class NPTParams:
     load_state:       bool  = False
     rst_file:         str   = ""           # Path to RST checkpoint file (explicit source for restart/load_state)
     rst_every:        int   = 1000
-    remove_com:       bool  = True
-    remove_rotation:  bool  = False
+    remove_com:       bool  = True   # initialization-only COM removal
+    remove_rotation:  bool  = False  # legacy alias path; prefer remove_angular
+    remove_angular:   bool  = False  # initialization-only COM + rotation; parallel to remove_com
+    remove_com_every: int   = 100    # runtime-only COM removal
+    remove_angular_every: int = 0    # runtime-only COM + rotation; parallel to remove_com_every
     random_seed: Optional[int] = None
 
 
@@ -229,6 +237,18 @@ class NPT(JobABC):
                      if self.params.random_seed is not None
                      else np.random.default_rng())
 
+        runtime_policy = get_runtime_dof_policy(
+            atoms,
+            remove_com_every=self.params.remove_com_every,
+            remove_angular_every=self.params.remove_angular_every,
+        )
+        for warning in runtime_policy["warnings"]:
+            self.log_info([f"\n*** WARNING: {warning}\n"])
+        if self.params.remove_angular:
+            self.log_info(["\n*** WARNING: remove_angular is ignored for NPT/PBC systems; only initialization COM removal remains active.\n"])
+        self._runtime_n_dof = get_n_dof_from_policy(runtime_policy)
+        self._runtime_dof_description = describe_dof_policy(runtime_policy)
+
         if self.params.thermostat == 'langevin':
             self.thermostat = LangevinThermostat(
                 atoms,
@@ -244,6 +264,7 @@ class NPT(JobABC):
                 tau_t=self.params.tau_t,
                 timestep=self.params.timestep,
                 rng=self._rng,
+                n_dof=self._runtime_n_dof,
             )
 
         if self.params.barostat == 'berendsen':
@@ -427,7 +448,10 @@ class NPT(JobABC):
             f"Restart mode:          {self.params.restart}\n",
             f"Load-state mode:       {self.params.load_state}\n",
             f"RST every:             {self.params.rst_every} steps\n",
-            f"Remove COM motion:     {self.params.remove_com}\n",
+            f"Remove COM:            {self.params.remove_com} (initialization-only)\n",
+            f"Remove angular:        {self.params.remove_angular} (initialization-only; ignored under PBC)\n",
+            f"Remove COM every:      {self.params.remove_com_every} (runtime-only)\n",
+            f"Remove angular ev.:    {self.params.remove_angular_every} (runtime-only; ignored under PBC)\n",
         ]
         if self.params.random_seed is not None:
             lines.append(f"Random seed:           {self.params.random_seed}\n")
@@ -442,9 +466,15 @@ class NPT(JobABC):
             temperature=self.params.temperature,
             remove_com=self.params.remove_com,
             remove_rotation=self.params.remove_rotation,
+            remove_angular=False,
+            target_n_dof=self._runtime_n_dof,
             rng=self._rng,
         )
-        actual_temp = calculate_temperature(self.atoms, velocities)
+        actual_temp = calculate_temperature(
+            self.atoms,
+            velocities,
+            n_dof=self._runtime_n_dof,
+        )
         self.log_info([f"Initial temperature: {actual_temp:.2f} K\n"])
         return velocities
 
@@ -493,6 +523,8 @@ class NPT(JobABC):
             pressure=self.params.pressure,
             step_offset=step_offset,
             velocity_representation=velocity_representation,
+            n_dof=self._runtime_n_dof,
+            dof_description=self._runtime_dof_description,
         )
         self.logger.log_main([
             f"\nStarting NPT simulation "
@@ -531,6 +563,13 @@ class NPT(JobABC):
 
             # Barostat: rescale cell after the thermostat/integrator cycle.
             self.barostat.apply(v)
+            v, _projection = apply_runtime_motion_projection(
+                self.atoms,
+                v,
+                step=step,
+                remove_com_every=self.params.remove_com_every,
+                remove_angular_every=self.params.remove_angular_every,
+            )
             forces = self.atoms.get_forces() * HA_PER_ANG_TO_AU
             pressure, pressure_stress_warned = compute_instantaneous_pressure(
                 self.atoms,
@@ -541,7 +580,7 @@ class NPT(JobABC):
 
             abs_step         = step_offset + step
             current_time     = abs_step * self.params.timestep
-            temperature      = calculate_temperature(self.atoms, v)
+            temperature      = calculate_temperature(self.atoms, v, n_dof=self._runtime_n_dof)
             kinetic_energy   = calculate_kinetic_energy(self.atoms, v)
             potential_energy = self.atoms.get_potential_energy()  # Ha
             volume           = self.atoms.get_volume()

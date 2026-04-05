@@ -28,9 +28,14 @@ from ..thermostat.vrescale import VRescaleThermostat
 from ..utils import (
     VELOCITY_REPR_LFMIDDLE_CARRIED,
     VELOCITY_REPR_STANDARD,
+    apply_runtime_motion_projection,
     calculate_temperature,
     calculate_kinetic_energy,
+    describe_dof_policy,
     get_atoms_velocity_representation,
+    get_initialization_dof_policy,
+    get_n_dof_from_policy,
+    get_runtime_dof_policy,
     initialize_velocities,
     HA_PER_ANG_TO_AU,
     lfmiddle_carried_to_standard,
@@ -171,8 +176,11 @@ class NVTParams:
     load_state:       bool  = False
     rst_file:         str   = ""           # Path to RST checkpoint file (explicit source for restart/load_state)
     rst_every:        int   = 1000
-    remove_com:       bool  = True
-    remove_rotation:  bool  = False
+    remove_com:       bool  = True   # initialization-only COM removal
+    remove_rotation:  bool  = False  # legacy alias path; prefer remove_angular
+    remove_angular:   bool  = False  # initialization-only COM + rotation; parallel to remove_com
+    remove_com_every: int   = 100    # runtime-only COM removal
+    remove_angular_every: int = 0    # runtime-only COM + rotation; parallel to remove_com_every
     random_seed: Optional[int] = None
 
 
@@ -217,6 +225,14 @@ class NVT(JobABC):
                      if self.params.random_seed is not None
                      else np.random.default_rng())
 
+        runtime_policy = get_runtime_dof_policy(
+            atoms,
+            remove_com_every=self.params.remove_com_every,
+            remove_angular_every=self.params.remove_angular_every,
+        )
+        self._runtime_n_dof = get_n_dof_from_policy(runtime_policy)
+        self._runtime_dof_description = describe_dof_policy(runtime_policy)
+
         if self.params.thermostat == 'langevin':
             self.thermostat = LangevinThermostat(
                 atoms,
@@ -232,6 +248,7 @@ class NVT(JobABC):
                 tau_t=self.params.tau_t,
                 timestep=self.params.timestep,
                 rng=self._rng,
+                n_dof=self._runtime_n_dof,
             )
 
         self.logger = MDLogger(
@@ -390,7 +407,10 @@ class NVT(JobABC):
             f"Restart mode:       {self.params.restart}\n",
             f"Load-state mode:    {self.params.load_state}\n",
             f"RST every:          {self.params.rst_every} steps\n",
-            f"Remove COM motion:  {self.params.remove_com}\n",
+            f"Remove COM:         {self.params.remove_com} (initialization-only)\n",
+            f"Remove angular:     {self.params.remove_angular} (initialization-only; includes COM+rotation)\n",
+            f"Remove COM every:   {self.params.remove_com_every} (runtime-only)\n",
+            f"Remove angular ev.: {self.params.remove_angular_every} (runtime-only; includes COM+rotation)\n",
         ]
         if self.params.random_seed is not None:
             lines.append(f"Random seed:        {self.params.random_seed}\n")
@@ -405,9 +425,15 @@ class NVT(JobABC):
             temperature=self.params.temperature,
             remove_com=self.params.remove_com,
             remove_rotation=self.params.remove_rotation,
+            remove_angular=self.params.remove_angular,
+            target_n_dof=self._runtime_n_dof,
             rng=self._rng,
         )
-        actual_temp = calculate_temperature(self.atoms, velocities)
+        actual_temp = calculate_temperature(
+            self.atoms,
+            velocities,
+            n_dof=self._runtime_n_dof,
+        )
         self.log_info([f"Initial temperature: {actual_temp:.2f} K\n"])
         return velocities
 
@@ -469,23 +495,15 @@ class NVT(JobABC):
             atoms=self.atoms,
             step_offset=step_offset,
             velocity_representation=velocity_representation,
+            n_dof=self._runtime_n_dof,
+            dof_description=self._runtime_dof_description,
         )
         self.logger.log_main([
             f"\nStarting NVT simulation ({self.params.thermostat})...\n\n"
         ])
 
         integrator = VelocityVerlet(self.atoms, self.params.timestep)
-        masses_1d = integrator.masses
-        total_mass = masses_1d.sum()
         v = velocities.copy()
-        remove_runtime_com_langevin = (
-            is_langevin and self.params.remove_com and not any(self.atoms.pbc)
-        )
-
-        def project_out_com_motion(velocities_to_project: np.ndarray) -> np.ndarray:
-            """Project out center-of-mass translation from Cartesian velocities."""
-            p_com = np.sum(masses_1d[:, np.newaxis] * velocities_to_project, axis=0)
-            return velocities_to_project - p_com / total_mass
 
         # Cache forces at t=0; reused as first B-step forces each cycle.
         forces = force_for_conversion if force_for_conversion is not None else (
@@ -504,39 +522,29 @@ class NVT(JobABC):
         for step in range(1, n_steps + 1):
 
             if is_vrescale:
-                # VV + COM projection + post-step rescale (Bussi 2007 / GROMACS scheme):
-                #   1. Full Velocity Verlet step (forces cached across steps)
-                #   2. For isolated systems, project out numerical COM drift so the
-                #      thermostat acts in the intended 3N-3 subspace
-                #   3. Rescale full-step velocities with V-rescale Eq. A7
-                #
-                # H̃ must track all non-Hamiltonian energy changes applied after the
-                # Verlet step. Therefore we include both the COM-projection kinetic
-                # energy change and the thermostat work in w_bath.
                 v, forces = integrator.step(v, forces)
-                ke_before_proj = calculate_kinetic_energy(self.atoms, v)
-                delta_w_com = 0.0
-                if not any(self.atoms.pbc):
-                    v = project_out_com_motion(v)
-                    ke_after_proj = calculate_kinetic_energy(self.atoms, v)
-                    delta_w_com = ke_after_proj - ke_before_proj
                 v, delta_w = self.thermostat.apply(v)
-                w_bath += delta_w_com + delta_w
+                w_bath += delta_w
             else:
                 # LFMiddle sequence (Leimkuhler & Matthews 2013):
                 #   full kick → half-step position update → thermostat →
-                #   runtime COM projection for isolated systems if requested →
                 #   post-thermostat position/force completion
                 v = integrator.lfmiddle_full_kick(v, forces)
                 integrator.half_step_r(v)
                 v = self.thermostat.apply(v)
-                if remove_runtime_com_langevin:
-                    v = project_out_com_motion(v)
                 v, forces = integrator.lfmiddle_post_thermostat(v)
+
+            v, _projection = apply_runtime_motion_projection(
+                self.atoms,
+                v,
+                step=step,
+                remove_com_every=self.params.remove_com_every,
+                remove_angular_every=self.params.remove_angular_every,
+            )
 
             abs_step         = step_offset + step
             current_time     = abs_step * self.params.timestep
-            temperature      = calculate_temperature(self.atoms, v)
+            temperature      = calculate_temperature(self.atoms, v, n_dof=self._runtime_n_dof)
             kinetic_energy   = calculate_kinetic_energy(self.atoms, v)
             potential_energy = self.atoms.get_potential_energy()  # Ha
 
