@@ -262,21 +262,20 @@ def rotate_rst_checkpoint(
     rng_state=None,
 ):
     """
-    Rotate checkpoint files and write new checkpoint.
+    Rotate runtime checkpoint files and write a new checkpoint.
 
-    Implements GROMACS-style checkpoint rotation:
-        1. If ``rst_path`` exists, move it to ``rst_prev_path``
-        2. Write new checkpoint to ``rst_path``
-
-    This ensures at least two recent checkpoints are always available,
-    protecting against corruption during write.
+    Fresh-start backup of pre-existing ``*_md.rst`` and ``*_md_prev.rst``
+    files is handled earlier by the MD logger using GROMACS-style numbered
+    backups. During an active MD run, the checkpoint writer still preserves
+    the most recent previous checkpoint by moving ``rst_path`` to
+    ``rst_prev_path`` before writing the new ``rst_path``.
 
     Parameters
     ----------
     rst_path : str or Path
         Current checkpoint file path.
     rst_prev_path : str or Path
-        Previous checkpoint file path (backup).
+        Previous runtime checkpoint file path.
     atoms : ase.Atoms
         Atomic system.
     velocities : np.ndarray

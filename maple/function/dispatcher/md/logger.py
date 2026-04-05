@@ -91,6 +91,7 @@ class MDLogger:
         traj_every: int = 10,
         verbose: int = 1,
         traj_format: str = "xyz",
+        debug: bool = False,
     ):
         """
         Initialize MD logger.
@@ -104,12 +105,14 @@ class MDLogger:
                            1 = GROMACS-style progress line every log_every steps
                            2 = verbose (step-level timing detail)
             traj_format: Trajectory output format: "xyz" (text) or "dcd" (binary)
+            debug:       Enable one-shot restart/load_state diagnostics
         """
         self.main_output = output_path
         self.log_every   = log_every
         self.traj_every  = traj_every
         self.verbose      = verbose
         self.traj_format  = traj_format.lower()
+        self.debug        = debug
 
         # Generate file paths
         base   = Path(output_path).stem
@@ -149,6 +152,45 @@ class MDLogger:
 
         # RNG state restored from the last trajectory frame on resume (None if not present)
         self.resumed_rng_state: Optional[str] = None
+        # Fresh-start backup should not archive checkpoint files that are being
+        # used as explicit rst_file inputs for the current run.
+        self._protected_restart_inputs: set[Path] = set()
+
+    def log_debug_initial_state(self, atoms: Atoms, velocities: np.ndarray,
+                                mode: str, effective_step: int,
+                                source: Optional[str] = None,
+                                rst_step: Optional[int] = None):
+        if not self.debug:
+            return
+
+        from .utils import calculate_kinetic_energy, calculate_temperature
+
+        forces = atoms.get_forces()
+        kinetic_energy = calculate_kinetic_energy(atoms, velocities)
+        potential_energy = atoms.get_potential_energy()
+        temperature_inst = calculate_temperature(atoms, velocities)
+        atom0_pos = atoms.get_positions()[0]
+        atom0_vel = velocities[0]
+        atom0_force = forces[0]
+
+        lines = [
+            "\n[MD_DEBUG_INIT]\n",
+            f"  mode:             {mode}\n",
+            f"  effective_step:   {effective_step}\n",
+            f"  atom0_pos(A):     [{atom0_pos[0]: .10f}, {atom0_pos[1]: .10f}, {atom0_pos[2]: .10f}]\n",
+            f"  atom0_vel(au):    [{atom0_vel[0]: .10f}, {atom0_vel[1]: .10f}, {atom0_vel[2]: .10f}]\n",
+            f"  atom0_force(Ha/A):[{atom0_force[0]: .10f}, {atom0_force[1]: .10f}, {atom0_force[2]: .10f}]\n",
+            f"  PE(Ha):           {potential_energy: .12f}\n",
+            f"  KE(Ha):           {kinetic_energy: .12f}\n",
+            f"  T(K):             {temperature_inst: .6f}\n",
+        ]
+        if source is not None:
+            lines.insert(2, f"  source:           {source}\n")
+        if rst_step is not None:
+            insert_at = 3 if source is not None else 2
+            lines.insert(insert_at, f"  rst_step:         {rst_step}\n")
+
+        self.log_main(lines)
 
     def start_simulation(self, ensemble: str, timestep: float, n_steps: int,
                         temperature: float, atoms: Atoms,
@@ -181,7 +223,16 @@ class MDLogger:
         if step_offset == 0:
             # Open files (back up any pre-existing files first, GROMACS-style)
             backup_msgs = []
-            for p in (self.thermo_path, self.traj_path, self.summary_path, self.final_path):
+            for p in (
+                self.thermo_path,
+                self.traj_path,
+                self.summary_path,
+                self.final_path,
+                self.rst_path,
+                self.rst_prev_path,
+            ):
+                if p in self._protected_restart_inputs:
+                    continue
                 backup = _backup_file(p)
                 if backup is not None:
                     backup_msgs.append(f"  Backed up existing file: {p.name} -> {backup.name}\n")
@@ -453,36 +504,44 @@ class MDLogger:
         atoms: Atoms,
         pressure: float = None,
         rst_file: str = None,
+        load_state: bool = False,
     ):
         """
         Restore state from a .rst checkpoint file, validate against input atoms,
         open output files, and return (atoms, velocities, step_offset).
 
-        Two modes of operation:
+        Restore state from a .rst checkpoint file, validate against input atoms,
+        and return ``(atoms, velocities, step_offset)``.
 
-        1. **Resume** (rst_file=None):
-           Auto-detects ``{base}_md.rst`` / ``{base}_md_prev.rst``.
-           Strict validation: ensemble and timestep must match the checkpoint.
-           Returns step_offset from the checkpoint so the run continues.
+        Input selection modes:
 
-        2. **Load state** (rst_file="/path/to/other.rst"):
-           Reads the specified RST file (auto-appends ``.rst`` if missing).
-           Relaxed validation: ensemble and timestep may differ (NVT → NVE).
-           Always returns step_offset=0 (fresh run with loaded coordinates
-           and velocities).
+        1. **Auto-detect** (rst_file=None):
+           Search ``{base}_md.rst`` and ``{base}_md_prev.rst``.
 
-        Returns None if the checkpoint already completed the requested run
-        (resume mode only).
+        2. **Explicit checkpoint** (rst_file="/path/to/file.rst"):
+           Read the specified checkpoint file (auto-appends ``.rst`` if missing).
+
+        Semantic modes:
+
+        - ``restart=yes`` / ``load_state=no``:
+          Resume semantics. Checkpoint coordinates, velocities, and step count
+          are restored, so the run continues from the saved step.
+
+        - ``load_state=yes``:
+          Load-state semantics. Checkpoint coordinates and velocities are
+          restored, but the new run starts from step 0.
+
+        Returns None if a restart checkpoint already completed the requested run.
         Raises RuntimeError on hard failures (mismatch, missing files, etc.).
         """
         from ase.cell import Cell
 
         # ------------------------------------------------------------------
-        # Determine whether this is a resume or a cross-ensemble load
+        # Determine checkpoint source
         # ------------------------------------------------------------------
-        is_cross_load = rst_file is not None
+        has_explicit_rst = rst_file is not None
 
-        if is_cross_load:
+        if has_explicit_rst:
             # Resolve path: auto-append .rst if missing
             rst = Path(rst_file)
             if rst.suffix == '':
@@ -493,6 +552,8 @@ class MDLogger:
             candidates = [rst]
         else:
             candidates = [self.rst_path, self.rst_prev_path]
+
+        self._protected_restart_inputs = set()
 
         state = None
         errors = []
@@ -525,18 +586,7 @@ class MDLogger:
                     f"Element mismatch between rst and input at position {idx}"
                 )
 
-        if is_cross_load:
-            # Cross-ensemble load: log the transition, skip ensemble/timestep checks
-            rst_ens = state["ensemble"].upper()
-            new_ens = ensemble.upper()
-            if state["ensemble"] != ensemble:
-                self.log_main([
-                    f"\nLoading state from {used_path.name} "
-                    f"({rst_ens} -> {new_ens} transition)\n",
-                ])
-            step_offset = 0
-        else:
-            # Resume: strict validation
+        if not load_state:
             if state["ensemble"] != ensemble:
                 raise RuntimeError(
                     f"Ensemble mismatch: rst has '{state['ensemble']}', "
@@ -570,6 +620,23 @@ class MDLogger:
                         f"  Exported final structure: {self.final_path.name}\n"
                     ])
                 return None
+
+        if has_explicit_rst and used_path in (self.rst_path, self.rst_prev_path):
+            self._protected_restart_inputs = {self.rst_path, self.rst_prev_path}
+
+        if load_state:
+            if self.debug:
+                self.log_main([
+                    f"\nLoading state from explicit checkpoint: {used_path.name} "
+                    f"(start new run from step 0)\n",
+                ])
+            step_offset = 0
+        else:
+            if has_explicit_rst and self.debug:
+                self.log_main([
+                    f"\nRestarting from explicit checkpoint: {used_path.name} "
+                    f"(resume from step {state['step']})\n",
+                ])
             step_offset = state["step"]
 
         # Restore atoms state
@@ -582,16 +649,22 @@ class MDLogger:
         # Store RNG state for ensemble drivers (NVT/NPT) to restore
         self.resumed_rng_state = state.get("rng_state")
 
+        self.log_debug_initial_state(
+            atoms=atoms,
+            velocities=state["velocities"],
+            mode="load_state" if load_state else "restart",
+            source=str(used_path),
+            rst_step=state["step"],
+            effective_step=step_offset,
+        )
+
         # ------------------------------------------------------------------
-        # Open output files
-        #
-        # Cross-ensemble load (rst_file=...): step_offset=0 → start_simulation()
-        #   will open files fresh, so we do NOT open them here.
-        # Resume (same ensemble):  step_offset>0 → start_simulation() skips
-        #   file opening, so we MUST open in append mode here.
+        # Open output files only for resume semantics.
+        # start_simulation(step_offset>0) skips file opening, so resume mode
+        # must append here. load_state starts a fresh run and therefore relies
+        # on start_simulation(step_offset=0) to open clean output files.
         # ------------------------------------------------------------------
-        if not is_cross_load:
-            # Resume: append to existing output files
+        if not load_state:
             self.thermo_file = (open(self.thermo_path, "a") if self.thermo_path.exists()
                                 else open(self.thermo_path, "w"))
             if self.traj_format == 'dcd':

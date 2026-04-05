@@ -59,6 +59,7 @@ class CommandControl:
             "log_every": 100,
             "init_velocities": True,
             "restart": False,
+            "load_state": False,
             "rst_file": "",
             "rst_every": 1000,
             "remove_com": True,
@@ -74,6 +75,7 @@ class CommandControl:
             "compressibility": 4.5e-5,
             "mdp": None,
             "traj_format": "xyz",
+            "debug": False,
         },
         "solv": {"solvent": "water", "explicit": None},
     }

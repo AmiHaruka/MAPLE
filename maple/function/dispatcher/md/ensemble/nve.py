@@ -100,9 +100,11 @@ class NVEParams:
     traj_format: str = "xyz"        # "xyz" (text, default) or "dcd" (binary)
 
     verbose: int = 1                # 0=concise, 1=detailed
+    debug: bool = False
     init_velocities: bool = True
     restart: bool = False
-    rst_file: str = ""               # Path to RST checkpoint file (default: auto-detect from output name)
+    load_state: bool = False
+    rst_file: str = ""               # Path to RST checkpoint file (explicit source for restart/load_state)
     rst_every: int = 1000
     remove_com: bool = True
     remove_rotation: bool = False
@@ -191,6 +193,7 @@ class NVE(JobABC):
             traj_every=self.params.traj_every,
             traj_format=self.params.traj_format,
             verbose=self.params.verbose,
+            debug=self.params.debug,
         )
 
     def run(self):
@@ -201,7 +204,11 @@ class NVE(JobABC):
             # Log parameters
             self._log_parameters()
 
-            if self.params.restart:
+            if self.params.load_state:
+                if self.params.init_velocities and self.params.debug:
+                    self.log_info([
+                        "\nload_state=True: ignoring init_velocities and using coordinates/velocities from RST.\n"
+                    ])
                 result = self.logger.restart_simulation(
                     ensemble='nve',
                     timestep=self.params.timestep,
@@ -209,6 +216,23 @@ class NVE(JobABC):
                     temperature=self.params.temperature,
                     atoms=self.atoms,
                     rst_file=self.params.rst_file if self.params.rst_file else None,
+                    load_state=True,
+                )
+                self.atoms, velocities, step_offset = result
+                remaining = self.params.steps
+            elif self.params.restart:
+                if self.params.init_velocities and self.params.debug:
+                    self.log_info([
+                        "\nrestart=True: ignoring init_velocities and using coordinates/velocities from RST.\n"
+                    ])
+                result = self.logger.restart_simulation(
+                    ensemble='nve',
+                    timestep=self.params.timestep,
+                    n_steps=self.params.steps,
+                    temperature=self.params.temperature,
+                    atoms=self.atoms,
+                    rst_file=self.params.rst_file if self.params.rst_file else None,
+                    load_state=False,
                 )
                 if result is None:   # already completed
                     return
@@ -239,6 +263,8 @@ class NVE(JobABC):
                     velocities = self.atoms.arrays['velocities']
                 step_offset = 0
                 remaining   = self.params.steps
+                source = "input_xyz" if 'velocities' in self.atoms.arrays and not self.params.init_velocities else ("input_xyz" if 'velocities' in self.atoms.arrays and self.params.init_velocities else "init_velocities")
+                self.logger.log_debug_initial_state(self.atoms, velocities, mode=source, effective_step=step_offset)
 
             # Run simulation
             final_velocities = self._run_simulation(velocities,
@@ -271,6 +297,7 @@ class NVE(JobABC):
             f"  Traj every:       {self.params.traj_every} steps\n",
             f"\nVelocity init:      {self.params.init_velocities}\n",
             f"Restart mode:       {self.params.restart}\n",
+            f"Load-state mode:    {self.params.load_state}\n",
             f"RST every:          {self.params.rst_every} steps\n",
             f"Remove COM motion:  {self.params.remove_com}\n",
             f"Remove COM every:   {com_status}\n",
@@ -320,8 +347,9 @@ class NVE(JobABC):
         #   #md(ensemble=nve, timestep=0.1, steps=100000, restart=true)
         #
         # Only suppress this warning if you have already equilibrated the
-        # system with NVT (restart=true from a completed NVT run).
-        if not self.params.restart:
+        # system with NVT (restart=true from a completed NVT run, or
+        # load_state=true from an equilibrated NVT checkpoint).
+        if not (self.params.restart or self.params.load_state):
             nvt_warn = (
                 "\n"
                 "  ┌─ NVT PRE-EQUILIBRATION ADVISORY ──────────────────────────────────────┐\n"

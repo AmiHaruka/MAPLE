@@ -1,5 +1,6 @@
 import os
 import re
+from pathlib import Path
 from typing import Any, List, Union
 
 from ase import Atoms
@@ -15,6 +16,7 @@ from .header.header import print_banner
 
 from maple.function.utility import Molecules
 from maple.function.timer import timer
+from maple.function.dispatcher.md.logger import _backup_file
 
 class InputReader():
     def __init__(self):
@@ -72,10 +74,10 @@ class InputReader():
                 self.output = os.path.splitext(self.input)[0] + ".out"
                 self.output = os.path.abspath(self.output)
 
-            # Remove existing output file if present
-            if os.path.exists(self.output):
-                os.remove(self.output)
-            
+            # Back up existing output file using GROMACS-style numbering
+            output_path = Path(self.output)
+            _backup_file(output_path)
+
             print_banner(self.output)
 
             # ------------------------------------------------------------------

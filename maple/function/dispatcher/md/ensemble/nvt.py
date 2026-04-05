@@ -159,10 +159,12 @@ class NVTParams:
     traj_format:     str   = "xyz"        # "xyz" (text, default) or "dcd" (binary)
 
     verbose:         int   = 1            # 0=off, 1=GROMACS-style progress, 2=verbose
+    debug:           bool  = False
 
     init_velocities: bool  = True
     restart:          bool  = False
-    rst_file:         str   = ""           # Path to RST checkpoint file (default: auto-detect)
+    load_state:       bool  = False
+    rst_file:         str   = ""           # Path to RST checkpoint file (explicit source for restart/load_state)
     rst_every:        int   = 1000
     remove_com:       bool  = True
     remove_rotation:  bool  = False
@@ -233,6 +235,7 @@ class NVT(JobABC):
             traj_every=self.params.traj_every,
             traj_format=self.params.traj_format,
             verbose=self.params.verbose,
+            debug=self.params.debug,
         )
 
     def run(self):
@@ -240,7 +243,11 @@ class NVT(JobABC):
         with timer("MD Simulation (NVT)"):
             self._log_parameters()
 
-            if self.params.restart:
+            if self.params.load_state:
+                if self.params.init_velocities and self.params.debug:
+                    self.log_info([
+                        "\nload_state=True: ignoring init_velocities and using coordinates/velocities from RST.\n"
+                    ])
                 result = self.logger.restart_simulation(
                     ensemble='nvt',
                     timestep=self.params.timestep,
@@ -248,6 +255,25 @@ class NVT(JobABC):
                     temperature=self.params.temperature,
                     atoms=self.atoms,
                     rst_file=self.params.rst_file if self.params.rst_file else None,
+                    load_state=True,
+                )
+                self.atoms, velocities, step_offset = result
+                if self.logger.resumed_rng_state is not None:
+                    restore_rng_from_hex(self._rng, self.logger.resumed_rng_state)
+                remaining = self.params.steps
+            elif self.params.restart:
+                if self.params.init_velocities and self.params.debug:
+                    self.log_info([
+                        "\nrestart=True: ignoring init_velocities and using coordinates/velocities from RST.\n"
+                    ])
+                result = self.logger.restart_simulation(
+                    ensemble='nvt',
+                    timestep=self.params.timestep,
+                    n_steps=self.params.steps,
+                    temperature=self.params.temperature,
+                    atoms=self.atoms,
+                    rst_file=self.params.rst_file if self.params.rst_file else None,
+                    load_state=False,
                 )
                 if result is None:   # already completed
                     return
@@ -275,6 +301,8 @@ class NVT(JobABC):
                     velocities = self.atoms.arrays['velocities']
                 step_offset = 0
                 remaining   = self.params.steps
+                source = "input_xyz" if 'velocities' in self.atoms.arrays and not self.params.init_velocities else ("input_xyz" if 'velocities' in self.atoms.arrays and self.params.init_velocities else "init_velocities")
+                self.logger.log_debug_initial_state(self.atoms, velocities, mode=source, effective_step=step_offset)
 
             final_velocities = self._run_simulation(velocities,
                                                     step_offset=step_offset,
@@ -303,6 +331,7 @@ class NVT(JobABC):
             f"  Traj every:       {self.params.traj_every} steps\n",
             f"\nVelocity init:      {self.params.init_velocities}\n",
             f"Restart mode:       {self.params.restart}\n",
+            f"Load-state mode:    {self.params.load_state}\n",
             f"RST every:          {self.params.rst_every} steps\n",
             f"Remove COM motion:  {self.params.remove_com}\n",
         ]

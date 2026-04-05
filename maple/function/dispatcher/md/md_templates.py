@@ -29,9 +29,10 @@ traj_format = xyz        ; xyz (text) or dcd (binary)
 
 remove_com_every = 100   ; remove COM motion every N steps
 
-init_velocities = no     ; load velocities from rst_file (NVT -> NVE)
-restart     = yes
-rst_file    = nvt_md.rst ; load state from NVT equilibration
+init_velocities = no
+restart     = no
+load_state  = yes        ; read rst and start from step 0
+rst_file    = nvt_md.rst
 rst_every   = 1000       ; checkpoint frequency
 ; random_seed = 12345    ; uncomment for reproducibility
 """,
@@ -57,8 +58,9 @@ log_every   = 100
 traj_format = xyz
 
 init_velocities = yes
-restart     = no
-; rst_file  =            ; load state from a .rst checkpoint
+restart     = no         ; resume from checkpoint step
+load_state  = no         ; read rst and start from step 0
+; rst_file  =
 rst_every   = 1000
 """,
 
@@ -86,8 +88,9 @@ log_every   = 100
 traj_format = xyz
 
 init_velocities = yes
-restart     = no
-; rst_file  =            ; load state from a .rst checkpoint
+restart     = no         ; resume from checkpoint step
+load_state  = no         ; read rst and start from step 0
+; rst_file  =
 rst_every   = 1000
 """,
 }
