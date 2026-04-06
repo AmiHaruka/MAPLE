@@ -139,8 +139,12 @@ class MDLogger:
         self.temperatures        = []
         self.times               = []
         self.pressures           = []   # NPT only
-        self.kinetic_energies    = []   # for KE–PE anti-correlation
-        self.potential_energies  = []   # for KE–PE anti-correlation
+        self.kinetic_energies    = []   # raw KE history
+        self.potential_energies  = []   # raw PE history
+        self.analysis_energies   = []   # summary/progress energy history (sync when available)
+        self.analysis_temperatures = [] # summary/progress temperature history (sync when available)
+        self.analysis_kinetic_energies = []  # summary/progress KE history (sync when available)
+        self.analysis_label      = "raw"
         self.conserved_energies  = []   # V-rescale H̃ = H + W_bath (Bussi 2007 Eq. 15)
         self._n_atoms            = 0    # set in start_simulation
         self._is_pbc             = False  # set in start_simulation; affects fallback N_dof
@@ -421,12 +425,21 @@ class MDLogger:
         kinetic_energy_hartree = kinetic_energy
         total_energy_hartree = kinetic_energy_hartree + potential_energy_hartree
 
-        # Store for statistics
+        # Store raw values and analysis values separately.
+        analysis_temperature = temperature_sync if temperature_sync is not None else temperature
+        analysis_kinetic_energy = kinetic_energy_sync if kinetic_energy_sync is not None else kinetic_energy_hartree
+        analysis_total_energy = total_energy_sync if total_energy_sync is not None else total_energy_hartree
+        if temperature_sync is not None and kinetic_energy_sync is not None and total_energy_sync is not None:
+            self.analysis_label = "sync-corrected"
+
         self.energies.append(total_energy_hartree)
         self.temperatures.append(temperature)
         self.times.append(time)
         self.kinetic_energies.append(kinetic_energy_hartree)
         self.potential_energies.append(potential_energy_hartree)
+        self.analysis_energies.append(analysis_total_energy)
+        self.analysis_temperatures.append(analysis_temperature)
+        self.analysis_kinetic_energies.append(analysis_kinetic_energy)
         if conserved_energy is not None:
             self.conserved_energies.append(conserved_energy)
         if pressure is not None:
@@ -499,9 +512,11 @@ class MDLogger:
             progress_str = f"{progress_pct:.1f}%"
             current_ps   = time / 1000.0
             time_str     = f"{current_ps:.3f}/{self._total_ps:.3f}"
+            progress_temperature = temperature_sync if temperature_sync is not None else temperature
+            progress_total_energy = total_energy_sync if total_energy_sync is not None else total_energy_hartree
             line = (
                 f"  {step:>9}  {time_str:>{self._time_col_w}}  {progress_str:>8}  "
-                f"{temperature:>8.2f}  {total_energy_hartree:>15.6f}  "
+                f"{progress_temperature:>8.2f}  {progress_total_energy:>15.6f}  "
                 f"{speed_str:>13}  {eta_str:>10}"
             )
             if self._ensemble == 'npt' and pressure is not None:
@@ -791,10 +806,10 @@ class MDLogger:
         if self.verbose >= 1:
             print(flush=True)
 
-        energies     = np.array(self.energies)
-        temperatures = np.array(self.temperatures)
+        energies     = np.array(self.analysis_energies)
+        temperatures = np.array(self.analysis_temperatures)
         times        = np.array(self.times)          # fs
-        ke_arr       = np.array(self.kinetic_energies)
+        ke_arr       = np.array(self.analysis_kinetic_energies)
         pe_arr       = np.array(self.potential_energies)
         has_conserved = len(self.conserved_energies) > 0
         cons_arr     = np.array(self.conserved_energies) if has_conserved else None
@@ -932,10 +947,12 @@ class MDLogger:
                     f"  (skipped first {eq_time_ps:.2f} ps as equilibration)\n",
                 ]
 
+        energy_label = "sync-corrected" if self.analysis_label == "sync-corrected" else "raw"
         summary_lines = [
             "\n" + "="*80 + "\n",
             f"{'MD SIMULATION COMPLETED':^80}\n",
             "="*80 + "\n",
+            f"  Energy reporting basis:    {energy_label:>18}\n",
 
             f"\n{'── Energy Statistics ──':^80}\n",
             f"  Mean total energy:         {energy_mean:>18.8f}  Ha\n",
@@ -979,7 +996,8 @@ class MDLogger:
             f.write(f"Total time:                 {self.times[-1]:.2f} fs\n")
             f.write(f"Number of atoms:            {self._n_atoms}\n")
             f.write(f"N_dof:                      {n_dof}  "
-                    f"{dof_description}\n\n")
+                    f"{dof_description}\n")
+            f.write(f"Energy reporting basis:     {energy_label}\n\n")
 
             f.write("Energy Statistics:\n")
             f.write(f"  Mean total energy:        {energy_mean:.8f} Ha\n")
