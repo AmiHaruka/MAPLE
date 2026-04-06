@@ -212,7 +212,8 @@ class MDLogger:
                         pressure: float = None, step_offset: int = 0,
                         velocity_representation: str = VELOCITY_REPR_STANDARD,
                         n_dof: Optional[int] = None,
-                        dof_description: Optional[str] = None):
+                        dof_description: Optional[str] = None,
+                        write_sync_thermo: bool = False):
         """
         Initialize output files and write headers.
 
@@ -225,6 +226,8 @@ class MDLogger:
             pressure: Target pressure in bar (NPT only)
             step_offset: Step number already completed (for resume)
             velocity_representation: Velocity semantics used for stored velocities.
+            write_sync_thermo: Append sync-corrected thermo columns for
+                Langevin LF-Middle carried-velocity runs.
         """
         self._ensemble    = ensemble.lower()
         self.velocity_representation = normalize_velocity_representation(velocity_representation)
@@ -235,6 +238,7 @@ class MDLogger:
         self._step_offset = step_offset
         self._n_dof_override = n_dof
         self._dof_description = dof_description
+        self._write_sync_thermo = bool(write_sync_thermo)
         # Total steps across the full run (for progress %)
         self._n_steps     = n_steps + step_offset
 
@@ -324,11 +328,18 @@ class MDLogger:
                     f"{'Press(bar)':>12} {'Vol(A^3)':>12}\n"
                 )
             elif self._ensemble == 'nvt':
-                self.thermo_file.write(
+                header = (
                     f"# {'Step':>8} {'Time(fs)':>12} {'Temp(K)':>12} "
-                    f"{'KE(Ha)':>15} {'PE(Ha)':>15} {'TE(Ha)':>15} "
-                    f"{'H_cons(Ha)':>15}\n"
+                    f"{'KE(Ha)':>15} {'PE(Ha)':>15} {'TE(Ha)':>15}"
                 )
+                if self._write_sync_thermo:
+                    header += (
+                        f" {'Temp_sync(K)':>15} {'KE_sync(Ha)':>15} {'TE_sync(Ha)':>15}"
+                    )
+                else:
+                    header += f" {'H_cons(Ha)':>15}"
+                header += "\n"
+                self.thermo_file.write(header)
             else:
                 self.thermo_file.write(
                     f"# {'Step':>8} {'Time(fs)':>12} {'Temp(K)':>12} "
@@ -373,7 +384,10 @@ class MDLogger:
                  rng_state: Optional[str] = None,
                  rst_every: Optional[int] = None,
                  conserved_energy: Optional[float] = None,
-                 velocity_representation: Optional[str] = None):
+                 velocity_representation: Optional[str] = None,
+                 temperature_sync: Optional[float] = None,
+                 kinetic_energy_sync: Optional[float] = None,
+                 total_energy_sync: Optional[float] = None):
         """
         Log data for current step.
 
@@ -392,6 +406,9 @@ class MDLogger:
             conserved_energy: V-rescale conserved energy H̃ = H − Σ ΔW (Hartree).
                 Bussi 2007 Eq. 15.  None for NVE or Langevin thermostat.
             velocity_representation: Label describing the semantics of ``velocities``.
+            temperature_sync: Sync-corrected temperature (K) for optional thermo output.
+            kinetic_energy_sync: Sync-corrected kinetic energy (Hartree).
+            total_energy_sync: Sync-corrected total energy (Hartree).
         """
         velocity_representation = normalize_velocity_representation(
             velocity_representation or self.velocity_representation
@@ -430,11 +447,18 @@ class MDLogger:
                 f"{total_energy_hartree:>15.8f} {conserved_energy:>15.8f}\n"
             )
         else:
-            self.thermo_file.write(
+            line = (
                 f"{step:>10} {time:>12.3f} {temperature:>12.2f} "
                 f"{kinetic_energy_hartree:>15.8f} {potential_energy_hartree:>15.8f} "
-                f"{total_energy_hartree:>15.8f}\n"
+                f"{total_energy_hartree:>15.8f}"
             )
+            if self._write_sync_thermo and temperature_sync is not None and kinetic_energy_sync is not None and total_energy_sync is not None:
+                line += (
+                    f" {temperature_sync:>15.2f} {kinetic_energy_sync:>15.8f}"
+                    f" {total_energy_sync:>15.8f}"
+                )
+            line += "\n"
+            self.thermo_file.write(line)
         self.thermo_file.flush()
 
         # ------------------------------------------------------------------

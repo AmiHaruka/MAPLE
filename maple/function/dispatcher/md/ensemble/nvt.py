@@ -487,6 +487,10 @@ class NVT(JobABC):
         else:
             velocity_representation = VELOCITY_REPR_STANDARD
 
+        write_sync_thermo = bool(
+            is_langevin and velocity_representation == VELOCITY_REPR_LFMIDDLE_CARRIED
+        )
+
         self.logger.start_simulation(
             ensemble='nvt',
             timestep=self.params.timestep,
@@ -497,6 +501,7 @@ class NVT(JobABC):
             velocity_representation=velocity_representation,
             n_dof=self._runtime_n_dof,
             dof_description=self._runtime_dof_description,
+            write_sync_thermo=write_sync_thermo,
         )
         self.logger.log_main([
             f"\nStarting NVT simulation ({self.params.thermostat})...\n\n"
@@ -548,6 +553,24 @@ class NVT(JobABC):
             kinetic_energy   = calculate_kinetic_energy(self.atoms, v)
             potential_energy = self.atoms.get_potential_energy()  # Ha
 
+            temperature_sync = None
+            kinetic_energy_sync = None
+            total_energy_sync = None
+            if write_sync_thermo:
+                v_sync = lfmiddle_carried_to_standard(
+                    self.atoms,
+                    v,
+                    forces,
+                    integrator.timestep,
+                )
+                temperature_sync = calculate_temperature(
+                    self.atoms,
+                    v_sync,
+                    n_dof=self._runtime_n_dof,
+                )
+                kinetic_energy_sync = calculate_kinetic_energy(self.atoms, v_sync)
+                total_energy_sync = kinetic_energy_sync + potential_energy
+
             # Conserved energy: H̃ = H − Σ ΔW (V-rescale only)
             conserved = (kinetic_energy + potential_energy - w_bath) if is_vrescale else None
 
@@ -564,6 +587,9 @@ class NVT(JobABC):
                 rst_every=self.params.rst_every,
                 conserved_energy=conserved,
                 velocity_representation=velocity_representation,
+                temperature_sync=temperature_sync,
+                kinetic_energy_sync=kinetic_energy_sync,
+                total_energy_sync=total_energy_sync,
             )
 
         self.logger.end_simulation(
