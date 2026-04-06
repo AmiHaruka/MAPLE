@@ -113,7 +113,7 @@ class NVEParams:
     rst_every: int = 1000
     remove_com: bool = True
     remove_rotation: bool = False  # legacy alias path; prefer remove_angular
-    remove_angular: bool = False   # initialization-only COM + rotation; parallel to remove_com
+    remove_angular: bool = True    # initialization-only COM + rotation; default keeps isolated-system input velocities clean
 
     # ------------------------------------------------------------------
     # Periodic COM-momentum removal: remove_com_every
@@ -134,9 +134,12 @@ class NVEParams:
     # internal modes; it does NOT break the microcanonical ensemble because
     # the three COM translational DOF carry zero internal information.
     #
-    # Default interval 100 steps: identical to GROMACS (nstcomm=100),
-    # AMBER (nscm=100), LAMMPS (fix momentum 100 linear 1 1 1), and
-    # OpenMM's default ComMotionRemover period.
+    # Runtime COM removal is optional. For strict NVE, the default is disabled
+    # (`remove_com_every = 0`) so the trajectory remains a pure Hamiltonian
+    # evolution after initialization. Users can still opt in to periodic COM
+    # drift removal (for example every 100 steps, as in GROMACS/AMBER/LAMMPS/
+    # OpenMM) when they want numerical COM-drift control rather than a strict
+    # integrator benchmark.
     #
     # Refs:
     #   GROMACS Reference Manual 2024, §3.4.4 "Removal of COM motion":
@@ -153,11 +156,12 @@ class NVEParams:
     #     rotational-translational coupling gradually leaks energy into
     #     internal modes, inflating σ(TE) by 10–20 % over nanosecond runs.
     #
-    # Set to 0 to disable (only recommended for PBC systems where ASE's
-    # wrap() already handles cell-image drift; COM removal has no effect
-    # on periodic systems because the COM DOF are not well-defined).
+    # Set to 0 to disable. Under PBC, remove_com_every remains an optional
+    # numerical COM-drift control; wrap() handles cell imaging, but it does
+    # not zero the total momentum. In contrast, remove_angular_every is
+    # ignored under PBC because global rigid-body rotation is not well-defined.
     # ------------------------------------------------------------------
-    remove_com_every: int = 100     # runtime-only COM projection cadence
+    remove_com_every: int = 0       # runtime-only COM projection cadence; default disabled for strict NVE
     remove_angular_every: int = 0   # runtime-only angular projection cadence (includes COM first)
 
     # ------------------------------------------------------------------
@@ -285,8 +289,10 @@ class NVE(JobABC):
         """Log NVE parameters to output."""
         # Runtime motion projection settings are parallel, not enable/disable toggles.
         if any(self.atoms.pbc):
-            com_status = "disabled (PBC — not applicable)"
-            angular_status = "disabled (PBC — ignored)"
+            com_status = ("disabled (remove_com_every=0)"
+                          if self.params.remove_com_every == 0
+                          else f"every {self.params.remove_com_every} steps (PBC COM drift removal)")
+            angular_status = "disabled (PBC — rigid-body rotation is not well-defined)"
         else:
             com_status = ("disabled (remove_com_every=0)"
                           if self.params.remove_com_every == 0

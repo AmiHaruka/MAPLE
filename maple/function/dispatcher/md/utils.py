@@ -153,7 +153,7 @@ def get_runtime_dof_policy(
 
     if is_pbc and angular_requested:
         warnings_list.append(
-            "remove_angular_every is ignored for periodic systems because global rigid-body rotation is not well-defined under PBC."
+            "remove_angular_every is ignored for periodic systems because global rigid-body rotation is not well-defined under PBC. remove_com_every remains an independent optional runtime COM-drift removal under PBC."
         )
         angular_requested = False
 
@@ -633,9 +633,11 @@ def apply_runtime_motion_projection(
 
     `remove_com_every` and `remove_angular_every` are parallel settings, not
     enable/disable toggles. The former controls runtime COM removal only; the
-    latter controls runtime angular projection. If an angular projection fires,
-    it always includes COM removal first and therefore supersedes COM-only
-    removal for that step.
+    latter controls runtime angular projection. Under PBC, runtime COM removal
+    may still be applied as an optional numerical COM-drift control, whereas
+    runtime angular projection is ignored because global rigid-body rotation is
+    not well-defined. If an angular projection fires, it always includes COM
+    removal first and therefore supersedes COM-only removal for that step.
     """
     out = velocities.copy()
     if any(atoms.pbc):

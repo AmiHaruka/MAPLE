@@ -20,7 +20,8 @@ Algorithm (Bussi et al., 2007, Eq. A7):
 Notes:
     - Produces the correct canonical ensemble unlike plain Berendsen rescaling.
     - No per-atom friction; global kinetic energy is rescaled uniformly.
-    - τ → 0 reduces to instantaneous rescaling (isokinetic, incorrect ensemble).
+    - τ → 0 approaches very strong stochastic coupling; this is not the same as
+      a deterministic isokinetic constraint and should not be described as one.
     - τ → ∞ reduces to NVE (no coupling).
 
 Reference:
@@ -90,9 +91,10 @@ class VRescaleThermostat:
 
     def _sample_chi2(self, n: int) -> float:
         """
-        Sample from χ²(n) distribution as sum of n squared normals.
+        Sample from χ²(n) distribution as the exact sum of n squared normals.
 
-        For large n uses the normal approximation χ²(n) ≈ N(n, 2n).
+        This implementation always uses the direct sum-of-squares form rather
+        than a large-n normal approximation.
         """
         if n <= 0:
             return 0.0

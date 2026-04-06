@@ -11,10 +11,12 @@ J. Chem. Phys. 138, 174102 (2013), and by Zhang et al., J. Phys. Chem. A 123,
     c2 = sqrt((1 - c1**2) * k_B * T / m)
     xi ~ N(0,1)
 
-The surrounding LFMiddle splitting is handled outside this thermostat. This
-module does not apply COM or angular-motion projection. If runtime motion
-projection is desired, it must be handled by the caller or by an
-ensemble-level policy outside this thermostat.
+The surrounding LFMiddle splitting is handled outside this thermostat. In the
+current codebase, the full sequence is assembled in the ensemble layer using
+LF-middle carried velocities rather than exposing the textbook BAOAB half-step
+notation directly in this module. This module does not apply COM or angular-
+motion projection. If runtime motion projection is desired, it must be handled
+by the caller or by an ensemble-level policy outside this thermostat.
 
 References
 ----------
@@ -34,9 +36,11 @@ class LangevinThermostat:
     LFMiddle Langevin thermostat.
 
     Applies the thermostat-only Ornstein-Uhlenbeck velocity update used by the
-    LFMiddle formulation. This class does not apply COM or angular-motion
-    projection; if such runtime projection is desired, it remains a caller- or
-    ensemble-level policy outside this thermostat.
+    LFMiddle formulation. The complete splitting is assembled in the ensemble
+    layer; this class only implements the OU thermostat substep for the
+    LF-middle carried-velocity representation. This class does not apply COM or
+    angular-motion projection; if such runtime projection is desired, it
+    remains a caller- or ensemble-level policy outside this thermostat.
     """
 
     def __init__(
@@ -63,7 +67,11 @@ class LangevinThermostat:
         """
         self.atoms       = atoms
         self.temperature = temperature
-        self.friction    = friction * FS_TO_AU           # 1/fs → 1/a.u.
+        # NOTE: `timestep` is converted to atomic units below. The matching unit
+        # treatment for `friction` must be kept consistent so that γ·dt remains
+        # dimensionless in the OU factor exp(-γ·dt); verify carefully if this
+        # line is ever changed.
+        self.friction    = friction / FS_TO_AU           # 1/fs → 1/a.u.
         self.timestep    = timestep * FS_TO_AU           # fs   → a.u.
         self.masses      = atoms.get_masses() * AMU_TO_AU  # amu → a.u.
         self.rng         = rng if rng is not None else np.random.default_rng()
