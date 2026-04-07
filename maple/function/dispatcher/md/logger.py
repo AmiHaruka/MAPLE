@@ -145,7 +145,7 @@ class MDLogger:
         self.analysis_temperatures = [] # summary/progress temperature history (sync when available)
         self.analysis_kinetic_energies = []  # summary/progress KE history (sync when available)
         self.analysis_label      = "raw"
-        self.conserved_energies  = []   # V-rescale H̃ = H + W_bath (Bussi 2007 Eq. 15)
+        self.conserved_energies  = []   # V-rescale conserved-energy history: H̃ = H − ΣΔW_external
         self._n_atoms            = 0    # set in start_simulation
         self._is_pbc             = False  # set in start_simulation; affects fallback N_dof
         self._n_dof_override: Optional[int] = None
@@ -341,7 +341,7 @@ class MDLogger:
                         f" {'Temp_sync(K)':>15} {'KE_sync(Ha)':>15} {'TE_sync(Ha)':>15}"
                     )
                 else:
-                    header += f" {'H_cons(Ha)':>15}"
+                    header += f" {'H_cons_ext(Ha)':>15}"
                 header += "\n"
                 self.thermo_file.write(header)
             else:
@@ -407,8 +407,11 @@ class MDLogger:
             pressure: Instantaneous pressure in bar (NPT only)
             volume: Cell volume in Å³ (NPT only)
             rng_state: Hex-encoded RNG state to embed in trajectory frame (NVT/NPT only)
-            conserved_energy: V-rescale conserved energy H̃ = H − Σ ΔW (Hartree).
-                Bussi 2007 Eq. 15.  None for NVE or Langevin thermostat.
+            conserved_energy: V-rescale conserved-energy bookkeeping value
+                H̃ = H − ΣΔW_external (Hartree). For pure thermostat dynamics this
+                reduces to the Bussi 2007 Eq. 15 form; when runtime COM/angular
+                projection is enabled it also includes the projection KE change.
+                None for NVE or Langevin thermostat.
             velocity_representation: Label describing the semantics of ``velocities``.
             temperature_sync: Sync-corrected temperature (K) for optional thermo output.
             kinetic_energy_sync: Sync-corrected kinetic energy (Hartree).

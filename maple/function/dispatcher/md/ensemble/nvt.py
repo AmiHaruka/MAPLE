@@ -47,6 +47,27 @@ from ..rst_io import get_rng_state_hex, restore_rng_from_hex
 from ..logger import MDLogger
 
 
+def _apply_projection_with_work(
+    atoms: Atoms,
+    velocities: np.ndarray,
+    *,
+    step: int,
+    remove_com_every: int = 0,
+    remove_angular_every: int = 0,
+) -> tuple[np.ndarray, str, float]:
+    """Apply runtime motion projection and return its kinetic-energy change."""
+    kinetic_before = calculate_kinetic_energy(atoms, velocities)
+    projected, projection = apply_runtime_motion_projection(
+        atoms,
+        velocities,
+        step=step,
+        remove_com_every=remove_com_every,
+        remove_angular_every=remove_angular_every,
+    )
+    kinetic_after = calculate_kinetic_energy(atoms, projected)
+    return projected, projection, kinetic_after - kinetic_before
+
+
 @dataclass
 class NVTParams:
     """
@@ -515,12 +536,14 @@ class NVT(JobABC):
             self.atoms.get_forces() * HA_PER_ANG_TO_AU
         )  # Ha/Å → a.u.
 
-        # V-rescale conserved energy — discrete form of Bussi 2007 Eq. 15:
-        #   H̃_N = H_N − Σ_{k=0}^{N-1} ΔW_k
-        # where ΔW_k = (α²_k − 1)·K_k is the energy injected by the thermostat
-        # at step k.  H̃ only accumulates the Verlet integration error.
-        # Its drift measures timestep accuracy, analogous to TE drift in NVE.
-        # Only valid for NVT with V-rescale; Langevin has no analogous quantity.
+        # V-rescale conserved-energy bookkeeping.
+        # For pure Bussi 2007 dynamics, H̃_N = H_N − Σ ΔW_thermo,k (Eq. 15).
+        # When runtime COM/angular projection is enabled, that projection is an
+        # additional non-Hamiltonian velocity update, so its KE change must be
+        # accumulated in the same external-work ledger:
+        #   H̃_ext,N = H_N − Σ (ΔW_thermo,k + ΔW_proj,k)
+        # This keeps the reported conserved quantity meaningful when optional
+        # runtime motion projection is allowed to coexist with V-rescale.
         is_vrescale = self.params.thermostat == 'v-rescale'
         w_bath = 0.0
 
@@ -539,13 +562,15 @@ class NVT(JobABC):
                 v = self.thermostat.apply(v)
                 v, forces = integrator.lfmiddle_post_thermostat(v)
 
-            v, _projection = apply_runtime_motion_projection(
+            v, _projection, delta_w_proj = _apply_projection_with_work(
                 self.atoms,
                 v,
                 step=step,
                 remove_com_every=self.params.remove_com_every,
                 remove_angular_every=self.params.remove_angular_every,
             )
+            if is_vrescale:
+                w_bath += delta_w_proj
 
             abs_step         = step_offset + step
             current_time     = abs_step * self.params.timestep
