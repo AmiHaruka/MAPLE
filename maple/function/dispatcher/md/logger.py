@@ -821,24 +821,18 @@ class MDLogger:
         energy_std  = np.std(energies)
 
         # ------------------------------------------------------------------
-        # 2. Linear drift rate via least-squares fit
-        #    Front 20% of trajectory skipped as equilibration.
+        # 2. Total energy drift from a full-trajectory linear fit.
+        #    Use all sampled points for robustness, then report the fitted
+        #    total change across the full trajectory in kcal/mol.
         # ------------------------------------------------------------------
-        EQ_FRAC   = 0.20
+        analysis_time_ps = (times[-1] - times[0]) * 1e-3 if len(times) >= 2 else 0.0
+        total_time_fs = (times[-1] - times[0]) if len(times) >= 2 else 0.0
 
-        eq_cut = max(1, int(len(times) * EQ_FRAC))
-        prod_times    = times[eq_cut:]
-        prod_energies = energies[eq_cut:]
-        prod_time_ns  = (prod_times[-1] - prod_times[0]) * FS_TO_NS if len(prod_times) >= 2 else 0.0
-        eq_time_ps    = (times[eq_cut - 1] - times[0]) * 1e-3
-
-        if len(prod_times) >= 2 and prod_time_ns > 0:
-            coef = np.polyfit(prod_times, prod_energies, 1)
-            drift_rate = (coef[0]
-                          * HARTREE_TO_KCAL_PER_MOL
-                          / FS_TO_NS)
+        if len(times) >= 2 and total_time_fs > 0:
+            coef = np.polyfit(times, energies, 1)
+            drift_value = coef[0] * total_time_fs * HARTREE_TO_KCAL_PER_MOL
         else:
-            drift_rate = float('nan')
+            drift_value = float('nan')
 
         # ------------------------------------------------------------------
         # 3. Relative energy fluctuation
@@ -847,25 +841,16 @@ class MDLogger:
 
         # ------------------------------------------------------------------
         # 3b. V-rescale conserved energy H̃ drift (Bussi 2007, Eq. 15)
-        #     H̃ = H − Σ ΔW should be constant; its drift measures integration
-        #     accuracy, analogous to TE drift in NVE.
+        #     H̃ = H − Σ ΔW should be constant; measure its drift by fitting the
+        #     full trajectory and reporting the fitted total change in kcal/mol.
         # ------------------------------------------------------------------
         if has_conserved and len(cons_arr) == len(times):
-            cons_mean = np.mean(cons_arr)
-            cons_std  = np.std(cons_arr)
-            cons_rel  = cons_std / abs(cons_mean) if cons_mean != 0 else float('nan')
-            prod_cons = cons_arr[eq_cut:]
-            if len(prod_times) >= 2 and prod_time_ns > 0:
-                cons_coef = np.polyfit(prod_times, prod_cons, 1)
-                cons_drift = (cons_coef[0]
-                              * HARTREE_TO_KCAL_PER_MOL
-                              / FS_TO_NS)
+            if len(times) >= 2 and total_time_fs > 0:
+                cons_coef = np.polyfit(times, cons_arr, 1)
+                cons_drift = cons_coef[0] * total_time_fs * HARTREE_TO_KCAL_PER_MOL
             else:
                 cons_drift = float('nan')
         else:
-            cons_mean  = float('nan')
-            cons_std   = float('nan')
-            cons_rel   = float('nan')
             cons_drift = float('nan')
 
         # ------------------------------------------------------------------
@@ -897,14 +882,15 @@ class MDLogger:
         # ------------------------------------------------------------------
         is_nve = self._ensemble == 'nve'
         ens_label = self._ensemble.upper()
+        drift_metric_label = "H̃ drift" if has_conserved else "Energy drift"
+        drift_metric_value = cons_drift if has_conserved else drift_value
 
         if is_nve:
             energy_section = [
                 f"\n{'── [NVE] Energy Conservation ──':^80}\n",
                 f"  σ(TE)/|⟨TE⟩|:              {rel_fluctuation:>18.2e}\n",
-                f"  Linear drift rate:         {drift_rate:>+18.6f}  kcal/mol/ns\n",
-                f"  Production window:         {prod_time_ns*1000:>15.3f}  ps"
-                f"  (skipped first {eq_time_ps:.2f} ps as equilibration)\n",
+                f"  {drift_metric_label}:         {drift_metric_value:>+18.6f}  kcal/mol\n",
+                f"  Fit window:           {analysis_time_ps:>15.3f}  ps  (full trajectory)\n",
                 f"  r(KE,PE):                  {ke_pe_corr:>18.4f}\n",
             ]
             temp_section = [
@@ -927,27 +913,16 @@ class MDLogger:
                 f"  Mean TE:                   {energy_mean:>18.8f}  Ha\n",
                 f"  σ(TE):                     {energy_std:>18.8f}  Ha\n",
                 f"  σ(TE)/|⟨TE⟩|:             {rel_fluctuation:>18.2e}\n",
-                f"  Linear drift rate:         {drift_rate:>+18.6f}  kcal/mol/ns\n",
-                f"  Production window:         {prod_time_ns*1000:>15.3f}  ps"
-                f"  (skipped first {eq_time_ps:.2f} ps as equilibration)\n",
+                f"  {drift_metric_label}:         {drift_metric_value:>+18.6f}  kcal/mol\n",
+                f"  Fit window:           {analysis_time_ps:>15.3f}  ps  (full trajectory)\n",
             ]
-            # V-rescale conserved energy section (NVT only)
-            # Discrete form of Bussi 2007 Eq. 15:
-            #   H̃_N = H_N − Σ_{k=0}^{N-1} (α²_k − 1)·K_k
-            # H̃ drift measures timestep accuracy, analogous to TE drift in NVE.
-            if has_conserved:
-                temp_section += [
-                    f"\n{'── [' + ens_label + '] Conserved Energy H̃ (Bussi 2007) ──':^80}\n",
-                    f"  H̃ = H − Σ ΔW_thermostat\n",
-                    f"  ⟨H̃⟩:                      {cons_mean:>18.8f}  Ha\n",
-                    f"  σ(H̃):                     {cons_std:>18.8f}  Ha\n",
-                    f"  σ(H̃)/|⟨H̃⟩|:             {cons_rel:>18.2e}\n",
-                    f"  H̃ drift rate:             {cons_drift:>+18.6f}  kcal/mol/ns\n",
-                    f"  Production window:         {prod_time_ns*1000:>15.3f}  ps"
-                    f"  (skipped first {eq_time_ps:.2f} ps as equilibration)\n",
-                ]
 
-        energy_label = "sync-corrected" if self.analysis_label == "sync-corrected" else "raw"
+        if has_conserved:
+            energy_label = "vrescale-conserved"
+        elif self.analysis_label == "sync-corrected":
+            energy_label = "lfmiddle-sync-corrected"
+        else:
+            energy_label = "vv-raw"
         summary_lines = [
             "\n" + "="*80 + "\n",
             f"{'MD SIMULATION COMPLETED':^80}\n",
@@ -1006,9 +981,8 @@ class MDLogger:
             if is_nve:
                 f.write("Energy Conservation Metrics [NVE]:\n")
                 f.write(f"  σ(TE)/|⟨TE⟩|:            {rel_fluctuation:.2e}\n")
-                f.write(f"  Linear drift rate:        {drift_rate:+.6f} kcal/mol/ns\n")
-                f.write(f"  Production window:        {prod_time_ns*1000:.3f} ps"
-                        f"  (skipped first {eq_time_ps:.2f} ps as equilibration)\n")
+                f.write(f"  {drift_metric_label}:        {drift_metric_value:+.6f} kcal/mol\n")
+                f.write(f"  Fit window:          {analysis_time_ps:.3f} ps  (full trajectory)\n")
                 f.write(f"  r(KE,PE):                 {ke_pe_corr:.4f}\n\n")
 
                 f.write("Temperature Statistics:\n")
@@ -1023,19 +997,8 @@ class MDLogger:
 
                 f.write(f"Energy Metrics [{self._ensemble.upper()}]:\n")
                 f.write(f"  σ(TE)/|⟨TE⟩|:            {rel_fluctuation:.2e}\n")
-                f.write(f"  Linear drift rate:        {drift_rate:+.6f} kcal/mol/ns\n")
-                f.write(f"  Production window:        {prod_time_ns*1000:.3f} ps"
-                        f"  (skipped first {eq_time_ps:.2f} ps as equilibration)\n")
-
-                if has_conserved:
-                    f.write(f"\nConserved Energy H̃ (Bussi 2007 Eq. 15):\n")
-                    f.write(f"  H̃ = H − Σ ΔW_thermostat\n")
-                    f.write(f"  ⟨H̃⟩:                    {cons_mean:.8f} Ha\n")
-                    f.write(f"  σ(H̃):                   {cons_std:.8f} Ha\n")
-                    f.write(f"  σ(H̃)/|⟨H̃⟩|:           {cons_rel:.2e}\n")
-                    f.write(f"  H̃ drift rate:           {cons_drift:+.6f} kcal/mol/ns\n")
-                    f.write(f"  Production window:        {prod_time_ns*1000:.3f} ps"
-                            f"  (skipped first {eq_time_ps:.2f} ps as equilibration)\n")
+                f.write(f"  {drift_metric_label}:        {drift_metric_value:+.6f} kcal/mol\n")
+                f.write(f"  Fit window:          {analysis_time_ps:.3f} ps  (full trajectory)\n")
 
             if self.pressures:
                 pressures_arr = np.array(self.pressures)
