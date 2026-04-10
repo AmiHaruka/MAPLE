@@ -1,8 +1,11 @@
+import io
+
 import numpy as np
 from ase import Atoms
 from ase.calculators.calculator import Calculator, all_changes
 
 from maple.function.dispatcher.md.ensemble.nvt import NVT, _apply_projection_with_work
+from maple.function.dispatcher.md.logger import MDLogger
 from maple.function.dispatcher.md.utils import calculate_kinetic_energy
 
 
@@ -132,3 +135,73 @@ def test_nvt_vrescale_conserved_energy_includes_projection_work(monkeypatch, tmp
     assert np.isclose(captured["kinetic_energy"], 0.0)
     assert np.isclose(captured["conserved_energy"], expected_conserved)
     assert np.isclose(captured["conserved_energy"], -expected_projection_work)
+
+
+def test_mdlogger_progress_and_thermo_include_conserved_energy_for_vrescale(tmp_path, monkeypatch):
+    output_path = tmp_path / "nvt.out"
+    output_path.write_text("", encoding="utf-8")
+    logger = MDLogger(output_path=str(output_path), log_every=100, traj_every=100, verbose=1)
+
+    atoms = Atoms("H2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 0.74]])
+    atoms.pbc = [False, False, False]
+    velocities = np.zeros((2, 3))
+
+    printed = []
+    monkeypatch.setattr("builtins.print", lambda *args, **kwargs: printed.append("".join(str(a) for a in args)))
+
+    logger.start_simulation(
+        ensemble="nvt",
+        timestep=0.5,
+        n_steps=100,
+        temperature=300.0,
+        atoms=atoms,
+        step_offset=0,
+        write_sync_thermo=False,
+        write_conserved_energy=True,
+    )
+    logger.log_step(
+        step=100,
+        time=50.0,
+        temperature=300.0,
+        kinetic_energy=1.0,
+        potential_energy=2.0,
+        total_energy=3.0,
+        atoms=atoms,
+        velocities=velocities,
+        conserved_energy=2.5,
+    )
+
+    thermo_text = logger.thermo_path.read_text(encoding="utf-8")
+
+    assert "H_cons_ext(Ha)" in thermo_text
+    assert any("H_cons_ext(Ha)" in line for line in printed)
+
+
+def test_mdlogger_start_simulation_backs_up_preexisting_rst_files(tmp_path, monkeypatch):
+    output_path = tmp_path / "nvt.out"
+    output_path.write_text("", encoding="utf-8")
+    logger = MDLogger(output_path=str(output_path), log_every=100, traj_every=100, verbose=0)
+
+    atoms = Atoms("H2", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 0.74]])
+    atoms.pbc = [False, False, False]
+
+    logger.rst_path.write_text("rst-current", encoding="utf-8")
+    logger.rst_prev_path.write_text("rst-prev", encoding="utf-8")
+
+    monkeypatch.setattr(logger, "log_main", lambda *args, **kwargs: None)
+
+    logger.start_simulation(
+        ensemble="nvt",
+        timestep=0.5,
+        n_steps=10,
+        temperature=300.0,
+        atoms=atoms,
+        step_offset=0,
+        write_sync_thermo=False,
+    )
+
+    backup_current = logger.rst_path.parent / f"#{logger.rst_path.name}.1#"
+    backup_prev = logger.rst_prev_path.parent / f"#{logger.rst_prev_path.name}.1#"
+
+    assert backup_current.exists()
+    assert backup_prev.exists()

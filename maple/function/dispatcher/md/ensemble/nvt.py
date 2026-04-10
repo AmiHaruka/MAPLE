@@ -511,6 +511,7 @@ class NVT(JobABC):
         write_sync_thermo = bool(
             is_langevin and velocity_representation == VELOCITY_REPR_LFMIDDLE_CARRIED
         )
+        is_vrescale = self.params.thermostat == 'v-rescale'
 
         self.logger.start_simulation(
             ensemble='nvt',
@@ -523,6 +524,7 @@ class NVT(JobABC):
             n_dof=self._runtime_n_dof,
             dof_description=self._runtime_dof_description,
             write_sync_thermo=write_sync_thermo,
+            write_conserved_energy=is_vrescale,
         )
         self.logger.log_main([
             f"\nStarting NVT simulation ({self.params.thermostat})...\n\n"

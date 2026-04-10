@@ -217,7 +217,8 @@ class MDLogger:
                         velocity_representation: str = VELOCITY_REPR_STANDARD,
                         n_dof: Optional[int] = None,
                         dof_description: Optional[str] = None,
-                        write_sync_thermo: bool = False):
+                        write_sync_thermo: bool = False,
+                        write_conserved_energy: bool = False):
         """
         Initialize output files and write headers.
 
@@ -232,6 +233,8 @@ class MDLogger:
             velocity_representation: Velocity semantics used for stored velocities.
             write_sync_thermo: Append sync-corrected thermo columns for
                 Langevin LF-Middle carried-velocity runs.
+            write_conserved_energy: Append conserved-energy columns for
+                ensembles/thermostats that define one explicitly.
         """
         self._ensemble    = ensemble.lower()
         self.velocity_representation = normalize_velocity_representation(velocity_representation)
@@ -243,6 +246,7 @@ class MDLogger:
         self._n_dof_override = n_dof
         self._dof_description = dof_description
         self._write_sync_thermo = bool(write_sync_thermo)
+        self._write_conserved_energy = bool(write_conserved_energy)
         # Total steps across the full run (for progress %)
         self._n_steps     = n_steps + step_offset
 
@@ -340,7 +344,7 @@ class MDLogger:
                     header += (
                         f" {'Temp_sync(K)':>15} {'KE_sync(Ha)':>15} {'TE_sync(Ha)':>15}"
                     )
-                else:
+                elif self._write_conserved_energy:
                     header += f" {'H_cons_ext(Ha)':>15}"
                 header += "\n"
                 self.thermo_file.write(header)
@@ -362,14 +366,16 @@ class MDLogger:
             hdr = (
                 f"\n"
                 f"  {'Step':>9}  {'Time(ps)':>{_time_col_w}}  {'Progress':>8}  "
-                f"{'T(K)':>8}  {'E_total(Ha)':>15}  "
-                f"{'Speed(ns/day)':>13}  {'ETA':>10}"
+                f"{'T(K)':>8}  {'E_total(Ha)':>15}"
+                + (f"  {'H_cons_ext(Ha)':>15}" if self._write_conserved_energy else "")
+                + f"  {'Speed(ns/day)':>13}  {'ETA':>10}"
                 + (f"  {'P(bar)':>10}" if is_npt else "")
             )
             sep = (
                 f"  {'-'*9}  {'-'*_time_col_w}  {'-'*8}  "
-                f"{'-'*8}  {'-'*15}  "
-                f"{'-'*13}  {'-'*10}"
+                f"{'-'*8}  {'-'*15}"
+                + (f"  {'-'*15}" if self._write_conserved_energy else "")
+                + f"  {'-'*13}  {'-'*10}"
                 + (f"  {'-'*10}" if is_npt else "")
             )
             self._time_col_w = _time_col_w
@@ -519,9 +525,11 @@ class MDLogger:
             progress_total_energy = total_energy_sync if total_energy_sync is not None else total_energy_hartree
             line = (
                 f"  {step:>9}  {time_str:>{self._time_col_w}}  {progress_str:>8}  "
-                f"{progress_temperature:>8.2f}  {progress_total_energy:>15.6f}  "
-                f"{speed_str:>13}  {eta_str:>10}"
+                f"{progress_temperature:>8.2f}  {progress_total_energy:>15.6f}"
             )
+            if self._write_conserved_energy and conserved_energy is not None:
+                line += f"  {conserved_energy:>15.6f}"
+            line += f"  {speed_str:>13}  {eta_str:>10}"
             if self._ensemble == 'npt' and pressure is not None:
                 line += f"  {pressure:>10.2f}"
 
@@ -531,11 +539,14 @@ class MDLogger:
 
         # Also write to .dat file at log_every frequency (unchanged)
         if step % self.log_every == 0:
-            self.log_main([
+            line = (
                 f"  Step {step:>8}  {time:>10.2f} fs  "
                 f"T {temperature:>7.2f} K  "
-                f"E {total_energy_hartree:>14.6f} Ha\n"
-            ])
+                f"E {total_energy_hartree:>14.6f} Ha"
+            )
+            if self._write_conserved_energy and conserved_energy is not None:
+                line += f"  H_cons {conserved_energy:>14.6f} Ha"
+            self.log_main([line + "\n"])
 
         # Write trajectory at traj_every frequency.
         # frame_number stores the MD *step* number so that restart_simulation()
