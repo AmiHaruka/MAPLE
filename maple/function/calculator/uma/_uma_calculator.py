@@ -23,7 +23,7 @@ except ImportError:
 EV2HARTREE = 1.0 / 27.211386245988
 
 UMA_MODELS_MAP = {
-    "uma": "uma-s-1p1",
+    "uma": "uma-s-1p2",
     "uma-s-1p1": "uma-s-1p1",
     "uma-s-1p2": "uma-s-1p2",
     "uma-m-1p1": "uma-m-1p1",
@@ -58,7 +58,7 @@ class UMACalculator(FAIRChemCalculator):
         if checkpoint_path and os.path.isfile(checkpoint_path):
             return load_predict_unit(
                 checkpoint_path,
-                inference_settings="default",
+                inference_settings=UMA_INFERENCE_SETTINGS,
                 overrides=overrides,
                 device=device,
             )
@@ -156,7 +156,7 @@ class UMACalculator(FAIRChemCalculator):
     ):
         if size is not None:
             size = str(size).lower()
-        checkpoint = UMA_MODELS_MAP.get(size, size) if size else UMA_MODELS_MAP.get(model, "uma-s-1p1")
+        checkpoint = UMA_MODELS_MAP.get(size, size) if size else UMA_MODELS_MAP.get(model, "uma-s-1p2")
 
         if task is not None:
             task = str(task).lower()
