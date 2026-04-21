@@ -22,8 +22,9 @@ except ImportError:
 
 EV2HARTREE = 1.0 / 27.211386245988
 
+UMA_DEFAULT_SIZE = "uma-s-1p1"
 UMA_MODELS_MAP = {
-    "uma": "uma-s-1p2",
+    "uma": UMA_DEFAULT_SIZE,
     "uma-s-1p1": "uma-s-1p1",
     "uma-s-1p2": "uma-s-1p2",
     "uma-m-1p1": "uma-m-1p1",
@@ -35,7 +36,6 @@ SUPPORTED_UMA_TASKS = {"omol", "omat", "oc20", "odac", "omc", "oc22", "oc25"}
 # FAIR Chemistry's turbo mode is optimized for repeated evaluations on a
 # fixed-composition system, which matches MAPLE's NEB/TS/freq workloads.
 UMA_INFERENCE_SETTINGS = "turbo"
-UMA_DEFAULT_SIZE = "uma-s-1p2"
 
 
 class UMACalculator(FAIRChemCalculator):
@@ -159,7 +159,7 @@ class UMACalculator(FAIRChemCalculator):
     ):
         if size is not None:
             size = str(size).lower()
-        checkpoint = UMA_MODELS_MAP.get(size, size) if size else UMA_MODELS_MAP.get(model, "uma-s-1p2")
+        checkpoint = UMA_MODELS_MAP.get(size, size) if size else UMA_MODELS_MAP.get(model, UMA_DEFAULT_SIZE)
 
         if task is not None:
             task = str(task).lower()
