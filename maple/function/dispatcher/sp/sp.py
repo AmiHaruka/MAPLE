@@ -16,8 +16,6 @@ class SPParams:
 
 class SinglePoint(JobABC):
 
-    eV2Hartree = 1 / 27.211386245988
-
     def __init__(self, output: str, atoms: Union[Atoms, List[Atoms]],
                  paras: Optional[dict] = None):
         super().__init__(output)

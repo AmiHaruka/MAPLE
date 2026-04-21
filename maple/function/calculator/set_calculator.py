@@ -222,7 +222,11 @@ class SetClaculator:
                 solvent=self.solvent,
             )
         elif model == "uma":
-            from .uma._uma_calculator import UMACalculator
+            from .uma._uma_calculator import (
+                UMACalculator,
+                UMA_DEFAULT_SIZE,
+                UMA_FALLBACK_HF_MODELS,
+            )
 
             uma_task = self.model_options.get("task")
             uma_size = self.model_options.get("size")

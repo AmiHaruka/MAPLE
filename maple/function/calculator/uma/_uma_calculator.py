@@ -35,6 +35,7 @@ SUPPORTED_UMA_TASKS = {"omol", "omat", "oc20", "odac", "omc", "oc22", "oc25"}
 # FAIR Chemistry's turbo mode is optimized for repeated evaluations on a
 # fixed-composition system, which matches MAPLE's NEB/TS/freq workloads.
 UMA_INFERENCE_SETTINGS = "turbo"
+UMA_DEFAULT_SIZE = "uma-s-1p2"
 
 
 class UMACalculator(FAIRChemCalculator):
@@ -56,8 +57,9 @@ class UMACalculator(FAIRChemCalculator):
         checkpoint_path: str | None = None,
     ):
         if checkpoint_path and os.path.isfile(checkpoint_path):
+            compat_path = UMACalculator._prepare_compat_checkpoint(checkpoint, checkpoint_path)
             return load_predict_unit(
-                checkpoint_path,
+                compat_path,
                 inference_settings=UMA_INFERENCE_SETTINGS,
                 overrides=overrides,
                 device=device,
@@ -72,8 +74,9 @@ class UMACalculator(FAIRChemCalculator):
             )
 
         if os.path.isfile(checkpoint):
+            compat_path = UMACalculator._prepare_compat_checkpoint(Path(checkpoint).stem, checkpoint)
             return load_predict_unit(
-                checkpoint,
+                compat_path,
                 inference_settings=UMA_INFERENCE_SETTINGS,
                 overrides=overrides,
                 device=device,
