@@ -35,8 +35,8 @@ class SinglePoint(JobABC):
     def _run_single(self):
         """Original single-point calculation logic."""
         with timer("Single Point Energy Calculation"):
-            energy_hartree = self.atoms.get_potential_energy()
-            self.log_info([f"\nEnergy: {energy_hartree:.10f} Hartree\n"])
+            energy = self.atoms.get_potential_energy()
+            self.log_info([f"\nEnergy: {energy:.10f} Hartree\n"])
 
     def _run_trajectory(self):
         """Process multiple structures sequentially."""
