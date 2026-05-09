@@ -101,6 +101,13 @@ H    0.802   0.842   1.742
 | `#scan(method=lbfgs)` | PES scan |
 | `#md(ensemble=nvt,mdp=nvt.mdp)` | Molecular dynamics |
 
+### Optimization Outputs
+
+Optimization jobs write the final structure to `<input>_opt.xyz` and the
+optimization trajectory to `<input>_opt_traj.xyz`. Older scripts that read
+`<input>_traj.xyz` should migrate to `<input>_opt_traj.xyz`, or use
+`<input>_opt.xyz` when only the final optimized geometry is needed.
+
 ### Coordinates
 
 Inline coordinates:
