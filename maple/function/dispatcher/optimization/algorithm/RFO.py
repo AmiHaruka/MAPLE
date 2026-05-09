@@ -5,50 +5,15 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 from ase import Atoms
-from .logger import log_info
+
+from ._common import (
+	compute_metrics,
+	is_converged,
+	to_numpy_f64,
+	vec1d,
+	write_xyz,
+)
 from ...jobABC import JobABC
-
-
-# ==============================================
-# Small utilities
-# ==============================================
-def write_xyz(filename: str, atoms_list: List[Atoms], energies: List[float] | None = None):
-	"""Write one or more structures in XYZ format."""
-	with open(filename, "w") as f:
-		for i, at in enumerate(atoms_list):
-			pos = at.get_positions()
-			symbols = at.get_chemical_symbols()
-			f.write(f"{len(symbols)}\n")
-			if energies is not None:
-				f.write(f"Image {i}  Energy = {energies[i]:.10f}\n")
-			else:
-				f.write(f"Image {i}\n")
-			for s, (x, y, z) in zip(symbols, pos):
-				f.write(f"{s:2s} {x: .10f} {y: .10f} {z: .10f}\n")
-
-
-def to_numpy_f64(x):
-	"""Convert input to float64 numpy array or float."""
-	if isinstance(x, np.ndarray):
-		return x.astype(np.float64, copy=False)
-	try:
-		import torch
-		if isinstance(x, torch.Tensor):
-			arr = x.detach().cpu().numpy()
-			return arr.astype(np.float64, copy=False)
-	except Exception:
-		pass
-	if np.isscalar(x):
-		return float(x)
-	return np.asarray(x, dtype=np.float64)
-
-
-def vec1d(x, n_expected=None):
-	"""Convert to float64 1D vector and optionally check length."""
-	v = to_numpy_f64(x).reshape(-1)
-	if n_expected is not None and v.size != n_expected:
-		raise ValueError(f"Expected size {n_expected}, got {v.size}")
-	return v
 
 
 # ==============================================
@@ -71,9 +36,8 @@ class RFOParams:
 	mu_margin: float = 1e-8    # margin below min(w) for bisection upper bound
 	max_bisect_it: int = 60
 
-	# trajectory output
-	write_traj: bool = True
-	traj_every: int = 1
+	# output verbosity
+	verbose: int = 1
 
 
 # ==============================================
@@ -97,23 +61,21 @@ class RFO(JobABC):
 	# ----------------------------------------------------------
 	# Public API
 	# ----------------------------------------------------------
-	def run(self) -> int:
+	def run(self) -> Atoms:
 		"""
 		Run RFO-based minimization using trust region in mass-weighted coordinates.
-		Writes <base>_opt_traj.xyz (if enabled) and <base>_opt.xyz on finish.
-		Returns the number of accepted iterations.
+		Writes <base>_opt_traj.xyz during accepted steps and <base>_opt.xyz on finish.
+		Returns the optimized Atoms object.
 		"""
 		atoms = self.atoms
 		base, _ = os.path.splitext(self.output)
-		traj_file = base + "_opt_traj.xyz"
+		opt_traj_file = base + "_opt_traj.xyz"
+		iteration = 0
 
 		# initial energy/forces
 		E = to_numpy_f64(atoms.get_potential_energy(force_consistent=True))
+		write_xyz(opt_traj_file, [atoms.copy()], energies=[float(E)])
 		F = to_numpy_f64(atoms.get_forces())
-		iteration = 0
-
-		if self.params.write_traj and iteration % self.params.traj_every == 0:
-			write_xyz(traj_file, [atoms.copy()], energies=[float(E)])
 
 		# main loop
 		while iteration < self.params.max_iter:
@@ -159,11 +121,7 @@ class RFO(JobABC):
 					self.trust_radius = min(self.params.trust_radius_max, 2.0 * self.trust_radius)
 
 				# logging & convergence metrics
-				dof = s_cart.size
-				atoms.max_dp = abs(s_cart).max()
-				atoms.rms_dp = np.sqrt((s_cart**2).sum() / dof)
-				atoms.max_f  = abs(F_new).max()
-				atoms.rms_f  = np.sqrt((F_new**2).sum() / dof)
+				compute_metrics(atoms, s_cart, F_new)
 
 				step_norm_mw = float(np.linalg.norm(s_mw))
 				actual_change = float(E_new - E_old)
@@ -182,24 +140,26 @@ class RFO(JobABC):
 
 
 				# trajectory
-				if self.params.write_traj and (iteration + 1) % self.params.traj_every == 0:
-					write_xyz(traj_file, [atoms.copy()], energies=[float(E_new)])
+				converged = is_converged(atoms)
+				write_xyz(
+					opt_traj_file,
+					[atoms.copy()],
+					energies=[float(E_new)],
+					mode="a",
+					start_index=iteration + 1,
+				)
 
 				# convergence check
-				if (
-					atoms.max_f <= atoms.f_max_th
-					and atoms.rms_f <= atoms.f_rms_th
-					and atoms.max_dp <= atoms.dp_max_th
-					and atoms.rms_dp <= atoms.dp_rms_th
-				):
+				if converged:
 					opt_file = base + "_opt.xyz"
 					e_final = float(E_new)
 					write_xyz(opt_file, [atoms], energies=[e_final])
-					log_info([
+					self.log_info([
 						f"\nRFO optimization converged at iteration {iteration + 1}.\n",
-						f"\nFinal optimized structure written to: {opt_file}\n"
-					], self.output)
-					return iteration + 1
+						f"\nFinal optimized structure written to: {opt_file}\n",
+						f"Optimization trajectory written to: {opt_traj_file}\n"
+					])
+					return atoms
 
 				# advance
 				E = E_new
@@ -220,11 +180,12 @@ class RFO(JobABC):
 		opt_file = base + "_opt.xyz"
 		e_final = float(to_numpy_f64(atoms.get_potential_energy(force_consistent=True)))
 		write_xyz(opt_file, [atoms], energies=[e_final])
-		log_info([
+		self.log_info([
 			f"\nRFO optimization reached max iterations ({self.params.max_iter}).\n",
-			f"\nLast optimized structure written to: {opt_file}\n"
-		], self.output)
-		return iteration
+			f"\nLast optimized structure written to: {opt_file}\n",
+			f"Optimization trajectory written to: {opt_traj_file}\n"
+		])
+		return atoms
 
 	# ----------------------------------------------------------
 	# Core math
@@ -349,6 +310,8 @@ class RFO(JobABC):
 					forces: np.ndarray, rho: Optional[float],
 					model_change: float, actual_change: float,
 					step_norm_mw: float, on_boundary: bool):
+		if self.params.verbose != 1:
+			return
 		atoms = self.atoms
 		iter_str = f"Iteration: {iteration}"
 
@@ -383,7 +346,7 @@ class RFO(JobABC):
 			f"Step norm (MW): {step_norm_mw: .6f}  On boundary: {on_boundary}\n"
 		)
 
-		log_info(info_message, self.output)
+		self.log_info(info_message)
 
 
 	def _log_rejection(self, iteration: int, rho: Optional[float]):
@@ -395,4 +358,4 @@ class RFO(JobABC):
 			f"rho: {rho if rho is not None else float('nan'): .3f}\n",
 			f"New trust radius: {self.trust_radius: .6f}\n"
 		]
-		log_info(info_message, self.output)
+		self.log_info(info_message)
