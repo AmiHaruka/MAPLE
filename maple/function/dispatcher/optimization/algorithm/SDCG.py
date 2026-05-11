@@ -451,6 +451,7 @@ class SDCG(JobABC):
 
             # Save state for BB estimation and GDIIS validation
             saved_positions = atoms.get_positions().copy()
+            saved_forces = forces.copy()
             saved_energy = energy
 
             # Try GDIIS acceleration
@@ -496,7 +497,7 @@ class SDCG(JobABC):
 
             # Update BB history
             self._prev_positions = saved_positions
-            self._prev_forces = forces.copy()
+            self._prev_forces = saved_forces
 
             # Track SD iterations for phase transition
             if self._phase == "sd":

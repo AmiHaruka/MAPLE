@@ -77,7 +77,10 @@ class LBFGS(JobABC):
             b = rho * np.dot(y, z)
             z += s * (a - b)
 
-        return -z
+        direction = -z
+        if not np.all(np.isfinite(direction)) or np.dot(direction, grad_flat) >= 0.0:
+            direction = -(1.0 / self.params.curvature) * grad_flat
+        return direction
 
     def _clip_step(self, step_cart: np.ndarray) -> np.ndarray:
         max_disp = float(np.max(np.abs(step_cart)))
@@ -86,11 +89,14 @@ class LBFGS(JobABC):
         return step_cart
 
     def _update_history(self, s_vec: np.ndarray, y_vec: np.ndarray):
-        rho_val = 1.0 / (np.dot(y_vec, s_vec) + 1e-20)
-        if np.isfinite(rho_val):
-            self.S.append(s_vec.copy())
-            self.Y.append(y_vec.copy())
-            self.rhos.append(rho_val)
+        curvature = np.dot(y_vec, s_vec)
+        if not np.isfinite(curvature) or curvature <= 1e-12:
+            return
+
+        rho_val = 1.0 / curvature
+        self.S.append(s_vec.copy())
+        self.Y.append(y_vec.copy())
+        self.rhos.append(rho_val)
         if len(self.S) > self.params.memory:
             self.S.pop(0); self.Y.pop(0); self.rhos.pop(0)
 
@@ -144,12 +150,12 @@ class LBFGS(JobABC):
         f = atoms.get_forces()
 
         while iteration < self.params.max_iter:
-            grad = f.reshape(-1)
+            grad = (-f).reshape(-1)
             step_flat = self._two_loop(grad)
             step = self._clip_step(step_flat.reshape(f.shape))
 
             r_old = r.copy()
-            f_old = f.copy()
+            grad_old = grad.copy()
             atoms.set_positions(r + step)
 
             r = atoms.get_positions()
@@ -157,7 +163,8 @@ class LBFGS(JobABC):
             e = float(atoms.get_potential_energy(force_consistent=True))
 
             s_vec = (r - r_old).reshape(-1)
-            y_vec = (f - f_old).reshape(-1)
+            grad = (-f).reshape(-1)
+            y_vec = grad - grad_old
             self._update_history(s_vec, y_vec)
 
             iteration += 1
