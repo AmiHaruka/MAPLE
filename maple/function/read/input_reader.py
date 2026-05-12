@@ -119,6 +119,23 @@ class InputReader():
                 upper = s.upper()
                 return upper.startswith('XYZ ') or upper.startswith('XYZTRAJ ')
 
+            def is_scan_postproc_line(s: str) -> bool:
+                tokens = s.split()
+                if not tokens or tokens[0].upper() != 'S' or len(tokens) not in (5, 6, 7):
+                    return False
+                try:
+                    for idx, token in enumerate(tokens[1:], 1):
+                        if idx == len(tokens) - 2:
+                            float(token)
+                        else:
+                            int(token)
+                except ValueError:
+                    return False
+                return True
+
+            def is_valid_inline_atom_line(s: str) -> bool:
+                return atom_line_re.match(s) is not None and len(s.split()) in (4, 7)
+
             def is_coord_like(s: str) -> bool:
                 if s == '' or s == '&':
                     return True
@@ -148,17 +165,32 @@ class InputReader():
             while i < n and raw_lines[i].strip() == '':
                 i += 1
 
+            is_scan_input = any(line.lstrip().lower().startswith("#scan") for line in settings)
+
             # === 2) MOLECULES ===
             molecules = []
+            seen_molecule_line = False
+            after_molecule_blank = False
             while i < n:
                 line = raw_lines[i].rstrip('\n')
                 s = line.strip()
                 if s == '':
                     molecules.append(line)
+                    if seen_molecule_line:
+                        after_molecule_blank = True
                     i += 1
                     continue
+                if (
+                    is_scan_input
+                    and seen_molecule_line
+                    and is_scan_postproc_line(s)
+                    and (after_molecule_blank or not is_valid_inline_atom_line(s))
+                ):
+                    break
                 if is_coord_like(s):
                     molecules.append(s)
+                    seen_molecule_line = True
+                    after_molecule_blank = False
                     i += 1
                     continue
                 # First non-coordinate-like line marks end of molecule block

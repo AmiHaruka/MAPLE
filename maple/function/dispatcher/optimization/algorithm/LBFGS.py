@@ -137,6 +137,19 @@ class LBFGS(JobABC):
         if self.params.verbose == 1:
             self.log_info(info_message)
 
+    def _finalize_run(self, e: float, summary: str, opt_traj_file: str) -> None:
+        """Write final _opt.xyz and log the closing summary."""
+        base, _ = os.path.splitext(self.output)
+        opt_file = base + "_opt.xyz"
+        write_xyz(opt_file, [self.atoms], energies=[e])
+        if self.params.verbose != 1 and self._last_iter_info is not None:
+            self.log_info(self._last_iter_info)
+        self.log_info([
+            f"\n{summary}\n"
+            f"Final frame written to {opt_file}\n"
+            f"Optimization trajectory written to {opt_traj_file}\n"
+        ])
+
     # ----------------------------------------------------------
     def run(self) -> Atoms:
         base, _ = os.path.splitext(self.output)
@@ -185,51 +198,17 @@ class LBFGS(JobABC):
                 start_index=iteration,
             )
 
-            # ---------- convergence check ----------
             if converged:
-                # Write final _opt.xyz (trajectory was appended during the run)
-                opt_file = base + "_opt.xyz"
-                write_xyz(opt_file, [atoms], energies=[e])
-                
-                if self.params.verbose == 1:
-                    # verbose mode: detailed message
-                    self.log_info(self._last_iter_info)
-                    self.log_info(
-                        [f"\nLBFGS converged at iteration {iteration}. "
-                        f"Final frame written to {opt_file}\n"
-                        f"Optimization trajectory written to {opt_traj_file}\n"],
-                    )
-                else:
-                    # silent mode: only final frame info + summary
-                    self.log_info(self._last_iter_info)
-                    self.log_info(
-                        [f"\nLBFGS converged at iteration {iteration}.\n"
-                        f"Final frame written to {opt_file}\n"
-                        f"Optimization trajectory written to {opt_traj_file}\n"],
-                    )
-
+                self._finalize_run(
+                    e,
+                    f"LBFGS converged at iteration {iteration}.",
+                    opt_traj_file,
+                )
                 return atoms
 
-        # -------------- NOT converged --------------
-        # Write final _opt.xyz (trajectory was appended during the run)
-        opt_file = base + "_opt.xyz"
-        write_xyz(opt_file, [atoms], energies=[e])
-        
-        if self.params.verbose == 1:
-            # verbose mode: detailed message
-            self.log_info(self._last_iter_info)
-            self.log_info(
-                [f"\nLBFGS did NOT converge after {self.params.max_iter} iterations. "
-                f"Final frame written to {opt_file}\n"
-                f"Optimization trajectory written to {opt_traj_file}\n"],
-            )
-        else:
-            # silent mode: only final frame info + summary
-            self.log_info(self._last_iter_info)
-            self.log_info(
-                [f"\nLBFGS did NOT converge after {self.params.max_iter} iterations.\n"
-                f"Final frame written to {opt_file}\n"
-                f"Optimization trajectory written to {opt_traj_file}\n"],
-            )
-
+        self._finalize_run(
+            e,
+            f"LBFGS did NOT converge after {self.params.max_iter} iterations.",
+            opt_traj_file,
+        )
         return atoms

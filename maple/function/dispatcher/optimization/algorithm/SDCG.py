@@ -401,6 +401,19 @@ class SDCG(JobABC):
         if self.params.verbose == 1:
             self.log_info(info_message)
 
+    def _finalize_run(self, energy: float, summary: str, opt_traj_file: str) -> None:
+        """Write final _opt.xyz and log the closing summary."""
+        base, _ = os.path.splitext(self.output)
+        opt_file = base + "_opt.xyz"
+        write_xyz(opt_file, [self.atoms], energies=[energy])
+        if self.params.verbose != 1 and self._last_iter_info is not None:
+            self.log_info(self._last_iter_info)
+        self.log_info([
+            f"\n{summary}\n"
+            f"Final frame written to {opt_file}\n"
+            f"Optimization trajectory written to {opt_traj_file}\n"
+        ])
+
     # ----------------------------------------------------------
     # Main optimization loop
     # ----------------------------------------------------------
@@ -521,46 +534,19 @@ class SDCG(JobABC):
                 start_index=iteration,
             )
 
-            # Convergence check
             if converged:
-                opt_file = base + "_opt.xyz"
-                write_xyz(opt_file, [atoms], energies=[energy])
-
-                if self.params.verbose == 1:
-                    self.log_info([
-                        f"\nSDCG converged at iteration {iteration} "
-                        f"(phase: {self._phase.upper()}). "
-                        f"Final frame written to {opt_file}\n"
-                        f"Optimization trajectory written to {opt_traj_file}\n"
-                    ])
-                else:
-                    self.log_info(self._last_iter_info)
-                    self.log_info([
-                        f"\nSDCG converged at iteration {iteration}.\n"
-                        f"Final frame written to {opt_file}\n"
-                        f"Optimization trajectory written to {opt_traj_file}\n"
-                    ])
-
+                self._finalize_run(
+                    energy,
+                    f"SDCG converged at iteration {iteration} "
+                    f"(phase: {self._phase.upper()}).",
+                    opt_traj_file,
+                )
                 return atoms
 
-        # Not converged
-        opt_file = base + "_opt.xyz"
-        write_xyz(opt_file, [atoms], energies=[energy])
-
-        if self.params.verbose == 1:
-            self.log_info(self._last_iter_info)
-            self.log_info([
-                f"\nSDCG did NOT converge after {self.params.max_iter} iterations "
-                f"(final phase: {self._phase.upper()}). "
-                f"Final frame written to {opt_file}\n"
-                f"Optimization trajectory written to {opt_traj_file}\n"
-            ])
-        else:
-            self.log_info(self._last_iter_info)
-            self.log_info([
-                f"\nSDCG did NOT converge after {self.params.max_iter} iterations.\n"
-                f"Final frame written to {opt_file}\n"
-                f"Optimization trajectory written to {opt_traj_file}\n"
-            ])
-
+        self._finalize_run(
+            energy,
+            f"SDCG did NOT converge after {self.params.max_iter} iterations "
+            f"(final phase: {self._phase.upper()}).",
+            opt_traj_file,
+        )
         return atoms
