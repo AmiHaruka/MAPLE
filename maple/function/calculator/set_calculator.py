@@ -230,6 +230,7 @@ class SetClaculator:
 
             uma_task = self.model_options.get("task")
             uma_size = self.model_options.get("size")
+            uma_inference = self.model_options.get("inference")
             checkpoint_path = None
             effective_size = uma_size if uma_size else UMA_DEFAULT_SIZE
             if effective_size in UMA_FALLBACK_HF_MODELS:
@@ -244,6 +245,7 @@ class SetClaculator:
                 task=uma_task,
                 size=uma_size,
                 checkpoint_path=checkpoint_path,
+                inference_settings=uma_inference,
             )
         elif model == "maceomol":
             self._ensure_model_file(model)

@@ -1,5 +1,6 @@
 import importlib
 import os
+import warnings
 from functools import partial
 from pathlib import Path
 from typing import Literal
@@ -32,10 +33,14 @@ UMA_MODELS_MAP = {
 
 UMA_FALLBACK_HF_MODELS = {"uma-s-1p1", "uma-s-1p2", "uma-m-1p1"}
 SUPPORTED_UMA_TASKS = {"omol", "omat", "oc20", "odac", "omc", "oc22", "oc25"}
+SUPPORTED_UMA_INFERENCE = {"default", "turbo"}
 
-# FAIR Chemistry's turbo mode is optimized for repeated evaluations on a
-# fixed-composition system, which matches MAPLE's NEB/TS/freq workloads.
-UMA_INFERENCE_SETTINGS = "turbo"
+# GPU default and CPU fallback for FAIR Chemistry's inference path. "default"
+# is the general-purpose backend; "turbo" speeds up fixed-composition workloads
+# (NEB / TS / freq) on CUDA but routes through Triton kernels unavailable on
+# CPU. Users override via `model=uma(...,inference=turbo)`; CPU coerces to
+# default regardless.
+UMA_INFERENCE_SETTINGS = "default"
 UMA_CPU_INFERENCE_SETTINGS = "default"
 
 
@@ -66,11 +71,21 @@ class UMACalculator(FAIRChemCalculator):
         overrides: dict | None,
         device: str,
         checkpoint_path: str | None = None,
+        inference_settings: str | None = None,
     ):
         device = UMACalculator._normalize_device(device)
         # Turbo selects FAIR Chemistry's fast GPU execution path; CPU uses the
         # general-purpose backend to avoid Triton GPU kernels on CPU tensors.
-        inference_settings = UMA_CPU_INFERENCE_SETTINGS if device == "cpu" else UMA_INFERENCE_SETTINGS
+        if device == "cpu":
+            if inference_settings == "turbo":
+                warnings.warn(
+                    "UMA 'turbo' inference requires CUDA; falling back to 'default' on CPU.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+            inference_settings = UMA_CPU_INFERENCE_SETTINGS
+        elif inference_settings is None:
+            inference_settings = UMA_INFERENCE_SETTINGS
 
         if checkpoint_path and os.path.isfile(checkpoint_path):
             compat_path = UMACalculator._prepare_compat_checkpoint(checkpoint, checkpoint_path)
@@ -172,6 +187,7 @@ class UMACalculator(FAIRChemCalculator):
         task: str | None = None,
         size: str | None = None,
         checkpoint_path: str | None = None,
+        inference_settings: str | None = None,
     ):
         if size is not None:
             size = str(size).lower()
@@ -181,6 +197,14 @@ class UMACalculator(FAIRChemCalculator):
             task = str(task).lower()
             if task not in SUPPORTED_UMA_TASKS:
                 raise ValueError(f"Unsupported UMA task: '{task}'. Supported: {sorted(SUPPORTED_UMA_TASKS)}")
+
+        if inference_settings is not None:
+            inference_settings = str(inference_settings).lower()
+            if inference_settings not in SUPPORTED_UMA_INFERENCE:
+                raise ValueError(
+                    f"Unsupported UMA inference mode: '{inference_settings}'. "
+                    f"Supported: {sorted(SUPPORTED_UMA_INFERENCE)}"
+                )
 
         device = self._normalize_device(device)
 
@@ -192,6 +216,7 @@ class UMACalculator(FAIRChemCalculator):
             overrides,
             device,
             checkpoint_path=checkpoint_path,
+            inference_settings=inference_settings,
         )
         super().__init__(predict_unit=predictor, task_name=task or "omol")
 
