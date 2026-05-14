@@ -31,6 +31,7 @@ class CommandControl:
 
     SUPPORTED_UMA_TASKS = {"omol", "omat", "oc20", "odac", "omc", "oc22", "oc25"}
     SUPPORTED_UMA_SIZES = {"uma-s-1p1", "uma-s-1p2", "uma-m-1p1"}
+    UMA_DEFAULT_SIZE = "uma-s-1p1"  # keep in sync with _uma_calculator.UMA_DEFAULT_SIZE
     SUPPORTED_HESSIAN_MODES = {"analytic", "numerical"}
 
     DEFAULTS = {
@@ -356,6 +357,11 @@ class CommandControl:
                 cls._log_error(output_path, msg)
                 raise ValueError(msg)
 
+            if size_opt is None:
+                # Make the actual checkpoint visible in summary() / .out.
+                model_options.setdefault("size", cls.UMA_DEFAULT_SIZE)
+                params["model_options"] = model_options
+
             if "pbc" in params and task_opt == "omol":
                 cls._log_error(output_path, "PBC is incompatible with UMA task='omol'.")
                 raise ValueError("PBC is incompatible with UMA task='omol'.")
@@ -393,7 +399,13 @@ class CommandControl:
     def summary(self) -> str:
         lines = ["Parsed configuration:\n", "-" * 40 + "\n"]
         lines.append(f"Task: {self.task}\n")
+        model_options = self.params.get("model_options") or {}
         for key, value in self.params.items():
+            if key == "model_options":
+                continue  # folded into the model line below
+            if key == "model" and isinstance(value, str) and model_options:
+                opt_str = ",".join(f"{k}={v}" for k, v in model_options.items())
+                value = f"{value}({opt_str})"
             lines.append(f"{key:<15}: {value}\n")
         return "".join(lines)
 
