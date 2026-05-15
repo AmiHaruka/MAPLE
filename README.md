@@ -111,13 +111,6 @@ H    0.802   0.842   1.742
 | `task` | `omol`, `omat`, `oc20`, `odac`, `omc`, `oc22`, `oc25` | inferred from PBC | `omol` for molecules, `omat` for periodic |
 | `inference` | `default`, `turbo` | `default` | `turbo` accelerates fixed-composition GPU workloads (NEB / TS / freq); ignored on CPU |
 
-### Optimization Outputs
-
-Optimization jobs write the final structure to `<input>_opt.xyz` and the
-optimization trajectory to `<input>_opt_traj.xyz`. Older scripts that read
-`<input>_traj.xyz` should migrate to `<input>_opt_traj.xyz`, or use
-`<input>_opt.xyz` when only the final optimized geometry is needed.
-
 ### Coordinates
 
 Inline coordinates:
