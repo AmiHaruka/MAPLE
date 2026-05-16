@@ -302,8 +302,18 @@ class InputReader():
 
     def log_error(self, error_message: str) -> None:
         """Logs error messages to the output file."""
-        with open(self.output, 'a') as file:
-            file.write(f"ERROR: {error_message}\n")
+        if not self.output:
+            return
+        line = f"ERROR: {error_message}\n"
+        try:
+            if os.path.exists(self.output):
+                with open(self.output, 'r', encoding='utf-8', errors='replace') as file:
+                    if line in file.read():
+                        return
+            with open(self.output, 'a', encoding='utf-8') as file:
+                file.write(line)
+        except Exception:
+            return
 
     def log_info(self, info_message: list) -> None:
         """Logs info messages to the output file."""

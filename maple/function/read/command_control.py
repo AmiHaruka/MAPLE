@@ -31,6 +31,7 @@ class CommandControl:
 
     SUPPORTED_UMA_TASKS = {"omol", "omat", "oc20", "odac", "omc", "oc22", "oc25"}
     SUPPORTED_UMA_SIZES = {"uma-s-1p1", "uma-s-1p2", "uma-m-1p1"}
+    SUPPORTED_UMA_INFERENCE = {"default", "turbo"}
     UMA_DEFAULT_SIZE = "uma-s-1p1"  # keep in sync with _uma_calculator.UMA_DEFAULT_SIZE
     SUPPORTED_HESSIAN_MODES = {"analytic", "numerical"}
 
@@ -289,7 +290,7 @@ class CommandControl:
 
         model_options = params.get("model_options")
         if isinstance(model_options, dict):
-            for key in ("task", "size", "hessian"):
+            for key in ("task", "size", "hessian", "inference"):
                 if key in model_options and isinstance(model_options[key], str):
                     model_options[key] = model_options[key].lower()
 
@@ -354,6 +355,15 @@ class CommandControl:
             size_opt = model_options.get("size")
             if size_opt is not None and size_opt not in cls.SUPPORTED_UMA_SIZES:
                 msg = f"Unsupported UMA size: '{size_opt}'. Supported: {sorted(cls.SUPPORTED_UMA_SIZES)}"
+                cls._log_error(output_path, msg)
+                raise ValueError(msg)
+
+            inference_opt = model_options.get("inference")
+            if inference_opt is not None and inference_opt not in cls.SUPPORTED_UMA_INFERENCE:
+                msg = (
+                    f"Unsupported UMA inference mode: '{inference_opt}'. "
+                    f"Supported: {sorted(cls.SUPPORTED_UMA_INFERENCE)}"
+                )
                 cls._log_error(output_path, msg)
                 raise ValueError(msg)
 
