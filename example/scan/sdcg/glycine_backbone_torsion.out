@@ -3262,7 +3262,7 @@ SDCG converged at iteration 16 (phase: SD).
 
 ======================================================================
 Scan completed! Total points: 73Results saved to: /home/axie/MAPLE/MAPLE-fork/example/scan/sdcg/glycine_backbone_torsion_scan_final.xyz
-Energy range: -284.632033 to -284.624847 eV
+Energy range: -284.632033 to -284.624847 Hartree
 
 
 

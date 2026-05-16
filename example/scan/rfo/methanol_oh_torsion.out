@@ -1579,7 +1579,7 @@ RFO optimization converged at iteration 5.
 
 ======================================================================
 Scan completed! Total points: 73Results saved to: /home/axie/MAPLE/MAPLE-fork/example/scan/rfo/methanol_oh_torsion_scan_final.xyz
-Energy range: -115.795193 to -115.794253 eV
+Energy range: -115.795193 to -115.794253 Hartree
 
 
 

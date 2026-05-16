@@ -2604,7 +2604,7 @@ LBFGS converged at iteration 3.
 
 ======================================================================
 Scan completed! Total points: 73Results saved to: /home/axie/MAPLE/MAPLE-fork/example/scan/lbfgs/ethanol_torsion_scan_final.xyz
-Energy range: -155.134536 to -155.132413 eV
+Energy range: -155.134536 to -155.132413 Hartree
 
 
 
