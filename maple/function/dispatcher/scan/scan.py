@@ -189,6 +189,7 @@ class Scan(JobABC):
         params = dict(self.params)
         params["method"] = self.method
         params["verbose"] = 0  # suppress optimizer output inside each scan point
+        params["log_final_paths"] = False  # scan removes per-point optimizer temp files
         return Optimization(params=params, output=self.output, atoms=atoms).run()
 
     def _record_result(self, atoms: Atoms, coord: List[float],

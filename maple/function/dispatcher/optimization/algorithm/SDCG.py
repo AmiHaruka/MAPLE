@@ -54,6 +54,7 @@ class SDCGParams:
     diis_store_every: int = 5       # Store a snapshot every N steps
     diis_min_snapshots: int = 3     # Minimum snapshots before GDIIS attempt
     diis_memory: int = 6            # Maximum GDIIS history vectors
+    log_final_paths: bool = True    # Log standalone optimizer artifact paths
 
 
 class SDCG(JobABC):
@@ -408,11 +409,13 @@ class SDCG(JobABC):
         write_xyz(opt_file, [self.atoms], energies=[energy])
         if self.params.verbose != 1 and self._last_iter_info is not None:
             self.log_info(self._last_iter_info)
-        self.log_info([
-            f"\n{summary}\n"
-            f"Final frame written to {opt_file}\n"
-            f"Optimization trajectory written to {opt_traj_file}\n"
-        ])
+        info = [f"\n{summary}\n"]
+        if self.params.log_final_paths:
+            info.extend([
+                f"Final frame written to {opt_file}\n",
+                f"Optimization trajectory written to {opt_traj_file}\n",
+            ])
+        self.log_info(info)
 
     # ----------------------------------------------------------
     # Main optimization loop

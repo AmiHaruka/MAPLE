@@ -38,6 +38,7 @@ class RFOParams:
 
     # output verbosity
     verbose: int = 1
+    log_final_paths: bool = True
 
 
 # ==============================================
@@ -57,6 +58,7 @@ class RFO(JobABC):
         self.atoms = atoms
         self.params = self._init_params(RFOParams, paras, ("rfo", "RFO", "opt"))
         self.trust_radius = float(self.params.trust_radius_init)
+        self._last_iter_info = None
 
     # ----------------------------------------------------------
     # Public API
@@ -151,14 +153,12 @@ class RFO(JobABC):
 
                 # convergence check
                 if converged:
-                    opt_file = base + "_opt.xyz"
-                    e_final = float(E_new)
-                    write_xyz(opt_file, [atoms], energies=[e_final])
-                    self.log_info([
-                        f"\nRFO optimization converged at iteration {iteration + 1}.\n",
-                        f"\nFinal optimized structure written to: {opt_file}\n",
-                        f"Optimization trajectory written to: {opt_traj_file}\n"
-                    ])
+                    self._finalize_run(
+                        float(E_new),
+                        f"RFO optimization converged at iteration {iteration + 1}.",
+                        opt_traj_file,
+                        final_path_label="Final optimized structure written to:",
+                    )
                     return atoms
 
                 # advance
@@ -177,14 +177,13 @@ class RFO(JobABC):
                 # self._log_rejection(iteration + 1, rho)
 
         # max iterations reached
-        opt_file = base + "_opt.xyz"
         e_final = float(to_numpy_f64(atoms.get_potential_energy(force_consistent=True)))
-        write_xyz(opt_file, [atoms], energies=[e_final])
-        self.log_info([
-            f"\nRFO optimization reached max iterations ({self.params.max_iter}).\n",
-            f"\nLast optimized structure written to: {opt_file}\n",
-            f"Optimization trajectory written to: {opt_traj_file}\n"
-        ])
+        self._finalize_run(
+            e_final,
+            f"RFO optimization reached max iterations ({self.params.max_iter}).",
+            opt_traj_file,
+            final_path_label="Last optimized structure written to:",
+        )
         return atoms
 
     # ----------------------------------------------------------
@@ -306,16 +305,40 @@ class RFO(JobABC):
     # ----------------------------------------------------------
     # Logging
     # ----------------------------------------------------------
+    def _finalize_run(
+        self,
+        energy: float,
+        summary: str,
+        opt_traj_file: str,
+        final_path_label: str,
+    ) -> None:
+        """Write final _opt.xyz and log the closing summary."""
+        base, _ = os.path.splitext(self.output)
+        opt_file = base + "_opt.xyz"
+        write_xyz(opt_file, [self.atoms], energies=[energy])
+        if self.params.verbose != 1 and self._last_iter_info is not None:
+            self.log_info(self._last_iter_info)
+
+        info = [f"\n{summary}\n"]
+        if self.params.log_final_paths:
+            info.extend([
+                f"\n{final_path_label} {opt_file}\n",
+                f"Optimization trajectory written to: {opt_traj_file}\n",
+            ])
+        self.log_info(info)
+
     def _log_iteration(self, iteration: int, energy: float, s_cart: np.ndarray,
                     forces: np.ndarray, rho: Optional[float],
                     model_change: float, actual_change: float,
                     step_norm_mw: float, on_boundary: bool):
-        if self.params.verbose != 1:
-            return
         atoms = self.atoms
-        iter_str = f"Iteration: {iteration}"
 
-        info_message = ['\n' + '-' * 70 + '\n', f'{iter_str.center(70)}\n\n']
+        if self.params.verbose == 1:
+            iter_str = f"Iteration: {iteration}"
+            info_message = ['\n' + '-' * 70 + '\n', f'{iter_str.center(70)}\n\n']
+        else:
+            info_message = []
+
         info_message.append(f'\n{"Coordinates".center(70)}\n')
         info_message.append('-' * 70)
         info_message.append('\n')
@@ -333,21 +356,24 @@ class RFO(JobABC):
         info_message.append(f"Maximum Displacement:  {atoms.max_dp:>12.6f} {atoms.dp_max_th:>12.6f}                {'Yes' if atoms.max_dp <= atoms.dp_max_th else 'No'}\n")
         info_message.append(f"RMS Displacement:      {atoms.rms_dp:>12.6f} {atoms.dp_rms_th:>12.6f}                {'Yes' if atoms.rms_dp <= atoms.dp_rms_th else 'No'}\n")
 
-        # ---- model vs actual ----
-        info_message.append(
-            f"\nModel change: {model_change: .6e}  "
-            f"Actual change: {actual_change: .6e}  "
-            f"rho: {rho if rho is not None else float('nan'): .3f}\n"
-        )
+        if self.params.verbose == 1:
+            # ---- model vs actual ----
+            info_message.append(
+                f"\nModel change: {model_change: .6e}  "
+                f"Actual change: {actual_change: .6e}  "
+                f"rho: {rho if rho is not None else float('nan'): .3f}\n"
+            )
 
-        # ---- trust region info ----
-        info_message.append(
-            f"Trust radius (MW): {self.trust_radius: .6f}  "
-            f"Step norm (MW): {step_norm_mw: .6f}  On boundary: {on_boundary}\n"
-        )
+            # ---- trust region info ----
+            info_message.append(
+                f"Trust radius (MW): {self.trust_radius: .6f}  "
+                f"Step norm (MW): {step_norm_mw: .6f}  On boundary: {on_boundary}\n"
+            )
 
-        self.log_info(info_message)
+        self._last_iter_info = info_message
 
+        if self.params.verbose == 1:
+            self.log_info(info_message)
 
     def _log_rejection(self, iteration: int, rho: Optional[float]):
         """Log a rejection event and the trust radius shrink."""

@@ -19,7 +19,8 @@ class LBFGSParams:
     curvature: float = 70.0
     max_step: float = 0.2
     max_iter: int = 256
-    verbose: int = 1     
+    verbose: int = 1
+    log_final_paths: bool = True
 
 
 # ==============================================
@@ -144,11 +145,13 @@ class LBFGS(JobABC):
         write_xyz(opt_file, [self.atoms], energies=[e])
         if self.params.verbose != 1 and self._last_iter_info is not None:
             self.log_info(self._last_iter_info)
-        self.log_info([
-            f"\n{summary}\n"
-            f"Final frame written to {opt_file}\n"
-            f"Optimization trajectory written to {opt_traj_file}\n"
-        ])
+        info = [f"\n{summary}\n"]
+        if self.params.log_final_paths:
+            info.extend([
+                f"Final frame written to {opt_file}\n",
+                f"Optimization trajectory written to {opt_traj_file}\n",
+            ])
+        self.log_info(info)
 
     # ----------------------------------------------------------
     def run(self) -> Atoms:
