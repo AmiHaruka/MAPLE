@@ -1,10 +1,12 @@
+"""Usage: fit bond and angle parameters with the Modified Seminario method."""
+
 from itertools import product
 from math import acos
 
 import numpy as np
 from ase import Atoms
 
-from .parm import Angle, Bond
+from .readparm import Angle, Bond
 
 
 HARTREE_TO_KCAL_MOL = 627.509474
@@ -21,7 +23,14 @@ def apply_mseminario(
     """
     Fill bond and angle instances using the Modified Seminario method.
     """
-    hessian = hessian_cart * HARTREE_TO_KCAL_MOL
+    hessian_input = np.asarray(hessian_cart, dtype=float)
+    expected_shape = (3 * len(atoms), 3 * len(atoms))
+    if hessian_input.shape != expected_shape:
+        raise ValueError(
+            f"Hessian shape {hessian_input.shape} does not match expected {expected_shape} for {len(atoms)} atoms."
+        )
+
+    hessian = hessian_input * HARTREE_TO_KCAL_MOL
     positions = np.asarray(atoms.get_positions(), dtype=float)
     scaling_sq = float(vibrational_scaling) ** 2
     eig_cache = _build_block_eigen_cache(hessian, bonds, angles)

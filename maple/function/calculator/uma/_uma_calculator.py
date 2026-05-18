@@ -56,7 +56,7 @@ class UMACalculator(FAIRChemCalculator):
         
         from fairchem.core.units.mlip_unit import load_predict_unit
         predictor = load_predict_unit(
-        "/home/axie/uma-s-1p1.pt",
+        "/home/hungn/Desktop/MyRepo/MLP/MAPLE/maple/function/calculator/model/uma-s-1p1.pt",
         inference_settings="default",
         overrides=overrides,
         device=device,

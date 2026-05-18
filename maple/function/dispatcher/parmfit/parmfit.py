@@ -15,7 +15,7 @@ class Parmfit(JobABC):
         output: str,
         atoms: Atoms,
         params: Optional[dict] = None,
-        method: Optional[str] = "correction",
+        method: Optional[str] = None,
         extra: Optional[dict] = None,
     ):
         super().__init__(output)
@@ -30,43 +30,45 @@ class Parmfit(JobABC):
             self._normalize_paths()
 
             if self.method == "abinitio":
+                parts = self.params.get("cmo", "0 1").split()
+                if len(parts) not in {2, 3}:
+                    raise ValueError("cmo must be '<charge> <mult>' or '<charge> <mult> <oxy>'.")
+                charge, mult = map(int, parts[:2])
+                self.atoms.info["charge"], self.atoms.info["mult"], self.atoms.info["spin"] = charge, mult, (mult - 1) / 2
+                if len(parts) == 3:
+                    self.atoms.info["oxy"] = int(parts[2])
+                else:
+                    self.atoms.info.pop("oxy", None)
                 from .abinitio import Abinitio
 
                 parmfit = Abinitio(output=self.output, atoms=self.atoms, params=self.params)
-                parmfit.run()
+                return parmfit.run()
             elif self.method == "correction":
                 from .correction import Correction
 
                 parmfit = Correction(output=self.output, atoms=self.atoms, params=self.params)
-                parmfit.run()
+                return parmfit.run()
             else:
-                raise NotImplementedError(f"Parmfit strategy '{self.method}' not implemented yet.")
+                raise NotImplementedError(f"Other parmfit strategy '{self.method}' not implemented yet.")
 
     def _normalize_paths(self) -> None:
-        base_dir = os.getcwd()
-        input_path = self.extra.get("input_path")
-        if isinstance(input_path, str):
-            base_dir = os.path.dirname(os.path.abspath(input_path))
-
-        for key in ("mol2", "frcmod"):
-            path = self.params.get(key)
-            if path is None:
-                continue
-            if not isinstance(path, str):
-                raise ValueError(f"parmfit '{key}' must be a file path string.")
-            if not os.path.isabs(path):
-                path = os.path.abspath(os.path.join(base_dir, path))
-            self.params[key] = path
-
         if self.method == "correction":
-            missing = [key for key in ("mol2", "frcmod") if not self.params.get(key)]
-            if missing:
+            mol2_path = self.params.get("mol2")
+            if not mol2_path:
                 raise ValueError(
-                    "parmfit(method=correction) requires the following file inputs: "
-                    + ", ".join(missing)
+                    "parmfit(method=correction) requires the 'mol2' input file."
                 )
+            normalized = os.path.abspath(mol2_path)
+            if not os.path.isfile(normalized):
+                raise ValueError(f"parmfit input file not found for 'mol2': {mol2_path}")
+            self.params["mol2"] = normalized
+            return
 
-        for key in ("mol2", "frcmod"):
-            path = self.params.get(key)
-            if path and not os.path.isfile(path):
-                raise ValueError(f"parmfit input file not found for '{key}': {path}")
+        if self.method == "abinitio":
+            pdb_path = self.params.get("pdb")
+            if not pdb_path:
+                raise ValueError("parmfit(method=abinitio) requires the 'pdb' input file.")
+            normalized = os.path.abspath(pdb_path)
+            if not os.path.isfile(normalized):
+                raise ValueError(f"parmfit input file not found for 'pdb': {pdb_path}")
+            self.params["pdb"] = normalized

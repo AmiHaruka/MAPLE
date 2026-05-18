@@ -1,14 +1,99 @@
+"""Usage: parse mol2/frcmod files into parmfit parameter objects."""
+
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
 from itertools import combinations, permutations
 from math import pi
-from typing import Iterable
+from typing import Iterable, Optional
 
 from ase import Atoms
 
-from .parm import Angle, Bond, Dihedral, FourierTerm, Improper, Nonbond
+
+@dataclass(frozen=True)
+class FourierTerm:
+    """Single Fourier term for proper or improper torsions."""
+
+    kPhi: float
+    period: float
+    phase: float
+
+    def __str__(self) -> str:
+        return f"<k={self.kPhi:.6f}, n={self.period:.3f}, phase={self.phase * 180.0 / pi:.2f}>"
+
+    def __repr__(self) -> str:
+        return self.__str__()
+
+
+@dataclass
+class Bond:
+    atoms: tuple[int, int]
+    atom_types: tuple[str, str]
+    kBond: Optional[float] = None
+    rEq: Optional[float] = None
+
+    def __str__(self) -> str:
+        return f"<{self.atoms}, r={self.rEq}>"
+
+    def __repr__(self) -> str:
+        return self.__str__()
+
+
+@dataclass
+class Angle:
+    atoms: tuple[int, int, int]
+    atom_types: tuple[str, str, str]
+    kTheta: Optional[float] = None
+    thetaEq: Optional[float] = None
+
+    def __str__(self) -> str:
+        angle_deg = None if self.thetaEq is None else self.thetaEq * 180.0 / pi
+        return f"<{self.atoms}, ang={angle_deg}>"
+
+    def __repr__(self) -> str:
+        return self.__str__()
+
+
+@dataclass
+class Dihedral:
+    atoms: tuple[int, int, int, int]
+    atom_types: tuple[str, str, str, str]
+    terms: list[FourierTerm] = field(default_factory=list)
+
+    def __str__(self) -> str:
+        return f"<{self.atoms}, n_terms={len(self.terms)}>"
+
+    def __repr__(self) -> str:
+        return self.__str__()
+
+
+@dataclass
+class Improper:
+    atoms: tuple[int, int, int, int]
+    atom_types: tuple[str, str, str, str]
+    terms: list[FourierTerm] = field(default_factory=list)
+
+    def __str__(self) -> str:
+        return f"<{self.atoms}, n_terms={len(self.terms)}>"
+
+    def __repr__(self) -> str:
+        return self.__str__()
+
+
+@dataclass
+class Nonbond:
+    atom: int
+    atom_type: str
+    charge: float
+    rmin_half: Optional[float] = None
+    epsilon: Optional[float] = None
+
+    def __str__(self) -> str:
+        return f"<{self.atom}:{self.atom_type}, q={self.charge}>"
+
+    def __repr__(self) -> str:
+        return self.__str__()
 
 
 _NUM = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
@@ -40,6 +125,7 @@ class Mol2Topology:
 
 @dataclass
 class FrcmodDB:
+    mass_params: dict[str, float] = field(default_factory=dict)
     bond_params: dict[tuple[str, str], tuple[float, float]] = field(default_factory=dict)
     angle_params: dict[tuple[str, str, str], tuple[float, float]] = field(default_factory=dict)
     dihedral_params: dict[tuple[str, str, str, str], list[FourierTerm]] = field(default_factory=dict)
@@ -71,10 +157,6 @@ def _canonical_pair(atom_types: tuple[str, str]) -> tuple[str, str]:
 def _canonical_angle(atom_types: tuple[str, str, str]) -> tuple[str, str, str]:
     reverse = (atom_types[2], atom_types[1], atom_types[0])
     return atom_types if atom_types <= reverse else reverse
-
-
-def _normalize_period(period: float) -> float:
-    return abs(period)
 
 
 def parse_mol2(path: str) -> Mol2Topology:
@@ -162,6 +244,8 @@ def parse_frcmod(path: str) -> FrcmodDB:
                 continue
 
             if section == "MASS":
+                parts = raw.split()
+                db.mass_params[parts[0]] = float(parts[1])
                 continue
 
             if section == "BOND":
@@ -187,7 +271,7 @@ def parse_frcmod(path: str) -> FrcmodDB:
                 idivf = float(match.group(5))
                 pk = float(match.group(6))
                 phase = float(match.group(7)) * pi / 180.0
-                period = _normalize_period(float(match.group(8)))
+                period = abs(float(match.group(8)))
                 key = (match.group(1), match.group(2), match.group(3), match.group(4))
                 db.dihedral_params.setdefault(key, []).append(
                     FourierTerm(kPhi=pk / idivf if idivf != 0.0 else pk, period=period, phase=phase)
@@ -203,7 +287,7 @@ def parse_frcmod(path: str) -> FrcmodDB:
                     FourierTerm(
                         kPhi=float(match.group(5)),
                         phase=float(match.group(6)) * pi / 180.0,
-                        period=_normalize_period(float(match.group(7))),
+                        period=abs(float(match.group(7))),
                     )
                 )
                 continue
@@ -367,6 +451,7 @@ def build_correction_parameter_set(atoms: Atoms, mol2_path: str, frcmod_path: st
         terms = _match_improper(atom_types, frcmod.improper_params)
         if not terms:
             unmatched_impropers.append(improper_atoms)
+            continue
         impropers.append(Improper(atoms=improper_atoms, atom_types=atom_types, terms=list(terms)))
 
     nonbonds: list[Nonbond] = []
