@@ -15,6 +15,52 @@ _COORD_RE = re.compile(
     r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)'
 )
 
+
+def _parse_pbc_tokens(pbc_str: str) -> Optional[List[bool]]:
+    """Parse PBC metadata tokens into a 3-element boolean list."""
+    pbc_tokens = pbc_str.upper().split()
+    if len(pbc_tokens) != 3:
+        return None
+    return [token in ('T', 'TRUE', '1') for token in pbc_tokens]
+
+
+
+def _parse_cell_and_pbc(comment_line: str) -> Tuple[Optional[np.ndarray], Optional[List[bool]]]:
+    """Extract cell and PBC metadata from extXYZ or MAPLE XYZ comment lines."""
+    lattice_match = re.search(r'[Ll]attice\s*=\s*"([^"]+)"', comment_line)
+    pbc_match = re.search(r'[Pp][Bb][Cc]\s*=\s*(?:"([^"]+)"|([^\s][^\r\n]*?))(?=\s{2,}\S+\s*=|\s*$)', comment_line)
+    explicit_pbc = None
+    if pbc_match:
+        explicit_pbc = _parse_pbc_tokens((pbc_match.group(1) or pbc_match.group(2) or '').strip())
+    if lattice_match:
+        try:
+            vals = [float(v) for v in lattice_match.group(1).split()]
+            if len(vals) == 9:
+                cell = np.array(vals, dtype=np.float64).reshape(3, 3)
+                return cell, explicit_pbc or [True, True, True]
+        except (ValueError, IndexError):
+            pass
+
+    cell_match = re.search(
+        r'\bCell\s*=\s*'
+        r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s+'
+        r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s+'
+        r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s+'
+        r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s+'
+        r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s+'
+        r'([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)',
+        comment_line,
+    )
+    if cell_match:
+        try:
+            cellpar = [float(cell_match.group(i)) for i in range(1, 7)]
+            return Atoms(cell=cellpar, pbc=True).cell.array.copy(), explicit_pbc or [True, True, True]
+        except ValueError:
+            pass
+
+    return None, None
+
+
 def _case_insensitive_lookup(path: str) -> str:
     """
     Try to resolve a path in a case-insensitive manner within its directory.
@@ -98,39 +144,42 @@ def _parse_charge_mult_traj(input_str: str) -> Tuple[Optional[str], Optional[int
 class XYZTrajReader:
     """
     Robust XYZ trajectory file reader with support for charge and multiplicity.
-    
+
     Reads multi-frame XYZ files where each frame has:
       - First line: integer atom count (N)
       - Second line: comment (can contain energy info, ignored)
       - Next N lines: atomic coordinates
-    
+
     Input format:
-      - Simple: '/path/to/trajectory.xyz'
+      - Simple: '/path/to/trajectory.xyz' or 'traj.xyz' or './traj.xyz'
       - With charge/mult: 'XYZTRAJ -14 2 /path/to/trajectory.xyz' or '/path/to/trajectory.xyz -14 2'
-      
-    The charge and multiplicity will be applied to ALL frames and stored in 
+
+    Path resolution:
+      - Absolute paths are used directly.
+      - Relative paths are resolved relative to base_dir (defaults to current working directory).
+
+    The charge and multiplicity will be applied to ALL frames and stored in
     atoms.info['charge'] and atoms.info['mult'] for each frame.
-    
-    Args:
-        file_path (str): Path to XYZ trajectory file, optionally with charge and multiplicity.
-        charge (Optional[int]): Charge to apply to all frames (overrides parsed value).
-        mult (Optional[int]): Multiplicity to apply to all frames (overrides parsed value).
-    
+
     Returns:
         Molecules: Molecules object containing all frames from the trajectory.
     """
-    
-    def __new__(cls, file_path: str, charge: Optional[int] = None, mult: Optional[int] = None) -> Molecules:
+
+    def __new__(cls, file_path: str, charge: Optional[int] = None, mult: Optional[int] = None, base_dir: Optional[str] = None) -> Molecules:
         # Parse input string if charge and mult not explicitly provided
         if charge is None and mult is None:
             parsed_path, parsed_charge, parsed_mult = _parse_charge_mult_traj(file_path)
             file_path = parsed_path
             charge = parsed_charge
             mult = parsed_mult
-        
+
+        # Resolve path: absolute paths used directly, relative paths resolved against base_dir
         if not os.path.isabs(file_path):
-            raise ValueError(f"XYZ trajectory file path must be absolute: {file_path}")
-        
+            if base_dir is not None:
+                file_path = os.path.join(base_dir, file_path)
+            else:
+                file_path = os.path.abspath(file_path)
+
         # Try exact path; if missing, attempt case-insensitive lookup
         resolved = _case_insensitive_lookup(file_path)
         if not os.path.exists(resolved):
@@ -186,20 +235,22 @@ class XYZTrajReader:
             # Skip comment line
             if idx >= len(lines):
                 break
+            comment_line = lines[idx]
             idx += 1  # Skip comment line
-            
+            frame_cell, frame_pbc = _parse_cell_and_pbc(comment_line)
+
             # Read coordinate lines for this frame
             elements = []
             coords = []
             lines_read = 0
-            
+
             while idx < len(lines) and lines_read < natoms:
                 ln = lines[idx]
                 idx += 1
-                
+
                 if not ln.strip():
                     continue
-                
+
                 m = _COORD_RE.match(ln)
                 if m:
                     elem = m.group(1)
@@ -213,7 +264,9 @@ class XYZTrajReader:
             # Only add frame if we got the expected number of atoms
             if lines_read == natoms and natoms > 0:
                 atoms = Atoms(symbols=elements, positions=np.array(coords, dtype=np.float64))
-                
+                if frame_cell is not None:
+                    atoms.set_cell(frame_cell)
+                    atoms.set_pbc(frame_pbc if frame_pbc is not None else True)
                 # Apply charge and multiplicity to this frame
                 if charge is not None:
                     atoms.info['charge'] = charge

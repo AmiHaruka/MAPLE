@@ -18,10 +18,9 @@ Advantages:
 
 import numpy as np
 from ase import Atoms
-from typing import Tuple
 
 # Import unit conversions from utils
-from ..utils import FS_TO_AU, AMU_TO_AU
+from ..utils import FS_TO_AU, AMU_TO_AU, HA_PER_ANG_TO_AU, BOHR_TO_ANGSTROM
 
 
 class VelocityVerlet:
@@ -59,42 +58,58 @@ class VelocityVerlet:
         # Cache masses (avoid repeated ASE calls)
         self.masses = atoms.get_masses() * AMU_TO_AU  # Convert to atomic units
 
-    def step(self, velocities: np.ndarray) -> np.ndarray:
+    def step(self, velocities: np.ndarray,
+             forces: np.ndarray = None) -> tuple:
         """
         Perform a full Velocity Verlet integration step.
 
-        This is the standard all-in-one step for NVE dynamics.
+        This is the standalone step for NVE dynamics.  For maximum efficiency
+        call with the forces cached from the previous step so that only one
+        force evaluation is needed per step (standard Velocity Verlet caching):
+
+            forces = atoms.get_forces() * HA_PER_ANG_TO_AU  # t=0
+            for each step:
+                velocities, forces = integrator.step(velocities, forces)
+
+        If *forces* is None a fresh evaluation is performed for the first
+        B-step (two force evaluations per step, 2× slower).
 
         Parameters
         ----------
         velocities : np.ndarray
-            Current atomic velocities in atomic units
-            Shape: (N_atoms, 3)
+            Current atomic velocities in atomic units, shape (N_atoms, 3).
+        forces : np.ndarray, optional
+            Forces at the current positions in a.u. (Ha/Bohr), shape (N_atoms, 3).
+            If None, forces are computed from the calculator.
 
         Returns
         -------
-        np.ndarray
-            Updated velocities in atomic units
+        (velocities, forces) : tuple[np.ndarray, np.ndarray]
+            Updated velocities and forces at the new positions (both in a.u.).
+            The returned forces can be passed directly to the next call.
         """
         dt = self.timestep
         masses = self.masses[:, np.newaxis]  # Shape: (N_atoms, 1)
 
-        # Step 1: Half-step velocity update
-        forces = self.atoms.get_forces()  # ← Calculator call (expensive!)
-        velocities += 0.5 * forces / masses * dt
+        # B1: Half-step velocity update with current forces
+        if forces is None:
+            forces = self.atoms.get_forces() * HA_PER_ANG_TO_AU  # Ha/Å → Ha/Bohr
+        velocities = velocities + 0.5 * forces / masses * dt
 
-        # Step 2: Full-step position update
+        # A: Full-step position update (v in a.u., dt in a.u. → displacement in Bohr → Å)
         positions = self.atoms.get_positions()
-        positions += velocities * dt
+        positions += velocities * dt * BOHR_TO_ANGSTROM
         self.atoms.set_positions(positions)
+        if any(self.atoms.pbc):
+            self.atoms.wrap()
 
-        # Step 3: Recalculate forces at new positions
-        forces = self.atoms.get_forces()  # ← Calculator call again
+        # Compute forces at new positions
+        forces = self.atoms.get_forces() * HA_PER_ANG_TO_AU  # Ha/Å → Ha/Bohr
 
-        # Step 4: Final half-step velocity update
-        velocities += 0.5 * forces / masses * dt
+        # B2: Final half-step velocity update
+        velocities = velocities + 0.5 * forces / masses * dt
 
-        return velocities
+        return velocities, forces
 
     def half_step_v(self, velocities: np.ndarray) -> np.ndarray:
         """
@@ -115,27 +130,72 @@ class VelocityVerlet:
         dt = self.timestep
         masses = self.masses[:, np.newaxis]
 
-        forces = self.atoms.get_forces()
+        forces = self.atoms.get_forces() * HA_PER_ANG_TO_AU  # Ha/Å → Ha/Bohr (a.u.)
         velocities += 0.5 * forces / masses * dt
 
         return velocities
 
-    def full_step_r(self, velocities: np.ndarray):
+    def half_step_r(self, velocities: np.ndarray):
         """
-        Perform full-step position update: r(t+dt) = r(t) + v(t+dt/2) * dt
+        Perform the LFMiddle half-step drift.
+
+        This advances positions by dt/2 using the carried velocities. Calling
+        it twice around the thermostat completes the full LFMiddle drift.
 
         Modifies atoms.positions in-place.
 
         Parameters
         ----------
         velocities : np.ndarray
-            Half-step velocities
+            Carried velocities in atomic units (Bohr/a.u. time)
+        """
+        positions = self.atoms.get_positions()                          # Å
+        positions += velocities * (0.5 * self.timestep) * BOHR_TO_ANGSTROM
+        self.atoms.set_positions(positions)
+        if any(self.atoms.pbc):
+            self.atoms.wrap()
+
+    def lfmiddle_full_kick(self, velocities: np.ndarray,
+                           forces: np.ndarray) -> np.ndarray:
+        """
+        Perform the LFMiddle full kick.
+
+        Update rule:
+            velocities + forces / masses * dt
+
+        Parameters
+        ----------
+        velocities : np.ndarray
+            Carried velocities before the full kick, in atomic units
+        forces : np.ndarray
+            Forces at the current positions in atomic units (Ha/Bohr)
+
+        Returns
+        -------
+        np.ndarray
+            Carried velocities after the full kick
         """
         dt = self.timestep
+        masses = self.masses[:, np.newaxis]
+        return velocities + forces / masses * dt
 
-        positions = self.atoms.get_positions()
-        positions += velocities * dt
+    def full_step_r(self, velocities: np.ndarray):
+        """
+        Perform full-step position update: r(t+dt) = r(t) + v(t+dt/2) * dt
+
+        Used in NVE integration where no thermostat splits the position step.
+        Modifies atoms.positions in-place.
+
+        Parameters
+        ----------
+        velocities : np.ndarray
+            Half-step velocities in atomic units (Bohr/a.u. time)
+        """
+        positions = self.atoms.get_positions()                   # Å
+        positions += velocities * self.timestep * BOHR_TO_ANGSTROM
         self.atoms.set_positions(positions)
+        if any(self.atoms.pbc):
+            self.atoms.wrap()
 
     def complete_step_v(self, velocities: np.ndarray) -> np.ndarray:
         """
@@ -156,161 +216,88 @@ class VelocityVerlet:
         dt = self.timestep
         masses = self.masses[:, np.newaxis]
 
-        forces = self.atoms.get_forces()
+        forces = self.atoms.get_forces() * HA_PER_ANG_TO_AU  # Ha/Å → Ha/Bohr (a.u.)
         velocities += 0.5 * forces / masses * dt
 
         return velocities
 
-    def split_step(self, velocities: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def split_step(self, velocities: np.ndarray, forces: np.ndarray) -> np.ndarray:
         """
-        Perform split integration for thermostat insertion.
+        Perform the existing split Velocity Verlet pre-thermostat leg.
 
-        This allows thermostats to be applied between the two velocity half-steps:
-            v(t+dt/2) = v(t) + F(t)/m * dt/2
-            r(t+dt) = r(t) + v(t+dt/2) * dt
-            # ← Apply thermostat here
-            v(t+dt) = v(t+dt/2) + F(t+dt)/m * dt/2
+        This keeps the current API behavior unchanged:
+            B: v(t+dt/2) = v(t) + F(t)/m * dt/2
+            A: r(t+dt/2) = r(t) + v(t+dt/2) * dt/2
+
+        The caller then applies the thermostat and calls
+        complete_split_step() for the second A(half)-B leg.
 
         Parameters
         ----------
         velocities : np.ndarray
-            Current velocities
-
-        Returns
-        -------
-        velocities_half : np.ndarray
-            Half-step velocities (before thermostat)
-        positions_new : np.ndarray
-            Updated positions
-        """
-        # First half-step
-        velocities_half = self.half_step_v(velocities)
-
-        # Position update
-        self.full_step_r(velocities_half)
-
-        positions_new = self.atoms.get_positions()
-
-        return velocities_half, positions_new
-
-    def get_current_forces(self) -> np.ndarray:
-        """
-        Get forces at current positions.
+            Current velocities in atomic units
+        forces : np.ndarray
+            Current forces in atomic units (Ha/Bohr), cached from previous step
 
         Returns
         -------
         np.ndarray
-            Forces in eV/Å (ASE units)
+            Half-step velocities after the first half-kick and half-drift
         """
-        return self.atoms.get_forces()
+        dt = self.timestep
+        masses = self.masses[:, np.newaxis]
+        v_half = velocities + 0.5 * forces / masses * dt
+        self.half_step_r(v_half)
+        return v_half
 
-    def get_potential_energy(self) -> float:
+    def lfmiddle_post_thermostat(self, velocities: np.ndarray) -> tuple:
         """
-        Get potential energy at current positions.
+        Complete the post-thermostat LFMiddle primitives.
 
-        Returns
-        -------
-        float
-            Potential energy (uses calculator's units, typically eV)
-        """
-        return self.atoms.get_potential_energy(force_consistent=True)
-
-
-class IntegratorBase:
-    """
-    Base class for MD integrators (future extension).
-
-    This provides a common interface for different integration schemes:
-    - Velocity Verlet
-    - Leapfrog
-    - Verlet (original)
-    - Higher-order integrators
-    """
-
-    def __init__(self, atoms: Atoms, timestep: float):
-        """
-        Initialize base integrator.
-
-        Parameters
-        ----------
-        atoms : ase.Atoms
-            Molecular system
-        timestep : float
-            Time step in femtoseconds
-        """
-        self.atoms = atoms
-        self.timestep_fs = timestep
-        self.timestep = timestep * FS_TO_AU
-        self.masses = atoms.get_masses() * AMU_TO_AU
-
-    def step(self, velocities: np.ndarray) -> np.ndarray:
-        """
-        Perform one integration step.
-
-        Must be implemented by subclasses.
+        This method:
+            1. Executes the second half-step drift
+            2. Computes forces at the new positions for next-step caching
+            3. Returns the thermostat-updated carried velocity unchanged
 
         Parameters
         ----------
         velocities : np.ndarray
-            Current velocities
+            Thermostat-updated carried velocities in atomic units
 
         Returns
         -------
-        np.ndarray
-            Updated velocities
+        tuple of (np.ndarray, np.ndarray)
+            (carried velocities after the thermostat, forces at the new
+            positions to cache for the next step)
         """
-        raise NotImplementedError("Subclasses must implement step()")
+        self.half_step_r(velocities)
+        forces = self.atoms.get_forces() * HA_PER_ANG_TO_AU   # Ha/Å → Ha/Bohr (a.u.)
+        return velocities, forces
 
+    def complete_split_step(self, velocities: np.ndarray) -> tuple:
+        """
+        Perform the existing split Velocity Verlet post-thermostat leg.
 
-# Convenience function for standalone usage
-def integrate_nve(
-    atoms: Atoms,
-    velocities: np.ndarray,
-    timestep: float,
-    n_steps: int
-) -> Tuple[list, list, list]:
-    """
-    Simple standalone NVE integration for testing.
+        This keeps the current API behavior unchanged:
+            A: r(t+dt) = r(t+dt/2) + v_thermostat * dt/2
+            B: v(t+dt) = v_thermostat + F(t+dt)/m * dt/2
 
-    Parameters
-    ----------
-    atoms : ase.Atoms
-        Molecular system with calculator
-    velocities : np.ndarray
-        Initial velocities in atomic units
-    timestep : float
-        Time step in femtoseconds
-    n_steps : int
-        Number of integration steps
+        Call after the thermostat step.
 
-    Returns
-    -------
-    trajectory : list of ase.Atoms
-        Atomic configurations at each step
-    energies : list of float
-        Total energies at each step
-    velocities_traj : list of np.ndarray
-        Velocities at each step
-    """
-    integrator = VelocityVerlet(atoms, timestep)
+        Parameters
+        ----------
+        velocities : np.ndarray
+            Velocities after the thermostat step in atomic units
 
-    trajectory = []
-    energies = []
-    velocities_traj = []
+        Returns
+        -------
+        tuple of (np.ndarray, np.ndarray)
+            (full-step velocities, forces at t+dt) — forces are cached
+            for the next step's B half-kick.
+        """
+        dt = self.timestep
+        masses = self.masses[:, np.newaxis]
 
-    for step in range(n_steps):
-        # Integrate
-        velocities = integrator.step(velocities)
-
-        # Record
-        trajectory.append(atoms.copy())
-
-        potential = integrator.get_potential_energy()
-        from ..utils import calculate_kinetic_energy
-        kinetic = calculate_kinetic_energy(atoms, velocities)
-        total = kinetic + potential
-
-        energies.append(total)
-        velocities_traj.append(velocities.copy())
-
-    return trajectory, energies, velocities_traj
+        velocities, forces = self.lfmiddle_post_thermostat(velocities)
+        v_new = velocities + 0.5 * forces / masses * dt
+        return v_new, forces

@@ -162,3 +162,13 @@ cython_debug/
 #.idea/
 *.pt
 *.model
+
+# Local assistant workspace artifacts
+/.claude/
+/claude/
+.worktrees/
+
+# MD example outputs (large run data)
+example/md/**/*.out
+example/md/**/*.dat
+example/md/**/*.xyz

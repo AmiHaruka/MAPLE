@@ -105,10 +105,9 @@ class TransitionState(JobABC):
                     if len(self.atoms) < 2:
                         raise ValueError('For AutoNEB method, you should provide at least two structures.')
                     from .algorithm import AutoNEB
-                    molecules = Molecules(self.atoms)
                     autoneb = AutoNEB(
                         output=self.output,
-                        atoms_or_molecules=molecules,
+                        atoms_or_molecules=self.atoms,
                         paras=self.params
                     )
                     autoneb.run()
