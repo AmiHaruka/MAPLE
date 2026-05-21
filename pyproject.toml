@@ -20,10 +20,5 @@ dependencies = [
 [project.scripts]
 maple = "maple.main:main"
 
-[project.optional-dependencies]
-# Pure-Python optional tools that pip can install safely.
-viz = ["matplotlib>=3.3"]
-dev = ["pytest>=7.0", "black>=23.0"]
-
 [tool.setuptools.packages.find]
 include = ["maple*"]

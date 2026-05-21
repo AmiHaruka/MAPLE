@@ -75,16 +75,6 @@ Install FAIR-Chem only if you need UMA or FAIR-Chem-backed/PBC models:
 pip install fairchem-core
 ```
 
-Optional plotting/development tools:
-
-```bash
-# Plotting helpers
-pip install -e ".[viz]"
-
-# Developer tools
-pip install -e ".[dev]"
-```
-
 Model checkpoint boundary:
 
 - MAPLE auto-downloads only the model files hosted in `Wayne7815/MAPLE_models`.
