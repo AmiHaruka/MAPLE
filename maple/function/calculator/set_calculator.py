@@ -172,6 +172,10 @@ class SetClaculator:
 
         return model_path
 
+    def _local_model_file(self, filename: str) -> Optional[Path]:
+        model_path = Path(__file__).parent / "model" / filename
+        return model_path if model_path.exists() else None
+
     def _require_local_model_file(self, model_name: str, filename: Optional[str] = None) -> Path:
         filename = filename or f"{model_name}.pt"
         model_path = Path(__file__).parent / "model" / filename
@@ -236,11 +240,16 @@ class SetClaculator:
                 solvent=self.solvent,
             )
         elif model == "uma":
-            from .uma._uma_calculator import UMACalculator
+            from .uma._uma_calculator import UMACalculator, UMA_DEFAULT_SIZE, UMA_FALLBACK_HF_MODELS
 
             uma_task = self.model_options.get("task")
             uma_size = self.model_options.get("size")
             checkpoint_path = self.model_options.get("checkpoint_path") or self.model_options.get("model_path")
+            effective_size = str(uma_size).lower() if uma_size else UMA_DEFAULT_SIZE
+            if checkpoint_path is None and effective_size in UMA_FALLBACK_HF_MODELS:
+                local_checkpoint = self._local_model_file(f"{effective_size}.pt")
+                if local_checkpoint is not None:
+                    checkpoint_path = str(local_checkpoint)
 
             calculator = UMACalculator(
                 model=model,
