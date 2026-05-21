@@ -117,6 +117,7 @@ class MACECalculator(CalcABC):
     def __init__(self, 
         device: torch.device, 
         model: str = 'maceoff23s', 
+        model_path: Optional[str] = None,
         overwrite: bool = False,
         implicit: Literal["gbsa", "none"] = "gbsa",
         solvent: str = 'none',
@@ -126,12 +127,14 @@ class MACECalculator(CalcABC):
         Args:
             device (torch.device): Torch device.
             model (str): Name of the model (expects `<model>.pt` under `model/`).
+            model_path (str, optional): Explicit path to the scripted model file.
             overwrite (bool): Whether to overwrite existing models (unused).
         """
         super().__init__()
-        model_dir = os.path.dirname(os.path.realpath(__file__))
-        model_dir = os.path.dirname(model_dir)
-        model_path = os.path.join(model_dir, 'model', f'{model}.pt')
+        if model_path is None:
+            model_dir = os.path.dirname(os.path.realpath(__file__))
+            model_dir = os.path.dirname(model_dir)
+            model_path = os.path.join(model_dir, 'model', f'{model}.pt')
 
         # Load the scripted wrapper model
         self.model = torch.jit.load(model_path, map_location=device)

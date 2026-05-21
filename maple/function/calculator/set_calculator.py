@@ -38,17 +38,10 @@ MODEL_NAME_TO_FILE = {
     "aimnet2": "aimnet2.pt",
     "aimnet2nse": "aimnet2nse.pt",
     "maceoff23m": "maceoff23m.pt",
-    "maceomol": "maceomol.pt",
     "egret": "egret1s.pt",
-    "uma-s-1p1": "uma-s-1p1.pt",
-    "uma-s-1p2": "uma-s-1p2.pt",
-    "uma-m-1p1": "uma-m-1p1.pt",
-    "macepols": "macepols.pt",
-    "macepolm": "macepolm.pt",
-    "macepoll": "macepoll.pt",
 }
 
-HF_REPO_ID = "Wayne7815/MAPLE_model"
+HF_REPO_ID = "Wayne7815/MAPLE_models"
 
 MODEL_HESSIAN_SUPPORT = {
     "ani2x": ("analytic", "numerical"),
@@ -79,6 +72,10 @@ UNSUPPORTED_CHARGE_MULT_MODELS = {
     "egret",
     "maceomol",
 }
+
+
+def _model_download_url(filename: str) -> str:
+    return f"https://huggingface.co/{HF_REPO_ID}/resolve/main/{filename}"
 
 
 class SetClaculator:
@@ -146,7 +143,7 @@ class SetClaculator:
         if model_path.exists():
             return model_path
 
-        url = f"https://huggingface.co/{HF_REPO_ID}/resolve/main/{filename}"
+        url = _model_download_url(filename)
         self.log_info(
             [
                 f" [INFO] Model file '{filename}' not found locally.\n",
@@ -174,6 +171,20 @@ class SetClaculator:
             raise RuntimeError(f"Failed to download model '{model_name}': {exc.reason}") from exc
 
         return model_path
+
+    def _require_local_model_file(self, model_name: str, filename: Optional[str] = None) -> Path:
+        filename = filename or f"{model_name}.pt"
+        model_path = Path(__file__).parent / "model" / filename
+        if model_path.exists():
+            return model_path
+
+        message = (
+            f"Model file '{filename}' for '{model_name}' was not found locally at {model_path}. "
+            f"This model is not available from {HF_REPO_ID}; install the backend-specific model "
+            "file or pass an explicit model_path when supported."
+        )
+        self.log_error(f" [ERROR] {message}\n")
+        raise FileNotFoundError(message)
 
     def _warn_charge_mult(self) -> None:
         if self.atoms is None:
@@ -204,9 +215,12 @@ class SetClaculator:
                 solvent=self.solvent,
             )
         elif model in {"maceoff23s", "maceoff23m", "maceoff23l", "egret"}:
-            self._ensure_model_file(model)
+            model_path = self._ensure_model_file(model)
+            if model_path is None:
+                model_path = self._require_local_model_file(model)
             calculator = MACECalculator(
                 model=model,
+                model_path=str(model_path),
                 device=self.device,
                 implicit=self.implicit,
                 solvent=self.solvent,
@@ -222,19 +236,11 @@ class SetClaculator:
                 solvent=self.solvent,
             )
         elif model == "uma":
-            from .uma._uma_calculator import (
-                UMACalculator,
-                UMA_DEFAULT_SIZE,
-                UMA_FALLBACK_HF_MODELS,
-            )
+            from .uma._uma_calculator import UMACalculator
 
             uma_task = self.model_options.get("task")
             uma_size = self.model_options.get("size")
-            checkpoint_path = None
-            effective_size = uma_size if uma_size else UMA_DEFAULT_SIZE
-            if effective_size in UMA_FALLBACK_HF_MODELS:
-                checkpoint = self._ensure_model_file(effective_size)
-                checkpoint_path = str(checkpoint) if checkpoint is not None else None
+            checkpoint_path = self.model_options.get("checkpoint_path") or self.model_options.get("model_path")
 
             calculator = UMACalculator(
                 model=model,
@@ -246,7 +252,7 @@ class SetClaculator:
                 checkpoint_path=checkpoint_path,
             )
         elif model == "maceomol":
-            self._ensure_model_file(model)
+            self._require_local_model_file(model)
             from .mace._mace_general_calculator import MACEModelCalculator
 
             calculator = MACEModelCalculator(
@@ -260,8 +266,7 @@ class SetClaculator:
 
             model_path = self.model_options.get("model_path")
             if model_path is None:
-                downloaded = self._ensure_model_file(model)
-                model_path = str(downloaded) if downloaded is not None else None
+                model_path = str(self._require_local_model_file(model))
 
             calculator = MACEPolCalculator(
                 model=model,
