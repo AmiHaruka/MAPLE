@@ -98,6 +98,21 @@ class SetClaculator:
         self.implicit = implicit
         self.solvent = solvent
         self.model_options = model_options or {}
+        self._model_error_logged = False
+
+    def _model_dir(self) -> Path:
+        return Path(__file__).parent / "model"
+
+    def _model_dir_description(self) -> str:
+        model_dir = self._model_dir()
+        resolved_dir = model_dir.resolve()
+        if resolved_dir != model_dir:
+            return f"{model_dir} (resolved: {resolved_dir})"
+        return str(model_dir)
+
+    def _log_model_error(self, message: str) -> None:
+        self._model_error_logged = True
+        self.log_error(message)
 
     def _validate_requested_hessian_mode(self) -> None:
         mode = self.model_options.get("hessian")
@@ -137,7 +152,7 @@ class SetClaculator:
         if filename is None:
             return None
 
-        model_dir = Path(__file__).parent / "model"
+        model_dir = self._model_dir()
         model_dir.mkdir(parents=True, exist_ok=True)
         model_path = model_dir / filename
         if model_path.exists():
@@ -163,31 +178,39 @@ class SetClaculator:
             self.log_info([f" [INFO] Download complete: {model_path}\n"])
         except urllib.error.HTTPError as exc:
             temp_path.unlink(missing_ok=True)
-            self.log_error(f" [ERROR] Download failed (HTTP {exc.code}): {url}\n")
+            self._log_model_error(
+                f"Download failed for model '{model_name}' (HTTP {exc.code}): {url}\n"
+                f"       MAPLE model directory: {self._model_dir_description()}"
+            )
             raise RuntimeError(f"Failed to download model '{model_name}': HTTP {exc.code}") from exc
         except urllib.error.URLError as exc:
             temp_path.unlink(missing_ok=True)
-            self.log_error(f" [ERROR] Network error: {exc.reason}\n")
+            self._log_model_error(
+                f"Network error while downloading model '{model_name}': {exc.reason}\n"
+                f"       MAPLE model directory: {self._model_dir_description()}"
+            )
             raise RuntimeError(f"Failed to download model '{model_name}': {exc.reason}") from exc
 
         return model_path
 
     def _local_model_file(self, filename: str) -> Optional[Path]:
-        model_path = Path(__file__).parent / "model" / filename
+        model_path = self._model_dir() / filename
         return model_path if model_path.exists() else None
 
     def _require_local_model_file(self, model_name: str, filename: Optional[str] = None) -> Path:
         filename = filename or f"{model_name}.pt"
-        model_path = Path(__file__).parent / "model" / filename
+        model_path = self._model_dir() / filename
         if model_path.exists():
             return model_path
 
         message = (
-            f"Model file '{filename}' for '{model_name}' was not found locally at {model_path}. "
+            f"Model file '{filename}' for '{model_name}' was not found locally.\n"
+            f"       MAPLE model directory searched: {self._model_dir_description()}\n"
+            f"       Expected file path: {model_path}\n"
             f"This model is not available from {HF_REPO_ID}; install the backend-specific model "
             "file or pass an explicit model_path when supported."
         )
-        self.log_error(f" [ERROR] {message}\n")
+        self._log_model_error(message)
         raise FileNotFoundError(message)
 
     def _warn_charge_mult(self) -> None:
@@ -291,22 +314,31 @@ class SetClaculator:
         return calculator
 
     def set_calculator(self) -> ase.calculators.calculator.Calculator:
-        if self.model not in IMPLEMENTATION_MODELS:
-            self.log_error(f"\n [ERROR] Unsupported model: {self.model}\n")
-            raise ValueError(f"Unsupported model: '{self.model}'.")
+        try:
+            if self.model not in IMPLEMENTATION_MODELS:
+                self._log_model_error(f"Unsupported model: {self.model}")
+                raise ValueError(f"Unsupported model: '{self.model}'.")
 
-        self._validate_requested_hessian_mode()
+            self._validate_requested_hessian_mode()
 
-        if self.d4 and self.model not in {"ani2x", "ani1x", "ani1ccx", "ani1xnr"}:
-            self.log_info([f"\n [WARNING] D4 is not supported for model '{self.model}'. D4 will be ignored.\n"])
+            if self.d4 and self.model not in {"ani2x", "ani1x", "ani1ccx", "ani1xnr"}:
+                self.log_info([f"\n [WARNING] D4 is not supported for model '{self.model}'. D4 will be ignored.\n"])
 
-        calculator = self._build_calculator()
-        self._warn_charge_mult()
-        return calculator
+            calculator = self._build_calculator()
+            self._warn_charge_mult()
+            return calculator
+        except Exception as exc:
+            if not self._model_error_logged:
+                self._log_model_error(
+                    f"Failed to initialize model '{self.model}'.\n"
+                    f"       MAPLE model directory: {self._model_dir_description()}\n"
+                    f"       Error: {type(exc).__name__}: {exc}"
+                )
+            raise
 
     def log_error(self, error_message: str) -> None:
         with open(self.output, "a") as handle:
-            handle.write(f"ERROR: {error_message}\n")
+            handle.write(f"ERROR: {error_message.rstrip()}\n")
 
     def log_info(self, info_message: list) -> None:
         with open(self.output, "a") as handle:
