@@ -384,7 +384,7 @@ class Scan(JobABC):
             self.log_info(["=" * 70])
             self.log_info([f"\nScan completed! Total points: {len(energies)}"])
             self.log_info([f"Results saved to: {xyz_filename}\n"])
-            self.log_info([f"Energy range: {min(energies):.6f} to {max(energies):.6f} eV\n"])
+            self.log_info([f"Energy range: {min(energies):.6f} to {max(energies):.6f} Hartree\n"])
             
         finally:
             if self.xyz_file is not None:

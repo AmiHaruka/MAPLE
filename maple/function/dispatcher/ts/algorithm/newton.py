@@ -8,7 +8,6 @@ from ase import Atoms
 def Newton(atoms: Atoms, output: str):
     
     step_size = 0.1
-    g_au = 27.211386024367243
     info_message = ['\n' + '-' * 70 + '\n', f'{"Newton Optimization".center(70)}\n\n']
 
     iteration = 0
@@ -96,17 +95,17 @@ def Newton(atoms: Atoms, output: str):
             info_message.append(f"{atom_index:<4} {element_type:<2} {coord[0]:>20.4f} {coord[1]:>20.4f} {coord[2]:>20.4f}\n")
         
         
-        info_message.append(f"\n\nEnergy:                {energy/g_au:>12.6f} Convergence criteria  Is converged \n")
+        info_message.append(f"\n\nEnergy:                {energy:>12.6f} Convergence criteria  Is converged \n")
 
         if atoms.max_f > atoms.f_max_th:
-            info_message.append(f"Maximum Force:         {atoms.max_f/g_au:>12.6f} {atoms.f_max_th/g_au:>12.6f}                No\n")
+            info_message.append(f"Maximum Force:         {atoms.max_f:>12.6f} {atoms.f_max_th:>12.6f}                No\n")
         else:
-            info_message.append(f"Maximum Force:         {atoms.max_f/g_au:>12.6f} {atoms.f_max_th/g_au:>12.6f}                Yes\n")
+            info_message.append(f"Maximum Force:         {atoms.max_f:>12.6f} {atoms.f_max_th:>12.6f}                Yes\n")
 
         if atoms.rms_f > atoms.f_rms_th:
-            info_message.append(f"RMS Force:             {atoms.rms_f/g_au:>12.6f} {atoms.f_rms_th/g_au:>12.6f}                No\n")
+            info_message.append(f"RMS Force:             {atoms.rms_f:>12.6f} {atoms.f_rms_th:>12.6f}                No\n")
         else:
-            info_message.append(f"RMS Force:             {atoms.rms_f/g_au:>12.6f} {atoms.f_rms_th/g_au:>12.6f}                Yes\n")
+            info_message.append(f"RMS Force:             {atoms.rms_f:>12.6f} {atoms.f_rms_th:>12.6f}                Yes\n")
 
         if atoms.max_dp > atoms.dp_max_th:
             info_message.append(f"Maximum Displacement:  {atoms.max_dp:>12.6f} {atoms.dp_max_th:>12.6f}                No\n")
