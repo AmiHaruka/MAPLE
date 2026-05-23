@@ -22,9 +22,31 @@ dynamics, and related post-processing workflows.
 
 ### Requirements
 
-- Python >= 3.9
-- PyTorch >= 2.0
+- Python >= 3.10
 - CUDA-capable GPU recommended for production workloads
+
+MAPLE separates dependencies into three groups:
+
+| Group | Installed by `pip install -e .` | Purpose |
+|-------|----------------------------------|---------|
+| Core | Yes | Base MAPLE runtime and general scientific I/O |
+| Optional tools | Only when explicitly requested | Plotting and development tools |
+| External ML runtimes | No | User-selected PyTorch/CUDA and FAIR-Chem stacks |
+
+Core dependencies declared by MAPLE:
+
+| Package | Minimum version | Notes |
+|---------|-----------------|-------|
+| `ase` | `>=3.22` | Atomic structures, calculators, I/O |
+| `numpy` | `>=1.20` | Numerical arrays |
+| `scipy` | `>=1.7` | Scientific routines |
+
+External runtime dependencies that users install manually:
+
+| Package | Version boundary | Required for | Why MAPLE does not auto-install it |
+|---------|------------------|--------------|------------------------------------|
+| `torch` | `>=2.0` | ANI, AIMNet2, MACE-OFF, MACE-O-MOL, MACE-Polar, UMA | PyTorch wheels must match the user's CUDA/CPU runtime and should be selected from the official PyTorch index. |
+| `fairchem-core` | FAIR-Chem release with UMA support; tested locally with `2.19.0` | UMA and FAIR-Chem-backed/PBC workflows | FAIR-Chem may impose its own compatible PyTorch/runtime constraints, so install it after the matching PyTorch wheel. |
 
 ### Install MAPLE
 
@@ -36,19 +58,28 @@ pip install -e .
 
 ### Install Dependencies
 
-```bash
-# Core scientific stack
-pip install numpy scipy matplotlib ase
+The `pip install -e .` command above installs only MAPLE's core dependencies.
+Install PyTorch separately for your hardware. Examples:
 
+```bash
 # PyTorch example: CUDA 11.8
 pip install torch --index-url https://download.pytorch.org/whl/cu118
 
 # CPU-only PyTorch
 pip install torch --index-url https://download.pytorch.org/whl/cpu
+```
 
-# ML potentials
+Install FAIR-Chem only if you need UMA or FAIR-Chem-backed/PBC models:
+
+```bash
 pip install fairchem-core
 ```
+
+Model checkpoint boundary:
+
+- MAPLE auto-downloads only the model files hosted in `Wayne7815/MAPLE_models`.
+- Backend-specific or local checkpoints, such as MACE-Polar `.pt` files, must be present in `maple/function/calculator/model/` or supplied through an explicit model path.
+- UMA checkpoints are resolved through an explicit path, a local `maple/function/calculator/model/uma-*.pt` file, or FAIR-Chem's official model-loading path.
 
 ## Quick Start
 

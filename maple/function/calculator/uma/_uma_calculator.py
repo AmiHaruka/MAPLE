@@ -22,8 +22,9 @@ except ImportError:
 
 EV2HARTREE = 1.0 / 27.211386245988
 
+UMA_DEFAULT_SIZE = "uma-s-1p1"
 UMA_MODELS_MAP = {
-    "uma": "uma-s-1p2",
+    "uma": UMA_DEFAULT_SIZE,
     "uma-s-1p1": "uma-s-1p1",
     "uma-s-1p2": "uma-s-1p2",
     "uma-m-1p1": "uma-m-1p1",
@@ -35,7 +36,7 @@ SUPPORTED_UMA_TASKS = {"omol", "omat", "oc20", "odac", "omc", "oc22", "oc25"}
 # FAIR Chemistry's turbo mode is optimized for repeated evaluations on a
 # fixed-composition system, which matches MAPLE's NEB/TS/freq workloads.
 UMA_INFERENCE_SETTINGS = "turbo"
-UMA_DEFAULT_SIZE = "uma-s-1p2"
+UMA_CPU_INFERENCE_SETTINGS = "default"
 
 
 class UMACalculator(FAIRChemCalculator):
@@ -50,17 +51,32 @@ class UMACalculator(FAIRChemCalculator):
     supported_hessian_modes = ("numerical",)
 
     @staticmethod
+    def _normalize_device(device: torch.device | str | None) -> str:
+        # FAIR Chemistry's MLIP unit accepts only "cpu" or "cuda".
+        # Keep UMA's historical behavior: CUDA-like requests use the CUDA
+        # backend token, while other strings fall back to CPU.
+        device_name = str(device).lower()
+        if device_name.startswith("cuda") and torch.cuda.is_available():
+            return "cuda"
+        return "cpu"
+
+    @staticmethod
     def _build_predictor(
         checkpoint: str,
         overrides: dict | None,
         device: str,
         checkpoint_path: str | None = None,
     ):
+        device = UMACalculator._normalize_device(device)
+        # Turbo selects FAIR Chemistry's fast GPU execution path; CPU uses the
+        # general-purpose backend to avoid Triton GPU kernels on CPU tensors.
+        inference_settings = UMA_CPU_INFERENCE_SETTINGS if device == "cpu" else UMA_INFERENCE_SETTINGS
+
         if checkpoint_path and os.path.isfile(checkpoint_path):
             compat_path = UMACalculator._prepare_compat_checkpoint(checkpoint, checkpoint_path)
             return load_predict_unit(
                 compat_path,
-                inference_settings=UMA_INFERENCE_SETTINGS,
+                inference_settings=inference_settings,
                 overrides=overrides,
                 device=device,
             )
@@ -68,7 +84,7 @@ class UMACalculator(FAIRChemCalculator):
         if checkpoint in pretrained_mlip.available_models:
             return pretrained_mlip.get_predict_unit(
                 checkpoint,
-                inference_settings=UMA_INFERENCE_SETTINGS,
+                inference_settings=inference_settings,
                 overrides=overrides,
                 device=device,
             )
@@ -77,7 +93,7 @@ class UMACalculator(FAIRChemCalculator):
             compat_path = UMACalculator._prepare_compat_checkpoint(Path(checkpoint).stem, checkpoint)
             return load_predict_unit(
                 compat_path,
-                inference_settings=UMA_INFERENCE_SETTINGS,
+                inference_settings=inference_settings,
                 overrides=overrides,
                 device=device,
             )
@@ -108,7 +124,7 @@ class UMACalculator(FAIRChemCalculator):
             )["refs"]
             return load_predict_unit(
                 compat_path,
-                inference_settings=UMA_INFERENCE_SETTINGS,
+                inference_settings=inference_settings,
                 overrides=overrides,
                 device=device,
                 atom_refs=atom_refs,
@@ -159,15 +175,14 @@ class UMACalculator(FAIRChemCalculator):
     ):
         if size is not None:
             size = str(size).lower()
-        checkpoint = UMA_MODELS_MAP.get(size, size) if size else UMA_MODELS_MAP.get(model, "uma-s-1p2")
+        checkpoint = UMA_MODELS_MAP.get(size, size) if size else UMA_MODELS_MAP.get(model, UMA_DEFAULT_SIZE)
 
         if task is not None:
             task = str(task).lower()
             if task not in SUPPORTED_UMA_TASKS:
                 raise ValueError(f"Unsupported UMA task: '{task}'. Supported: {sorted(SUPPORTED_UMA_TASKS)}")
 
-        device = str(device)
-        device = "cuda" if device.startswith("cuda") else "cpu"
+        device = self._normalize_device(device)
 
         if not importlib.util.find_spec("fairchem"):
             raise ImportError("fairchem-core is not installed. Please install it first.")
