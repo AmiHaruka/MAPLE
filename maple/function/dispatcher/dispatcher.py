@@ -35,17 +35,19 @@ class Dispatcher():
         elif jobtype == 'sp':
             from .sp import SinglePoint
 
+            sp_params = commandcontrol.params if hasattr(commandcontrol, "params") else commandcontrol
+
             # Handle trajectory/multiple structures
             if isinstance(atoms, Molecules):
                 atoms_input = atoms.multiatoms
-                sp = SinglePoint(output=output, atoms=atoms_input, paras=commandcontrol)
+                sp = SinglePoint(output=output, atoms=atoms_input, paras=sp_params)
                 sp.run()
             elif isinstance(atoms, list):
-                sp = SinglePoint(output=output, atoms=atoms, paras=commandcontrol)
+                sp = SinglePoint(output=output, atoms=atoms, paras=sp_params)
                 sp.run()
             else:
                 # Single structure (backward compatibility)
-                sp = SinglePoint(output=output, atoms=atoms, paras=commandcontrol)
+                sp = SinglePoint(output=output, atoms=atoms, paras=sp_params)
                 sp.run()
 
         elif jobtype == 'scan':
