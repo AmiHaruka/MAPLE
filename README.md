@@ -77,7 +77,7 @@ pip install fairchem-core
 
 Model checkpoint boundary:
 
-- MAPLE auto-downloads only the model files hosted in `Wayne7815/MAPLE_models`.
+- MAPLE auto-downloads only the model files hosted at https://huggingface.co/Wayne7815/MAPLE_models.
 - Backend-specific or local checkpoints, such as MACE-Polar `.pt` files, must be present in `maple/function/calculator/model/` or supplied through an explicit model path.
 - UMA checkpoints are resolved through an explicit path, a local `maple/function/calculator/model/uma-*.pt` file, or FAIR-Chem's official model-loading path.
 
