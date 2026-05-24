@@ -130,7 +130,7 @@ H    0.802   0.842   1.742
 | `#freq` | Frequency analysis |
 | `#irc(method=gs)` | Intrinsic reaction coordinate |
 | `#scan(method=lbfgs)` | PES scan |
-| `#md(ensemble=nvt,mdp=nvt.mdp)` | Molecular dynamics |
+| `#md(mdp=nvt.mdp)` | Molecular dynamics |
 
 ### Coordinates
 
