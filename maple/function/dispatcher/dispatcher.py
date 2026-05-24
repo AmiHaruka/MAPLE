@@ -84,8 +84,8 @@ class Dispatcher():
                     ts = TransitionState(output=output, atoms=atoms_input, method=method, params=commandcontrol.params)
                     ts.run()
                     return
-                elif method in ['prfo', 'newton']:
-                    raise NotImplementedError('For transition state search job with PRFO or Newton method, only one Atoms object is allowed.')
+                elif method == 'prfo':
+                    raise NotImplementedError('For transition state search job with PRFO method, only one Atoms object is allowed.')
                 else:
                     raise ValueError(f'Unknown TS method: {method}')
 
