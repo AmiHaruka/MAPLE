@@ -172,3 +172,7 @@ cython_debug/
 example/md/**/*.out
 example/md/**/*.dat
 example/md/**/*.xyz
+
+# Local automation/session artifacts
+/.omc/
+/docs/
