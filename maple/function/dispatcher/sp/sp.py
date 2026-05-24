@@ -9,7 +9,7 @@ from maple.function.timer import timer
 @dataclass
 class SPParams:
     """Parameters for Single Point calculation."""
-    verbose: int = 0  # 0=coordinates+energy, 1=+gradients, 2=+forces and charge/mult metadata
+    verbose: int = 0  # 0=coordinates+energy+charge/mult, 1=+gradients
 
 class SinglePoint(JobABC):
 
@@ -38,17 +38,14 @@ class SinglePoint(JobABC):
     def _single_energy_lines(self, energy: float) -> list:
         """Return single-structure SP result lines for the selected verbosity."""
         lines = ["\n"]
-        if self.verbose >= 2:
-            lines.extend(self._charge_mult_lines(self.atoms))
+        lines.extend(self._charge_mult_lines(self.atoms))
         lines.append(f"Energy: {energy:.10f} Hartree\n")
         if self.verbose >= 1:
             lines.extend(self._gradient_lines(self.atoms))
-        if self.verbose >= 2:
-            lines.extend(self._force_lines(self.atoms))
         return lines
 
     def _charge_mult_lines(self, atoms: Atoms) -> list:
-        """Return charge and multiplicity metadata lines for maximum verbosity."""
+        """Return charge and multiplicity metadata lines for SP output."""
         charge = atoms.info.get('charge', 0)
         mult = atoms.info.get('mult', 1)
         return [f"Charge: {charge}, Multiplicity: {mult}\n"]
@@ -71,29 +68,12 @@ class SinglePoint(JobABC):
             )
         return lines
 
-    def _force_lines(self, atoms: Atoms) -> list:
-        """Return per-atom forces for maximum SP verbosity."""
-        forces = atoms.get_forces()
-        symbols = atoms.get_chemical_symbols()
-        lines = [
-            "\nForces (Hartree/Angstrom):\n",
-            "  Atom  El"
-            "        Fx              Fy              Fz\n",
-        ]
-        for i, (sym, force) in enumerate(zip(symbols, forces), start=1):
-            lines.append(
-                f"  {i:<4} {sym:<2}"
-                f" {force[0]:>15.8f} {force[1]:>15.8f} {force[2]:>15.8f}\n"
-            )
-        return lines
-
     def _trajectory_frame_lines(self, idx: int, atoms_frame: Atoms, energy_hartree: float) -> list:
         """Return trajectory-frame SP result lines for the selected verbosity."""
         lines = [
             f"\n{('Frame ' + str(idx)):=^80}\n",
         ]
-        if self.verbose >= 2:
-            lines.extend(self._charge_mult_lines(atoms_frame))
+        lines.extend(self._charge_mult_lines(atoms_frame))
         lines.extend([
             f"Energy: {energy_hartree:.10f} Hartree\n\n",
             "Coordinates (Angstrom):\n",
@@ -104,8 +84,6 @@ class SinglePoint(JobABC):
             lines.append(f"  {i:<4} {sym:<2} {pos[0]:>15.8f} {pos[1]:>15.8f} {pos[2]:>15.8f}\n")
         if self.verbose >= 1:
             lines.extend(self._gradient_lines(atoms_frame))
-        if self.verbose >= 2:
-            lines.extend(self._force_lines(atoms_frame))
         lines.append("=" * 80 + "\n")
         return lines
 

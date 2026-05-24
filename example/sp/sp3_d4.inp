@@ -1,5 +1,5 @@
 #model=ANI-2x
-#sp(verbose=2)
+#sp(verbose=1)
 #d4=true
 
 C       0.65365800      1.02013500      0.25040200

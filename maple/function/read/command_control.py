@@ -324,10 +324,10 @@ class CommandControl:
                 cls._log_error(output_path, "SP uses 'verbose', not 'verbosity'.")
                 raise ValueError("SP uses 'verbose', not 'verbosity'.")
             if "verbose" in params and (
-                type(params["verbose"]) is not int or params["verbose"] not in {0, 1, 2}
+                type(params["verbose"]) is not int or params["verbose"] not in {0, 1}
             ):
-                cls._log_error(output_path, "SP verbose must be 0, 1, or 2.")
-                raise ValueError("SP verbose must be 0, 1, or 2.")
+                cls._log_error(output_path, "SP verbose must be 0 or 1.")
+                raise ValueError("SP verbose must be 0 or 1.")
 
         if "method" in params:
             if task == "md":

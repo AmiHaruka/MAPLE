@@ -54,6 +54,7 @@ Group 1 (inline)
 24   H              2.437062            -0.364108             1.537053
 25   H              3.902370            -0.620897             0.608113
 
+Charge: 0, Multiplicity: 1
 Energy: -422.7704770897 Hartree
 
 Gradients (Hartree/Angstrom):
@@ -87,22 +88,22 @@ Gradients (Hartree/Angstrom):
 
 
 
-Program started: 2026-05-23 11:10:49
+Program started: 2026-05-24 11:55:58
 
 ======================================================================
                       TIMING SUMMARY
 ======================================================================
 Input Reading.......................................   0.001 s  (   0.3 %)
-  Settings Parsing....................................   0.000 s  (  22.0 %)
-  Coordinate Section Parsing..........................   0.000 s  (  23.6 %)
-  Post-Processing Expansion...........................   0.000 s  (   0.3 %)
-MLP Initialization..................................   0.111 s  (  26.7 %)
-Job Dispatching.....................................   0.304 s  (  73.0 %)
-  Single Point Energy Calculation.....................   0.303 s  (  99.8 %)
+  Settings Parsing....................................   0.000 s  (  14.6 %)
+  Coordinate Section Parsing..........................   0.000 s  (  24.8 %)
+  Post-Processing Expansion...........................   0.000 s  (   0.4 %)
+MLP Initialization..................................   0.138 s  (  28.6 %)
+Job Dispatching.....................................   0.342 s  (  71.1 %)
+  Single Point Energy Calculation.....................   0.341 s  (  99.8 %)
 ======================================================================
-Total wall time: 0.416 s
-Total CPU time: 0.677 s
+Total wall time: 0.481 s
+Total CPU time: 0.809 s
 ======================================================================
 
-Program ended: 2026-05-23 11:10:49
-TOTAL RUN TIME: 0 days 0 hours 0 minutes 0 seconds 415 msec
+Program ended: 2026-05-24 11:55:59
+TOTAL RUN TIME: 0 days 0 hours 0 minutes 0 seconds 481 msec

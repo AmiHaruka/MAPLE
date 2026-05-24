@@ -51,26 +51,27 @@ Group 1 (inline)
 21   H              2.850345             1.298697            -0.814322
 22   H              2.960009            -0.368806            -1.388910
 
+Charge: 0, Multiplicity: 1
 Energy: -383.4722385600 Hartree
 
 
 
-Program started: 2026-05-23 11:10:47
+Program started: 2026-05-24 11:55:56
 
 ======================================================================
                       TIMING SUMMARY
 ======================================================================
-Input Reading.......................................   0.001 s  (   0.4 %)
-  Settings Parsing....................................   0.000 s  (  16.1 %)
-  Coordinate Section Parsing..........................   0.000 s  (  23.8 %)
-  Post-Processing Expansion...........................   0.000 s  (   0.4 %)
-MLP Initialization..................................   0.124 s  (  48.1 %)
-Job Dispatching.....................................   0.133 s  (  51.5 %)
-  Single Point Energy Calculation.....................   0.132 s  (  99.6 %)
+Input Reading.......................................   0.003 s  (   0.9 %)
+  Settings Parsing....................................   0.000 s  (  16.5 %)
+  Coordinate Section Parsing..........................   0.001 s  (  25.7 %)
+  Post-Processing Expansion...........................   0.000 s  (   0.2 %)
+MLP Initialization..................................   0.141 s  (  51.6 %)
+Job Dispatching.....................................   0.129 s  (  47.4 %)
+  Single Point Energy Calculation.....................   0.128 s  (  99.4 %)
 ======================================================================
-Total wall time: 0.258 s
-Total CPU time: 0.331 s
+Total wall time: 0.273 s
+Total CPU time: 0.326 s
 ======================================================================
 
-Program ended: 2026-05-23 11:10:47
-TOTAL RUN TIME: 0 days 0 hours 0 minutes 0 seconds 257 msec
+Program ended: 2026-05-24 11:55:56
+TOTAL RUN TIME: 0 days 0 hours 0 minutes 0 seconds 272 msec
