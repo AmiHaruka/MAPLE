@@ -158,6 +158,11 @@ class CommandControl:
     }
     VALIDATED_TASK_PARAMS = {"opt", "scan", "md"}
 
+    TS_REFINE_MAP = {
+        "neb": {"cineb", "nebts"},
+        "string": {"cistring", "stringts"},
+    }
+
     def __init__(self, params: Dict[str, Any], task: str, output_path: Optional[str] = None):
         self.params = params
         self.task = task
@@ -261,14 +266,18 @@ class CommandControl:
         return cls(params, task, output_path)
 
     @staticmethod
+    def _normalize_key(key: str) -> str:
+        return key.strip().replace("\ufeff", "").lower()
+
+    @staticmethod
     def _parse_nested(target: Dict[str, Any], inner: str) -> None:
         for kv in inner.split(","):
             kv = kv.strip()
             if "=" in kv:
                 k, v = kv.split("=", 1)
-                target[k.strip().lower()] = CommandControl._auto_cast(v.strip())
+                target[CommandControl._normalize_key(k)] = CommandControl._auto_cast(v.strip())
             else:
-                target[kv.strip().lower()] = True
+                target[CommandControl._normalize_key(kv)] = True
 
     @classmethod
     def _parse_pbc(cls, inner: str, output_path: Optional[str]) -> List[float]:
@@ -475,6 +484,16 @@ class CommandControl:
             cls._log_error(output_path, "D4 must be 'true' or 'false'.")
             raise ValueError("D4 must be 'true' or 'false'.")
 
+        if task == "sp":
+            if "verbosity" in params:
+                cls._log_error(output_path, "SP uses 'verbose', not 'verbosity'.")
+                raise ValueError("SP uses 'verbose', not 'verbosity'.")
+            if "verbose" in params and (
+                type(params["verbose"]) is not int or params["verbose"] not in {0, 1}
+            ):
+                cls._log_error(output_path, "SP verbose must be 0 or 1.")
+                raise ValueError("SP verbose must be 0 or 1.")
+
         if "method" in params:
             if task == "md":
                 cls._log_error(output_path, "'method' is not valid for MD tasks; use 'ensemble=' instead.")
@@ -484,6 +503,16 @@ class CommandControl:
             if allowed and params["method"] not in allowed:
                 cls._log_error(output_path, f"Method '{params['method']}' not implemented for task '{task}'.")
                 raise ValueError(f"Method '{params['method']}' not implemented for task '{task}'.")
+
+        if task == "ts" and "refine" in params:
+            method = params.get("method")
+            allowed_refines = cls.TS_REFINE_MAP.get(method)
+            if allowed_refines is None:
+                cls._log_error(output_path, f"'refine' is not valid for TS method '{method}'.")
+                raise ValueError(f"'refine' is not valid for TS method '{method}'.")
+            if params["refine"] not in allowed_refines:
+                cls._log_error(output_path, f"Refine '{params['refine']}' not implemented for TS method '{method}'.")
+                raise ValueError(f"Refine '{params['refine']}' not implemented for TS method '{method}'.")
 
         if task == "md":
             ensemble = params.get("ensemble", "nve")

@@ -35,17 +35,19 @@ class Dispatcher():
         elif jobtype == 'sp':
             from .sp import SinglePoint
 
+            sp_params = commandcontrol.params if hasattr(commandcontrol, "params") else commandcontrol
+
             # Handle trajectory/multiple structures
             if isinstance(atoms, Molecules):
                 atoms_input = atoms.multiatoms
-                sp = SinglePoint(output=output, atoms=atoms_input, paras=commandcontrol)
+                sp = SinglePoint(output=output, atoms=atoms_input, paras=sp_params)
                 sp.run()
             elif isinstance(atoms, list):
-                sp = SinglePoint(output=output, atoms=atoms, paras=commandcontrol)
+                sp = SinglePoint(output=output, atoms=atoms, paras=sp_params)
                 sp.run()
             else:
                 # Single structure (backward compatibility)
-                sp = SinglePoint(output=output, atoms=atoms, paras=commandcontrol)
+                sp = SinglePoint(output=output, atoms=atoms, paras=sp_params)
                 sp.run()
 
         elif jobtype == 'scan':
@@ -82,8 +84,8 @@ class Dispatcher():
                     ts = TransitionState(output=output, atoms=atoms_input, method=method, params=commandcontrol.params)
                     ts.run()
                     return
-                elif method in ['prfo', 'newton']:
-                    raise NotImplementedError('For transition state search job with PRFO or Newton method, only one Atoms object is allowed.')
+                elif method == 'prfo':
+                    raise NotImplementedError('For transition state search job with PRFO method, only one Atoms object is allowed.')
                 else:
                     raise ValueError(f'Unknown TS method: {method}')
 
