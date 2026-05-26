@@ -1,4 +1,5 @@
 import re
+from difflib import get_close_matches
 from typing import Any, Dict, List, Optional
 
 
@@ -31,6 +32,8 @@ class CommandControl:
 
     SUPPORTED_UMA_TASKS = {"omol", "omat", "oc20", "odac", "omc", "oc22", "oc25"}
     SUPPORTED_UMA_SIZES = {"uma-s-1p1", "uma-s-1p2", "uma-m-1p1"}
+    SUPPORTED_UMA_INFERENCE = {"default", "turbo"}
+    UMA_DEFAULT_SIZE = "uma-s-1p1"  # keep in sync with _uma_calculator.UMA_DEFAULT_SIZE
     SUPPORTED_HESSIAN_MODES = {"analytic", "numerical"}
 
     DEFAULTS = {
@@ -84,12 +87,80 @@ class CommandControl:
 
     IMPLEMENTATION_MAP = {
         "opt": {"lbfgs", "rfo", "sd", "cg", "sdcg", ""},
-        "scan": {"lbfgs", "cg"},
+        "scan": {"lbfgs", "rfo", "sd", "cg", "sdcg"},
         "ts": {"prfo", "string", "neb", "dimer", "autoneb"},
         "freq": {"mw", "nonmw", "both"},
         "sp": set(),
         "irc": {"gs", "hpc", "eulerpc", "lqa"},
         "md": {"nve", "nvt", "npt"},
+    }
+    GLOBAL_PARAMS = {
+        "model",
+        "model_options",
+        "device",
+        "gpuid",
+        "d4",
+        "pbc",
+        "solv",
+        "level",
+    }
+    LBFGS_PARAMS = {
+        "memory",
+        "curvature",
+        "max_step",
+        "max_iter",
+        "verbose",
+        "log_final_paths",
+    }
+    RFO_PARAMS = {
+        "max_iter",
+        "trust_radius_init",
+        "trust_radius_min",
+        "trust_radius_max",
+        "eta_shrink",
+        "eta_expand",
+        "evals_eps",
+        "mu_margin",
+        "max_bisect_it",
+        "verbose",
+        "log_final_paths",
+    }
+    SDCG_PARAMS = {
+        "max_step",
+        "max_iter",
+        "verbose",
+        "sd_enabled",
+        "cg_enabled",
+        "sd_max_iter",
+        "cg_switch_fmax",
+        "cg_restart_threshold",
+        "cg_beta_method",
+        "diis_enabled",
+        "diis_store_every",
+        "diis_min_snapshots",
+        "diis_memory",
+        "log_final_paths",
+    }
+    OPT_METHOD_PARAMS = {
+        "lbfgs": LBFGS_PARAMS,
+        "rfo": RFO_PARAMS,
+        "sd": SDCG_PARAMS,
+        "cg": SDCG_PARAMS,
+        "sdcg": SDCG_PARAMS,
+    }
+    SCAN_PARAMS = {"method", "mode"}
+    SOLV_PARAMS = {"method", "implicit", "explicit", "radius", "clash_cutoff", "fix_dis"}
+    MODEL_OPTION_PARAMS = {
+        "uma": {"task", "size", "hessian", "inference"},
+        "macepols": {"model_path", "hessian"},
+        "macepolm": {"model_path", "hessian"},
+        "macepoll": {"model_path", "hessian"},
+    }
+    VALIDATED_TASK_PARAMS = {"opt", "scan", "md"}
+
+    TS_REFINE_MAP = {
+        "neb": {"cineb", "nebts"},
+        "string": {"cistring", "stringts"},
     }
 
     def __init__(self, params: Dict[str, Any], task: str, output_path: Optional[str] = None):
@@ -188,10 +259,15 @@ class CommandControl:
             log_lines.append("No task specified. Defaulting to 'sp'.\n")
 
         cls._normalize_params(params)
+        cls._normalize_method_flags(params, task, output_path)
         cls._validate(params, task, output_path)
         cls._log_info(output_path, log_lines)
 
         return cls(params, task, output_path)
+
+    @staticmethod
+    def _normalize_key(key: str) -> str:
+        return key.strip().replace("\ufeff", "").lower()
 
     @staticmethod
     def _parse_nested(target: Dict[str, Any], inner: str) -> None:
@@ -199,9 +275,9 @@ class CommandControl:
             kv = kv.strip()
             if "=" in kv:
                 k, v = kv.split("=", 1)
-                target[k.strip().lower()] = CommandControl._auto_cast(v.strip())
+                target[CommandControl._normalize_key(k)] = CommandControl._auto_cast(v.strip())
             else:
-                target[kv.strip().lower()] = True
+                target[CommandControl._normalize_key(kv)] = True
 
     @classmethod
     def _parse_pbc(cls, inner: str, output_path: Optional[str]) -> List[float]:
@@ -288,12 +364,108 @@ class CommandControl:
 
         model_options = params.get("model_options")
         if isinstance(model_options, dict):
-            for key in ("task", "size", "hessian"):
+            for key in ("task", "size", "hessian", "inference"):
                 if key in model_options and isinstance(model_options[key], str):
                     model_options[key] = model_options[key].lower()
 
         if "ensemble" in params and isinstance(params["ensemble"], str):
             params["ensemble"] = params["ensemble"].lower()
+
+    @classmethod
+    def _normalize_method_flags(
+        cls, params: Dict[str, Any], task: str, output_path: Optional[str]
+    ) -> None:
+        allowed = {
+            method for method in cls.IMPLEMENTATION_MAP.get(task, set()) if method
+        }
+        flags = sorted(method for method in allowed if params.get(method) is True)
+        if not flags:
+            return
+        if len(flags) > 1:
+            msg = f"Multiple method flags for task '{task}': {flags}"
+            cls._log_error(output_path, msg)
+            raise ValueError(msg)
+        method = flags[0]
+        current = params.get("method")
+        if current is not None and current != method:
+            msg = (
+                f"Conflicting method settings for task '{task}': "
+                f"'{current}' and '{method}'"
+            )
+            cls._log_error(output_path, msg)
+            raise ValueError(msg)
+        params["method"] = method
+        del params[method]
+
+    @classmethod
+    def _raise_unknown_param(
+        cls,
+        output_path: Optional[str],
+        context: str,
+        key: str,
+        allowed: set[str],
+    ) -> None:
+        msg = f"Unknown {context} parameter: '{key}'."
+        match = get_close_matches(key, sorted(allowed), n=1, cutoff=0.72)
+        if match:
+            msg += f" Did you mean '{match[0]}'?"
+        cls._log_error(output_path, msg)
+        raise ValueError(msg)
+
+    @classmethod
+    def _allowed_task_params(cls, task: str, params: Dict[str, Any]) -> Optional[set[str]]:
+        if task not in cls.VALIDATED_TASK_PARAMS:
+            return None
+
+        allowed = set(cls.GLOBAL_PARAMS)
+        if task == "md":
+            allowed.update(cls.DEFAULTS["md"])
+            return allowed
+
+        method = str(params.get("method") or "lbfgs").lower()
+        method_params = cls.OPT_METHOD_PARAMS.get(method)
+        if method_params is None:
+            method_params = set().union(*cls.OPT_METHOD_PARAMS.values())
+
+        allowed.add("method")
+        allowed.update(method_params)
+        if task == "scan":
+            allowed.update(cls.SCAN_PARAMS)
+        return allowed
+
+    @classmethod
+    def _validate_unknown_params(
+        cls, params: Dict[str, Any], task: str, output_path: Optional[str]
+    ) -> None:
+        allowed = cls._allowed_task_params(task, params)
+        if allowed is not None:
+            context = task.upper()
+            for key in params:
+                if key not in allowed:
+                    cls._raise_unknown_param(output_path, context, key, allowed)
+
+        model = params.get("model")
+        model_options = params.get("model_options")
+        if isinstance(model_options, dict):
+            allowed_model_options = cls.MODEL_OPTION_PARAMS.get(model, {"hessian"})
+            context = f"{model or 'model'} option"
+            for key in model_options:
+                if key not in allowed_model_options:
+                    cls._raise_unknown_param(
+                        output_path, context, key, allowed_model_options
+                    )
+
+        if "solv" in params:
+            solv_params = params["solv"]
+            if not isinstance(solv_params, dict):
+                msg = "Solvation settings must use '#solv(key=value,...)' syntax."
+                cls._log_error(output_path, msg)
+                raise ValueError(msg)
+            for key in solv_params:
+                if key not in cls.SOLV_PARAMS:
+                    cls._raise_unknown_param(
+                        output_path, "solvation", key, cls.SOLV_PARAMS
+                    )
 
     @classmethod
     def _validate(cls, params: Dict[str, Any], task: str, output_path: Optional[str]) -> None:
@@ -302,6 +474,8 @@ class CommandControl:
             cls._log_error(output_path, f"Unsupported model: {model}")
             raise ValueError(f"Unsupported model: '{model}'.")
 
+        cls._validate_unknown_params(params, task, output_path)
+
         if "gpuid" in params and params["gpuid"] is not None and not isinstance(params["gpuid"], int):
             cls._log_error(output_path, "GPU ID must be an integer.")
             raise ValueError("GPU ID must be an integer.")
@@ -309,6 +483,16 @@ class CommandControl:
         if "d4" in params and not isinstance(params["d4"], bool):
             cls._log_error(output_path, "D4 must be 'true' or 'false'.")
             raise ValueError("D4 must be 'true' or 'false'.")
+
+        if task == "sp":
+            if "verbosity" in params:
+                cls._log_error(output_path, "SP uses 'verbose', not 'verbosity'.")
+                raise ValueError("SP uses 'verbose', not 'verbosity'.")
+            if "verbose" in params and (
+                type(params["verbose"]) is not int or params["verbose"] not in {0, 1}
+            ):
+                cls._log_error(output_path, "SP verbose must be 0 or 1.")
+                raise ValueError("SP verbose must be 0 or 1.")
 
         if "method" in params:
             if task == "md":
@@ -319,6 +503,16 @@ class CommandControl:
             if allowed and params["method"] not in allowed:
                 cls._log_error(output_path, f"Method '{params['method']}' not implemented for task '{task}'.")
                 raise ValueError(f"Method '{params['method']}' not implemented for task '{task}'.")
+
+        if task == "ts" and "refine" in params:
+            method = params.get("method")
+            allowed_refines = cls.TS_REFINE_MAP.get(method)
+            if allowed_refines is None:
+                cls._log_error(output_path, f"'refine' is not valid for TS method '{method}'.")
+                raise ValueError(f"'refine' is not valid for TS method '{method}'.")
+            if params["refine"] not in allowed_refines:
+                cls._log_error(output_path, f"Refine '{params['refine']}' not implemented for TS method '{method}'.")
+                raise ValueError(f"Refine '{params['refine']}' not implemented for TS method '{method}'.")
 
         if task == "md":
             ensemble = params.get("ensemble", "nve")
@@ -355,6 +549,20 @@ class CommandControl:
                 msg = f"Unsupported UMA size: '{size_opt}'. Supported: {sorted(cls.SUPPORTED_UMA_SIZES)}"
                 cls._log_error(output_path, msg)
                 raise ValueError(msg)
+
+            inference_opt = model_options.get("inference")
+            if inference_opt is not None and inference_opt not in cls.SUPPORTED_UMA_INFERENCE:
+                msg = (
+                    f"Unsupported UMA inference mode: '{inference_opt}'. "
+                    f"Supported: {sorted(cls.SUPPORTED_UMA_INFERENCE)}"
+                )
+                cls._log_error(output_path, msg)
+                raise ValueError(msg)
+
+            if size_opt is None:
+                # Make the actual checkpoint visible in summary() / .out.
+                model_options.setdefault("size", cls.UMA_DEFAULT_SIZE)
+                params["model_options"] = model_options
 
             if "pbc" in params and task_opt == "omol":
                 cls._log_error(output_path, "PBC is incompatible with UMA task='omol'.")
@@ -393,7 +601,13 @@ class CommandControl:
     def summary(self) -> str:
         lines = ["Parsed configuration:\n", "-" * 40 + "\n"]
         lines.append(f"Task: {self.task}\n")
+        model_options = self.params.get("model_options") or {}
         for key, value in self.params.items():
+            if key == "model_options":
+                continue  # folded into the model line below
+            if key == "model" and isinstance(value, str) and model_options:
+                opt_str = ",".join(f"{k}={v}" for k, v in model_options.items())
+                value = f"{value}({opt_str})"
             lines.append(f"{key:<15}: {value}\n")
         return "".join(lines)
 

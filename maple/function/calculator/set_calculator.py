@@ -147,6 +147,17 @@ class SetClaculator:
 
         calculator.hessian = mode
 
+    def _coerce_uma_inference_for_device(
+        self, inference: Optional[str], device_name: str
+    ) -> Optional[str]:
+        if inference == "turbo" and device_name == "cpu":
+            self.log_info([
+                "\n [WARNING] UMA inference='turbo' requires CUDA; "
+                "falling back to 'default' on CPU.\n"
+            ])
+            return "default"
+        return inference
+
     def _ensure_model_file(self, model_name: str) -> Optional[Path]:
         filename = MODEL_NAME_TO_FILE.get(model_name)
         if filename is None:
@@ -267,6 +278,12 @@ class SetClaculator:
 
             uma_task = self.model_options.get("task")
             uma_size = self.model_options.get("size")
+            uma_inference = self.model_options.get("inference")
+            effective_device = UMACalculator._normalize_device(self.device)
+            uma_inference = self._coerce_uma_inference_for_device(
+                uma_inference, effective_device
+            )
+
             checkpoint_path = self.model_options.get("checkpoint_path") or self.model_options.get("model_path")
             effective_size = str(uma_size).lower() if uma_size else UMA_DEFAULT_SIZE
             if checkpoint_path is None and effective_size in UMA_FALLBACK_HF_MODELS:
@@ -282,6 +299,7 @@ class SetClaculator:
                 task=uma_task,
                 size=uma_size,
                 checkpoint_path=checkpoint_path,
+                inference_settings=uma_inference,
             )
         elif model == "maceomol":
             self._require_local_model_file(model)

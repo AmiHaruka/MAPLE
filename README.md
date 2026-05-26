@@ -132,6 +132,16 @@ H    0.802   0.842   1.742
 | `#scan(method=lbfgs)` | PES scan |
 | `#md(mdp=nvt.mdp)` | Molecular dynamics |
 
+### UMA Options
+
+`#model=uma(...)` accepts the following keys (all optional):
+
+| Key | Values | Default | Notes |
+|-----|--------|---------|-------|
+| `size` | `uma-s-1p1`, `uma-s-1p2`, `uma-m-1p1` | `uma-s-1p1` | Checkpoint variant |
+| `task` | `omol`, `omat`, `oc20`, `odac`, `omc`, `oc22`, `oc25` | inferred from PBC | `omol` for molecules, `omat` for periodic |
+| `inference` | `default`, `turbo` | `default` | `turbo` accelerates fixed-composition GPU workloads (NEB / TS / freq); ignored on CPU |
+
 ### Coordinates
 
 Inline coordinates:
