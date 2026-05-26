@@ -171,9 +171,9 @@ cython_debug/
 /CLAUDE.md
 
 # MD example outputs (large run data)
-example/md/**/*.out
-example/md/**/*.dat
-example/md/**/*.xyz
+examples/md/**/*.out
+examples/md/**/*.dat
+examples/md/**/*.xyz
 
 # Local automation/session artifacts
 /.omc/

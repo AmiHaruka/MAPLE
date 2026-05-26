@@ -189,6 +189,6 @@ https://github.com/ClickFF/MAPLE
 - [AIMNet2](https://github.com/isayevlab/AIMNet2)
 - [FAIR-Chem](https://github.com/FAIR-Chem/fairchem)
 
-**Version**: 0.1.2  
-**Status**: Active Development  
-**Updated**: April 2026
+**Version**: 0.1.4
+**Status**: Active Development
+**Updated**: May 2026
