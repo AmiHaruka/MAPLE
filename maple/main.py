@@ -1,6 +1,7 @@
 import sys
 import os
 import argparse
+import traceback
 
 try:
     from maple import __version__ as _VERSION
@@ -10,6 +11,21 @@ except Exception:
         _VERSION = _pkg_version('maple')
     except Exception:
         _VERSION = '0.1.2'
+
+
+def _default_output_path(input_file: str) -> str:
+    base_name = os.path.splitext(input_file)[0]
+    return f"{base_name}.out"
+
+
+def _log_error_to_output(output_file: str, message: str, exc: Exception | None = None) -> None:
+    try:
+        with open(output_file, "a") as handle:
+            handle.write(f"ERROR: {message.rstrip()}\n")
+            if exc is not None:
+                traceback.print_exception(type(exc), exc, exc.__traceback__, file=handle)
+    except OSError as log_error:
+        print(f"Warning: could not write error to output file '{output_file}': {log_error}", file=sys.stderr)
 
 
 def main():
@@ -94,20 +110,21 @@ Examples:
             parser.print_help()
             sys.exit(1)
         input_file = args.input_file
-    
-    # Check if input file exists
-    if not os.path.exists(input_file):
-        print(f"Error: Input file '{input_file}' not found", file=sys.stderr)
-        sys.exit(1)
-    
+
     # Determine output file
     if args.output_file:
         output_file = args.output_file
     else:
         # Auto-generate: inp1.inp -> inp1.out
-        base_name = os.path.splitext(input_file)[0]
-        output_file = f"{base_name}.out"
-    
+        output_file = _default_output_path(input_file)
+
+    # Check if input file exists
+    if not os.path.exists(input_file):
+        message = f"Input file '{input_file}' not found"
+        _log_error_to_output(output_file, message)
+        print(f"Error: {message}", file=sys.stderr)
+        sys.exit(1)
+
     # Run MAPLE engine
     try:
         from maple.function.engine import engine
@@ -116,8 +133,8 @@ Examples:
         print(f"\nCalculation completed successfully!")
         print(f"Output written to: {output_file}")
     except Exception as e:
+        _log_error_to_output(output_file, f"Error during calculation: {e}", e)
         print(f"Error during calculation: {e}", file=sys.stderr)
-        import traceback
         traceback.print_exc()
         sys.exit(1)
 

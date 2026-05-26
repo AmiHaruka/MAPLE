@@ -29306,7 +29306,7 @@ Complete trajectory written to /home/user/software/MAPLE/example/scan/da_traj.xy
 
 ======================================================================
 Scan completed! Total points: 256Results saved to: /home/user/software/MAPLE/example/scan/da_scan_final.xyz
-Energy range: -386.258496 to -386.187835 eV
+Energy range: -386.258496 to -386.187835 Hartree
 
 
 

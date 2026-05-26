@@ -167,8 +167,14 @@ cython_debug/
 /.claude/
 /claude/
 .worktrees/
+/AGENTS.md
+/CLAUDE.md
 
 # MD example outputs (large run data)
 example/md/**/*.out
 example/md/**/*.dat
 example/md/**/*.xyz
+
+# Local automation/session artifacts
+/.omc/
+/docs/

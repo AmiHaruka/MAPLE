@@ -25,11 +25,11 @@ class Dispatcher():
         self.commandcontrol = commandcontrol
         self.set_throshould(atoms)
         if jobtype == 'opt':
-            from .optimization import Optmization
+            from .optimization import Optimization
 
             if isinstance(atoms, (list, Molecules)):
                 raise NotImplementedError('For optimization job, only one Atoms object is allowed.')
-            opt = Optmization(output=output, atoms=atoms, method=commandcontrol.params.get('method'), params=commandcontrol.params)
+            opt = Optimization(output=output, atoms=atoms, params=commandcontrol.params)
             opt.run()
             
         elif jobtype == 'sp':
