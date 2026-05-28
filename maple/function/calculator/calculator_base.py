@@ -47,9 +47,154 @@ def load_calculator_plugins_from_env() -> None:
         import_calculator_plugin(entry)
 
 
+EV2HARTREE = 1.0 / 27.211386245988
+
+
+def _convert_energy_force_units(energy, forces, *, source_unit):
+    """Convert backend (energy, forces) to Hartree and Hartree/Å.
+
+    Backends declare MODEL_ENERGY_UNIT honestly. Hartree is a no-op; eV
+    multiplies through by EV2HARTREE.
+    """
+    if source_unit == 'hartree':
+        return energy, forces
+    if source_unit == 'eV':
+        energy_ha = energy * EV2HARTREE
+        forces_ha = forces * EV2HARTREE if forces is not None else None
+        return energy_ha, forces_ha
+    raise ValueError(
+        f"Unknown source_unit: {source_unit!r}; expected 'eV' or 'hartree'."
+    )
+
+
+def init_implicit_solvent(calc, implicit, solvent, device):
+    """Shared implicit-solvent initializer.
+
+    Usable by CalcABC subclasses and duck-typed calculators (UMA) so the
+    GBSA/QEq construction lives in one place.
+    """
+    if implicit == 'gbsa' and solvent != 'none':
+        from .extra_correction import GBSA, QEqTorch
+
+        calc.solvent_correction = GBSA(solvent=solvent, device=device)
+        calc.chargecalc = QEqTorch(device=device)
+    else:
+        calc.solvent_correction = None
+
+
+def numerical_hessian_from_atoms(calc, atoms, delta=0.002):
+    """Numerical Hessian via central finite difference on forces.
+
+    Polymorphic: works for any calculator with the ASE protocol
+    (calc.calculate(atoms, properties=['forces'], system_changes=...) writes
+    calc.results['forces'] as a (N, 3) ndarray). Returns float64 ndarray of
+    shape (3N, 3N).
+    """
+    from ase.constraints import FixAtoms
+    from ase.calculators.calculator import all_changes
+
+    N = len(atoms)
+    pos0 = atoms.get_positions().copy()
+    fixed = {
+        i
+        for c in getattr(atoms, 'constraints', []) or []
+        if isinstance(c, FixAtoms)
+        for i in c.get_indices()
+    }
+    movable = [i for i in range(N) if i not in fixed]
+
+    H = np.zeros((3 * N, 3 * N), dtype=np.float64)
+    if not movable:
+        return H
+
+    def force_at(positions):
+        at = atoms.copy()
+        at.set_positions(positions)
+        if getattr(atoms, 'constraints', None):
+            at.set_constraint(atoms.constraints)
+        calc.calculate(at, properties=['forces'], system_changes=all_changes)
+        return np.asarray(calc.results['forces'], dtype=np.float64)
+
+    for a in movable:
+        for k in range(3):
+            row = 3 * a + k
+            pos_p = pos0.copy(); pos_p[a, k] += delta
+            Fp = force_at(pos_p)
+            pos_m = pos0.copy(); pos_m[a, k] -= delta
+            Fm = force_at(pos_m)
+            H[row, :] = (-(Fp - Fm) / (2.0 * delta)).reshape(-1)
+
+    return H
+
+
 class CalcABC(ase.calculators.calculator.Calculator):
+    # Protocol attributes — each subclass overrides what's relevant.
+    MODEL_NAMES: tuple = ()
+    MODEL_ENERGY_UNIT: str = 'eV'
+    SUPPORTED_HESSIAN_MODES: tuple = ('numerical',)
+    SUPPORTS_CHARGE_MULT: bool = False
+    CHECKPOINT_FILENAME: dict | None = None
+    REQUIRES_LOCAL_MODEL_FILE: bool = False
+
     def __init__(self):
         super().__init__()
+
+    @classmethod
+    def build_kwargs_from_options(cls, model, model_options, *, resolved_model_path=None):
+        """Translate input-header options into ctor kwargs. Backends override."""
+        return {}
+
+    def _finalize_results(self, atoms, *, energy, forces=None, hessian=None, unit=None):
+        """Single entry: unit conversion + implicit-solvent + write self.results.
+
+        Backends pass the pure model outputs (in the unit declared by
+        MODEL_ENERGY_UNIT). This method converts to Hartree, then optionally
+        adds the implicit-solvent correction, then writes self.results.
+        """
+        source_unit = unit if unit is not None else self.MODEL_ENERGY_UNIT
+        energy_ha, forces_ha = _convert_energy_force_units(
+            energy, forces, source_unit=source_unit
+        )
+
+        if getattr(self, 'solvent_correction', None) is not None:
+            solvent_energy, solvent_force = self.implicit_solv_energy_and_force(atoms)
+            se = solvent_energy.item() if hasattr(solvent_energy, 'item') else float(solvent_energy)
+            energy_ha = energy_ha + se
+            if forces_ha is not None and solvent_force is not None:
+                sf = (
+                    solvent_force.detach().cpu().numpy()
+                    if hasattr(solvent_force, 'detach')
+                    else np.asarray(solvent_force)
+                )
+                forces_ha = forces_ha + sf
+
+        self.results['energy'] = float(energy_ha)
+        self.results['free_energy'] = float(energy_ha)
+        if forces_ha is not None:
+            self.results['forces'] = forces_ha
+        if hessian is not None:
+            self.results['hessian'] = hessian
+
+    def get_hessian(self, atoms, delta: float = 0.002):
+        """Dispatch on self.hessian. Subclasses may override for backend autograd."""
+        mode = getattr(self, 'hessian', self.SUPPORTED_HESSIAN_MODES[0])
+        if mode == 'analytic':
+            if getattr(self, 'solvent_correction', None) is not None:
+                raise NotImplementedError(
+                    'Analytic Hessian with implicit solvent is not supported. '
+                    "Set hessian='numerical'."
+                )
+            return np.asarray(self._analytic_hessian(atoms))
+        if mode == 'numerical':
+            return numerical_hessian_from_atoms(self, atoms, delta)
+        raise ValueError(f"Unknown hessian mode: {mode!r}")
+
+    def _analytic_hessian(self, atoms):
+        """Backend autograd Hessian. Override in subclasses that can autodiff."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement analytic Hessian; "
+            "set hessian='numerical' or override _analytic_hessian."
+        )
 
 
     def log_error(self, error_message: str) -> None:
