@@ -1,7 +1,51 @@
-import torch
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import numpy as np
 
 import ase.calculators.calculator
+
+if TYPE_CHECKING:
+    import torch
+
+
+_REGISTRY: dict[str, type] = {}
+
+
+def register_calculator(cls):
+    """Register a calculator class under each name in cls.MODEL_NAMES.
+
+    Raises ValueError on duplicate registration to surface accidental name
+    collisions instead of silently overwriting.
+    """
+    for raw_name in cls.MODEL_NAMES:
+        name = raw_name.lower()
+        existing = _REGISTRY.get(name)
+        if existing is not None and existing is not cls:
+            raise ValueError(
+                f"Calculator name '{name}' is already registered to {existing.__name__}; "
+                f"refusing to overwrite with {cls.__name__}."
+            )
+        _REGISTRY[name] = cls
+    return cls
+
+
+def get_registered_calculator(name: str) -> type:
+    return _REGISTRY[name.lower()]
+
+
+def import_calculator_plugin(module_path: str) -> None:
+    import importlib
+    importlib.import_module(module_path)
+
+
+def load_calculator_plugins_from_env() -> None:
+    import os
+    raw = os.environ.get('MAPLE_CALCULATOR_PLUGINS', '')
+    for entry in (s.strip() for s in raw.split(',') if s.strip()):
+        import_calculator_plugin(entry)
+
 
 class CalcABC(ase.calculators.calculator.Calculator):
     def __init__(self):
@@ -40,6 +84,8 @@ class CalcABC(ase.calculators.calculator.Calculator):
             forces (torch.Tensor): forces (3N,) on same device/dtype
             energy (torch.Tensor): scalar total energy
         """
+        import torch
+
         # 1. prepare coordinates with grad enabled
         coords = torch.tensor(
             atoms.get_positions(),
@@ -116,30 +162,3 @@ class CalcABC(ase.calculators.calculator.Calculator):
         atoms.atomic_charges = self.chargecalc(atoms)
         solvent_energy, solvent_forces = self.solvent_correction.get_energy_and_force(atoms)
         return solvent_energy, solvent_forces
-
-
-class CalcBatchABC(ase.calculators.calculator.Calculator):
-    def __init__(self):
-        super().__init__()
-
-
-    def log_error(self, error_message: str) -> None:
-        """
-        Logs error messages to the output file.
-
-        Args:
-            error_message: The error message to log.
-        """
-        with open(self.output, 'a') as file:
-            file.write(f"ERROR: {error_message}\n")
-
-    def log_info(self, info_message: list) -> None:
-        """
-        Logs info messages to the output file.
-
-        Args:
-            info_message: The info message to log.
-        """
-        with open(self.output, 'a') as file:
-            for info in info_message:   
-                file.write(f"{info}")
