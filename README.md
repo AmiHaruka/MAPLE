@@ -168,6 +168,7 @@ Multi-structure jobs such as NEB accept multiple `XYZ` records.
 - Website: https://www.maplechem.org/
 - Release history: https://github.com/ClickFF/MAPLE/releases
 - Architecture notes: [ARCHITECTURE.md](ARCHITECTURE.md)
+- Authoring a calculator backend: [maple/function/calculator/AUTHORING.md](maple/function/calculator/AUTHORING.md)
 
 ## Citation
 
