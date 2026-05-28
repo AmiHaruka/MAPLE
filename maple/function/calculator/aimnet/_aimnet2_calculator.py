@@ -74,8 +74,13 @@ class AIMNet2Calculator(CalcABC):
     CHECKPOINT_FILENAME = {'aimnet2': 'aimnet2.pt', 'aimnet2nse': 'aimnet2nse.pt'}
     REQUIRES_LOCAL_MODEL_FILE = False
 
-    # Legacy attribute kept until SetClaculator stops reading it (commit 6).
-    supported_hessian_modes = SUPPORTED_HESSIAN_MODES
+    @classmethod
+    def build_kwargs_from_options(cls, model, options, *, resolved_model_path=None):
+        kwargs = {}
+        coulomb_method = options.get('coulomb_method')
+        if coulomb_method is not None:
+            kwargs['coulomb_method'] = str(coulomb_method).lower()
+        return kwargs
 
     def __init__(self, device: torch.device,
                 model: str = 'aimnet2',

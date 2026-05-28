@@ -74,7 +74,12 @@ class MACEPolCalculator(CalcABC):
     CHECKPOINT_FILENAME = None
     REQUIRES_LOCAL_MODEL_FILE = True
 
-    supported_hessian_modes = SUPPORTED_HESSIAN_MODES
+    @classmethod
+    def build_kwargs_from_options(cls, model, options, *, resolved_model_path=None):
+        kwargs = {}
+        if resolved_model_path is not None:
+            kwargs['model_path'] = resolved_model_path
+        return kwargs
 
     def __init__(self,
         device: torch.device,

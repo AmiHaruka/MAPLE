@@ -25,9 +25,9 @@ class ANICalculator(CalcABC):
     }
     REQUIRES_LOCAL_MODEL_FILE = False
 
-    # Kept for the SetClaculator pre-migration validation path; will be
-    # superseded by SUPPORTED_HESSIAN_MODES once commit 6 lands.
-    supported_hessian_modes = SUPPORTED_HESSIAN_MODES
+    @classmethod
+    def build_kwargs_from_options(cls, model, options, *, resolved_model_path=None):
+        return {'d4': bool(options.get('d4', False))}
 
     def __init__(self, device,
         model: str = 'ani2x',

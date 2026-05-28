@@ -82,8 +82,6 @@ class MACEModelCalculator(CalcABC):
     CHECKPOINT_FILENAME = None
     REQUIRES_LOCAL_MODEL_FILE = True
 
-    supported_hessian_modes = SUPPORTED_HESSIAN_MODES
-
     def __init__(self,
         device: torch.device,
         model: str = 'maceomol',

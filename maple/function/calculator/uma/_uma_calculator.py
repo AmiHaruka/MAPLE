@@ -71,8 +71,15 @@ class UMACalculator(FAIRChemCalculator):
     CHECKPOINT_FILENAME = None
     REQUIRES_LOCAL_MODEL_FILE = False
 
-    # Legacy attribute kept until SetClaculator stops reading it (commit 6).
-    supported_hessian_modes = SUPPORTED_HESSIAN_MODES
+    @classmethod
+    def build_kwargs_from_options(cls, model, options, *, resolved_model_path=None):
+        return {
+            'task': options.get('task'),
+            'size': options.get('size'),
+            'checkpoint_path': options.get('checkpoint_path'),
+            'inference_settings': options.get('inference'),
+            'overrides': options.get('overrides'),
+        }
 
     @staticmethod
     def _normalize_device(device):
