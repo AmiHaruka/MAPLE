@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import importlib
 import os
 import warnings
@@ -20,8 +22,13 @@ try:
 except ImportError:
     raise ImportError("fairchem-core is not installed. Please install it first.")
 
+from ..calculator_base import (
+    EV2HARTREE,
+    init_implicit_solvent,
+    numerical_hessian_from_atoms,
+    register_calculator,
+)
 
-EV2HARTREE = 1.0 / 27.211386245988
 
 UMA_DEFAULT_SIZE = "uma-s-1p1"
 UMA_MODELS_MAP = {
@@ -44,19 +51,31 @@ UMA_INFERENCE_SETTINGS = "default"
 UMA_CPU_INFERENCE_SETTINGS = "default"
 
 
+@register_calculator
 class UMACalculator(FAIRChemCalculator):
-    """
-    UMA calculator with MAPLE-specific unit conversion and Hessian support.
+    """UMA calculator with MAPLE-specific unit conversion and Hessian support.
+
+    Does NOT inherit CalcABC — UMA already extends third-party FAIRChemCalculator.
+    Satisfies the MAPLE calculator protocol via attribute presence (the six
+    MODEL_* class attrs + calculate + get_hessian + get_hvp where required).
 
     Explicit `task=` is respected. When `task` is omitted, MAPLE keeps the
     historical convenience behavior of inferring `omol` for non-periodic
     systems and `omat` for periodic systems.
     """
 
-    supported_hessian_modes = ("numerical",)
+    MODEL_NAMES = ("uma",)
+    MODEL_ENERGY_UNIT = "eV"
+    SUPPORTED_HESSIAN_MODES = ("numerical",)
+    SUPPORTS_CHARGE_MULT = True
+    CHECKPOINT_FILENAME = None
+    REQUIRES_LOCAL_MODEL_FILE = False
+
+    # Legacy attribute kept until SetClaculator stops reading it (commit 6).
+    supported_hessian_modes = SUPPORTED_HESSIAN_MODES
 
     @staticmethod
-    def _normalize_device(device: torch.device | str | None) -> str:
+    def _normalize_device(device):
         # FAIR Chemistry's MLIP unit accepts only "cpu" or "cuda".
         # Keep UMA's historical behavior: CUDA-like requests use the CUDA
         # backend token, while other strings fall back to CPU.
@@ -68,10 +87,10 @@ class UMACalculator(FAIRChemCalculator):
     @staticmethod
     def _build_predictor(
         checkpoint: str,
-        overrides: dict | None,
+        overrides,
         device: str,
-        checkpoint_path: str | None = None,
-        inference_settings: str | None = None,
+        checkpoint_path=None,
+        inference_settings=None,
     ):
         device = UMACalculator._normalize_device(device)
         # Turbo selects FAIR Chemistry's fast GPU execution path; CPU uses the
@@ -179,15 +198,15 @@ class UMACalculator(FAIRChemCalculator):
 
     def __init__(
         self,
-        device: torch.device,
+        device,
         model: str = "uma",
-        overrides: dict | None = None,
+        overrides=None,
         implicit: Literal["gbsa", "none"] = "gbsa",
         solvent: str = "none",
-        task: str | None = None,
-        size: str | None = None,
-        checkpoint_path: str | None = None,
-        inference_settings: str | None = None,
+        task=None,
+        size=None,
+        checkpoint_path=None,
+        inference_settings=None,
     ):
         if size is not None:
             size = str(size).lower()
@@ -225,13 +244,9 @@ class UMACalculator(FAIRChemCalculator):
         self._auto_task = task is None
         self.hessian = "numerical"
 
-        if implicit == "gbsa" and solvent != "none":
-            from ..extra_correction import GBSA, QEqTorch
-
-            self.solvent_correction = GBSA(solvent=solvent, device=self.device)
-            self.chargecalc = QEqTorch(device=self.device)
-        else:
-            self.solvent_correction = None
+        # Shared helper sets self.solvent_correction (and self.chargecalc when
+        # applicable); identical contract to CalcABC.implicit_solv_init.
+        init_implicit_solvent(self, implicit, solvent, self.device)
 
     def _set_task_from_atoms(self, atoms: Atoms) -> None:
         if not self._auto_task:
@@ -257,58 +272,9 @@ class UMACalculator(FAIRChemCalculator):
         )
         self.task_name = task
 
-    def get_energy(self, atoms: Atoms) -> torch.Tensor:
-        self.calculate(atoms, properties=["energy"], system_changes=all_changes)
-        energy_value = self.results["energy"]
-
-        if self.solvent_correction:
-            energy_value += self.solvent_correction.get_energy(atoms)
-
-        return torch.tensor(energy_value, dtype=torch.float32, device=self.device)
-
-    def get_hessian(
-        self,
-        atoms: Atoms,
-        delta: float = 0.002,
-        dtype: torch.dtype = torch.float64,
-    ) -> torch.Tensor:
-        from ase.constraints import FixAtoms
-
-        n_atoms = len(atoms)
-        pos0 = atoms.get_positions()
-        fixed = {
-            i
-            for constraint in atoms.constraints
-            if isinstance(constraint, FixAtoms)
-            for i in constraint.get_indices()
-        }
-        movable = [i for i in range(n_atoms) if i not in fixed]
-
-        if not movable:
-            return torch.zeros((3 * n_atoms, 3 * n_atoms), dtype=dtype, device=self.device)
-
-        hessian = torch.zeros((3 * n_atoms, 3 * n_atoms), dtype=dtype, device=self.device)
-
-        def eval_force(positions: np.ndarray) -> torch.Tensor:
-            atoms_tmp = atoms.copy()
-            atoms_tmp.set_positions(positions)
-            self.calculate(atoms_tmp, properties=["forces"], system_changes=all_changes)
-            return torch.tensor(self.results["forces"], dtype=dtype, device=self.device)
-
-        for atom_index in movable:
-            for axis in range(3):
-                pos_p = pos0.copy()
-                pos_p[atom_index, axis] += delta
-                force_p = eval_force(pos_p)
-
-                pos_m = pos0.copy()
-                pos_m[atom_index, axis] -= delta
-                force_m = eval_force(pos_m)
-
-                row = 3 * atom_index + axis
-                hessian[row, :] = (-(force_p - force_m) / (2.0 * delta)).reshape(-1)
-
-        return hessian
+    def get_hessian(self, atoms: Atoms, delta: float = 0.002) -> np.ndarray:
+        """Numerical-only Hessian via shared finite-difference helper."""
+        return numerical_hessian_from_atoms(self, atoms, delta)
 
     def calculate(self, atoms, properties=None, system_changes=None):
         self._set_task_from_atoms(atoms)
@@ -318,6 +284,9 @@ class UMACalculator(FAIRChemCalculator):
 
         super().calculate(atoms, properties, system_changes)
 
+        # eV → Hartree: UMA's MODEL_ENERGY_UNIT is 'eV'; equivalent to the
+        # _finalize_results unit step but inlined because UMA does not inherit
+        # CalcABC.
         if "energy" in self.results:
             self.results["energy"] *= EV2HARTREE
         if "free_energy" in self.results:
@@ -325,7 +294,8 @@ class UMACalculator(FAIRChemCalculator):
         if "forces" in self.results:
             self.results["forces"] *= EV2HARTREE
 
-        if self.solvent_correction:
+        # Implicit-solvent correction in Hartree (mirrors _finalize_results).
+        if self.solvent_correction is not None:
             atoms.atomic_charges = self.chargecalc(atoms)
             solvent_energy, solvent_force = self.solvent_correction.get_energy_and_force(atoms)
             if "energy" in self.results:
