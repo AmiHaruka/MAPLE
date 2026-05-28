@@ -1,4 +1,10 @@
 # -*- coding: utf-8 -*-
+"""Out-of-scope for the unified MAPLE calculator protocol.
+
+Consumed by BatchLBFGS only; does not implement the CalcABC protocol
+(`_finalize_results`, `_analytic_hessian`, `MODEL_*` class attrs). Keep
+self-contained until a future commit retrofits the batch path.
+"""
 import torch
 from typing import List
 from ase import Atoms
