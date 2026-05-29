@@ -119,7 +119,7 @@ class AIMNet2Calculator(CalcABC):
 
     # ------------------------ calculate ------------------------
     def calculate(self, atoms=None, properties=["energy", "forces", "free_energy", "hessian"], system_changes=all_changes):
-        self._reject_implicit_solvent_derivatives(properties)
+        properties = self._reject_implicit_solvent_derivatives(properties)
         super().calculate(atoms, properties, system_changes)
 
         coord = torch.tensor(
@@ -166,9 +166,6 @@ class AIMNet2Calculator(CalcABC):
                 energy, data["coord"], create_graph=("hessian" in properties)
             )[0]                      # (N+1, 3)
             forces = -grad_full[:N]   # (N, 3)
-            if self.solvent_correction:
-                solvent_energy, solvent_force = self.implicit_solv_energy_and_force(atoms)
-                forces += solvent_force
 
             self.results["forces"] = forces.detach().cpu().numpy()
             

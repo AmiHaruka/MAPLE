@@ -632,6 +632,14 @@ class CommandControl:
                 raise ValueError(msg)
             return
 
+        if "pbc" in params:
+            msg = (
+                "Explicit solvent clusters are non-periodic coordinate-only clusters; "
+                "remove #pbc or use a periodic solvent backend."
+            )
+            cls._log_error(output_path, msg)
+            raise ValueError(msg)
+
         if "write_cell" in solv_params:
             msg = (
                 "Explicit solvent clusters are non-periodic; "

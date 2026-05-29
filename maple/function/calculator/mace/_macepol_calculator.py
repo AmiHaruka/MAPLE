@@ -138,7 +138,7 @@ class MACEPolCalculator(CalcABC):
 
     def calculate(self, atoms=None, properties=['energy', 'forces'], system_changes=all_changes):
         """Main ASE calculation entry point."""
-        self._reject_implicit_solvent_derivatives(properties)
+        properties = self._reject_implicit_solvent_derivatives(properties)
         super().calculate(atoms, properties, system_changes)
 
         # Energy (no grad needed)
@@ -167,10 +167,6 @@ class MACEPolCalculator(CalcABC):
                 retain_graph=False
             )[0]
             forces = forces.double() * EV2HARTREE
-
-            if self.solvent_correction:
-                _, solvent_force = self.implicit_solv_energy_and_force(atoms)
-                forces = forces + solvent_force
 
             self.results['forces'] = forces.detach().cpu().numpy()
 

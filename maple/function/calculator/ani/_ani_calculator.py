@@ -55,7 +55,7 @@ class ANICalculator(CalcABC):
 
     def calculate(self, atoms=None, properties=['energy'],
                   system_changes=ase.calculators.calculator.all_changes):
-        self._reject_implicit_solvent_derivatives(properties)
+        properties = self._reject_implicit_solvent_derivatives(properties)
         super().calculate(atoms, properties, system_changes)
 
         coordinates = torch.tensor(atoms.get_positions(), dtype=self.dtype, device=self.device, requires_grad='forces' in properties).unsqueeze(0)
@@ -71,10 +71,6 @@ class ANICalculator(CalcABC):
 
         if 'forces' in properties:
             forces = -torch.autograd.grad(energy, coordinates, retain_graph='stress' in properties)[0]
-            if self.solvent_correction:
-                solvent_energy, solvent_force = self.implicit_solv_energy_and_force(atoms)
-                forces += solvent_force
-                
             self.results['forces'] = forces.squeeze(0).cpu().numpy()
 
     def get_energy(self, atoms, coordinates):

@@ -12,20 +12,23 @@ IMPLICIT_SOLVENT_FORCE_ERROR = (
 IMPLICIT_SOLVENT_DERIVATIVE_PROPERTIES = {"forces", "stress", "hessian"}
 
 
-def reject_implicit_solvent_derivatives(calculator, properties) -> None:
+def reject_implicit_solvent_derivatives(calculator, properties):
+    if properties is None and getattr(calculator, "solvent_correction", None):
+        return ["energy"]
     requested = set(properties or [])
     if getattr(calculator, "solvent_correction", None) and requested.intersection(
         IMPLICIT_SOLVENT_DERIVATIVE_PROPERTIES
     ):
         raise NotImplementedError(IMPLICIT_SOLVENT_FORCE_ERROR)
+    return properties
 
 
 class CalcABC(ase.calculators.calculator.Calculator):
     def __init__(self):
         super().__init__()
 
-    def _reject_implicit_solvent_derivatives(self, properties) -> None:
-        reject_implicit_solvent_derivatives(self, properties)
+    def _reject_implicit_solvent_derivatives(self, properties):
+        return reject_implicit_solvent_derivatives(self, properties)
 
     def log_error(self, error_message: str) -> None:
         """

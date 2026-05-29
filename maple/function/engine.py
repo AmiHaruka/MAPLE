@@ -130,6 +130,24 @@ class engine():
             
             # Explicit Solvation Treatment
             if self.commandcontrol.get('solv', {}).get('explicit', None) is not None:
+                if not isinstance(self.atoms, Atoms):
+                    msg = (
+                        "Explicit solvation currently supports exactly one structure. "
+                        "Split multi-structure/trajectory input before using "
+                        "#solv(explicit=...)."
+                    )
+                    with open(self.output, "a") as handle:
+                        handle.write(f"ERROR: {msg}\n")
+                    raise ValueError(msg)
+
+                if any(bool(flag) for flag in self.atoms.get_pbc()):
+                    msg = (
+                        "Explicit solvation is non-periodic; #pbc is not supported "
+                        "with #solv(explicit=...)."
+                    )
+                    with open(self.output, "a") as handle:
+                        handle.write(f"ERROR: {msg}\n")
+                    raise ValueError(msg)
 
                 from .read import ExplicitSolv
                 self.atoms = ExplicitSolv(self.atoms, params=self.commandcontrol.get('solv'), 

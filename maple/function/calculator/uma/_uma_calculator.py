@@ -325,7 +325,7 @@ class UMACalculator(FAIRChemCalculator):
         return hessian
 
     def calculate(self, atoms, properties=None, system_changes=None):
-        reject_implicit_solvent_derivatives(self, properties)
+        properties = reject_implicit_solvent_derivatives(self, properties)
 
         self._set_task_from_atoms(atoms)
 

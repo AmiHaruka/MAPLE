@@ -383,6 +383,17 @@ class ExplicitSolv():
     def __new__(cls, atoms: Atoms, params: dict, device, output: str):
         # ``device`` is accepted for call-site compatibility with the engine; the
         # cluster build is pure NumPy/SciPy on CPU and does not use it.
+        if not isinstance(atoms, Atoms):
+            raise ValueError(
+                "Explicit solvation currently supports exactly one ASE Atoms "
+                "structure; split multi-structure/trajectory input first."
+            )
+        if any(bool(flag) for flag in atoms.get_pbc()):
+            raise ValueError(
+                "Explicit solvent clusters are non-periodic coordinate-only "
+                "clusters; remove #pbc or use a periodic solvent backend."
+            )
+
         obj = super().__new__(cls)
         obj.output = output
         obj.atoms = atoms.copy()
@@ -1010,14 +1021,15 @@ class ExplicitSolv():
         if self.number is None and self.target_count > 0:
             fill_ratio = final_count / self.target_count
             if fill_ratio < MIN_FINAL_TARGET_RATIO:
-                msg = (
-                    f"Explicit solvent cluster is underfilled: final={final_count}, "
-                    f"target={self.target_count}, fill={fill_ratio:.1%}. "
-                    "Refusing to write a false-density cluster; increase geometry size, "
-                    "use a validated denser template, or request number=<int> explicitly."
-                )
-                self.log_error(msg)
-                raise ValueError(msg)
+                self.log_info([
+                    "WARNING: explicit solvent cluster is below the full-volume "
+                    f"density target: final={final_count}, target={self.target_count}, "
+                    f"fill={fill_ratio:.1%}. The target is computed from the full "
+                    "sphere/cube volume and does not subtract solute excluded volume; "
+                    "for bulky solutes or tight shells this can be physically "
+                    "reasonable. Increase the geometry size for a denser shell, or "
+                    "use number=<int> for an explicit molecule count.\n"
+                ])
 
     def _log_setup(self) -> None:
         if self.shape == "sphere":

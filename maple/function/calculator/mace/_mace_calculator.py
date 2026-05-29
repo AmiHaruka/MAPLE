@@ -156,7 +156,7 @@ class MACECalculator(CalcABC):
 
     def calculate(self, atoms=None, properties=['energy','forces'], system_changes=all_changes):
         """Main ASE calculation entry point."""
-        self._reject_implicit_solvent_derivatives(properties)
+        properties = self._reject_implicit_solvent_derivatives(properties)
         super().calculate(atoms, properties, system_changes)
 
         data_dict, local_or_ghost = build_data_from_atoms(
@@ -195,10 +195,6 @@ class MACECalculator(CalcABC):
                 retain_graph=False
             )[0]
             forces = forces * EV2HARTREE
-
-            if self.solvent_correction:
-                solvent_energy, solvent_force = self.implicit_solv_energy_and_force(atoms)
-                forces += solvent_force
 
             self.results['forces'] = forces.detach().cpu().numpy()
 
