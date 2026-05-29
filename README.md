@@ -99,6 +99,7 @@ maple md nve
 #opt(method=lbfgs)
 #device=gpu0
 
+0 1
 C   -0.748   0.014   0.025
 C    0.748  -0.014  -0.025
 O    1.170   0.016   1.330
@@ -117,7 +118,7 @@ H    0.802   0.842   1.742
 
 XYZ 0 1 /path/to/molecule.xyz
 ```
-
+TIPS:  Charge and spin multiplicity are supported only in the **OMOL task** mode of the **UMA** model and in the **AIMNet2 / AIMNet2-NSE** models.
 ## Input Overview
 
 ### Header Keywords
@@ -155,9 +156,11 @@ XYZ 0 1 /path/to/molecule.xyz
 Inline coordinates:
 
 ```text
-#model=uma
+#model=uma(size=uma-s-1p1,task=omol,inference=default)
 #sp
+#device=gpu0
 
+0 1
 C   0.000   0.000   0.000
 H   1.089   0.000   0.000
 ...
@@ -166,11 +169,15 @@ H   1.089   0.000   0.000
 External coordinates:
 
 ```text
-XYZ /path/to/molecule.xyz
+#model=uma(size=uma-s-1p1,task=omol,inference=default)
+#sp
+#device=gpu0
+
+XYZ 0 1 /path/to/molecule.xyz
 ```
 
-Multi-structure jobs such as NEB accept multiple `XYZ` records.
-
+Multi-structure jobs such as NEB accept multiple `XYZ` records.<br>
+TIPS:  Charge and spin multiplicity are supported only in the **OMOL task** mode of the **UMA** model
 ## Documentation
 
 - Website: https://www.maplechem.org/
