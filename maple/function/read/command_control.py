@@ -152,6 +152,7 @@ class CommandControl:
         "method",
         "implicit",
         "explicit",
+        "solvent",
         "radius",
         "shape",
         "box_size",
@@ -176,11 +177,6 @@ class CommandControl:
             "non-periodic and no atom constraints are written. Use "
             "write_shell=true with shell_cutoff=<Å> to export a solute-centred "
             "shell instead."
-        ),
-        "solvent": (
-            "Solvation parameter 'solvent' has been removed. Use explicit=<name> "
-            "for an explicit solvent cluster and/or implicit=<name> for an "
-            "implicit solvation model."
         ),
     }
     MODEL_OPTION_PARAMS = {
@@ -403,7 +399,7 @@ class CommandControl:
 
         solv_options = params.get("solv")
         if isinstance(solv_options, dict):
-            for key in ("shape", "explicit", "method", "implicit", "clash_method"):
+            for key in ("shape", "explicit", "method", "implicit", "solvent", "clash_method"):
                 if key in solv_options and isinstance(solv_options[key], str):
                     solv_options[key] = solv_options[key].lower()
             if solv_options.get("shape") == "box":
@@ -517,7 +513,28 @@ class CommandControl:
         cls, params: Dict[str, Any], output_path: Optional[str]
     ) -> None:
         solv_params = params.get("solv")
-        if not isinstance(solv_params, dict) or solv_params.get("explicit") is None:
+        if not isinstance(solv_params, dict):
+            return
+
+        solvent_alias = solv_params.pop("solvent", None)
+        if solvent_alias is not None:
+            explicit = solv_params.get("explicit")
+            implicit = solv_params.get("implicit")
+            if explicit is None and implicit is None:
+                # Backward-compatible interpretation:
+                #   #solv(method=gbsa, solvent=water) -> implicit solvent
+                #   #solv(solvent=water)              -> explicit solvent
+                target = "implicit" if solv_params.get("method") else "explicit"
+                solv_params[target] = solvent_alias
+            elif solvent_alias not in {explicit, implicit}:
+                msg = (
+                    "Conflicting solvation alias 'solvent': use explicit=<name> "
+                    "and/or implicit=<name> directly when they differ."
+                )
+                cls._log_error(output_path, msg)
+                raise ValueError(msg)
+
+        if solv_params.get("explicit") is None:
             return
 
         if "write_cell" in solv_params:

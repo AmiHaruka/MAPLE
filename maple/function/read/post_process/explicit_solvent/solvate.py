@@ -17,6 +17,8 @@ ANGSTROM3_PER_ML = 1.0e24
 WATER_MOLAR_MASS_G_MOL = 18.01528
 DEFAULT_VDW_SCALE = 0.57
 DEFAULT_VDW_FALLBACK_RADIUS = 1.05
+DEFAULT_TEMPLATE_DENSITY_TOLERANCE = 0.20
+MIN_FINAL_TARGET_RATIO = 0.80
 
 # Standard liquid densities (g/mL) near 298 K for the bundled solvent boxes.
 # Used only to derive a target molecule count when neither `number` nor an
@@ -66,6 +68,15 @@ class SolventTemplate:
     residue_ids: np.ndarray
     groups: list[list[int]]
     cryst1_cellpar: Optional[tuple[float, float, float, float, float, float]] = None
+
+
+@dataclass(frozen=True)
+class TemplateMetrics:
+    """Physical metadata used to decide whether stack-based tiling is valid."""
+
+    period: np.ndarray
+    molar_mass_g_mol: float
+    density_g_ml: float
 
 
 def _element_from_pdb_line(line: str) -> str:
@@ -221,6 +232,14 @@ def _molecular_weight(symbols: Sequence[str]) -> float:
 
 def _molecule_number_density(density_g_ml: float, molar_mass_g_mol: float) -> float:
     return density_g_ml / molar_mass_g_mol * AVOGADRO / ANGSTROM3_PER_ML
+
+
+def _mass_density_g_ml(
+    molecule_count: int, molar_mass_g_mol: float, volume_angstrom3: float
+) -> float:
+    if volume_angstrom3 <= 0:
+        return math.nan
+    return molecule_count * molar_mass_g_mol / AVOGADRO * ANGSTROM3_PER_ML / volume_angstrom3
 
 
 def _default_clash_method(params: dict) -> str:
@@ -399,6 +418,8 @@ class ExplicitSolv():
             raise FileNotFoundError(f"Solvent {obj.solv_name} is not found")
 
         obj.template = parse_pdb_template(obj.data_path)
+        obj.template_metrics = obj._template_metrics()
+        obj._validate_template_density()
         obj.target_count = obj._target_solvent_count()
         obj._log_setup()
         obj._process()
@@ -504,12 +525,10 @@ class ExplicitSolv():
             )
             self.log_error(msg)
             raise ValueError(msg)
-        first_group_symbols = [self.template.symbols[i] for i in self.template.groups[0]]
-        if self.solv_name == "water":
-            molar_mass = WATER_MOLAR_MASS_G_MOL
-        else:
-            molar_mass = _molecular_weight(first_group_symbols)
-        number_density = _molecule_number_density(self.density, molar_mass) * self.density_scale
+        number_density = (
+            _molecule_number_density(self.density, self.template_metrics.molar_mass_g_mol)
+            * self.density_scale
+        )
         return max(0, int(round(self._volume() * number_density)))
 
     def _extent(self) -> float:
@@ -549,33 +568,71 @@ class ExplicitSolv():
             groups.setdefault(int(tag), []).append(idx)
         return {tag: np.asarray(indices, dtype=np.int64) for tag, indices in groups.items()}
 
-    def _tile_period(self, span: np.ndarray) -> np.ndarray:
-        """Per-axis lattice period for replicating the template box.
+    def _template_molar_mass(self) -> float:
+        first_group_symbols = [self.template.symbols[i] for i in self.template.groups[0]]
+        if self.solv_name == "water":
+            return WATER_MOLAR_MASS_G_MOL
+        return _molecular_weight(first_group_symbols)
 
-        Uses the tighter of the coordinate span and the CRYST1 cell edge. Organic
-        boxes pack molecules whose atoms spill past the cell, so the true period
-        is the (smaller) CRYST1 edge — tiling by it reproduces the liquid and the
-        overlap filter deletes the resulting seam duplicates. Water's cell is
-        padded (span < cell), so the span is the right period there. Taking the
-        min keeps both families near their physical density instead of diluting
-        one with raw-span and the other with raw-CRYST1 tiling.
-        """
+    def _template_period(self) -> np.ndarray:
+        """Orthorhombic CRYST1 period for stack-style bulk-solvent tiling."""
         cellpar = self.template.cryst1_cellpar
         if cellpar is None:
-            return span
+            msg = (
+                f"Solvent template '{self.solv_name}' has no CRYST1 cell. "
+                "Stack-based explicit solvation requires a periodic bulk template."
+            )
+            self.log_error(msg)
+            raise ValueError(msg)
         a, b, c, alpha, beta, gamma = cellpar
         if not (a > 0 and b > 0 and c > 0):
-            return span
+            msg = f"Solvent template '{self.solv_name}' has invalid CRYST1 lengths."
+            self.log_error(msg)
+            raise ValueError(msg)
         if not all(abs(angle - 90.0) < 1.0 for angle in (alpha, beta, gamma)):
-            # Non-orthogonal cell: fall back to span-based tiling.
-            return span
+            msg = (
+                f"Solvent template '{self.solv_name}' uses a non-orthogonal CRYST1 cell. "
+                "Only orthorhombic stack templates are currently supported."
+            )
+            self.log_error(msg)
+            raise ValueError(msg)
         cell = np.array([a, b, c], dtype=np.float64)
-        # A genuine periodic cell is at least as large as the molecule it holds.
-        # A CRYST1 edge below the molecular diameter is corrupt; ignore it rather
-        # than tiling by a tiny period into an explosion of overlapping images.
         if np.any(cell < 2.0 * self._template_molecule_radius()):
-            return span
-        return np.minimum(span, cell)
+            msg = (
+                f"Solvent template '{self.solv_name}' CRYST1 cell is smaller than "
+                "the solvent molecule diameter; refusing unsafe tiling."
+            )
+            self.log_error(msg)
+            raise ValueError(msg)
+        return cell
+
+    def _template_metrics(self) -> TemplateMetrics:
+        period = self._template_period()
+        molar_mass = self._template_molar_mass()
+        density = _mass_density_g_ml(len(self.template.groups), molar_mass, float(np.prod(period)))
+        return TemplateMetrics(
+            period=period,
+            molar_mass_g_mol=molar_mass,
+            density_g_ml=density,
+        )
+
+    def _validate_template_density(self) -> None:
+        """Fail closed when a bulk template cannot support the requested density."""
+        if self.number is not None or self.density is None:
+            return
+        rel_error = abs(self.template_metrics.density_g_ml - self.density) / self.density
+        if rel_error <= DEFAULT_TEMPLATE_DENSITY_TOLERANCE:
+            return
+        msg = (
+            f"Solvent template '{self.solv_name}' density "
+            f"({self.template_metrics.density_g_ml:.4f} g/mL from CRYST1) differs "
+            f"from requested density ({self.density:.4f} g/mL) by "
+            f"{rel_error:.1%}; refusing to generate a false-density solvent cluster. "
+            "Use a validated bulk template, or provide number=<int> for an explicit "
+            "non-density-targeted count."
+        )
+        self.log_error(msg)
+        raise ValueError(msg)
 
     def _tile_template_network(
         self,
@@ -587,7 +644,7 @@ class ExplicitSolv():
         tags = self.template.residue_ids
         span = coords.max(axis=0) - coords.min(axis=0)
         span = np.where(span > 1.0e-6, span, 20.0)
-        period = self._tile_period(span)
+        period = self.template_metrics.period
         origin = coords.min(axis=0) + span / 2.0
         centered = coords - origin
         extent = self._extent()
@@ -866,7 +923,8 @@ class ExplicitSolv():
             min_solute = float(distances.min())
         if len(solvent) > 1:
             tree = cKDTree(solvent)
-            k = min(len(solvent), 16)
+            _, counts = np.unique(solvent_ids, return_counts=True)
+            k = min(len(solvent), int(counts.max()) + 8)
             distances, neighbors = tree.query(solvent, k=k)
             best = math.inf
             for a in range(len(solvent)):
@@ -877,6 +935,89 @@ class ExplicitSolv():
                         break
             min_solvent = best if math.isfinite(best) else math.nan
         return min_solute, min_solvent
+
+    def _final_solvent_clashes(self) -> int:
+        molecule_ids = self.atoms.arrays["maple_molecule_id"]
+        mask = molecule_ids >= 0
+        if int(mask.sum()) < 2:
+            return 0
+        coords = self.atoms.get_positions()[mask]
+        ids = molecule_ids[mask]
+        symbols = [s for s, keep in zip(self.atoms.get_chemical_symbols(), mask) if keep]
+        radii = (
+            _element_vdw_radii(symbols, self.vdw_fallback_radius)
+            if self.clash_method == "vdw"
+            else None
+        )
+        pairs = _self_clash_atom_pairs(
+            coords, radii, self.vdw_scale, self.clash_method, self.tolerance
+        )
+        return sum(1 for i, j in pairs if ids[i] != ids[j])
+
+    def _final_solute_clashes(self) -> int:
+        molecule_ids = self.atoms.arrays["maple_molecule_id"]
+        solvent_mask = molecule_ids >= 0
+        if not solvent_mask.any() or bool(solvent_mask.all()):
+            return 0
+        coords = self.atoms.get_positions()
+        symbols = self.atoms.get_chemical_symbols()
+        solvent_indices = np.where(solvent_mask)[0]
+        solute_indices = np.where(~solvent_mask)[0]
+        if self.clash_method == "vdw":
+            solvent_radii = _element_vdw_radii(
+                [symbols[i] for i in solvent_indices], self.vdw_fallback_radius
+            )
+            solute_radii = _element_vdw_radii(
+                [symbols[i] for i in solute_indices], self.vdw_fallback_radius
+            )
+        else:
+            solvent_radii = solute_radii = None
+        clashes = _cross_clash_atoms(
+            coords[solvent_indices],
+            solvent_radii,
+            coords[solute_indices],
+            solute_radii,
+            self.vdw_scale,
+            self.clash_method,
+            self.tolerance,
+        )
+        return len(clashes)
+
+    def _validate_final_cluster(self, final_count: int) -> None:
+        if not np.isfinite(self.atoms.get_positions()).all():
+            msg = "Explicit solvent generation produced non-finite coordinates."
+            self.log_error(msg)
+            raise ValueError(msg)
+
+        solute_clashes = self._final_solute_clashes()
+        if solute_clashes:
+            msg = (
+                "Explicit solvent generation left "
+                f"{solute_clashes} solute-solvent clash atom(s)."
+            )
+            self.log_error(msg)
+            raise ValueError(msg)
+
+        solvent_clashes = self._final_solvent_clashes()
+        if solvent_clashes:
+            msg = (
+                "Explicit solvent generation left "
+                f"{solvent_clashes} intermolecular solvent clash pair(s)."
+            )
+            self.log_error(msg)
+            raise ValueError(msg)
+
+        if self.number is None and self.target_count > 0:
+            fill_ratio = final_count / self.target_count
+            if fill_ratio < MIN_FINAL_TARGET_RATIO:
+                msg = (
+                    f"Explicit solvent cluster is underfilled: final={final_count}, "
+                    f"target={self.target_count}, fill={fill_ratio:.1%}. "
+                    "Refusing to write a false-density cluster; increase geometry size, "
+                    "use a validated denser template, or request number=<int> explicitly."
+                )
+                self.log_error(msg)
+                raise ValueError(msg)
 
     def _log_setup(self) -> None:
         if self.shape == "sphere":
@@ -941,13 +1082,18 @@ class ExplicitSolv():
             self.atoms += Atoms(symbols=solvent_symbols, positions=solvent_positions)
         self._set_nonperiodic_metadata(solvent_tags, solvent_atom_names, solvent_res_names)
 
+        final_count = len(final_tags)
+        self._validate_final_cluster(final_count)
+
         xyz_path, pdb_path = self._write_coordinate_outputs()
         shell_result = self._write_shell_outputs()
 
-        final_count = len(final_tags)
         volume = self._volume()
         actual_density = final_count / volume if volume > 0 else 0.0
         target_density = self.target_count / volume if volume > 0 else 0.0
+        actual_mass_density = _mass_density_g_ml(
+            final_count, self.template_metrics.molar_mass_g_mol, volume
+        )
         min_solute, min_solvent = self._min_distances()
         lines = [
             "Explicit solvent coordinate generation summary:\n",
@@ -959,6 +1105,8 @@ class ExplicitSolv():
             ),
             f"target_number_density={target_density:.8f} molecules/Å^3\n",
             f"actual_number_density={actual_density:.8f} molecules/Å^3\n",
+            f"template_mass_density={self.template_metrics.density_g_ml:.4f} g/mL\n",
+            f"actual_cluster_mass_density={actual_mass_density:.4f} g/mL\n",
             f"min_solute_solvent_distance={min_solute:.3f} Å\n",
             f"min_solvent_solvent_distance={min_solvent:.3f} Å\n",
             f"solute_solvent_clash_method={self._clash_method_label()}\n",
