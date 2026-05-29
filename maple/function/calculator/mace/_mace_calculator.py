@@ -55,36 +55,52 @@ def _radius_graph_no_pbc(positions: torch.Tensor, r_max: float):
     shifts = torch.zeros((edge_index.size(1), 3), dtype=positions.dtype, device=positions.device)
     return edge_index, shifts
 
-def build_data_from_atoms(atoms, model, device='cpu', positions: Optional[torch.Tensor] = None):
+def _model_float_dtype(model, default=torch.float64):
+    """Infer the scripted model's floating dtype for tensor inputs."""
+    for tensor in list(model.parameters()) + list(model.buffers()):
+        if tensor.is_floating_point():
+            return tensor.dtype
+    return default
+
+
+def build_data_from_atoms(
+    atoms,
+    model,
+    device='cpu',
+    positions: Optional[torch.Tensor] = None,
+    dtype: Optional[torch.dtype] = None,
+):
     """Build a data_dict for Wrapper.forward() from an ASE Atoms object."""
     device = torch.device(device)
+    dtype = dtype or _model_float_dtype(model)
     if positions is None:
-        pos = torch.tensor(atoms.get_positions(), dtype=torch.float64, device=device)
+        pos = torch.tensor(atoms.get_positions(), dtype=dtype, device=device)
     else:
         pos = positions
     Z = torch.tensor(atoms.get_atomic_numbers(), dtype=torch.long, device=device)
     r_max = float(model.r_max)
     atomic_number_table = [int(z) for z in model.atomic_numbers]
 
-    node_attrs = _one_hot_node_attrs(Z, atomic_number_table)
+    dtype = pos.dtype
+    node_attrs = _one_hot_node_attrs(Z, atomic_number_table, dtype=dtype)
     edge_index, shifts = _radius_graph_no_pbc(pos, r_max)
 
     N = pos.size(0)
     batch = torch.zeros(N, dtype=torch.int64, device=device)
-    cell = torch.zeros(3, 3, dtype=torch.float64, device=device)
-    charge = torch.zeros(N, dtype=torch.float64, device=device)
-    dipole = torch.zeros(1, 3, dtype=torch.float64, device=device)
-    energy = torch.tensor([0.0], dtype=torch.float64, device=device)
-    energy_weight = torch.tensor([0.0], dtype=torch.float64, device=device)
-    force = torch.zeros(N, 3, dtype=torch.float64, device=device)
-    forces_weight = torch.tensor([0.0], dtype=torch.float64, device=device)
+    cell = torch.zeros(3, 3, dtype=dtype, device=device)
+    charge = torch.zeros(N, dtype=dtype, device=device)
+    dipole = torch.zeros(1, 3, dtype=dtype, device=device)
+    energy = torch.tensor([0.0], dtype=dtype, device=device)
+    energy_weight = torch.tensor([0.0], dtype=dtype, device=device)
+    force = torch.zeros(N, 3, dtype=dtype, device=device)
+    forces_weight = torch.tensor([0.0], dtype=dtype, device=device)
     ptr = torch.tensor([0, N], dtype=torch.int64, device=device)
-    stress = torch.zeros(1, 3, 3, dtype=torch.float64, device=device)
-    stress_weight = torch.tensor([0.0], dtype=torch.float64, device=device)
-    unit_shifts = torch.zeros(edge_index.size(1), 3, dtype=torch.float64, device=device)
-    virials = torch.zeros(1, 3, 3, dtype=torch.float64, device=device)
-    virials_weight = torch.tensor([0.0], dtype=torch.float64, device=device)
-    weight = torch.tensor([1.0], dtype=torch.float64, device=device)
+    stress = torch.zeros(1, 3, 3, dtype=dtype, device=device)
+    stress_weight = torch.tensor([0.0], dtype=dtype, device=device)
+    unit_shifts = torch.zeros(edge_index.size(1), 3, dtype=dtype, device=device)
+    virials = torch.zeros(1, 3, 3, dtype=dtype, device=device)
+    virials_weight = torch.tensor([0.0], dtype=dtype, device=device)
+    weight = torch.tensor([1.0], dtype=dtype, device=device)
 
     data_dict = {
         'batch': batch,
@@ -108,7 +124,7 @@ def build_data_from_atoms(atoms, model, device='cpu', positions: Optional[torch.
         'weight': weight
     }
 
-    local_or_ghost = torch.ones(N, dtype=torch.float64, device=device)
+    local_or_ghost = torch.ones(N, dtype=dtype, device=device)
     return data_dict, local_or_ghost
 
 
@@ -168,7 +184,7 @@ class MACECalculator(CalcABC):
             p.requires_grad_(False)
 
         self.device = device
-        self.dtype = torch.float64
+        self.dtype = _model_float_dtype(self.model)
         self.overwrite = overwrite
 
         self.r_max = float(self.model.r_max)
@@ -183,7 +199,9 @@ class MACECalculator(CalcABC):
         atoms = super().calculate(atoms, properties, system_changes)
 
         # Energy-only forward (no autograd) — cheap path when forces not requested.
-        data_dict, local_or_ghost = build_data_from_atoms(atoms, self.model, device=self.device)
+        data_dict, local_or_ghost = build_data_from_atoms(
+            atoms, self.model, device=self.device, dtype=self.dtype
+        )
         total_energy_local = self.model.forward(
             data=data_dict, local_or_ghost=local_or_ghost, compute_virials=False
         )

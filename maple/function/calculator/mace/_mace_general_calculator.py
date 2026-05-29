@@ -42,7 +42,15 @@ def _radius_graph_no_pbc(positions: torch.Tensor, r_max: float):
     shifts = torch.zeros((edge_index.size(1), 3), dtype=positions.dtype, device=positions.device)
     return edge_index, shifts
 
-def build_inputs_from_atoms(atoms, model, device='cpu', positions=None):
+def _model_float_dtype(model, default=torch.float64):
+    """Infer the traced model's floating dtype for tensor inputs."""
+    for tensor in list(model.parameters()) + list(model.buffers()):
+        if tensor.is_floating_point():
+            return tensor.dtype
+    return default
+
+
+def build_inputs_from_atoms(atoms, model, device='cpu', positions=None, dtype=None):
     """Build model inputs from an ASE Atoms object.
 
     Returns (positions, node_attrs, edge_index, shifts, batch, ptr).
@@ -50,14 +58,15 @@ def build_inputs_from_atoms(atoms, model, device='cpu', positions=None):
     handled inside the wrapper.
     """
     device = torch.device(device)
+    dtype = dtype or _model_float_dtype(model)
     if positions is None:
-        pos = torch.tensor(atoms.get_positions(), dtype=torch.float64, device=device)
+        pos = torch.tensor(atoms.get_positions(), dtype=dtype, device=device)
     else:
         pos = positions
     Z = torch.tensor(atoms.get_atomic_numbers(), dtype=torch.long, device=device)
     atomic_number_table = [int(z) for z in model.atomic_numbers]
 
-    node_attrs = _one_hot_node_attrs(Z, atomic_number_table)
+    node_attrs = _one_hot_node_attrs(Z, atomic_number_table, dtype=pos.dtype)
     edge_index, shifts = _radius_graph_no_pbc(pos, float(model.r_max))
 
     N = pos.size(0)
@@ -123,7 +132,7 @@ class MACEModelCalculator(CalcABC):
             p.requires_grad_(False)
 
         self.device = device
-        self.dtype = torch.float64
+        self.dtype = _model_float_dtype(self.model)
         self.overwrite = overwrite
 
         self.r_max = float(self.model.r_max)
@@ -137,7 +146,7 @@ class MACEModelCalculator(CalcABC):
         properties = self._normalize_properties(properties)
         atoms = super().calculate(atoms, properties, system_changes)
 
-        inputs = build_inputs_from_atoms(atoms, self.model, device=self.device)
+        inputs = build_inputs_from_atoms(atoms, self.model, device=self.device, dtype=self.dtype)
         with torch.no_grad():
             total_energy = self.model(*inputs)
 
@@ -146,9 +155,11 @@ class MACEModelCalculator(CalcABC):
         forces_np = None
         if 'forces' in properties:
             positions_grad = torch.tensor(
-                atoms.get_positions(), dtype=torch.float64, device=self.device, requires_grad=True,
+                atoms.get_positions(), dtype=self.dtype, device=self.device, requires_grad=True,
             )
-            inputs_grad = build_inputs_from_atoms(atoms, self.model, device=self.device, positions=positions_grad)
+            inputs_grad = build_inputs_from_atoms(
+                atoms, self.model, device=self.device, positions=positions_grad, dtype=self.dtype
+            )
             total_energy = self.model(*inputs_grad)
             forces = -torch.autograd.grad(
                 total_energy.sum(), positions_grad, create_graph=False, retain_graph=False,

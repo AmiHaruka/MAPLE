@@ -260,3 +260,38 @@ def test_macepolar_rejects_noninteger_multiplicity():
 
     with pytest.raises(ValueError, match=r"integer atoms.info\['mult'\]"):
         calc._build_inputs(atoms)
+
+
+def test_mace_graph_builder_matches_model_float_dtype():
+    torch = pytest.importorskip("torch")
+    from maple.function.calculator.mace._mace_calculator import build_data_from_atoms
+    from maple.function.calculator.mace._mace_general_calculator import build_inputs_from_atoms
+
+    class Float32Model:
+        r_max = 5.0
+        atomic_numbers = torch.tensor([1, 8])
+
+        def parameters(self):
+            yield torch.nn.Parameter(torch.zeros(1, dtype=torch.float32), requires_grad=False)
+
+        def buffers(self):
+            return iter(())
+
+    data, local_or_ghost = build_data_from_atoms(
+        Atoms("OH", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
+        Float32Model(),
+        device="cpu",
+    )
+
+    assert data["positions"].dtype is torch.float32
+    assert data["node_attrs"].dtype is torch.float32
+    assert local_or_ghost.dtype is torch.float32
+
+    positions, node_attrs, edge_index, shifts, batch, ptr = build_inputs_from_atoms(
+        Atoms("OH", positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
+        Float32Model(),
+        device="cpu",
+    )
+    assert positions.dtype is torch.float32
+    assert node_attrs.dtype is torch.float32
+    assert shifts.dtype is torch.float32
