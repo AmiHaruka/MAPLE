@@ -82,7 +82,6 @@ class CommandControl:
             "traj_format": "xyz",
             "debug": False,
         },
-        "solv": {"solvent": "water", "explicit": None},
     }
 
     IMPLEMENTATION_MAP = {
@@ -170,6 +169,19 @@ class CommandControl:
         # Compatibility aliases / explicit rejections.
         "clash_cutoff",
         "write_cell",
+    }
+    SOLV_REMOVED_PARAMS = {
+        "fix_dis": (
+            "Explicit solvent 'fix_dis' has been removed: clusters are now "
+            "non-periodic and no atom constraints are written. Use "
+            "write_shell=true with shell_cutoff=<Å> to export a solute-centred "
+            "shell instead."
+        ),
+        "solvent": (
+            "Solvation parameter 'solvent' has been removed. Use explicit=<name> "
+            "for an explicit solvent cluster and/or implicit=<name> for an "
+            "implicit solvation model."
+        ),
     }
     MODEL_OPTION_PARAMS = {
         "uma": {"task", "size", "hessian", "inference"},
@@ -491,6 +503,10 @@ class CommandControl:
                 cls._log_error(output_path, msg)
                 raise ValueError(msg)
             for key in solv_params:
+                if key in cls.SOLV_REMOVED_PARAMS:
+                    msg = cls.SOLV_REMOVED_PARAMS[key]
+                    cls._log_error(output_path, msg)
+                    raise ValueError(msg)
                 if key not in cls.SOLV_PARAMS:
                     cls._raise_unknown_param(
                         output_path, "solvation", key, cls.SOLV_PARAMS

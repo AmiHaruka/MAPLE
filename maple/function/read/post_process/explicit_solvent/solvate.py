@@ -1,28 +1,68 @@
 import math
 import os
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional, Sequence
 
 import numpy as np
-import torch
 from ase import Atoms
 from ase.data import atomic_masses, atomic_numbers, vdw_radii
+from scipy.spatial import cKDTree
 
 
 DATA_DIR = Path(__file__).with_name("data")
 AVOGADRO = 6.02214076e23
 ANGSTROM3_PER_ML = 1.0e24
 WATER_MOLAR_MASS_G_MOL = 18.01528
-DEFAULT_WATER_DENSITY_G_ML = 1.0
 DEFAULT_VDW_SCALE = 0.57
 DEFAULT_VDW_FALLBACK_RADIUS = 1.05
+
+# Standard liquid densities (g/mL) near 298 K for the bundled solvent boxes.
+# Used only to derive a target molecule count when neither `number` nor an
+# explicit `density` is supplied. Solvents absent here fail closed (the caller
+# must pass density= or number=) instead of silently assuming water's 1.0 g/mL,
+# which would over/under-fill every non-aqueous solvent.
+SOLVENT_DENSITY_G_ML = {
+    "water": 1.0,
+    "methanol": 0.7918,
+    "ethanol": 0.7893,
+    "propanol": 0.8035,
+    "isopropanol": 0.7809,
+    "butanol": 0.8095,
+    "acetonitrile": 0.7857,
+    "acetone": 0.7845,
+    "dimethylsulfoxide": 1.1004,
+    "dimethylformamide": 0.9445,
+    "dimethylacetamide": 0.9366,
+    "chloroform": 1.4892,
+    "methylenechloride": 1.3266,
+    "dichloroethane": 1.2530,
+    "carbontet": 1.5940,
+    "tetrahydrofuran": 0.8833,
+    "ether": 0.7134,
+    "ethylacetate": 0.9006,
+    "toluene": 0.8669,
+    "benzene": 0.8765,
+    "xylene": 0.8600,
+    "pyridine": 0.9819,
+    "aniline": 1.0217,
+    "nitrobenzene": 1.1990,
+    "nitromethane": 1.1371,
+    "aceticacid": 1.0446,
+    "hexane": 0.6606,
+    "heptane": 0.6795,
+    "octane": 0.7025,
+    "cyclohexane": 0.7781,
+}
 
 
 @dataclass(frozen=True)
 class SolventTemplate:
     coords: np.ndarray
     symbols: np.ndarray
+    atom_names: np.ndarray
+    residue_names: np.ndarray
     residue_ids: np.ndarray
     groups: list[list[int]]
     cryst1_cellpar: Optional[tuple[float, float, float, float, float, float]] = None
@@ -78,9 +118,16 @@ def _parse_cryst1(line: str) -> Optional[tuple[float, float, float, float, float
 
 
 def parse_pdb_template(pdbfile: str | os.PathLike[str]) -> SolventTemplate:
-    """Parse a pure-solvent PDB template, grouping one molecule per residue."""
+    """Parse a pure-solvent PDB template, grouping one molecule per residue.
+
+    Residue names and atom names are retained so downstream PDB output keeps a
+    single, correct residue identity per solvent molecule rather than relabelling
+    atoms by element.
+    """
     coords: list[list[float]] = []
     symbols: list[str] = []
+    atom_names: list[str] = []
+    residue_names: list[str] = []
     residue_ids: list[int] = []
     groups: list[list[int]] = []
     residue_to_group: dict[tuple, int] = {}
@@ -102,6 +149,8 @@ def parse_pdb_template(pdbfile: str | os.PathLike[str]) -> SolventTemplate:
 
                 coords.append(list(_parse_atom_coords(line)))
                 symbols.append(_element_from_pdb_line(line))
+                atom_names.append(line[12:16].strip())
+                residue_names.append(line[17:20].strip())
                 atom_index = len(coords) - 1
                 groups[group_id].append(atom_index)
                 residue_ids.append(group_id)
@@ -115,6 +164,8 @@ def parse_pdb_template(pdbfile: str | os.PathLike[str]) -> SolventTemplate:
     return SolventTemplate(
         coords=np.asarray(coords, dtype=np.float64),
         symbols=np.asarray(symbols, dtype=object),
+        atom_names=np.asarray(atom_names, dtype=object),
+        residue_names=np.asarray(residue_names, dtype=object),
         residue_ids=np.asarray(residue_ids, dtype=np.int64),
         groups=groups,
         cryst1_cellpar=cryst1_cellpar,
@@ -158,14 +209,6 @@ def _uniform_quaternion_rotation(rng: np.random.Generator) -> np.ndarray:
     )
 
 
-def _pairwise_distances(coords: np.ndarray) -> np.ndarray:
-    if len(coords) < 2:
-        return np.empty(0, dtype=np.float64)
-    diff = coords[:, None, :] - coords[None, :, :]
-    upper = np.triu_indices(len(coords), k=1)
-    return np.linalg.norm(diff[upper], axis=1)
-
-
 def _molecular_weight(symbols: Sequence[str]) -> float:
     mass = 0.0
     for symbol in symbols:
@@ -206,22 +249,68 @@ def _element_vdw_radii(symbols: Sequence[str], fallback_radius: float) -> np.nda
     )
 
 
-def _has_scaled_vdw_clash(
-    solvent_coords: np.ndarray,
-    solvent_symbols: Sequence[str],
-    solute_coords: np.ndarray,
-    solute_symbols: Sequence[str],
+def _self_clash_atom_pairs(
+    coords: np.ndarray,
+    radii: Optional[np.ndarray],
     scale: float,
-    fallback_radius: float,
-) -> bool:
-    solvent_radii = _element_vdw_radii(solvent_symbols, fallback_radius)
-    solute_radii = _element_vdw_radii(solute_symbols, fallback_radius)
-    distances = np.linalg.norm(
-        solvent_coords[:, None, :] - solute_coords[None, :, :],
-        axis=-1,
-    )
-    thresholds = (solvent_radii[:, None] + solute_radii[None, :]) * scale
-    return bool(np.any(distances < thresholds))
+    method: str,
+    tolerance: float,
+) -> list[tuple[int, int]]:
+    """Atom index pairs (i < j) closer than the clash threshold within one set.
+
+    Uses a KD-tree so seam overlaps in a tiled solvent network are found in
+    near-linear time instead of an O(N^2) distance matrix.
+    """
+    if len(coords) < 2:
+        return []
+    tree = cKDTree(coords)
+    if method == "distance":
+        return [
+            (i, j)
+            for i, j in tree.query_pairs(r=tolerance)
+            if np.linalg.norm(coords[i] - coords[j]) < tolerance
+        ]
+    rmax = float(radii.max())
+    candidate_pairs = tree.query_pairs(r=2.0 * rmax * scale)
+    pairs: list[tuple[int, int]] = []
+    for i, j in candidate_pairs:
+        if np.linalg.norm(coords[i] - coords[j]) < (radii[i] + radii[j]) * scale:
+            pairs.append((i, j))
+    return pairs
+
+
+def _cross_clash_atoms(
+    probe_coords: np.ndarray,
+    probe_radii: Optional[np.ndarray],
+    ref_coords: np.ndarray,
+    ref_radii: Optional[np.ndarray],
+    scale: float,
+    method: str,
+    tolerance: float,
+) -> set[int]:
+    """Indices into ``probe_coords`` whose atom clashes with any ``ref`` atom."""
+    if len(probe_coords) == 0 or len(ref_coords) == 0:
+        return set()
+    tree = cKDTree(ref_coords)
+    if method == "distance":
+        neighbor_lists = tree.query_ball_point(probe_coords, r=tolerance)
+        clashing: set[int] = set()
+        for k, neighbors in enumerate(neighbor_lists):
+            for c in neighbors:
+                if np.linalg.norm(probe_coords[k] - ref_coords[c]) < tolerance:
+                    clashing.add(k)
+                    break
+        return clashing
+    rmax = float(ref_radii.max())
+    clashing: set[int] = set()
+    for k in range(len(probe_coords)):
+        point = probe_coords[k]
+        radius = probe_radii[k]
+        for c in tree.query_ball_point(point, r=(radius + rmax) * scale):
+            if np.linalg.norm(point - ref_coords[c]) < (radius + ref_radii[c]) * scale:
+                clashing.add(k)
+                break
+    return clashing
 
 
 def _write_xyz(path: Path, atoms: Atoms, comment: str) -> None:
@@ -232,37 +321,50 @@ def _write_xyz(path: Path, atoms: Atoms, comment: str) -> None:
             handle.write(f"{symbol:2s} {x:14.8f} {y:14.8f} {z:14.8f}\n")
 
 
-def _write_pdb(path: Path, atoms: Atoms, solute_count: int, molecule_ids: np.ndarray) -> None:
-    solvent_residue_numbers: dict[int, int] = {}
+def _write_pdb(path: Path, atoms: Atoms) -> None:
+    """Write a visualization PDB, one residue per molecule.
+
+    Residue and atom names are taken from the ``maple_resname``/``maple_atom_name``
+    arrays (carried from the solvent template) so a molecule is never split across
+    residue names by element. Solute atoms (molecule id < 0) form residue 1.
+    """
+    natoms = len(atoms)
+    molecule_ids = atoms.arrays.get("maple_molecule_id", np.full(natoms, -1, dtype=np.int64))
+    resnames = atoms.arrays.get("maple_resname")
+    atom_names = atoms.arrays.get("maple_atom_name")
+    symbols = atoms.get_chemical_symbols()
+    positions = atoms.get_positions()
+
+    residue_numbers: dict[int, int] = {}
     next_residue = 2
     with path.open("w", encoding="utf-8") as handle:
-        for idx, (symbol, (x, y, z), molecule_id) in enumerate(
-            zip(atoms.get_chemical_symbols(), atoms.get_positions(), molecule_ids),
-            start=1,
-        ):
-            if idx <= solute_count:
-                resname = "SOL"
+        for idx in range(natoms):
+            symbol = symbols[idx]
+            mid = int(molecule_ids[idx])
+            if mid < 0:
                 resseq = 1
-                atom_name = symbol[:2].upper()
             else:
-                resname = "WAT" if symbol in {"O", "H"} else "SLV"
-                mid = int(molecule_id)
-                if mid not in solvent_residue_numbers:
-                    solvent_residue_numbers[mid] = next_residue
+                if mid not in residue_numbers:
+                    residue_numbers[mid] = next_residue
                     next_residue += 1
-                resseq = solvent_residue_numbers[mid]
-                atom_name = symbol[:2].upper()
+                resseq = residue_numbers[mid]
+            resname = (str(resnames[idx]) if resnames is not None else "") or (
+                "MOL" if mid < 0 else "SLV"
+            )
+            atom_name = (str(atom_names[idx]) if atom_names is not None else "") or symbol
+            x, y, z = positions[idx]
             handle.write(
-                f"HETATM{idx:5d} {atom_name:<4s} {resname:>3s} A{resseq:4d}    "
+                f"HETATM{idx + 1:5d} {atom_name:<4.4s} {resname:>3.3s} A{resseq:4d}    "
                 f"{x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00          {symbol:>2s}\n"
             )
         handle.write("END\n")
 
 
 class ExplicitSolv():
-    def __new__(cls, atoms: Atoms, params: dict, device: torch.device, output: str):
+    def __new__(cls, atoms: Atoms, params: dict, device, output: str):
+        # ``device`` is accepted for call-site compatibility with the engine; the
+        # cluster build is pure NumPy/SciPy on CPU and does not use it.
         obj = super().__new__(cls)
-        obj.device = device
         obj.output = output
         obj.atoms = atoms.copy()
         obj.params = dict(params or {})
@@ -274,7 +376,7 @@ class ExplicitSolv():
             obj.shape = "cube"
         obj.radius = float(obj.params.get("radius", 10.0))
         obj.box_size = obj.params.get("box_size")
-        obj.density = float(obj.params.get("density", DEFAULT_WATER_DENSITY_G_ML))
+        obj.density = obj._resolve_density()
         obj.density_scale = float(obj.params.get("density_scale", 1.0))
         obj.number = obj.params.get("number")
         obj.clash_method = _default_clash_method(obj.params)
@@ -303,7 +405,22 @@ class ExplicitSolv():
         obj.log_info(["\n" + "-" * 70 + "\n"])
         return obj.atoms
 
+    def _resolve_density(self) -> Optional[float]:
+        """Density (g/mL) for the target-count formula, or None if unavailable.
+
+        Explicit ``density=`` wins; otherwise the tabulated solvent density is
+        used. None means the solvent is not tabulated and no density was given —
+        the caller must then supply ``number=`` or the build fails closed.
+        """
+        if "density" in self.params:
+            return float(self.params["density"])
+        return SOLVENT_DENSITY_G_ML.get(self.solv_name)
+
     def _validate_options(self) -> None:
+        if self.solute_count == 0:
+            raise ValueError(
+                "Explicit solvation requires a non-empty solute structure."
+            )
         if "write_cell" in self.params:
             raise ValueError(
                 "Explicit solvent clusters are non-periodic; "
@@ -319,7 +436,7 @@ class ExplicitSolv():
             self.box_size = float(self.box_size)
             if self.box_size <= 0:
                 raise ValueError("Explicit solvent box_size must be > 0.")
-        if self.density <= 0:
+        if self.density is not None and self.density <= 0:
             raise ValueError("Explicit solvent density must be > 0.")
         if self.density_scale <= 0:
             raise ValueError("Explicit solvent density_scale must be > 0.")
@@ -379,6 +496,14 @@ class ExplicitSolv():
     def _target_solvent_count(self) -> int:
         if self.number is not None:
             return int(self.number)
+        if self.density is None:
+            msg = (
+                f"No tabulated density for solvent '{self.solv_name}'. "
+                "Provide density=<g/mL> in #solv(...), or set number=<int> to "
+                "request an explicit molecule count."
+            )
+            self.log_error(msg)
+            raise ValueError(msg)
         first_group_symbols = [self.template.symbols[i] for i in self.template.groups[0]]
         if self.solv_name == "water":
             molar_mass = WATER_MOLAR_MASS_G_MOL
@@ -389,6 +514,17 @@ class ExplicitSolv():
 
     def _extent(self) -> float:
         return self.radius if self.shape == "sphere" else float(self.box_size) / 2.0
+
+    def _depth(self, center: np.ndarray) -> float:
+        """Geometry-aware distance from the cluster centre.
+
+        Euclidean for spheres, Chebyshev for cubes, so that trimming the
+        outermost molecules keeps a compact, uniformly filled cluster of the
+        requested shape rather than carving a sphere out of a box.
+        """
+        if self.shape == "sphere":
+            return float(np.linalg.norm(center))
+        return float(np.max(np.abs(center)))
 
     def _template_molecule_radius(self) -> float:
         return max(
@@ -413,20 +549,53 @@ class ExplicitSolv():
             groups.setdefault(int(tag), []).append(idx)
         return {tag: np.asarray(indices, dtype=np.int64) for tag, indices in groups.items()}
 
-    def _tile_template_network(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _tile_period(self, span: np.ndarray) -> np.ndarray:
+        """Per-axis lattice period for replicating the template box.
+
+        Uses the tighter of the coordinate span and the CRYST1 cell edge. Organic
+        boxes pack molecules whose atoms spill past the cell, so the true period
+        is the (smaller) CRYST1 edge — tiling by it reproduces the liquid and the
+        overlap filter deletes the resulting seam duplicates. Water's cell is
+        padded (span < cell), so the span is the right period there. Taking the
+        min keeps both families near their physical density instead of diluting
+        one with raw-span and the other with raw-CRYST1 tiling.
+        """
+        cellpar = self.template.cryst1_cellpar
+        if cellpar is None:
+            return span
+        a, b, c, alpha, beta, gamma = cellpar
+        if not (a > 0 and b > 0 and c > 0):
+            return span
+        if not all(abs(angle - 90.0) < 1.0 for angle in (alpha, beta, gamma)):
+            # Non-orthogonal cell: fall back to span-based tiling.
+            return span
+        cell = np.array([a, b, c], dtype=np.float64)
+        # A genuine periodic cell is at least as large as the molecule it holds.
+        # A CRYST1 edge below the molecular diameter is corrupt; ignore it rather
+        # than tiling by a tiny period into an explosion of overlapping images.
+        if np.any(cell < 2.0 * self._template_molecule_radius()):
+            return span
+        return np.minimum(span, cell)
+
+    def _tile_template_network(
+        self,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         coords = self.template.coords
         symbols = self.template.symbols
+        atom_names = self.template.atom_names
+        residue_names = self.template.residue_names
         tags = self.template.residue_ids
         span = coords.max(axis=0) - coords.min(axis=0)
         span = np.where(span > 1.0e-6, span, 20.0)
+        period = self._tile_period(span)
         origin = coords.min(axis=0) + span / 2.0
         centered = coords - origin
         extent = self._extent()
         max_mol_radius = self._template_molecule_radius()
-        tile_radius = max(0, int(math.ceil((extent + max_mol_radius) / float(span.min()))))
+        tile_radius = max(0, int(math.ceil((extent + max_mol_radius) / float(period.min()))))
         if self.randomize:
             tile_radius = max(tile_radius, 1)
-            phase = self.rng.random(3) * span
+            phase = self.rng.random(3) * period
             rotation = _uniform_quaternion_rotation(self.rng)
         else:
             phase = np.zeros(3, dtype=np.float64)
@@ -434,23 +603,29 @@ class ExplicitSolv():
 
         coords_all = []
         symbols_all: list[str] = []
+        atom_names_all: list[str] = []
+        residue_names_all: list[str] = []
         tags_all = []
         base_count = len(self.template.groups)
         tile_index = 0
         for i in range(-tile_radius, tile_radius + 1):
             for j in range(-tile_radius, tile_radius + 1):
                 for k in range(-tile_radius, tile_radius + 1):
-                    tile_shift = np.array([i, j, k], dtype=np.float64) * span
+                    tile_shift = np.array([i, j, k], dtype=np.float64) * period
                     block = centered + tile_shift - phase
                     block = block @ rotation.T
                     coords_all.append(block)
                     symbols_all.extend(symbols.tolist())
+                    atom_names_all.extend(atom_names.tolist())
+                    residue_names_all.extend(residue_names.tolist())
                     tags_all.append(tags + base_count * tile_index)
                     tile_index += 1
 
         return (
             np.vstack(coords_all),
             np.asarray(symbols_all, dtype=object),
+            np.asarray(atom_names_all, dtype=object),
+            np.asarray(residue_names_all, dtype=object),
             np.concatenate(tags_all).astype(np.int64),
         )
 
@@ -458,21 +633,29 @@ class ExplicitSolv():
         groups = self._groups_from_tags(tags)
         centers = self._molecule_centers(coords, groups)
         keep: list[int] = []
-        # Whole-molecule cropping uses a one-molecule-radius boundary allowance.
-        # This avoids underfilling finite clusters simply because a retained
-        # molecule must be kept/deleted as a whole residue.
-        boundary_allowance = self._template_molecule_radius()
+        # Keep a whole molecule when its centre lies within the requested
+        # geometry. Cropping by centre keeps molecules intact (atoms may extend
+        # at most one molecular radius past the boundary) and guarantees the
+        # cluster never reports a density inflated by out-of-bounds molecules.
+        extent = self._extent()
         if self.shape == "sphere":
-            radius2 = (self.radius + boundary_allowance) ** 2
+            radius2 = extent ** 2
             for tag, center in centers.items():
                 if float(center @ center) <= radius2:
                     keep.append(tag)
         else:
-            half = float(self.box_size) / 2.0 + boundary_allowance
             for tag, center in centers.items():
-                if bool((np.abs(center) <= half).all()):
+                if bool((np.abs(center) <= extent).all()):
                     keep.append(tag)
         return keep
+
+    def _selected_atom_indices(
+        self, tags: np.ndarray, molecule_tags: Sequence[int]
+    ) -> np.ndarray:
+        groups = self._groups_from_tags(tags)
+        if not molecule_tags:
+            return np.empty(0, dtype=np.int64)
+        return np.concatenate([groups[tag] for tag in molecule_tags])
 
     def _solute_clash_filter(
         self,
@@ -483,54 +666,95 @@ class ExplicitSolv():
     ) -> list[int]:
         if not molecule_tags or len(self.atoms) == 0:
             return molecule_tags
-        groups = self._groups_from_tags(tags)
-        solute_positions = self.atoms.get_positions()
-        solute_symbols = self.atoms.get_chemical_symbols()
+        sel = self._selected_atom_indices(tags, molecule_tags)
+        probe_coords = coords[sel]
+        solute_coords = self.atoms.get_positions()
         if self.clash_method == "vdw":
-            solute_radii = _element_vdw_radii(solute_symbols, self.vdw_fallback_radius)
-            solvent_radii = _element_vdw_radii(symbols.tolist(), self.vdw_fallback_radius)
-        keep: list[int] = []
-        for tag in molecule_tags:
-            mol_indices = groups[tag]
-            mol_coords = coords[mol_indices]
-            if self.clash_method == "vdw":
-                distances = np.linalg.norm(
-                    mol_coords[:, None, :] - solute_positions[None, :, :],
-                    axis=-1,
-                )
-                thresholds = (
-                    solvent_radii[mol_indices, None] + solute_radii[None, :]
-                ) * self.vdw_scale
-                clashes = bool(np.any(distances < thresholds))
-            else:
-                distances = np.linalg.norm(
-                    mol_coords[:, None, :] - solute_positions[None, :, :],
-                    axis=-1,
-                )
-                clashes = float(distances.min()) < self.tolerance
-            if not clashes:
-                keep.append(tag)
-        return keep
+            probe_radii = _element_vdw_radii(symbols[sel].tolist(), self.vdw_fallback_radius)
+            solute_radii = _element_vdw_radii(
+                self.atoms.get_chemical_symbols(), self.vdw_fallback_radius
+            )
+        else:
+            probe_radii = solute_radii = None
+        clash_atoms = _cross_clash_atoms(
+            probe_coords, probe_radii, solute_coords, solute_radii,
+            self.vdw_scale, self.clash_method, self.tolerance,
+        )
+        clash_tags = {int(tags[sel[k]]) for k in clash_atoms}
+        return [tag for tag in molecule_tags if tag not in clash_tags]
 
-    def _cap_to_target(self, molecule_tags: list[int]) -> tuple[list[int], int]:
+    def _solvent_self_clash_filter(
+        self,
+        coords: np.ndarray,
+        symbols: np.ndarray,
+        tags: np.ndarray,
+        molecule_tags: list[int],
+    ) -> list[int]:
+        """Drop solvent molecules that overlap each other at tiling seams.
+
+        The bundled boxes are not minimum-image periodic, so stacking copies and
+        applying a random phase can place atoms of adjacent images on top of one
+        another. A greedy pass keeps the inner molecule of every clashing pair and
+        removes the outer one, guaranteeing a clash-free network (mirrors the
+        solvent-solvent overlap removal in gmx solvate).
+        """
+        if len(molecule_tags) < 2:
+            return molecule_tags
+        sel = self._selected_atom_indices(tags, molecule_tags)
+        sub_coords = coords[sel]
+        sub_tags = tags[sel]
+        if self.clash_method == "vdw":
+            radii = _element_vdw_radii(symbols[sel].tolist(), self.vdw_fallback_radius)
+        else:
+            radii = None
+        pairs = _self_clash_atom_pairs(
+            sub_coords, radii, self.vdw_scale, self.clash_method, self.tolerance
+        )
+        conflicts: dict[int, set[int]] = defaultdict(set)
+        for i, j in pairs:
+            ti, tj = int(sub_tags[i]), int(sub_tags[j])
+            if ti != tj:
+                conflicts[ti].add(tj)
+                conflicts[tj].add(ti)
+        if not conflicts:
+            return molecule_tags
+        groups = self._groups_from_tags(tags)
+        centers = self._molecule_centers(coords, {tag: groups[tag] for tag in molecule_tags})
+        order = sorted(molecule_tags, key=lambda tag: self._depth(centers[tag]))
+        accepted: set[int] = set()
+        for tag in order:
+            if any(neighbor in accepted for neighbor in conflicts.get(tag, ())):
+                continue
+            accepted.add(tag)
+        return [tag for tag in molecule_tags if tag in accepted]
+
+    def _cap_to_target(
+        self, coords: np.ndarray, tags: np.ndarray, molecule_tags: list[int]
+    ) -> tuple[list[int], int]:
         if self.target_count <= 0:
             return [], len(molecule_tags)
         if len(molecule_tags) <= self.target_count:
             return molecule_tags, 0
-        selected_positions = self.rng.choice(
-            len(molecule_tags),
-            size=self.target_count,
-            replace=False,
-        )
-        selected = set(int(i) for i in selected_positions.tolist())
-        capped = [tag for i, tag in enumerate(molecule_tags) if i in selected]
+        groups = self._groups_from_tags(tags)
+        centers = self._molecule_centers(coords, {tag: groups[tag] for tag in molecule_tags})
+        # Keep the innermost `target_count` molecules so the trimmed cluster is
+        # compact and void-free (deterministic, no random subselection).
+        ordered = sorted(molecule_tags, key=lambda tag: self._depth(centers[tag]))
+        kept = set(ordered[: self.target_count])
+        capped = [tag for tag in molecule_tags if tag in kept]
         return capped, len(molecule_tags) - len(capped)
 
     def _assemble_solvent(
-        self, coords: np.ndarray, symbols: np.ndarray, tags: np.ndarray, molecule_tags: list[int]
-    ) -> tuple[np.ndarray, list[str], np.ndarray]:
+        self,
+        coords: np.ndarray,
+        symbols: np.ndarray,
+        atom_names: np.ndarray,
+        residue_names: np.ndarray,
+        tags: np.ndarray,
+        molecule_tags: list[int],
+    ) -> tuple[np.ndarray, list[str], list[str], list[str], np.ndarray]:
         if not molecule_tags:
-            return np.empty((0, 3), dtype=np.float64), [], np.empty(0, dtype=np.int64)
+            return np.empty((0, 3), dtype=np.float64), [], [], [], np.empty(0, dtype=np.int64)
         order = {tag: i for i, tag in enumerate(molecule_tags)}
         keep = np.isin(tags, molecule_tags)
         indices = np.where(keep)[0]
@@ -538,17 +762,39 @@ class ExplicitSolv():
         final_indices = np.asarray(indices, dtype=np.int64)
         remap = {tag: i for i, tag in enumerate(molecule_tags)}
         final_tags = np.asarray([remap[int(tags[idx])] for idx in final_indices], dtype=np.int64)
-        return coords[final_indices], symbols[final_indices].tolist(), final_tags
+        return (
+            coords[final_indices],
+            symbols[final_indices].tolist(),
+            atom_names[final_indices].tolist(),
+            residue_names[final_indices].tolist(),
+            final_tags,
+        )
 
-    def _set_nonperiodic_metadata(self, solvent_tags: np.ndarray) -> None:
+    def _set_nonperiodic_metadata(
+        self,
+        solvent_tags: np.ndarray,
+        solvent_atom_names: Sequence[str],
+        solvent_res_names: Sequence[str],
+    ) -> None:
         self.atoms.set_pbc([False, False, False])
         self.atoms.set_cell(np.zeros((3, 3)))
-        molecule_ids = np.full(len(self.atoms), -1, dtype=np.int64)
+        natoms = len(self.atoms)
+        molecule_ids = np.full(natoms, -1, dtype=np.int64)
+        resnames = np.empty(natoms, dtype="U5")
+        atom_names = np.empty(natoms, dtype="U5")
+        solute_symbols = self.atoms.get_chemical_symbols()[: self.solute_count]
+        resnames[: self.solute_count] = "MOL"
+        atom_names[: self.solute_count] = [str(sym) for sym in solute_symbols]
         if len(solvent_tags) > 0:
             molecule_ids[self.solute_count:] = solvent_tags
-        if "maple_molecule_id" in self.atoms.arrays:
-            del self.atoms.arrays["maple_molecule_id"]
+            atom_names[self.solute_count:] = [str(name) for name in solvent_atom_names]
+            resnames[self.solute_count:] = [str(name) for name in solvent_res_names]
+        for key in ("maple_molecule_id", "maple_resname", "maple_atom_name"):
+            if key in self.atoms.arrays:
+                del self.atoms.arrays[key]
         self.atoms.new_array("maple_molecule_id", molecule_ids)
+        self.atoms.new_array("maple_resname", resnames)
+        self.atoms.new_array("maple_atom_name", atom_names)
         self.atoms.info["maple_explicit_solvent"] = "non-periodic coordinate-only cluster"
 
     def _base_path(self) -> Path:
@@ -558,13 +804,9 @@ class ExplicitSolv():
         base = self._base_path()
         xyz_path = base.with_name(base.name + "_solvated.xyz")
         pdb_path = base.with_name(base.name + "_solvated.pdb")
-        molecule_ids = self.atoms.arrays.get(
-            "maple_molecule_id",
-            np.full(len(self.atoms), -1, dtype=np.int64),
-        )
         comment = "MAPLE explicit solvent cluster; non-periodic coordinate-only model"
         _write_xyz(xyz_path, self.atoms, comment)
-        _write_pdb(pdb_path, self.atoms, self.solute_count, molecule_ids)
+        _write_pdb(pdb_path, self.atoms)
         return xyz_path, pdb_path
 
     def _shell_atom_indices(self) -> np.ndarray:
@@ -593,10 +835,6 @@ class ExplicitSolv():
             return None
         indices = self._shell_atom_indices()
         cluster = self.atoms[indices]
-        molecule_ids = self.atoms.arrays["maple_molecule_id"][indices]
-        if "maple_molecule_id" in cluster.arrays:
-            del cluster.arrays["maple_molecule_id"]
-        cluster.new_array("maple_molecule_id", molecule_ids)
         cluster.set_pbc([False, False, False])
         cluster.set_cell(np.zeros((3, 3)))
         base = self._base_path()
@@ -607,24 +845,60 @@ class ExplicitSolv():
             f"cutoff={float(self.shell_cutoff):.3f} Å; non-periodic"
         )
         _write_xyz(xyz_path, cluster, comment)
-        _write_pdb(pdb_path, cluster, self.solute_count, molecule_ids)
-        solvent_molecules = len(set(mid for mid in molecule_ids.tolist() if mid >= 0))
+        _write_pdb(pdb_path, cluster)
+        cluster_ids = cluster.arrays["maple_molecule_id"]
+        solvent_molecules = len(set(mid for mid in cluster_ids.tolist() if mid >= 0))
         return xyz_path, pdb_path, solvent_molecules
+
+    def _min_distances(self) -> tuple[float, float]:
+        """Min solute-solvent and min intermolecular solvent-solvent distances."""
+        positions = self.atoms.get_positions()
+        molecule_ids = self.atoms.arrays["maple_molecule_id"]
+        solvent_mask = molecule_ids >= 0
+        solute = positions[~solvent_mask]
+        solvent = positions[solvent_mask]
+        solvent_ids = molecule_ids[solvent_mask]
+        min_solute = math.nan
+        min_solvent = math.nan
+        if len(solvent) and len(solute):
+            tree = cKDTree(solute)
+            distances, _ = tree.query(solvent, k=1)
+            min_solute = float(distances.min())
+        if len(solvent) > 1:
+            tree = cKDTree(solvent)
+            k = min(len(solvent), 16)
+            distances, neighbors = tree.query(solvent, k=k)
+            best = math.inf
+            for a in range(len(solvent)):
+                for col in range(1, k):
+                    b = neighbors[a, col]
+                    if solvent_ids[a] != solvent_ids[b]:
+                        best = min(best, float(distances[a, col]))
+                        break
+            min_solvent = best if math.isfinite(best) else math.nan
+        return min_solute, min_solvent
 
     def _log_setup(self) -> None:
         if self.shape == "sphere":
             geometry = f"radius={self.radius:.3f} Å"
         else:
             geometry = f"box_size={float(self.box_size):.3f} Å"
+        if self.density is not None:
+            target_line = (
+                f"• Density target: {self.density:.4f} g/mL × {self.density_scale:.4f}\n"
+            )
+        else:
+            target_line = f"• Target source: explicit molecule count (number={self.number})\n"
         lines = [
             "\n\n" + "-" * 70 + "\n",
             f"{'Explicit Solvent Cluster Setup'.center(70)}\n\n",
             f"• Solvent type: {self.solv_name}\n",
             f"• Shape: {self.shape} ({geometry})\n",
-            f"• Model: non-periodic coordinate-only cluster (no PBC/cell metadata)\n",
-            f"• Density target: {self.density:.4f} g/mL × {self.density_scale:.4f}\n",
+            "• Model: non-periodic coordinate-only cluster (no PBC/cell metadata)\n",
+            target_line,
             f"• Target solvent molecules: {self.target_count}\n",
             f"• Solute-solvent clash method: {self._clash_method_label()}\n",
+            f"• Solvent-solvent overlap removal: {self._clash_method_label()}\n",
             f"• Randomize template sampling: {self.randomize}\n",
         ]
         if self.randomize:
@@ -642,39 +916,51 @@ class ExplicitSolv():
         solute_center = self.atoms.get_positions().mean(axis=0)
         self.atoms.positions -= solute_center
 
-        coords, symbols, tags = self._tile_template_network()
+        coords, symbols, atom_names, residue_names, tags = self._tile_template_network()
         candidate_count = len(set(tags.tolist()))
+
         cropped_tags = self._crop_tags(coords, tags)
         cropped_count = len(cropped_tags)
-        clash_kept_tags = self._solute_clash_filter(coords, symbols, tags, cropped_tags)
-        clash_removed = cropped_count - len(clash_kept_tags)
-        final_tags, density_removed = self._cap_to_target(clash_kept_tags)
 
-        solvent_positions, solvent_symbols, solvent_tags = self._assemble_solvent(
-            coords,
-            symbols,
-            tags,
-            final_tags,
-        )
+        clash_kept_tags = self._solute_clash_filter(coords, symbols, tags, cropped_tags)
+        solute_clash_removed = cropped_count - len(clash_kept_tags)
+
+        declashed_tags = self._solvent_self_clash_filter(coords, symbols, tags, clash_kept_tags)
+        solvent_clash_removed = len(clash_kept_tags) - len(declashed_tags)
+
+        final_tags, density_removed = self._cap_to_target(coords, tags, declashed_tags)
+
+        (
+            solvent_positions,
+            solvent_symbols,
+            solvent_atom_names,
+            solvent_res_names,
+            solvent_tags,
+        ) = self._assemble_solvent(coords, symbols, atom_names, residue_names, tags, final_tags)
         if solvent_symbols:
             self.atoms += Atoms(symbols=solvent_symbols, positions=solvent_positions)
-        self._set_nonperiodic_metadata(solvent_tags)
+        self._set_nonperiodic_metadata(solvent_tags, solvent_atom_names, solvent_res_names)
 
         xyz_path, pdb_path = self._write_coordinate_outputs()
         shell_result = self._write_shell_outputs()
 
         final_count = len(final_tags)
-        actual_density = final_count / self._volume() if self._volume() > 0 else 0.0
-        target_density = self.target_count / self._volume() if self._volume() > 0 else 0.0
+        volume = self._volume()
+        actual_density = final_count / volume if volume > 0 else 0.0
+        target_density = self.target_count / volume if volume > 0 else 0.0
+        min_solute, min_solvent = self._min_distances()
         lines = [
             "Explicit solvent coordinate generation summary:\n",
             (
                 f"candidate={candidate_count} cropped={cropped_count} "
-                f"solute_clash_removed={clash_removed} "
-                f"density_removed={density_removed} final={final_count}\n"
+                f"solute_clash_removed={solute_clash_removed} "
+                f"solvent_clash_removed={solvent_clash_removed} "
+                f"density_trimmed={density_removed} final={final_count}\n"
             ),
             f"target_number_density={target_density:.8f} molecules/Å^3\n",
             f"actual_number_density={actual_density:.8f} molecules/Å^3\n",
+            f"min_solute_solvent_distance={min_solute:.3f} Å\n",
+            f"min_solvent_solvent_distance={min_solvent:.3f} Å\n",
             f"solute_solvent_clash_method={self._clash_method_label()}\n",
             f"Added {len(solvent_positions)} solvent atoms.\n",
             f"Solvated XYZ written to: {xyz_path}\n",
@@ -682,15 +968,10 @@ class ExplicitSolv():
         ]
         if final_count < self.target_count:
             lines.append(
-                "WARNING: template sampling provided fewer non-clashing solvent "
-                "molecules than the density target. Increase geometry size or "
-                "lower the clash cutoff.\n"
-            )
-        if density_removed > 0:
-            lines.append(
-                "WARNING: solvent molecules were randomly subselected to match "
-                "the density/number target; retained coordinates remain from "
-                "the rigid solvent-network sample.\n"
+                "WARNING: fewer non-clashing solvent molecules were available than "
+                "the density target after seam-overlap removal. Increase the "
+                "geometry size or relax the clash criterion if a denser cluster is "
+                "required.\n"
             )
         if shell_result is not None:
             shell_xyz, shell_pdb, shell_molecules = shell_result
