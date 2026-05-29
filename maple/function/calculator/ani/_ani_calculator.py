@@ -5,7 +5,7 @@ import torch
 
 import ase
 
-from ..calculator_base import CalcABC
+from ..calculator_base import CalcABC, IMPLICIT_SOLVENT_FORCE_ERROR
 
 
 class ANICalculator(CalcABC):
@@ -55,6 +55,7 @@ class ANICalculator(CalcABC):
 
     def calculate(self, atoms=None, properties=['energy'],
                   system_changes=ase.calculators.calculator.all_changes):
+        self._reject_implicit_solvent_derivatives(properties)
         super().calculate(atoms, properties, system_changes)
 
         coordinates = torch.tensor(atoms.get_positions(), dtype=self.dtype, device=self.device, requires_grad='forces' in properties).unsqueeze(0)
@@ -115,6 +116,9 @@ class ANICalculator(CalcABC):
             atoms: ASE Atoms object
             delta: Step size for numerical differentiation (only used if method='numerical')
         """
+        if self.solvent_correction:
+            raise NotImplementedError(IMPLICIT_SOLVENT_FORCE_ERROR)
+
         if self.hessian == 'analytic':
             return self._get_hessian_analytic(atoms)
         elif self.hessian == 'numerical':

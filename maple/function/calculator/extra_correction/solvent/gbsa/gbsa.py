@@ -7,7 +7,7 @@ from ase import Atoms
 
 # --- physical constants ---
 ANG2BOHR = 1.8897259886  # 1 Å = 1.8897 bohr
-EH2EV = 27.211386245988  # 1 Hartree = 27.211 eV
+OBC_RADIUS_OFFSET_BOHR = 0.09 * ANG2BOHR  # OpenMM/Amber OBC offset: 0.009 nm
 
 def load_gbsa_params(solvent="water"):
     """
@@ -47,9 +47,14 @@ def load_gbsa_params(solvent="water"):
 
 class GBSA(nn.Module):
     """
-    GB polar term with geometry-dependent Born radii (OBC-II style).
+    Experimental GB-polar correction with geometry-dependent Born radii.
+
+    This class intentionally does not advertise production GBSA/OBC-II:
+    the nonpolar surface-area term is absent and the descreening integral is
+    a MAPLE heuristic.  It is gated by CommandControl/SetClaculator as an
+    experimental, energy-only correction.
+
     Input coords in Å, output energy in Hartree, forces in Hartree/Å.
-    Nonpolar term removed per your request.
     """
 
     def __init__(self, solvent="water", device="cpu"):
@@ -93,19 +98,17 @@ class GBSA(nn.Module):
         ri0 = torch.clamp(ri0, min=0.5)
         return ri0
 
-    # ---- geometry-dependent Born radii via OBC-II ----
-    @torch.no_grad()
-    def _mask_self(self, M: torch.Tensor) -> torch.Tensor:
-        """Set diagonal to zero in-place-safe way for no-grad contexts."""
-        return M.fill_diagonal_(0.)
-
+    # ---- geometry-dependent Born radii via an OBC-like transform ----
     def compute_born_radius(self, coords_B: torch.Tensor, atom_index: torch.Tensor) -> torch.Tensor:
         """
-        OBC-II effective radii (Bohr), differentiable w.r.t. coords_B via ri0 held constant in this step.
-        If you want full dRi/dR gradients, remove no_grad contexts and avoid explicit detach.
+        Effective radii (Bohr), differentiable w.r.t. coords_B.
+
+        The tanh transform follows the OBC-II direction: increasing burial
+        increases the effective Born radius.  The Psi term above remains a
+        Gaussian-volume approximation, not the standard OBC descreening
+        integral; production use remains disabled by default.
         """
         ri0 = self.intrinsic_radius(atom_index)          # (N,)
-        N   = coords_B.size(0)
 
         # pairwise distances in Bohr
         Rij = torch.cdist(coords_B, coords_B, p=2)       # (N,N)
@@ -124,12 +127,16 @@ class GBSA(nn.Module):
         term = term - torch.diag_embed(torch.diag(term))
         Psi = torch.sum(term, dim=1)                     # (N,)
 
-        # OBC-II transform: Ri = ri0 - ri0 * tanh( alpha*Psi - beta*Psi^2 + gamma*Psi^3 )
+        # OBC-like transform:
+        #   R_i = 1 / (rho_i^-1 - r_i^-1 tanh(alpha*Psi-beta*Psi^2+gamma*Psi^3))
+        # This preserves the physically expected radius increase with burial.
+        rho = torch.clamp(ri0 - OBC_RADIUS_OFFSET_BOHR, min=0.5)
         poly = self.alpha * Psi - self.beta * (Psi**2) + self.gamma * (Psi**3)
-        Ri = ri0 - ri0 * torch.tanh(poly)
+        inv_R = (1.0 / rho) - (torch.tanh(poly) / ri0)
+        Ri = 1.0 / torch.clamp(inv_R, min=1e-6)
 
         # lower bound to avoid degenerate f_ij
-        Ri = torch.clamp(Ri, min=0.5)
+        Ri = torch.clamp(Ri, min=0.5, max=100.0)
         return Ri
 
     # ---- API ----

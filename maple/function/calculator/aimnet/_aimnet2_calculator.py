@@ -3,7 +3,7 @@ import torch
 import numpy as np
 from typing import Dict, Literal
 from ase.calculators.calculator import Calculator, all_changes
-from ..calculator_base import CalcABC
+from ..calculator_base import CalcABC, IMPLICIT_SOLVENT_FORCE_ERROR
 
 
 EV2HARTREE = 1.0 / 27.211386245988
@@ -119,6 +119,7 @@ class AIMNet2Calculator(CalcABC):
 
     # ------------------------ calculate ------------------------
     def calculate(self, atoms=None, properties=["energy", "forces", "free_energy", "hessian"], system_changes=all_changes):
+        self._reject_implicit_solvent_derivatives(properties)
         super().calculate(atoms, properties, system_changes)
 
         coord = torch.tensor(
@@ -172,8 +173,6 @@ class AIMNet2Calculator(CalcABC):
             self.results["forces"] = forces.detach().cpu().numpy()
             
         if "hessian" in properties:
-            if self.solvent_correction:
-                raise NotImplementedError("Hessian calculation with implicit solvent is not implemented yet.")
             self.results["hessian"] = self.get_hessian(atoms)
 
     # ------------------------ get_energy ------------------------
@@ -201,6 +200,9 @@ class AIMNet2Calculator(CalcABC):
             atoms: ASE Atoms object
             delta: Step size for numerical differentiation (only used if method='numerical')
         """
+        if self.solvent_correction:
+            raise NotImplementedError(IMPLICIT_SOLVENT_FORCE_ERROR)
+
         if self.hessian == 'analytic':
             return self._get_hessian_analytic(atoms)
         elif self.hessian == 'numerical':

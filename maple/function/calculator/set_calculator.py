@@ -89,6 +89,7 @@ class SetClaculator:
         implicit: str = "None",
         solvent: str = "None",
         model_options: Optional[dict] = None,
+        solvation_options: Optional[dict] = None,
     ) -> None:
         self.output = output
         self.model = model
@@ -98,6 +99,7 @@ class SetClaculator:
         self.implicit = implicit
         self.solvent = solvent
         self.model_options = model_options or {}
+        self.solvation_options = solvation_options or {}
         self._model_error_logged = False
 
     def _model_dir(self) -> Path:
@@ -126,6 +128,43 @@ class SetClaculator:
             raise ValueError(
                 f"Model '{self.model}' does not support hessian='{mode}'. "
                 f"Supported modes: {supported_text}"
+            )
+
+    def _validate_implicit_solvation_request(self) -> None:
+        implicit = str(self.implicit or "none").lower()
+        solvent = str(self.solvent or "none").lower()
+        self.implicit = implicit
+        self.solvent = solvent
+
+        if implicit in {"", "none"}:
+            return
+
+        if implicit != "gbsa":
+            raise ValueError(
+                "Unsupported implicit solvation method: "
+                f"'{implicit}'. Supported experimental method: gbsa."
+            )
+
+        if solvent in {"", "none"}:
+            raise ValueError("Implicit solvation requires implicit=<solvent>.")
+
+        if self.solvation_options.get("experimental") is not True:
+            raise ValueError(
+                "Implicit GB-polar/QEq solvation is experimental and disabled "
+                "by default. Add experimental=true in #solv(...) to request "
+                "energy-only use."
+            )
+
+        if self.model_options.get("hessian") is not None:
+            raise ValueError(
+                "Experimental implicit GB-polar solvation does not support "
+                "Hessian/HVP workflows."
+            )
+
+        if self.atoms is not None and any(bool(flag) for flag in self.atoms.get_pbc()):
+            raise ValueError(
+                "Experimental implicit GB-polar solvation is non-periodic only; "
+                "remove #pbc or use a periodic solvent backend."
             )
 
     def _apply_hessian_mode(self, calculator) -> None:
@@ -338,6 +377,7 @@ class SetClaculator:
                 raise ValueError(f"Unsupported model: '{self.model}'.")
 
             self._validate_requested_hessian_mode()
+            self._validate_implicit_solvation_request()
 
             if self.d4 and self.model not in {"ani2x", "ani1x", "ani1ccx", "ani1xnr"}:
                 self.log_info([f"\n [WARNING] D4 is not supported for model '{self.model}'. D4 will be ignored.\n"])

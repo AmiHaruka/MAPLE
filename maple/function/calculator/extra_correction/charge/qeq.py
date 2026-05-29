@@ -3,6 +3,9 @@ import os
 import torch
 import numpy as np
 
+COULOMB_EV_ANGSTROM = 14.3996454784255
+
+
 class QEqTorch:
     """
     GPU-compatible Charge Equilibration (QEq) solver implemented with PyTorch.
@@ -18,7 +21,7 @@ class QEqTorch:
         Args:
             data_file (str): Path to QEq parameter file.
             device (str): 'cpu' or 'cuda' for GPU acceleration.
-            eps0 (float): Permittivity constant (default = 1 for atomic units).
+            eps0 (float): Relative dielectric scaling for the Coulomb term.
         """
         self.device = torch.device(device)
         self.eps0 = eps0
@@ -26,7 +29,7 @@ class QEqTorch:
         self.params = self._load_params(data_path)
 
     def _load_params(self, path):
-        """Read QEq parameters from file: Element, Electronegativity(V), Hardness(V/e), Radius(Å)."""
+        """Read QEq params: Element, electronegativity(eV/e), hardness(eV/e²), radius(Å)."""
         table = {}
         with open(path, "r") as f:
             for line in f:
@@ -52,6 +55,26 @@ class QEqTorch:
             torch.tensor(sigma, dtype=torch.float32, device=self.device),
         )
 
+    @staticmethod
+    def _infer_total_charge(atoms) -> float:
+        """Infer the QEq charge constraint from ASE metadata, defaulting to neutral."""
+        charge = getattr(atoms, "info", {}).get("charge", None)
+        if charge is not None:
+            return float(charge)
+
+        if hasattr(atoms, "get_initial_charges"):
+            initial_charges = np.asarray(atoms.get_initial_charges(), dtype=float)
+            if initial_charges.size and np.all(np.isfinite(initial_charges)):
+                return float(initial_charges.sum())
+
+        if hasattr(atoms, "get_initial_charge"):
+            try:
+                return float(atoms.get_initial_charge())
+            except Exception:
+                pass
+
+        return 0.0
+
     def forward(self, atoms, total_charge=None):
         """
         Compute QEq charges for an ASE Atoms object.
@@ -59,14 +82,15 @@ class QEqTorch:
         Args:
             atoms (ase.Atoms): ASE Atoms object.
             total_charge (float, optional): Total charge constraint.
-                If None, uses atoms.get_initial_charge() or defaults to 0.0.
+                If None, uses atoms.info["charge"], then initial charges,
+                then defaults to 0.0.
 
         Returns:
             torch.Tensor: Atomic charges (N,)
         """
         coords = torch.tensor(atoms.get_positions(), dtype=torch.float32, device=self.device)
         symbols = atoms.get_chemical_symbols()
-        total_charge = 0.0 if total_charge is None else total_charge
+        total_charge = self._infer_total_charge(atoms) if total_charge is None else float(total_charge)
 
         N = len(symbols)
         chi, J, sigma = self._get_param_tensor(symbols)
@@ -85,13 +109,16 @@ class QEqTorch:
         p = torch.sqrt(a * b / (a**2 + b**2))
         coulomb = torch.erf(p * rij) / rij
 
-        H[:N, :N] += (1.0 / (4 * np.pi * self.eps0)) * (coulomb - torch.diag(torch.diag(coulomb)))
+        H[:N, :N] += (COULOMB_EV_ANGSTROM / self.eps0) * (
+            coulomb - torch.diag(torch.diag(coulomb))
+        )
 
         # Charge conservation constraint
         H[N, :N] = 1.0
         H[:N, N] = 1.0
         V[:N] = chi
-        V[N] = total_charge
+        # The system is solved as Hx = -V, so use -Q to enforce sum(q)=Q.
+        V[N] = -total_charge
 
         # Solve linear system
         q = torch.linalg.solve(H, -V)

@@ -3,10 +3,29 @@ import numpy as np
 
 import ase.calculators.calculator
 
+IMPLICIT_SOLVENT_FORCE_ERROR = (
+    "Experimental implicit GB-polar solvation is energy-only. Forces, stress, "
+    "Hessians, and HVPs are disabled because QEq charges are "
+    "geometry-dependent and are not coupled variationally to the solvent "
+    "energy."
+)
+IMPLICIT_SOLVENT_DERIVATIVE_PROPERTIES = {"forces", "stress", "hessian"}
+
+
+def reject_implicit_solvent_derivatives(calculator, properties) -> None:
+    requested = set(properties or [])
+    if getattr(calculator, "solvent_correction", None) and requested.intersection(
+        IMPLICIT_SOLVENT_DERIVATIVE_PROPERTIES
+    ):
+        raise NotImplementedError(IMPLICIT_SOLVENT_FORCE_ERROR)
+
+
 class CalcABC(ase.calculators.calculator.Calculator):
     def __init__(self):
         super().__init__()
 
+    def _reject_implicit_solvent_derivatives(self, properties) -> None:
+        reject_implicit_solvent_derivatives(self, properties)
 
     def log_error(self, error_message: str) -> None:
         """
@@ -40,6 +59,9 @@ class CalcABC(ase.calculators.calculator.Calculator):
             forces (torch.Tensor): forces (3N,) on same device/dtype
             energy (torch.Tensor): scalar total energy
         """
+        if getattr(self, "solvent_correction", None):
+            raise NotImplementedError(IMPLICIT_SOLVENT_FORCE_ERROR)
+
         # 1. prepare coordinates with grad enabled
         coords = torch.tensor(
             atoms.get_positions(),
@@ -75,11 +97,26 @@ class CalcABC(ase.calculators.calculator.Calculator):
 
         return hvp, forces, energy
 
+    @staticmethod
+    def _total_charge_from_atoms(atoms: ase.Atoms) -> float:
+        charge = getattr(atoms, "info", {}).get("charge", None)
+        if charge is not None:
+            return float(charge)
+
+        if hasattr(atoms, "get_initial_charges"):
+            initial_charges = np.asarray(atoms.get_initial_charges(), dtype=float)
+            if initial_charges.size and np.all(np.isfinite(initial_charges)):
+                return float(initial_charges.sum())
+
+        return 0.0
+
     def implicit_solv_init(self, implicit: str, solvent: str):
+        implicit = str(implicit or "none").lower()
+        solvent = str(solvent or "none").lower()
 
         if implicit == "gbsa" and solvent != 'none':
 
-            # GBSA solvent correction and QEq charge calculator
+            # Experimental GB-polar solvent correction and QEq charge calculator.
             from .extra_correction import GBSA
             from .extra_correction import QEqTorch
 
@@ -99,7 +136,9 @@ class CalcABC(ase.calculators.calculator.Calculator):
         Returns:
             torch.Tensor: Implicit solvent correction energy in Hartree.
         """
-        atoms.atomic_charges = self.chargecalc(atoms)
+        atoms.atomic_charges = self.chargecalc(
+            atoms, total_charge=self._total_charge_from_atoms(atoms)
+        )
         solvent_energy,_ = self.solvent_correction.get_energy(atoms)
         return solvent_energy
 
@@ -113,9 +152,7 @@ class CalcABC(ase.calculators.calculator.Calculator):
         Returns:
             tuple[torch.Tensor, torch.Tensor]: Implicit solvent correction energy in Hartree and forces in Hartree/Å.
         """
-        atoms.atomic_charges = self.chargecalc(atoms)
-        solvent_energy, solvent_forces = self.solvent_correction.get_energy_and_force(atoms)
-        return solvent_energy, solvent_forces
+        raise NotImplementedError(IMPLICIT_SOLVENT_FORCE_ERROR)
 
 
 class CalcBatchABC(ase.calculators.calculator.Calculator):

@@ -9,6 +9,7 @@ import numpy as np
 import torch
 from ase import Atoms
 from ase.calculators.calculator import all_changes
+from ..calculator_base import IMPLICIT_SOLVENT_FORCE_ERROR, reject_implicit_solvent_derivatives
 
 try:
     from fairchem.core import pretrained_mlip
@@ -177,6 +178,19 @@ class UMACalculator(FAIRChemCalculator):
         torch.save(raw_checkpoint, compat_path)
         return str(compat_path)
 
+    @staticmethod
+    def _total_charge_from_atoms(atoms: Atoms) -> float:
+        charge = getattr(atoms, "info", {}).get("charge", None)
+        if charge is not None:
+            return float(charge)
+
+        if hasattr(atoms, "get_initial_charges"):
+            initial_charges = np.asarray(atoms.get_initial_charges(), dtype=float)
+            if initial_charges.size and np.all(np.isfinite(initial_charges)):
+                return float(initial_charges.sum())
+
+        return 0.0
+
     def __init__(
         self,
         device: torch.device,
@@ -261,9 +275,6 @@ class UMACalculator(FAIRChemCalculator):
         self.calculate(atoms, properties=["energy"], system_changes=all_changes)
         energy_value = self.results["energy"]
 
-        if self.solvent_correction:
-            energy_value += self.solvent_correction.get_energy(atoms)
-
         return torch.tensor(energy_value, dtype=torch.float32, device=self.device)
 
     def get_hessian(
@@ -273,6 +284,9 @@ class UMACalculator(FAIRChemCalculator):
         dtype: torch.dtype = torch.float64,
     ) -> torch.Tensor:
         from ase.constraints import FixAtoms
+
+        if self.solvent_correction:
+            raise NotImplementedError(IMPLICIT_SOLVENT_FORCE_ERROR)
 
         n_atoms = len(atoms)
         pos0 = atoms.get_positions()
@@ -311,6 +325,8 @@ class UMACalculator(FAIRChemCalculator):
         return hessian
 
     def calculate(self, atoms, properties=None, system_changes=None):
+        reject_implicit_solvent_derivatives(self, properties)
+
         self._set_task_from_atoms(atoms)
 
         atoms.info["spin"] = int(atoms.info.get("mult", 1))
@@ -326,13 +342,15 @@ class UMACalculator(FAIRChemCalculator):
             self.results["forces"] *= EV2HARTREE
 
         if self.solvent_correction:
-            atoms.atomic_charges = self.chargecalc(atoms)
-            solvent_energy, solvent_force = self.solvent_correction.get_energy_and_force(atoms)
+            atoms.atomic_charges = self.chargecalc(
+                atoms, total_charge=self._total_charge_from_atoms(atoms)
+            )
+            solvent_energy, _ = self.solvent_correction.get_energy(atoms)
             if "energy" in self.results:
                 self.results["energy"] += solvent_energy.item()
             if "free_energy" in self.results:
                 self.results["free_energy"] += solvent_energy.item()
             if "forces" in self.results:
-                self.results["forces"] += solvent_force.detach().cpu().numpy()
+                self.results.pop("forces", None)
 
         return self.results

@@ -1,7 +1,7 @@
 #model=aimnet2
 #opt(lbfgs)
 #device=gpu0
-#solv(method=gbsa, implicit=toluene, explicit=toluene)
+#solv(explicit=toluene)
 
 C      -0.77812600     -1.06756100      0.32105900
 C       1.30255300      0.05212000     -0.02829900

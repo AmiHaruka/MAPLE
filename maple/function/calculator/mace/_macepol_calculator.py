@@ -3,7 +3,7 @@ import torch
 import numpy as np
 from typing import Sequence, Union
 from ase.calculators.calculator import all_changes
-from ..calculator_base import CalcABC
+from ..calculator_base import CalcABC, IMPLICIT_SOLVENT_FORCE_ERROR
 from typing import Literal
 
 EV2HARTREE = 1.0 / 27.211386245988
@@ -138,6 +138,7 @@ class MACEPolCalculator(CalcABC):
 
     def calculate(self, atoms=None, properties=['energy', 'forces'], system_changes=all_changes):
         """Main ASE calculation entry point."""
+        self._reject_implicit_solvent_derivatives(properties)
         super().calculate(atoms, properties, system_changes)
 
         # Energy (no grad needed)
@@ -174,8 +175,6 @@ class MACEPolCalculator(CalcABC):
             self.results['forces'] = forces.detach().cpu().numpy()
 
         if 'hessian' in properties:
-            if self.solvent_correction:
-                raise NotImplementedError("Hessian calculation with implicit solvent is not implemented yet.")
             self.results['hessian'] = self.get_hessian(atoms)
 
     def get_energy(self, atoms) -> torch.Tensor:
@@ -248,6 +247,9 @@ class MACEPolCalculator(CalcABC):
 
     def get_hessian(self, atoms=None, delta: float = 0.002) -> np.ndarray:
         """Compute the Cartesian Hessian matrix for an ASE Atoms object."""
+        if self.solvent_correction:
+            raise NotImplementedError(IMPLICIT_SOLVENT_FORCE_ERROR)
+
         if self.hessian == "analytic":
             return self._get_hessian_analytic(atoms)
         if self.hessian == "numerical":

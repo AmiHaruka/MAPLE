@@ -16,7 +16,7 @@ dynamics, and related post-processing workflows.
 | **Dynamics** | NVE, NVT, NPT |
 | **Analysis** | Frequency, PES Scan, Single Point |
 | **ML Potentials** | ANI, AIMNet2, MACE, MACEPol, UMA |
-| **Extras** | D4 dispersion, GBSA solvation, PBC, restart files, DCD output |
+| **Extras** | D4 dispersion, explicit solvent cluster builder, experimental GB-polar SP energy correction, PBC, restart files, DCD output |
 
 ## Installation
 

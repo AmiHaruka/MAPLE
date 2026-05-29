@@ -165,6 +165,7 @@ class CommandControl:
         "vdw_fallback_radius",
         "seed",
         "randomize",
+        "experimental",
         "write_shell",
         "shell_cutoff",
         # Compatibility aliases / explicit rejections.
@@ -509,8 +510,8 @@ class CommandControl:
                     )
 
     @classmethod
-    def _validate_explicit_solvation(
-        cls, params: Dict[str, Any], output_path: Optional[str]
+    def _validate_solvation(
+        cls, params: Dict[str, Any], task: str, output_path: Optional[str]
     ) -> None:
         solv_params = params.get("solv")
         if not isinstance(solv_params, dict):
@@ -534,7 +535,101 @@ class CommandControl:
                 cls._log_error(output_path, msg)
                 raise ValueError(msg)
 
-        if solv_params.get("explicit") is None:
+        for key in ("randomize", "write_shell", "experimental"):
+            if key in solv_params and not isinstance(solv_params[key], bool):
+                msg = f"Solvation {key} must be 'true' or 'false'."
+                cls._log_error(output_path, msg)
+                raise ValueError(msg)
+
+        method = solv_params.get("method")
+        explicit = solv_params.get("explicit")
+        implicit = solv_params.get("implicit")
+
+        if method is not None:
+            method = str(method).lower()
+            solv_params["method"] = method
+            if method != "gbsa":
+                msg = "Implicit solvation method must be 'gbsa'."
+                cls._log_error(output_path, msg)
+                raise ValueError(msg)
+
+        if explicit is not None and implicit is not None:
+            msg = "Use either explicit=<solvent> or implicit=<solvent>, not both."
+            cls._log_error(output_path, msg)
+            raise ValueError(msg)
+
+        if implicit is not None:
+            if method != "gbsa":
+                msg = "Implicit solvation requires method=gbsa."
+                cls._log_error(output_path, msg)
+                raise ValueError(msg)
+            if str(implicit).lower() in {"", "none"}:
+                msg = "Implicit solvation requires a real solvent name, not 'none'."
+                cls._log_error(output_path, msg)
+                raise ValueError(msg)
+            if solv_params.get("experimental") is not True:
+                msg = (
+                    "Implicit GB-polar/QEq solvation is experimental and "
+                    "energy-only; add experimental=true in #solv(...) to "
+                    "request it explicitly."
+                )
+                cls._log_error(output_path, msg)
+                raise ValueError(msg)
+            if task != "sp":
+                msg = (
+                    "Implicit GB-polar/QEq solvation is currently energy-only "
+                    "and may be used only with task 'sp'."
+                )
+                cls._log_error(output_path, msg)
+                raise ValueError(msg)
+            if "pbc" in params:
+                msg = "Implicit GB-polar/QEq solvation is non-periodic; remove #pbc."
+                cls._log_error(output_path, msg)
+                raise ValueError(msg)
+
+            explicit_only = {
+                "radius",
+                "shape",
+                "box_size",
+                "density",
+                "density_scale",
+                "number",
+                "clash_method",
+                "tolerance",
+                "vdw_scale",
+                "vdw_fallback_radius",
+                "seed",
+                "randomize",
+                "write_shell",
+                "shell_cutoff",
+                "clash_cutoff",
+                "write_cell",
+            }
+            conflicts = sorted(key for key in explicit_only if key in solv_params)
+            if conflicts:
+                msg = (
+                    "Explicit-solvent options cannot be combined with implicit "
+                    f"GB-polar solvation: {', '.join(conflicts)}."
+                )
+                cls._log_error(output_path, msg)
+                raise ValueError(msg)
+            return
+
+        if method is not None:
+            msg = "method=gbsa requires implicit=<solvent>; omit method for explicit solvent."
+            cls._log_error(output_path, msg)
+            raise ValueError(msg)
+
+        if "experimental" in solv_params:
+            msg = "experimental=true is only valid with method=gbsa, implicit=<solvent>."
+            cls._log_error(output_path, msg)
+            raise ValueError(msg)
+
+        if explicit is None:
+            if solv_params:
+                msg = "Solvation requires either explicit=<solvent> or implicit=<solvent>."
+                cls._log_error(output_path, msg)
+                raise ValueError(msg)
             return
 
         if "write_cell" in solv_params:
@@ -553,12 +648,6 @@ class CommandControl:
             msg = "Explicit solvent shape must be 'sphere' or 'cube'."
             cls._log_error(output_path, msg)
             raise ValueError(msg)
-
-        for key in ("randomize", "write_shell"):
-            if key in solv_params and not isinstance(solv_params[key], bool):
-                msg = f"Explicit solvent {key} must be 'true' or 'false'."
-                cls._log_error(output_path, msg)
-                raise ValueError(msg)
 
         if "seed" in solv_params and type(solv_params["seed"]) is not int:
             msg = (
@@ -702,7 +791,7 @@ class CommandControl:
             raise ValueError(f"Unsupported model: '{model}'.")
 
         cls._validate_unknown_params(params, task, output_path)
-        cls._validate_explicit_solvation(params, output_path)
+        cls._validate_solvation(params, task, output_path)
 
         if "gpuid" in params and params["gpuid"] is not None and not isinstance(params["gpuid"], int):
             cls._log_error(output_path, "GPU ID must be an integer.")
