@@ -107,11 +107,15 @@ if str(ROOT) not in sys.path:
 
 from maple.function.dispatcher.parmfit.correction import correction as correction_module
 from maple.function.dispatcher.parmfit.correction import parameters as correction_parameters_module
+from maple.function.dispatcher.parmfit.correction.artifacts import AmberExportResult, CorrectionWorkflowResult, GromacsExportResult
+from maple.function.dispatcher.parmfit.correction.config import CorrectionConfig
 from maple.function.dispatcher.parmfit.correction.correction import Correction
+from maple.function.dispatcher.parmfit.correction.report import correction_result_lines, summary_lines
 from maple.function.dispatcher.parmfit.utils import interface as interface_module
-from maple.function.dispatcher.parmfit.utils.TorsionFit import TorsionWorkflowResult
-from maple.function.dispatcher.parmfit.utils.TorsionFit.records import TorsionScanData
+from maple.function.dispatcher.parmfit.utils.TorsionFit import TorsionFitParams, TorsionWorkflowResult
+from maple.function.dispatcher.parmfit.utils.TorsionFit.records import TorsionRefineCycle
 from maple.function.dispatcher.parmfit.utils.mechanics import angle_radians, distance_angstrom
+from maple.function.dispatcher.parmfit.utils.readparm import CorrectionParameterSet, FrcmodDB, Mol2Topology
 
 
 def _four_atom_frame(phi_deg: float) -> Atoms:
@@ -132,6 +136,23 @@ def _set_thresholds(atoms: Atoms) -> None:
     atoms.dp_rms_th = 0.00210
 
 
+def _empty_parameter_set() -> CorrectionParameterSet:
+    return CorrectionParameterSet(
+        mol2=Mol2Topology(atoms=[], bonds=[], id_to_index={}),
+        frcmod=FrcmodDB(),
+        bonds=[],
+        angles=[],
+        dihedrals=[],
+        impropers=[],
+        nonbonds=[],
+        unmatched_bonds=[],
+        unmatched_angles=[],
+        unmatched_dihedrals=[],
+        unmatched_impropers=[],
+        unmatched_nonbonds=[],
+    )
+
+
 class FakeCalculator:
     def get_forces(self, atoms):
         return np.zeros_like(atoms.get_positions(), dtype=float)
@@ -142,6 +163,64 @@ class FakeCalculator:
     def get_hessian(self, atoms):
         size = 3 * len(atoms)
         return np.eye(size, dtype=float)
+
+
+def test_correction_result_shows_stage2_debug_reasons_only_when_requested(tmp_path: Path):
+    parameter_set = _empty_parameter_set()
+    cycle = TorsionRefineCycle(
+        cycle=1,
+        total_loss_before=2.0,
+        total_loss_after=1.8,
+        global_rmse_before=1.0,
+        global_rmse_after=0.9,
+        accepted_blocks=1,
+        rejected_blocks=2,
+        per_scan_rmse_before={},
+        per_scan_rmse_after={},
+        diagnostics={
+            "status": "accepted",
+            "initial_scan_loss": 1.2,
+            "final_scan_loss": 1.0,
+            "initial_ensemble_loss": 0.3,
+            "final_ensemble_loss": 0.2,
+            "initial_prior_loss": 0.1,
+            "final_prior_loss": 0.15,
+            "initial_total_loss": 1.6,
+            "final_total_loss": 1.35,
+        },
+    )
+    torsion = TorsionWorkflowResult(
+        stage1_parameter_set=parameter_set,
+        final_parameter_set=parameter_set,
+        refine_cycles=[cycle],
+        center_bonds=[(1, 2), (2, 3), (3, 4)],
+        stage2_diagnostics={"final_cycle": "cycle 1 accepted"},
+    )
+    result = CorrectionWorkflowResult(
+        initial_parameter_set=parameter_set,
+        stage0_parameter_set=parameter_set,
+        final_parameter_set=parameter_set,
+        torsion=torsion,
+        gromacs=GromacsExportResult(top=str(tmp_path / "corr.top"), gro=str(tmp_path / "corr.gro")),
+        amber=AmberExportResult(mol2=str(tmp_path / "corr.mol2"), frcmod=str(tmp_path / "corr.frcmod")),
+        auto_frcmod=str(tmp_path / "corr_original.frcmod"),
+    )
+
+    config = CorrectionConfig(mol2=str(tmp_path / "input.mol2"))
+    config.torsion = TorsionFitParams(report_debug=True)
+    text = "".join(correction_result_lines(config, result))
+
+    assert "Stage2 loss:" in text
+    assert "scan:      1.200000 -> 1.000000" in text
+    assert "ensemble:  0.300000 -> 0.200000" in text
+    assert "prior:     0.100000 -> 0.150000" in text
+    assert "total:     1.600000 -> 1.350000" in text
+    assert "status:    accepted" in text
+
+    config.torsion = TorsionFitParams(report_debug=False)
+    text = "".join(correction_result_lines(config, result))
+
+    assert "Stage2 loss:" not in text
 
 
 class FakeScan:
@@ -250,6 +329,44 @@ def _patch_auto_parmchk2(monkeypatch, mol2_path: Path, frcmod_path: Path) -> Non
     monkeypatch.setattr(correction_parameters_module.amber_interface, "run_parmchk2", fake_run_parmchk2)
 
 
+def _summary_stub_parameter_set():
+    return types.SimpleNamespace(
+        mol2=types.SimpleNamespace(atoms=[object(), object()], bonds=[object()]),
+        bonds=[],
+        angles=[],
+        dihedrals=[],
+        impropers=[],
+        nonbonds=[],
+        unmatched_bonds=[],
+        unmatched_angles=[],
+        unmatched_dihedrals=[],
+        unmatched_impropers=[],
+        unmatched_nonbonds=[],
+    )
+
+
+def test_correction_setup_reports_torsion_ensemble_switch():
+    disabled = CorrectionConfig(
+        mol2="chain_ff.mol2",
+        torsion=TorsionFitParams(enabled=True, torsion_ensemble=False),
+    )
+    enabled = CorrectionConfig(
+        mol2="chain_ff.mol2",
+        torsion=TorsionFitParams(
+            enabled=True,
+            torsion_ensemble=True,
+            torsion_ensemble_ratio=0.25,
+            torsion_ensemble_weight=0.20,
+        ),
+    )
+
+    disabled_text = "".join(summary_lines(disabled, _summary_stub_parameter_set()))
+    enabled_text = "".join(summary_lines(enabled, _summary_stub_parameter_set()))
+
+    assert "Torsion ensemble:false" in disabled_text
+    assert "Torsion ensemble:enabled, ratio=0.250, weight=0.200" in enabled_text
+
+
 def test_correction_integrates_torsion_stage1_initializer_into_main_output(tmp_path: Path, monkeypatch):
     _patch_fake_torsion_scan(monkeypatch)
     monkeypatch.setattr(correction_module, "apply_mseminario", _fake_apply_mseminario)
@@ -304,6 +421,9 @@ def test_correction_integrates_torsion_stage1_initializer_into_main_output(tmp_p
     assert "mSeminario bond/angle changes" in text
     assert "TorsionFit dihedral changes" in text
     assert "DIHEDRALS" in text
+    assert "Torsion energy trace:" in text
+    assert "angle_deg    MLIP_ref     orig_ref    stage0_ref    stage1_ref    stage2_ref" in text
+    assert "center bond (2, 3):" in text
     assert "Relative scan point table:" not in text
     assert "MM_stage0" not in text
     assert "k=100.000000  r=1.500000" in text
@@ -311,7 +431,9 @@ def test_correction_integrates_torsion_stage1_initializer_into_main_output(tmp_p
     assert "theta=120.0000" in text
     assert "theta=90.0000" in text
     assert "dihedrals changed by TorsionFit: 1" in text
-    assert "stage2: not requested" in text
+    assert "stage1: completed" in text
+    assert "stage2: disabled by torsion_refine_rounds=0" in text
+    assert "final parameters: Stage1 result" in text
     assert "Amber mol2:" in text
     assert "GROMACS top:" in text
     assert (output_root / "corr_original.frcmod").is_file()
@@ -474,7 +596,6 @@ def test_correction_stage2_global_refine_cycles_are_reported(tmp_path: Path, mon
     assert run.result is not None
     assert len(result.torsion.refine_cycles) >= 1
     first_cycle = result.torsion.refine_cycles[0]
-    assert len(first_cycle.block_reports) == 0
     assert first_cycle.total_loss_after <= first_cycle.total_loss_before + 1.0e-12
     assert first_cycle.accepted_blocks + first_cycle.rejected_blocks == 1
     assert (2, 3) in first_cycle.per_scan_rmse_before
@@ -483,9 +604,15 @@ def test_correction_stage2_global_refine_cycles_are_reported(tmp_path: Path, mon
 
     text = output_path.read_text(encoding="utf-8")
     assert "PARMFIT CORRECTION RESULT" in text
-    assert "stage2: cycles=" in text
-    assert "accepted_blocks=" in text
-    assert "rejected_blocks=" in text
+    assert "stage1: completed" in text
+    assert "stage2: enabled, requested_rounds=2" in text
+    assert "refine rounds:" in text
+    assert "final parameters:" in text
+    assert "accepted_blocks=" not in text
+    assert "rejected_blocks=" not in text
+    assert "MLIP_ref vs stage2_final:" in text
+    assert "MAE =" in text
+    assert "RMSE =" in text
     assert "Final refined point tables:" not in text
     assert "Relative scan point table:" not in text
     assert "NONBONDS" not in text
@@ -567,7 +694,12 @@ def test_correction_reports_disabled_torsionfit_and_keeps_stage1_empty(tmp_path:
 
     text = output_path.read_text(encoding="utf-8")
     assert "state: disabled by parmfit(torsionfit=false)" in text
-    assert "stage2: disabled because torsion fitting is disabled" in text
+    assert "Torsion energy trace:" in text
+    assert "disabled by parmfit(torsionfit=false)" in text
+    assert "MLIP_ref" not in text
+    assert "stage1: not run" in text
+    assert "stage2: not run" in text
+    assert "final parameters: mSeminario result" in text
 
 
 def test_correction_requires_runtime_thresholds(tmp_path: Path, monkeypatch):

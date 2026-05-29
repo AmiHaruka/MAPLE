@@ -44,12 +44,6 @@ _BACKBONE_FIXED_ATOMS = {
     3: {"CA", "H", "HA", "N", "C", "O", "CB", "OXT"},
 }
 
-_CHARGE_LIBRARY_FILES = {
-    "internal": "amino19.lib",
-    "nterm": "aminont12.lib",
-    "cterm": "aminoct12.lib",
-}
-
 _ATOM_NAME_ALIASES = {
     "HN": ("H",),
     "CMA": ("CH3",),
@@ -65,7 +59,6 @@ _ATOM_NAME_ALIASES = {
     "H2M": ("H2",),
     "H3M": ("H3",),
 }
-
 
 @dataclass(frozen=True)
 class RespInputFiles:
@@ -162,12 +155,17 @@ def _library_residue_names(resname: str, category: str) -> list[str]:
     return ordered
 
 
-@lru_cache(maxsize=1)
-def load_reference_charge_library() -> dict[str, dict[str, dict[str, tuple[str, float]]]]:
+@lru_cache(maxsize=4)
+def load_reference_charge_library(prom: str = "ff14SB") -> dict[str, dict[str, dict[str, tuple[str, float]]]]:
     base = _params_lib_dir()
+    library_files = {
+        "internal": "amino19.lib" if prom == "ff19SB" else "amino12.lib",
+        "nterm": "aminont12.lib",
+        "cterm": "aminoct12.lib",
+    }
     return {
         category: _parse_lib_atoms(base / filename)
-        for category, filename in _CHARGE_LIBRARY_FILES.items()
+        for category, filename in library_files.items()
     }
 
 
@@ -203,8 +201,14 @@ def _lookup_reference_entry(
     return None
 
 
-def lookup_standard_residue_entry(*, resname: str, atom_name: str, category: str) -> tuple[str, float] | None:
-    library = load_reference_charge_library()
+def lookup_standard_residue_entry(
+    *,
+    resname: str,
+    atom_name: str,
+    category: str,
+    prom: str = "ff14SB",
+) -> tuple[str, float] | None:
+    library = load_reference_charge_library(prom)
     for residue_name in _library_residue_names(resname, category):
         residue_entries = library.get(category, {}).get(residue_name)
         if residue_entries is None:
@@ -216,10 +220,21 @@ def lookup_standard_residue_entry(*, resname: str, atom_name: str, category: str
     return None
 
 
-def lookup_standard_atom_entry(residue: dict, atom: dict, *, category: str | None = None) -> tuple[str, float] | None:
-    library = load_reference_charge_library()
+def lookup_standard_atom_entry(
+    residue: dict,
+    atom: dict,
+    *,
+    category: str | None = None,
+    prom: str = "ff14SB",
+) -> tuple[str, float] | None:
+    library = load_reference_charge_library(prom)
     if category is not None:
-        return lookup_standard_residue_entry(resname=residue["resname"], atom_name=atom["name"], category=category)
+        return lookup_standard_residue_entry(
+            resname=residue["resname"],
+            atom_name=atom["name"],
+            category=category,
+            prom=prom,
+        )
     return _lookup_reference_entry(residue, atom, library)
 
 
@@ -244,8 +259,9 @@ def collect_fixed_charge_constraints(
     *,
     chgmod: int,
     fixchg_resids: list[str] | None = None,
+    prom: str = "ff14SB",
 ) -> dict[int, float]:
-    library = load_reference_charge_library()
+    library = load_reference_charge_library(prom)
     fixed_keys = _resolve_fixchg_residue_keys(model, fixchg_resids)
     constraints: dict[int, float] = {}
     allowed_backbone_names = _BACKBONE_FIXED_ATOMS[int(chgmod)]
@@ -539,9 +555,10 @@ def write_resp_input_files(
     chgmod: int,
     fixchg_resids: list[str] | None = None,
     charge_groups: list[tuple[list[int], float]] | None = None,
+    prom: str = "ff14SB",
 ) -> RespInputFiles:
     flattened = _flatten_model_atoms(model)
-    constraints = collect_fixed_charge_constraints(model, chgmod=chgmod, fixchg_resids=fixchg_resids)
+    constraints = collect_fixed_charge_constraints(model, chgmod=chgmod, fixchg_resids=fixchg_resids, prom=prom)
     ivary_stage2 = build_stage2_equivalence_map(model, fixed_charge_indices=set(constraints))
 
     resp1_in = Path(workdir) / "resp1.in"
@@ -615,12 +632,14 @@ def write_resp_mol2(
     bond_pairs: list[tuple[int, int]],
     *,
     atom_type_overrides: dict[int, str] | None = None,
+    prom: str = "ff14SB",
 ) -> None:
-    library = load_reference_charge_library()
+    library = load_reference_charge_library(prom)
     flattened = _flatten_model_atoms(model)
+    molecule_name = Path(path).stem
     with open(path, "w", encoding="utf-8") as handle:
         handle.write("@<TRIPOS>MOLECULE\n")
-        handle.write(f"{Path(path).stem}\n")
+        handle.write(f"{molecule_name}\n")
         handle.write(f"{len(flattened):5d}{len(bond_pairs):6d}{1:6d}{0:6d}{0:6d}\n")
         handle.write("SMALL\n")
         handle.write("USER_CHARGES\n\n\n")
@@ -641,4 +660,4 @@ def write_resp_mol2(
         for bond_id, (left, right) in enumerate(bond_pairs, start=1):
             handle.write(f"{bond_id:6d}{left:5d}{right:5d}{1:2d}\n")
         handle.write("@<TRIPOS>SUBSTRUCTURE\n")
-        handle.write(f"{1:6d} {'MTS':<4s} {1:8d} TEMP              0 ****  ****    0 ROOT\n")
+        handle.write(f"{1:6d} {molecule_name:<4s} {1:8d} TEMP              0 ****  ****    0 ROOT\n")

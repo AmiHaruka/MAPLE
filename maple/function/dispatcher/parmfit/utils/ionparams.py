@@ -5,8 +5,7 @@ from __future__ import annotations
 import re
 
 
-# Radii are extracted from MCPB's IonLJParaDict and stored locally so MAPLE
-# does not depend on MCPB internals at runtime.
+# Radii are extracted from MCPB's IonLJParaDict and stored locally.
 ION_LJ_BY_WATM: dict[str, dict[str, float]] = {
     "tip3p": {
         "Li1": 1.315,

@@ -51,6 +51,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from maple.function.dispatcher.parmfit.utils.mSeminario import apply_mseminario
+from maple.function.dispatcher.parmfit.utils.Seminario import apply_seminario
 from maple.function.dispatcher.parmfit.utils.readparm import Angle, Bond
 
 
@@ -121,3 +122,24 @@ def test_apply_mseminario_rejects_bad_hessian_shape():
     atoms = _build_atoms()
     with pytest.raises(ValueError, match="Hessian shape"):
         apply_mseminario(atoms, np.zeros((3, 3)), [], [])
+
+
+def test_apply_seminario_fills_bonds_and_angles_in_amber_convention():
+    atoms = _build_atoms()
+    hessian = _build_mseminario_hessian()
+    bonds = [
+        Bond(atoms=(1, 2), atom_types=("h", "h")),
+        Bond(atoms=(2, 3), atom_types=("h", "h")),
+    ]
+    angles = [Angle(atoms=(1, 2, 3), atom_types=("h", "h", "h"))]
+
+    out_bonds, out_angles = apply_seminario(atoms, hessian, bonds, angles)
+
+    assert out_bonds is bonds
+    assert out_angles is angles
+    assert bonds[0].rEq == pytest.approx(1.0)
+    assert bonds[1].rEq == pytest.approx(1.0)
+    assert angles[0].thetaEq == pytest.approx(np.pi / 2.0)
+    assert bonds[0].kBond == pytest.approx(1.0)
+    assert bonds[1].kBond == pytest.approx(1.5)
+    assert angles[0].kTheta == pytest.approx(10.0 / 9.0)

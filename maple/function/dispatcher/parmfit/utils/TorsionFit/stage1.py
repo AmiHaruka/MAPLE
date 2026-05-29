@@ -1,4 +1,4 @@
-"""Usage: solve local Stage1 torsion fits and assemble local fit reports."""
+"""Usage: solve problem Stage1 torsion fits and assemble problem fit reports."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import numpy as np
 
 from ..mechanics import build_mm_topology_cache, dihedral_radians, evaluate_mm_energy
 from ..readparm import CorrectionParameterSet, FourierTerm
-from .topology import _clone_terms, apply_center_bond_terms, apply_fitted_torsion, shared_group_label
+from .topology import _clone_terms, shared_group_label
 from .records import (
     TorsionFitCurves,
     TorsionFitMetrics,
@@ -19,9 +19,8 @@ from .records import (
     TorsionScanData,
     TorsionSharedGroupReport,
 )
-from .config import TorsionFitParams, normalize_center_bond
+from .config import TorsionFitParams
 from .basis import (
-    _SLOT_PERIODS,
     _build_group_spec,
     _group_slot_coefficient_basis,
     _group_slot_initial_values,
@@ -33,21 +32,20 @@ from .quality import (
     _scan_energy_weights,
     _profile_loss_metrics,
     _profile_scale_from_arrays,
-    _rmse_from_residual,
     _robust_profile_range,
     _scan_profile_quality,
-    _stable_rows_from_scan_quality,
     ScanProfileQuality,
 )
+from .spectral import DEFAULT_SPECTRAL_PERIODS, dominant_spectral_peaks, rank_shared_group_spectral_slots
 
 _NEW_SLOT_MAX_MAGNITUDE_SCALE = 1.5
-_STAGE1_CENTER_NEW_SLOT_LIMIT = 2
+_STAGE1_CENTER_NEW_SLOT_LIMIT = 3
 _STAGE1_ABS_RMSE_GAIN_FLOOR = 0.05
-_STAGE1_K_EFFICIENCY_FLOOR = 0.20
 _STAGE1_LLS_PRIOR_WEIGHT = 0.01
 _STAGE1_CANCELLATION_RATIO_CAP = 8.0
 _FITTED_TERM_MAX_K = 3.0
 _METHYL_LIKE_H_TYPES = {"hc", "h1", "h2", "h3"}
+_STAGE1_SPECTRAL_COHERENCE_FLOOR = 0.15
 
 
 def _project_coefficients_to_k_caps(
@@ -130,9 +128,9 @@ def _cap_local_fitted_k_values(k_values: np.ndarray, active_mask: np.ndarray) ->
 
 def _template_slot_key(period: float, phase: float) -> int | None:
     del phase
-    for slot_period in _SLOT_PERIODS:
-        if abs(float(period) - float(slot_period)) <= 1.0e-8:
-            return int(slot_period)
+    rounded = int(round(float(period)))
+    if 1 <= rounded <= 6 and abs(float(period) - float(rounded)) <= 1.0e-8:
+        return int(rounded)
     return None
 
 def _format_slot_label(period: float, phase: float) -> str:
@@ -191,7 +189,7 @@ def _group_frozen_non_template_slot_labels(problem: TorsionLocalProblem, group) 
     return tuple(labels)
 
 def _local_profile_scale(problem: TorsionLocalProblem) -> tuple[float, str]:
-    return _profile_scale_from_arrays(problem.qm_rel, problem.residual)
+    return _profile_scale_from_arrays(problem.qm_rel, problem.fit_target_rel)
 
 def _local_phase_orig(problem: TorsionLocalProblem) -> np.ndarray:
     if problem.phase_orig is not None:
@@ -241,14 +239,14 @@ def _local_solution_residual(
     slot_values: np.ndarray,
     phase_values: np.ndarray | None = None,
 ) -> np.ndarray:
-    return np.asarray(problem.residual, dtype=float) - _local_torsion_profile(problem, slot_values, phase_values)
+    return np.asarray(problem.fit_target_rel, dtype=float) - _local_torsion_profile(problem, slot_values, phase_values)
 
 def _local_solution_profile(
     problem: TorsionLocalProblem,
     slot_values: np.ndarray,
     phase_values: np.ndarray | None = None,
 ) -> np.ndarray:
-    return np.asarray(problem.mm_zeroed_rel, dtype=float) + _local_torsion_profile(problem, slot_values, phase_values)
+    return np.asarray(problem.mm_base_rel, dtype=float) + _local_torsion_profile(problem, slot_values, phase_values)
 
 def _group_slots_by_period(group) -> dict[int, list[int]]:
     slots_by_period: dict[int, list[int]] = {}
@@ -256,13 +254,29 @@ def _group_slots_by_period(group) -> dict[int, list[int]]:
         slots_by_period.setdefault(int(slot_period), []).append(int(slot_index))
     return slots_by_period
 
+def _slot_has_existing_source(group, slot_index: int) -> bool:
+    slot_source = str(group.slot_sources[group.slot_indices.index(int(slot_index))])
+    return "existing" in slot_source
+
+def _slot_has_spectral_source(group, slot_index: int) -> bool:
+    slot_source = str(group.slot_sources[group.slot_indices.index(int(slot_index))])
+    return "spectral" in slot_source
+
+def _stage1_spectral_variable_mask(problem: TorsionLocalProblem, active_mask: np.ndarray) -> np.ndarray:
+    variable_mask = np.zeros_like(np.asarray(active_mask, dtype=bool), dtype=bool)
+    for group in problem.shared_groups:
+        for slot_index in group.slot_indices:
+            if bool(active_mask[slot_index]) and _slot_has_spectral_source(group, int(slot_index)):
+                variable_mask[slot_index] = True
+    return variable_mask
+
 def _center_active_new_slot_count(shared_groups, active_mask: np.ndarray) -> int:
     count = 0
     for group in shared_groups:
         count += sum(
             1
             for slot_index, existing in zip(group.slot_indices, group.existing_slot_mask)
-            if bool(active_mask[slot_index]) and not bool(existing)
+            if bool(active_mask[slot_index]) and not _slot_has_existing_source(group, int(slot_index))
         )
     return count
 
@@ -277,6 +291,7 @@ def _group_missing_canonical_slot_options(group, active_mask: np.ndarray) -> tup
                 slot_index
                 for slot_index in group.slot_indices
                 if slot_index in period_slots
+                and _slot_has_spectral_source(group, int(slot_index))
             ),
             None,
         )
@@ -363,10 +378,6 @@ def _stage1_new_slot_trial(
     if abs_rmse_gain < _STAGE1_ABS_RMSE_GAIN_FLOOR:
         return False, "abs-gain-too-small", score_gain, current_metrics, trial_metrics
 
-    effective_k_cost = new_k * np.sqrt(max(len(group.dihedral_indices), 1))
-    if abs_rmse_gain / max(effective_k_cost, 1.0e-12) < _STAGE1_K_EFFICIENCY_FLOOR:
-        return False, "k-efficiency-too-low", score_gain, current_metrics, trial_metrics
-
     if trial_phase is None:
         slot_profile = np.asarray(problem.basis[:, slot_index], dtype=float) * float(trial_solution[slot_index])
     else:
@@ -384,10 +395,7 @@ def _stage1_new_slot_trial(
     if cancellation_ratio > _STAGE1_CANCELLATION_RATIO_CAP:
         return False, "cancellation", score_gain, current_metrics, trial_metrics
 
-    complexity_penalty = 1.0e-4
-    ranking_gain = score_gain + (0.25 * max(rmse_gain, 0.0)) - complexity_penalty
-    if ranking_gain <= 0.0:
-        return False, "new-slot-complexity-penalty", ranking_gain, current_metrics, trial_metrics
+    ranking_gain = score_gain + (0.25 * max(rmse_gain, 0.0))
     return True, None, ranking_gain, current_metrics, trial_metrics
 
 def _relative_profile(scan_data: TorsionScanData, total_values: np.ndarray) -> np.ndarray:
@@ -418,7 +426,7 @@ def _build_local_stage1_solve_cache(
     params: TorsionFitParams | None,
 ) -> _LocalStage1SolveCache:
     retained_rows, row_weights = _stage1_retained_rows(problem, params)
-    profile_scale = _profile_fit_scale(problem.qm_rel, problem.residual)
+    profile_scale = _profile_fit_scale(problem.qm_rel, problem.fit_target_rel)
     sqrt_weights = np.sqrt(row_weights)
     cos_basis, sin_basis = _local_coefficient_basis(problem)
     return _LocalStage1SolveCache(
@@ -426,7 +434,7 @@ def _build_local_stage1_solve_cache(
         row_weights=np.asarray(row_weights, dtype=float),
         profile_scale=float(profile_scale),
         weighted_basis=np.asarray(problem.basis[retained_rows], dtype=float) * sqrt_weights[:, None] / profile_scale,
-        weighted_residual=np.asarray(problem.residual[retained_rows], dtype=float) * sqrt_weights / profile_scale,
+        weighted_residual=np.asarray(problem.fit_target_rel[retained_rows], dtype=float) * sqrt_weights / profile_scale,
         weighted_cos_basis=np.asarray(cos_basis[retained_rows], dtype=float) * sqrt_weights[:, None] / profile_scale,
         weighted_sin_basis=np.asarray(sin_basis[retained_rows], dtype=float) * sqrt_weights[:, None] / profile_scale,
     )
@@ -495,12 +503,12 @@ def _solve_local_stage1_active_set_with_phases(
             solve_cache.solutions[active_key] = empty_solution
         return empty_solution
     if solve_cache is None:
-        profile_scale = _profile_fit_scale(problem.qm_rel, problem.residual)
+        profile_scale = _profile_fit_scale(problem.qm_rel, problem.fit_target_rel)
         cos_basis, sin_basis = _local_coefficient_basis(problem)
         weighted_fixed_basis = np.asarray(problem.basis[retained_rows][:, fixed_indices], dtype=float) * np.sqrt(row_weights)[:, None] / profile_scale
         weighted_variable_cos = np.asarray(cos_basis[retained_rows][:, variable_indices], dtype=float) * np.sqrt(row_weights)[:, None] / profile_scale
         weighted_variable_sin = np.asarray(sin_basis[retained_rows][:, variable_indices], dtype=float) * np.sqrt(row_weights)[:, None] / profile_scale
-        weighted_residual = np.asarray(problem.residual[retained_rows], dtype=float) * np.sqrt(row_weights) / profile_scale
+        weighted_residual = np.asarray(problem.fit_target_rel[retained_rows], dtype=float) * np.sqrt(row_weights) / profile_scale
     else:
         weighted_fixed_basis = np.asarray(solve_cache.weighted_basis[:, fixed_indices], dtype=float)
         weighted_variable_cos = np.asarray(solve_cache.weighted_cos_basis[:, variable_indices], dtype=float)
@@ -579,7 +587,7 @@ def _solve_local_stage1_active_set(
 
 
 # -----------------------------------------------------------------------------
-# Stage1 local least-squares fit
+# Stage1 problem least-squares fit
 # -----------------------------------------------------------------------------
 
 def _solve_local_delta(
@@ -610,25 +618,6 @@ def _solve_local_delta(
     solution = normalized_solution / column_norms
     min_relative_sv = float(singular_values[-1] / singular_values[0]) if singular_values[0] > 0.0 else 0.0
     return solution, int(rank), 0, min_relative_sv
-
-def evaluate_refit_objective(
-    scan_data: TorsionScanData,
-    parameter_set: CorrectionParameterSet,
-    center_bond: tuple[int, int],
-    fitted_terms: list[list[FourierTerm]],
-    topology_cache=None,
-) -> tuple[float, np.ndarray, np.ndarray]:
-    cache = topology_cache if topology_cache is not None else build_mm_topology_cache(parameter_set)
-    updated_parameter_set = apply_center_bond_terms(parameter_set, center_bond, fitted_terms)
-    qm_rel = np.asarray(scan_data.qm_rel, dtype=float)
-    mm_refit_total = np.asarray(
-        [evaluate_mm_energy(atoms, updated_parameter_set, topology_cache=cache).total for atoms in scan_data.frames],
-        dtype=float,
-    )
-    mm_refit_rel = mm_refit_total - mm_refit_total[int(scan_data.ref_idx)]
-    residual_after = qm_rel - mm_refit_rel
-    rmse = float(np.sqrt(np.mean(residual_after**2)))
-    return rmse, mm_refit_rel, residual_after
 
 def _shared_group_terms_from_slots(
     problem: TorsionLocalProblem,
@@ -671,8 +660,8 @@ def _rebuild_local_problem(problem: TorsionLocalProblem, shared_groups) -> Torsi
         basis=basis,
         qm_rel=np.asarray(problem.qm_rel, dtype=float).copy(),
         orig_mm_rel=np.asarray(problem.orig_mm_rel, dtype=float).copy(),
-        mm_zeroed_rel=np.asarray(problem.mm_zeroed_rel, dtype=float).copy(),
-        residual=np.asarray(problem.residual, dtype=float).copy(),
+        mm_zeroed_rel=np.asarray(problem.mm_base_rel, dtype=float).copy(),
+        residual=np.asarray(problem.fit_target_rel, dtype=float).copy(),
         k_orig=k_orig,
         scales=scales,
         active_mask=active_mask,
@@ -697,6 +686,87 @@ def _methyl_like_family_splits(group) -> tuple[tuple[int, tuple[int, ...]], ...]
         for outer_atom, members in sorted(grouped_members.items())
     )
 
+def _dihedral_phi_matrix(scan_data: TorsionScanData, target_dihedrals, local_indices: tuple[int, ...]) -> np.ndarray:
+    matrix = np.zeros((len(scan_data.frames), len(local_indices)), dtype=float)
+    for frame_index, atoms in enumerate(scan_data.frames):
+        positions = atoms.get_positions()
+        for column_index, local_index in enumerate(local_indices):
+            matrix[frame_index, column_index] = dihedral_radians(
+                positions,
+                *target_dihedrals[int(local_index)].atoms,
+            )
+    return matrix
+
+def _representative_phi_profile(problem: TorsionLocalProblem) -> np.ndarray:
+    values = np.zeros(len(problem.scan_data.frames), dtype=float)
+    for frame_index, atoms in enumerate(problem.scan_data.frames):
+        values[frame_index] = dihedral_radians(atoms.get_positions(), *problem.representative_dihedral)
+    return values
+
+def _spectral_slots_for_groups(
+    problem: TorsionLocalProblem,
+    groups,
+) -> dict[str, tuple[object, ...]]:
+    representative_phi = _representative_phi_profile(problem)
+    peaks = dominant_spectral_peaks(
+        representative_phi,
+        problem.fit_target_rel,
+        ref_idx=int(problem.scan_data.ref_idx),
+        allowed_periods=DEFAULT_SPECTRAL_PERIODS,
+    )
+    if not peaks:
+        return {}
+
+    selected_by_label: dict[str, list[object]] = {group.label: [] for group in groups}
+    new_candidates: list[tuple[float, object, object]] = []
+    for group in groups:
+        path_phi = _dihedral_phi_matrix(problem.scan_data, problem.target_dihedrals, tuple(group.dihedral_indices))
+        ranked_slots = rank_shared_group_spectral_slots(
+            label=group.label,
+            representative_phi_values=representative_phi,
+            path_phi_values=path_phi,
+            peaks=peaks,
+            min_coherence=_STAGE1_SPECTRAL_COHERENCE_FLOOR,
+        )
+        existing_periods = {int(round(float(period))) for period in group.slot_periods}
+        for slot in ranked_slots:
+            if int(slot.period) in existing_periods:
+                selected_by_label[group.label].append(slot)
+            else:
+                new_candidates.append((float(slot.score), group, slot))
+
+    for _score, group, slot in sorted(new_candidates, key=lambda item: item[0], reverse=True)[:_STAGE1_CENTER_NEW_SLOT_LIMIT]:
+        selected_by_label[group.label].append(slot)
+
+    return {
+        label: tuple(slots)
+        for label, slots in selected_by_label.items()
+        if slots
+    }
+
+def _rebuild_groups_with_spectral_slots(problem: TorsionLocalProblem, groups) -> tuple[tuple[object, ...], bool]:
+    if _stage1_scan_quality(problem).has_geometry_jump:
+        return tuple(groups), False
+    spectral_by_label = _spectral_slots_for_groups(problem, groups)
+    if not spectral_by_label:
+        return tuple(groups), False
+    rebuilt_groups = []
+    slot_offset = 0
+    for group in groups:
+        members = [
+            (local_index, problem.target_dihedrals[local_index])
+            for local_index in group.dihedral_indices
+        ]
+        rebuilt_group, slot_offset = _build_group_spec(
+            group.atom_types,
+            members,
+            slot_offset,
+            label=group.label,
+            spectral_slots=spectral_by_label.get(group.label, ()),
+        )
+        rebuilt_groups.append(rebuilt_group)
+    return tuple(rebuilt_groups), True
+
 def _solve_local_problem_stage1(problem: TorsionLocalProblem, params: TorsionFitParams | None = None):
     initial_active_mask = np.asarray(problem.active_mask, dtype=bool).copy()
     solve_cache = _build_local_stage1_solve_cache(problem, params)
@@ -705,6 +775,7 @@ def _solve_local_problem_stage1(problem: TorsionLocalProblem, params: TorsionFit
         initial_active_mask,
         params,
         solve_cache=solve_cache,
+        variable_phase_mask=_stage1_spectral_variable_mask(problem, initial_active_mask),
     )
     final_active_mask = initial_active_mask.copy()
     diagnostics: dict[str, dict[str, object]] = {}
@@ -737,6 +808,7 @@ def _solve_local_problem_stage1(problem: TorsionLocalProblem, params: TorsionFit
             final_active_mask,
             params,
             solve_cache=solve_cache,
+            variable_phase_mask=_stage1_spectral_variable_mask(problem, final_active_mask),
         )
         for group in problem.shared_groups:
             candidate_slots = _group_missing_canonical_slot_options(group, final_active_mask)
@@ -750,6 +822,7 @@ def _solve_local_problem_stage1(problem: TorsionLocalProblem, params: TorsionFit
                     trial_active_mask,
                     params,
                     solve_cache=solve_cache,
+                    variable_phase_mask=_stage1_spectral_variable_mask(problem, trial_active_mask),
                 )
                 passes_gate, gate_reason, ranking_gain, before_metrics, after_metrics = _stage1_new_slot_trial(
                     problem,
@@ -799,6 +872,7 @@ def _solve_local_problem_stage1(problem: TorsionLocalProblem, params: TorsionFit
         final_active_mask,
         params,
         solve_cache=solve_cache,
+        variable_phase_mask=_stage1_spectral_variable_mask(problem, final_active_mask),
     )
     final_fitted_k = final_solution.k_values
     final_rank = final_solution.rank
@@ -899,7 +973,12 @@ def _default_local_fit_solver(
             )
             replacement_groups.append(rebuilt_group)
 
-    current_problem = _rebuild_local_problem(problem, tuple(replacement_groups)) if applied_split else problem
+    spectral_groups, applied_spectral = _rebuild_groups_with_spectral_slots(problem, tuple(replacement_groups))
+    current_problem = (
+        _rebuild_local_problem(problem, spectral_groups)
+        if applied_split or applied_spectral
+        else problem
+    )
     current_delta, current_active_mask, current_diagnostics = _solve_local_problem_stage1(current_problem, params=params)
 
     if return_problem:
@@ -972,7 +1051,7 @@ def _build_fit_report(
         problem.target_dihedrals,
         fitted_terms,
     )
-    mm_refit_rel = problem.mm_zeroed_rel + fitted_center_torsion_rel
+    mm_refit_rel = problem.mm_base_rel + fitted_center_torsion_rel
     residual_after = problem.qm_rel - mm_refit_rel
     rmse = float(np.sqrt(np.mean(residual_after**2))) if residual_after.size else 0.0
     mm_orig_rel = (
@@ -1065,7 +1144,7 @@ def _build_fit_report(
             mm_stage0_rel=np.asarray(mm_stage0_rel, dtype=float).copy(),
             mm_stage1_rel=np.asarray(mm_refit_rel, dtype=float).copy(),
             mm_stage2_rel=None if mm_stage2_rel is None else np.asarray(mm_stage2_rel, dtype=float).copy(),
-            mm_zeroed_rel=problem.mm_zeroed_rel.copy(),
+            mm_zeroed_rel=problem.mm_base_rel.copy(),
         ),
         metrics=TorsionFitMetrics(
             residual_before=residual_before,

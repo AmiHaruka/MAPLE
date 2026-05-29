@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from collections import OrderedDict, defaultdict
 from typing import Optional
 
 import numpy as np
@@ -32,35 +31,12 @@ COVALENT_RADII = {
     "NI": 1.21,
 }
 WATER_NAMES = {"HOH", "WAT", "SOL"}
-COFACTOR_NAMES = {
-    "FAD",
-    "FMN",
-    "NAD",
-    "NAP",
-    "SAM",
-    "SAH",
-    "COA",
-    "HEM",
-    "HEME",
-    "PLP",
-    "ATP",
-    "ADP",
-    "AMP",
-    "GDP",
-    "GTP",
-}
+
 ION_ELEMENTS = {"LI", "NA", "K", "RB", "CS", "MG", "CA", "SR", "BA", "ZN", "FE", "MN", "CO", "NI", "CU"}
 
 METAL_SITE_DONOR_ELEMENTS = {"N", "O", "S", "P", "SE", "F", "CL", "BR", "I"}
 
-CHARGED_STANDARD_RESIDUES = {
-    "ASP": -1,
-    "GLU": -1,
-    "LYS": 1,
-    "ARG": 1,
-    "HIP": 1,
-    "CYM": -1,
-}
+CHARGED_STANDARD_RESIDUES = {"ASP": -1, "GLU": -1, "LYS": 1, "ARG": 1, "HIP": 1, "CYM": -1,}
 
 ATOMIC_MASSES = {
     "H": 1.008,
@@ -306,10 +282,6 @@ def copy_atom(
     return copied
 
 
-def get_resid_coords(residue: dict) -> np.ndarray:
-    return residue["coords"]
-
-
 def get_resid_key(residue: dict) -> tuple[str, int, str]:
     return (residue["chain"], residue["resseq"], residue["icode"])
 
@@ -412,9 +384,7 @@ def classify_kind(residue: dict) -> str:
         return "ion"
     if is_peptide_like(residue):
         return "protein"
-    if resname in COFACTOR_NAMES:
-        return "cofactor"
-    return "ligand"
+    return "ligand" #TODO: refine this classification
 
 
 def parse_selector(selector: str) -> dict:
@@ -441,179 +411,13 @@ def parse_selector(selector: str) -> dict:
     raise ValueError(f"Invalid residue selector {selector!r}. Use forms like 'A11', 'A11A', or 'SER11'.")
 
 
-def _parse_conect_line(line: str) -> tuple[Optional[int], list[int]]:
-    serials: list[int] = []
-    for idx in range(6, len(line), 5):
-        token = line[idx : idx + 5].strip()
-        if not token:
-            continue
-        serials.append(int(token))
-    if not serials:
-        return None, []
-    return serials[0], serials[1:]
-
-
 def parse_pdb_coord(line: str) -> tuple[float, float, float]:
-    padded = line.rstrip("\n").ljust(80)
-    return (
-        float(padded[30:38]),
-        float(padded[38:46]),
-        float(padded[46:54]),
-    )
+    from maple.function.read.filereader.pdb_reader import parse_pdb_coord as _parse_pdb_coord
 
-
-def _parse_link_line(line: str) -> Optional[dict]:
-    atom1 = line[12:16].strip()
-    atom2 = line[42:46].strip()
-    if not atom1 or not atom2:
-        return None
-    return {
-        "left": {
-            "chain": (line[21].strip() or "_"),
-            "resseq": int(line[22:26]),
-            "icode": line[26].strip(),
-            "resname": line[17:20].strip(),
-            "atom": atom1,
-        },
-        "right": {
-            "chain": (line[51].strip() or "_"),
-            "resseq": int(line[52:56]),
-            "icode": line[56].strip(),
-            "resname": line[47:50].strip(),
-            "atom": atom2,
-        },
-    }
+    return _parse_pdb_coord(line)
 
 
 def read_pdb(path: str, keep_altloc: str = "A", model: Optional[int] = None) -> dict:
-    residues_by_key: OrderedDict[tuple[str, int, str], dict] = OrderedDict()
-    conect: dict[int, set[int]] = defaultdict(set)
-    raw_links: list[dict] = []
-    serial_to_residue: dict[int, dict] = {}
-    serial_to_atom: dict[int, dict] = {}
+    from maple.function.read.filereader.pdb_reader import read_pdb as _read_pdb
 
-    current_model = 1
-    target_model = model
-    saw_model = False
-
-    with open(path, "r", encoding="utf-8", errors="replace") as handle:
-        for raw in handle:
-            line = raw.rstrip("\n").ljust(80)
-            record = line[:6].strip().upper()
-
-            if record == "MODEL":
-                saw_model = True
-                model_field = line[10:14].strip()
-                current_model = int(model_field) if model_field else current_model
-                if target_model is None:
-                    target_model = current_model
-                continue
-
-            if target_model is None:
-                target_model = 1
-
-            if saw_model and current_model != target_model:
-                continue
-
-            if record in {"ENDMDL", "END", "TER"}:
-                continue
-
-            if record == "LINK":
-                parsed = _parse_link_line(line)
-                if parsed is not None:
-                    raw_links.append(parsed)
-                continue
-
-            if record == "CONECT":
-                root, neighbors = _parse_conect_line(line)
-                if root is not None:
-                    for neighbor in neighbors:
-                        conect[root].add(neighbor)
-                        conect[neighbor].add(root)
-                continue
-
-            if record not in {"ATOM", "HETATM", "HEATOM"}:
-                continue
-
-            altloc = line[16].strip()
-            if altloc and altloc not in {"A", keep_altloc}:
-                continue
-
-            chain = line[21].strip() or "_"
-            resseq = int(line[22:26])
-            icode = line[26].strip()
-            key = (chain, resseq, icode)
-            residue = residues_by_key.get(key)
-            if residue is None:
-                residue = {
-                    "chain": chain,
-                    "resseq": resseq,
-                    "icode": icode,
-                    "resname": line[17:20].strip(),
-                    "atoms": {},
-                    "_index": len(residues_by_key),
-                }
-                residues_by_key[key] = residue
-
-            atom_name = line[12:16].strip()
-            occ_field = line[54:60].strip()
-            atom = {
-                "serial": int(line[6:11]),
-                "name": atom_name,
-                "element": _infer_element(atom_name, line[76:78]),
-                "xyz": np.array(
-                    parse_pdb_coord(line),
-                    dtype=float,
-                ),
-                "record": "HETATM" if record == "HEATOM" else record,
-                "altloc": altloc,
-                "occ": float(occ_field) if occ_field else 1.0,
-            }
-            current = residue["atoms"].get(atom_name)
-            if current is None or atom["occ"] >= current["occ"]:
-                residue["atoms"][atom_name] = atom
-                serial_to_residue[atom["serial"]] = residue
-                serial_to_atom[atom["serial"]] = atom
-
-    residues: list[dict] = []
-    for residue in residues_by_key.values():
-        residue["atoms"] = sorted(residue["atoms"].values(), key=lambda atom: atom["serial"])
-        residue["kind"] = classify_kind(residue)
-        residue["coords"] = np.asarray([atom["xyz"] for atom in residue["atoms"]], dtype=float)
-        residues.append(residue)
-
-    explicit_pairs: set[tuple[int, int]] = set()
-    for root, neighbors in conect.items():
-        for neighbor in neighbors:
-            if root in serial_to_atom and neighbor in serial_to_atom:
-                explicit_pairs.add(_bond_pair(root, neighbor))
-
-    for link in raw_links:
-        left_selector = {
-            "chain": link["left"]["chain"],
-            "resseq": link["left"]["resseq"],
-            "icode": link["left"]["icode"],
-        }
-        right_selector = {
-            "chain": link["right"]["chain"],
-            "resseq": link["right"]["resseq"],
-            "icode": link["right"]["icode"],
-        }
-        left_resid = next((res for res in residues if match_resid(res, left_selector)), None)
-        right_resid = next((res for res in residues if match_resid(res, right_selector)), None)
-        if left_resid is None or right_resid is None:
-            continue
-        left_atom = search_atom(left_resid, link["left"]["atom"])
-        right_atom = search_atom(right_resid, link["right"]["atom"])
-        if left_atom is None or right_atom is None:
-            continue
-        explicit_pairs.add(_bond_pair(left_atom["serial"], right_atom["serial"]))
-
-    return {
-        "path": path,
-        "residues": residues,
-        "serial_to_residue": serial_to_residue,
-        "serial_to_atom": serial_to_atom,
-        "explicit_pairs": explicit_pairs,
-        "_pair_cache": {},
-    }
+    return _read_pdb(path, keep_altloc=keep_altloc, model=model)

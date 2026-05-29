@@ -40,6 +40,7 @@ class RespConfig:
     chgmod: int = 1
     fixchg_resids: list[str] = field(default_factory=list)
     watm: str | None = None
+    prom: str = "ff14SB"
 
 
 @dataclass(frozen=True)
@@ -127,7 +128,7 @@ def prepare_gaussian_esp_input(
         route_terms = [
             f"{decision.theory}/{decision.basis}",
             "Pop(MK,ReadRadii)" if radii_entries else "Pop=MK",
-            "IOp(6/33=2) Guess=Read",
+            "IOp(6/33=2)",
             "SCF=Tight",
         ]
         if decision.route:
@@ -178,29 +179,6 @@ def run_gaussian(gjf: str, decision: QMMethod) -> str:
     return log_file
 
 
-def monitor_gaussian(log_file, interval=60):
-    del interval
-    try:
-        return True, _ensure_gaussian_normal_termination(log_file)
-    except RuntimeError as exc:
-        print(f"  [ERROR] {exc}")
-        return False, log_file
-
-
-def write_gaussian_input(path, elems, coords, cfg):
-    decision = set_method(cfg)
-    atoms = [{"element": element, "xyz": xyz} for element, xyz in zip(elems, coords)]
-    model = {"residues": [{"atoms": atoms}]}
-    return prepare_gaussian_esp_input(
-        path,
-        model,
-        total_charge=int(cfg["net_charge"]),
-        multiplicity=int(cfg.get("multiplicity", 1)),
-        decision=decision,
-        title=f"ACE-Target-NME ESP",
-    )
-
-
 # =============================================================================
 # AmberTools interface
 # =============================================================================
@@ -229,20 +207,20 @@ def read_ac_names(ac_path):
 
 
 def write_residue_pdb(ac_path, out_pdb, n_ace, n_res, rn, cfg):
-    """从 AC 文件提取残基原子, 用原始坐标输出 PDB (原子名与 prepin 一致)."""
-    # 读取残基输入 PDB 的坐标 (未经 Gaussian 优化的原始坐标)
+    """Extract residue atoms from AC file and write a PDB with original coordinates (atom names consistent with prepin)."""
+    # Read coordinates from the residue input PDB (the original coordinates before Gaussian optimization)
     res_file = cfg["residue_file"]
     with open(res_file) as f:
         res_lines = [l for l in f if l[:6].strip() in ("ATOM", "HETATM")]
     res_coords = [parse_pdb_coord(line) for line in res_lines]
 
-    # 读取 AC 文件中残基部分的原子名
+    # Read atom names from AC file for the residue portion.
     ac_atoms = []
     with open(ac_path) as f:
         for line in f:
             if line.startswith("ATOM"):
                 name = line.split()[2]
-                # 元素从原子名提取: 取前缀字母部分
+                # Element extraction from atom name: take the leading alphabetic part
                 elem = ''.join(c for c in name if c.isalpha())
                 if len(elem) > 2:
                     elem = elem[:1]
@@ -250,7 +228,9 @@ def write_residue_pdb(ac_path, out_pdb, n_ace, n_res, rn, cfg):
     res_ac = ac_atoms[n_ace:n_ace + n_res]
 
     if len(res_ac) != len(res_coords):
-        print(f"  [WARNING] AC 残基原子数 {len(res_ac)} != 输入 PDB {len(res_coords)}")
+        print(f"  [WARNING] AC residue atom count {len(res_ac)} != input PDB {len(res_coords)}")
+        print(f"    AC atom names: {[name for name, _ in res_ac]}")
+        print(f"    Input PDB atom names: {[line.split()[2] for line in res_lines]}")
         return
 
     with open(out_pdb, 'w') as f:
@@ -295,7 +275,7 @@ def run_antechamber(
         cmd += " -c resp -s 2"
     rc, _, err = _run_cmd(cmd, cwd=workdir)
     if rc != 0:
-        raise RuntimeError(f"antechamber 失败:\n{err}")
+        raise RuntimeError(f"antechamber failed:\n{err}")
     return AntechamberResult(
         ac_path=os.path.join(workdir, output_name),
         input_path=_result_path(input_file, workdir),
@@ -335,7 +315,7 @@ def run_prepgen(ac_file, mc_file, cfg, workdir):
            f"-rf {res}")
     rc, _, err = _run_cmd(cmd, cwd=workdir)
     if rc != 0:
-        raise RuntimeError(f"prepgen 失败:\n{err}")
+        raise RuntimeError(f"prepgen failed:\n{err}")
     return PrepgenResult(
         prepin_path=os.path.join(workdir, out),
         res_path=os.path.join(workdir, res),
@@ -354,7 +334,7 @@ def run_parmchk2(input_file, cfg, ifmol2, workdir):
            f"-o {out} ")
     rc, _, err = _run_cmd(cmd, cwd=workdir)
     if rc != 0:
-        raise RuntimeError(f"parmchk2 失败:\n{err}")
+        raise RuntimeError(f"parmchk2 failed:\n{err}")
     return Parmchk2Result(
         frcmod_path=os.path.join(workdir, out),
         input_path=_result_path(input_file, workdir),
@@ -395,113 +375,10 @@ def run_tleap(input_file: str, workdir: str | None = None, executable: str = "tl
 
 
 # =============================================================================
-# prepin 电荷校验
+# ff14SB / gaff2 lib
 # =============================================================================
-
-def verify_prepin_charge(prepin_path, expected_charge):
-    """校验 prepin 文件中残基总电荷是否为整数且等于期望值."""
-    total = 0.0
-    n_atoms = 0
-    has_nan = False
-    with open(prepin_path) as f:
-        for line in f:
-            parts = line.split()
-            if len(parts) < 11:
-                continue
-            # 跳过 DUMM 行
-            if parts[1] == 'DUMM':
-                continue
-            try:
-                int(parts[0])
-                charge = float(parts[10])
-                total += charge
-                n_atoms += 1
-            except (ValueError, IndexError):
-                continue
-            # 检测 nan
-            if 'nan' in line.lower():
-                has_nan = True
-
-    ok = True
-    if has_nan:
-        print(f"  [WARNING] prepin 含有 nan, prepgen 内坐标树构建可能有问题!")
-        ok = False
-
-    rounded = round(total)
-    if abs(total - rounded) > 0.01:
-        print(f"  [WARNING] prepin 总电荷 {total:.6f} 不是整数! ({n_atoms} atoms)")
-        ok = False
-    if rounded != expected_charge:
-        print(f"  [WARNING] prepin 电荷 {rounded} != 配置 residue_charge {expected_charge}")
-        ok = False
-    if ok:
-        print(f"  电荷校验通过: {total:.4f} ≈ {expected_charge} ({n_atoms} atoms)")
-    return ok
-
-
-def fix_prepin_charge(prepin_path, expected_charge):
-    """修正 prepin 电荷: 将误差均匀分配到主链 (M 标记) 原子上.
-
-    仅在总电荷与期望值差异 > 1e-4 时修正.
-    """
-    with open(prepin_path) as f:
-        lines = f.readlines()
-
-    # 第一遍: 计算总电荷, 找主链原子行号
-    total = 0.0
-    backbone_indices = []   # line indices of M-flagged atoms
-    for i, line in enumerate(lines):
-        parts = line.split()
-        if len(parts) < 11:
-            continue
-        if parts[1] == 'DUMM':
-            continue
-        try:
-            int(parts[0])
-            charge = float(parts[10])
-        except (ValueError, IndexError):
-            continue
-        total += charge
-        # parts[3] 是 tree 标志: M=mainchain, S=sidechain, B=branch, E=end
-        if parts[3] == 'M':
-            backbone_indices.append(i)
-
-    error = expected_charge - total
-    if abs(error) < 1e-4:
-        return False   # 无需修正
-
-    if not backbone_indices:
-        print(f"  [WARNING] 无主链原子 (M 标记), 无法分配电荷修正 {error:.6f}")
-        return False
-
-    correction = error / len(backbone_indices)
-    print(f"  电荷修正: {total:.6f} → {expected_charge} "
-          f"(误差 {error:+.6f}, 分配到 {len(backbone_indices)} 个主链原子, "
-          f"每个 {correction:+.6f})")
-
-    # 第二遍: 修正主链原子电荷
-    for i in backbone_indices:
-        line = lines[i]
-        parts = line.split()
-        old_charge = float(parts[10])
-        new_charge = old_charge + correction
-
-        # prepin 电荷字段在最后一列, 找到其起始位置并替换
-        # 格式: 最后一个字段是电荷, 宽度一般为 10 字符 (%10.6f)
-        last_space = line.rstrip('\n').rfind(' ')
-        lines[i] = line[:last_space + 1] + f"{new_charge:.6f}\n"
-
-    with open(prepin_path, 'w') as f:
-        f.writelines(lines)
-
-    return True
-
-
-# =============================================================================
-# ff14SB / gaff2 交叉参数库
-# =============================================================================
-# 非标准氨基酸 (gaff2) 接入蛋白 (ff14SB) 时, 肽键连接处产生大小写
-# 混合的原子类型参数. 此库自动补充缺失的交叉项.
+# Nonstandard amino acid (gaff2) interfacing with protein (ff14SB) creates mixed-case
+# atom types in the peptide bond connection. This library automatically fills in missing cross-terms.
 
 def _bond_key(line):
     if len(line) < 5 or line[2] != '-':
@@ -528,9 +405,9 @@ def _dihe_key(line):
     return min(t, t[::-1])
 
 
-# --- 交叉项参数 ---
-# HEAD 连接: ff14SB C(=O) → gaff2 ns   (蛋白前一残基 → 非标准残基 N端)
-# TAIL 连接: gaff2 c(=O) → ff14SB N(-H) (非标准残基 C端 → 蛋白后一残基)
+# --- Cross-Term Parameters ---
+# HEAD connection: ff14SB C(=O) → gaff2 ns   (protein previous residue → non-standard residue N-terminus)
+# TAIL connection: gaff2 c(=O) → ff14SB N(-H) (non-standard residue C-terminus → protein next residue)
 
 _CROSSTERM_BOND = [
     "C -ns  490.000   1.335       ff14SB/gaff2 peptide bond\n",
@@ -574,7 +451,7 @@ _CROSSTERM_DIHE = [
 
 
 def patch_frcmod_crossterms(frcmod_path):
-    """补充 ff14SB/gaff2 交叉参数到 frcmod."""
+    """Add missing cross-term parameters for ff14SB/gaff2 compatibility to a frcmod file."""
     with open(frcmod_path) as f:
         lines = f.readlines()
 
@@ -596,7 +473,7 @@ def patch_frcmod_crossterms(frcmod_path):
             if k:
                 existing[current].add(k)
 
-    # 缺失的 BOND / ANGLE
+    # Missing BOND / ANGLE
     missing = {'BOND': [], 'ANGLE': [], 'DIHE': []}
 
     for line in _CROSSTERM_BOND:
@@ -611,7 +488,7 @@ def patch_frcmod_crossterms(frcmod_path):
             missing['ANGLE'].append(line)
             existing['ANGLE'].add(k)
 
-    # 缺失的 DIHE (支持多项式: 同一 key 可能有多行)
+    # Missing DIHE (supporting polynomial: same key may have multiple lines)
     dihe_groups = {}
     for line in _CROSSTERM_DIHE:
         k = _dihe_key(line)
@@ -626,7 +503,7 @@ def patch_frcmod_crossterms(frcmod_path):
     if total == 0:
         return 0
 
-    # 在各 section 的结束空行前插入交叉项
+    # If the section is missing entirely, append it at the end of the file.
     output = []
     for i, line in enumerate(lines):
         for sec in ('BOND', 'ANGLE', 'DIHE'):

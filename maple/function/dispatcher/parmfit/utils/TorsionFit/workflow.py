@@ -19,6 +19,7 @@ from .topology import (
 )
 from .fit import run_loss_mode
 from .records import TorsionScanData, TorsionScanRuntime, TorsionWorkflowResult
+from .ensemble import build_torsion_local_ensemble
 from .scanio import read_scan_xyz
 from .config import TorsionFitParams, normalize_center_bond
 from .report import format_torsion_stage1_lines, format_torsion_stage2_lines
@@ -156,6 +157,7 @@ def run_torsion_workflow(
     params: TorsionFitParams,
     runtime: TorsionScanRuntime,
     center_bond_filter: Callable[[tuple[int, int]], bool] | None = None,
+    mobile_atoms=None,
     log_info: Callable[[list[str]], None] | None = None,
 ) -> TorsionWorkflowResult:
     base_parameter_set = deepcopy(parameter_set)
@@ -229,22 +231,40 @@ def run_torsion_workflow(
         scan_xyz_map[normalize_center_bond(center_bond)] = scan_xyz
         scan_mm_orig_rel_map[normalize_center_bond(center_bond)] = np.asarray(mm_orig_rel, dtype=float)
 
+    ensemble_result = None
+    if params.torsion_ensemble:
+        ensemble_result = build_torsion_local_ensemble(
+            atoms=atoms,
+            parameter_set=base_parameter_set,
+            center_bonds=center_bonds,
+            scan_data_map=scan_data_map,
+            params=params,
+            output=output,
+            mobile_atoms=mobile_atoms,
+            log_info=log_info,
+        )
+        warnings.extend(ensemble_result.warnings)
+
     if log_info is not None and warnings:
         log_info(format_torsion_stage1_lines(params, warnings))
 
-    result = run_loss_mode(
-        base_parameter_set=base_parameter_set,
-        original_parameter_set=original_parameter_set,
-        center_bonds=center_bonds,
-        scan_data_map=scan_data_map,
-        scan_xyz_map=scan_xyz_map,
-        scan_mm_orig_rel_map=scan_mm_orig_rel_map,
-        params=params,
-        topology_cache=topology_cache,
-        log_info=log_info,
-    )
+    loss_kwargs = {
+        "base_parameter_set": base_parameter_set,
+        "original_parameter_set": original_parameter_set,
+        "center_bonds": center_bonds,
+        "scan_data_map": scan_data_map,
+        "scan_xyz_map": scan_xyz_map,
+        "scan_mm_orig_rel_map": scan_mm_orig_rel_map,
+        "params": params,
+        "topology_cache": topology_cache,
+        "log_info": log_info,
+    }
+    if ensemble_result is not None:
+        loss_kwargs["ensemble_result"] = ensemble_result
+    result = run_loss_mode(**loss_kwargs)
 
     result.warnings = list(warnings)
     result.center_bonds = [normalize_center_bond(bond) for bond in center_bonds]
     result.scan_xyz = dict(scan_xyz_map)
+    result.ensemble_xyz = dict(ensemble_result.xyz_paths) if ensemble_result is not None else {}
     return result

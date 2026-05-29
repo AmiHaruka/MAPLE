@@ -141,8 +141,37 @@ def test_geometry_helpers_return_expected_values():
 
     assert distance_angstrom(positions, 1, 2) == pytest.approx(1.0)
     assert angle_radians(positions, 1, 2, 3) == pytest.approx(math.pi / 2.0)
-    assert dihedral_radians(positions, 1, 2, 3, 4) == pytest.approx(-math.pi / 4.0)
-    assert dihedral_radians(positions, 1, 2, 3, 5) == pytest.approx(math.pi / 4.0)
+    assert dihedral_radians(positions, 1, 2, 3, 4) == pytest.approx(3.0 * math.pi / 4.0)
+    assert dihedral_radians(positions, 1, 2, 3, 5) == pytest.approx(-3.0 * math.pi / 4.0)
+
+
+def test_torsion_energy_matches_sander_for_noncanonical_phase():
+    atoms = _make_atoms(
+        symbols=["C", "C", "C", "C"],
+        positions=[
+            (0.0, 0.0, 0.0),
+            (1.0, 0.0, 0.0),
+            (1.0, 1.0, 0.0),
+            (2.0, 1.0, 1.0),
+        ],
+    )
+    parameter_set = _make_parameter_set(
+        atom_types=["Z1", "Z2", "Z3", "Z4"],
+        bond_graph=[(1, 2), (2, 3), (3, 4)],
+        dihedrals=[
+            Dihedral(
+                atoms=(1, 2, 3, 4),
+                atom_types=("Z1", "Z2", "Z3", "Z4"),
+                terms=[FourierTerm(kPhi=1.0, period=1.0, phase=math.radians(60.0))],
+            )
+        ],
+        nonbonds=[Nonbond(atom=index, atom_type=f"Z{index}", charge=0.0) for index in range(1, 5)],
+    )
+
+    result = evaluate_mm_energy(atoms, parameter_set)
+
+    assert dihedral_radians(atoms.get_positions(), 1, 2, 3, 4) == pytest.approx(3.0 * math.pi / 4.0)
+    assert result.proper == pytest.approx(1.258819045, abs=1.0e-9)
 
 
 def test_bond_angle_proper_and_improper_energies_are_accumulated():
@@ -189,7 +218,7 @@ def test_bond_angle_proper_and_improper_energies_are_accumulated():
 
     expected_bond = 100.0 * (1.0 - 1.1) ** 2
     expected_angle = 2.0 * (math.pi / 2.0 - math.pi / 3.0) ** 2
-    phi = -math.pi / 4.0
+    phi = 3.0 * math.pi / 4.0
     expected_proper = (
         1.0 * (1.0 + math.cos(phi))
         + 0.5 * (1.0 + math.cos(2.0 * phi - math.pi))

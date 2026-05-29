@@ -1,0 +1,30 @@
+method=abinitio
+target=A123
+cmo=0 1
+
+# QM / RESP
+qm_backend=gaussian
+theory=HF
+basis=6-31G(d)
+route=
+nproc=8
+mem=16
+
+# residue / FF
+rn=MOL
+prom=ff14SB
+watm=tip3p
+ionm=hfe
+bonded=mseminario
+vib_scale=1.0
+
+# TorsionFit
+torsionfit=true
+torsion_bonds=
+torsion_steps=72
+backend=cgbs
+constraint_mode=projected
+torsion_refine_rounds=2
+torsion_refine_max_iter=10
+torsion_refine_tol=1.0e-6
+torsion_report_debug=false

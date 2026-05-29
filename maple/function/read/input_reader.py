@@ -10,6 +10,7 @@ import torch
 from .filereader import XYZReader
 from .filereader import PostReader
 from .filereader import XYZTrajReader
+from .filereader import PDBReader
 from .command_control import CommandControl
 
 from .header.header import print_banner
@@ -85,7 +86,7 @@ class InputReader():
             #   1) SETTINGS  : consecutive lines starting with '#' at the top
             #                  (blank lines allowed; they are not part of settings)
             #   2) MOLECULES : lines that are either blank, '&',
-            #                  'XYZ /abs/path', or atomic lines 'Elem x y z'
+            #                  'XYZ /abs/path', 'PDB /abs/path', or atomic lines 'Elem x y z'
             #                  (supports scientific notation). Arbitrary blank
             #                  lines INSIDE this section are allowed.
             #                  The section ends at the first non-matching, non-blank line.
@@ -119,10 +120,14 @@ class InputReader():
                 upper = s.upper()
                 return upper.startswith('XYZ ') or upper.startswith('XYZTRAJ ')
 
+            def is_pdb_ref(s: str) -> bool:
+                parts = s.split(maxsplit=1)
+                return bool(parts) and parts[0].upper() == 'PDB'
+
             def is_coord_like(s: str) -> bool:
                 if s == '' or s == '&':
                     return True
-                if is_xyz_ref(s):
+                if is_xyz_ref(s) or is_pdb_ref(s):
                     return True
                 if charge_mult_re.match(s):
                     return True
@@ -421,6 +426,68 @@ class InputReader():
                 # Case 1: the block contains only XYZ/XYZTRAJ file references
                 all_xyz = all(t.upper().startswith("XYZ ") or t.upper().startswith("XYZTRAJ ") for t in tokens)
                 any_xyz = any(t.upper().startswith("XYZ ") or t.upper().startswith("XYZTRAJ ") for t in tokens)
+                all_pdb = all(t.upper().startswith("PDB ") for t in tokens)
+                any_pdb = any(t.upper().startswith("PDB ") for t in tokens)
+
+                if self.jobtype == "parmfit" and str(self.command_control.params.get("method", "")).lower() == "abinitio" :
+                    if len(blocks) != 1 or len(tokens) != 1 or not all_pdb:
+                        raise ValueError("parmfit(method=abinitio) requires exactly one PDB file reference block: PDB <path>.")
+                    parts = tokens[0].split(maxsplit=1)
+                    if len(parts) != 2:
+                        raise ValueError(f"Invalid PDB reference line: '{tokens[0]}'")
+
+                    file_path = parts[1]
+                    resolved = PDBReader.resolve_path(file_path, base_dir=input_dir)
+                    self.command_control.params["pdb"] = resolved
+                    atoms = Atoms("H", positions=np.array([[0.0, 0.0, 0.0]], dtype=np.float64))
+                    atoms_list.append(atoms)
+
+                    group_counter += 1
+                    info_message.append(f"\nGroup {group_counter} (PDB File)\n")
+                    info_message.append(f"Resolved PDB: {resolved}\n")
+                    info_message.append("PDB coordinates are parsed by parmfit abinitio at runtime.\n")
+                    info_message.append('-' * 20 + '\n')
+                    continue
+
+                if all_pdb:
+                    for pdb_line in tokens:
+                        parts = pdb_line.split(maxsplit=1)
+                        if len(parts) != 2:
+                            raise ValueError(f"Invalid PDB reference line: '{pdb_line}'")
+                        file_path = parts[1]
+
+                        pdb_obj = PDBReader(file_path, base_dir=input_dir)
+                        pdb_frames = pdb_obj.multiatoms if isinstance(pdb_obj, Molecules) else [pdb_obj]
+
+                        if self.pbc is not None:
+                            from ase.cell import Cell
+                            for pdb_atoms in pdb_frames:
+                                pdb_atoms.set_pbc([True, True, True])
+                                pdb_atoms.set_cell(Cell.fromcellpar(self.pbc))
+
+                        atoms_list.extend(pdb_frames)
+                        group_counter += len(pdb_frames)
+                        if isinstance(pdb_obj, Molecules):
+                            info_message.append(f"\nLoaded {len(pdb_frames)} frames from PDB: {file_path}\n")
+                        else:
+                            info_message.append(f"\nGroup {group_counter} (from PDB: {file_path})\n")
+                        if self.pbc is not None:
+                            info_message.append(f"PBC applied to PDB coordinates: cell = [{self.pbc[0]:.3f}, {self.pbc[1]:.3f}, {self.pbc[2]:.3f}] Angstrom\n")
+                        info_message.append('-' * 20 + '\n')
+                        for frame_index, pdb_atoms in enumerate(pdb_frames, start=1):
+                            if len(pdb_frames) > 1:
+                                info_message.append(f"Frame {frame_index}\n")
+                            syms = pdb_atoms.get_chemical_symbols()
+                            poss = pdb_atoms.get_positions()
+                            for i, (e, (x, y, z)) in enumerate(zip(syms, poss), start=1):
+                                info_message.append(f"{i:<4} {e:<2} {x:>20.6f} {y:>20.6f} {z:>20.6f}\n")
+                    continue
+
+                if any_pdb:
+                    raise ValueError(
+                        "Mixed PDB file references and other coordinate inputs in the same group. "
+                        "Please separate them with a blank line or '&'."
+                    )
 
                 if all_xyz:
                     for xyz_line in tokens:

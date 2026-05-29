@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from dataclasses import dataclass
-from math import ceil
 import os
 
 import numpy as np
@@ -18,7 +17,6 @@ from ..runtime import (
     optimize_atoms_geometry,
     optimize_model_geometry,
 )
-from ..Scan import run_silent_scan
 from ..structure import copy_residue, covalent_cutoff, get_atom_xyz, get_resid_key, get_resid_label, max_serial, search_atom, _measure_dihedral
 
 
@@ -90,11 +88,17 @@ def conformer_targets(chirality: str) -> list[tuple[str, float, float]]:
         return [("alpha", 60.0, 40.0), ("beta", 120.0, 140.0)]
 
 
-def build_capped_ncaa_model(target_residue: dict, rn: str) -> dict:
+def build_capped_ncaa_model(
+    target_residue: dict,
+    rn: str,
+    *,
+    prev_residue: dict | None = None,
+    next_residue: dict | None = None,
+) -> dict:
     target_copy = copy_residue(target_residue, resname=rn)
     next_serial = max_serial([target_residue]) + 1
-    ace_residue, next_serial = build_ace_cap(target_residue, next_serial)
-    nme_residue, next_serial = build_nme_cap(target_residue, next_serial)
+    ace_residue, next_serial = build_ace_cap(target_residue, next_serial, prev_residue=prev_residue)
+    nme_residue, next_serial = build_nme_cap(target_residue, next_serial, next_residue=next_residue)
     residues = [ace_residue, target_copy, nme_residue]
     return {
         "name": "ncaa_capped_model",
@@ -194,6 +198,46 @@ def optimize_capped_reference(
     )
 
 
+def _wrap_degrees(delta: float) -> float:
+    return float(((delta + 180.0) % 360.0) - 180.0)
+
+
+def _rotate_cap_to_dihedral(atoms, quartet: tuple[int, int, int, int], target_deg: float, mask: list[bool]) -> None:
+    delta = _wrap_degrees(target_deg - _measure_dihedral(atoms, quartet))
+    if abs(delta) < 1.0e-8:
+        return
+    start = np.asarray(atoms.get_positions(), dtype=float)
+    origin = start[quartet[1]]
+    axis = start[quartet[2]] - origin
+    norm = float(np.linalg.norm(axis))
+    if norm < 1.0e-12:
+        raise ValueError("Cannot rotate NCAA cap around a degenerate backbone axis.")
+    axis /= norm
+
+    best_error = float("inf")
+    best_positions = start
+    for signed_delta in (delta, -delta):
+        angle = np.radians(signed_delta)
+        cos_a, sin_a = np.cos(angle), np.sin(angle)
+        trial = start.copy()
+        for index, move_atom in enumerate(mask):
+            if not move_atom:
+                continue
+            vector = start[index] - origin
+            trial[index] = (
+                origin
+                + vector * cos_a
+                + np.cross(axis, vector) * sin_a
+                + axis * np.dot(axis, vector) * (1.0 - cos_a)
+            )
+        atoms.set_positions(trial)
+        error = abs(_wrap_degrees(target_deg - _measure_dihedral(atoms, quartet)))
+        if error < best_error:
+            best_error = error
+            best_positions = trial
+    atoms.set_positions(best_positions)
+
+
 def minimize_conformer(
     model: dict,
     *,
@@ -209,8 +253,9 @@ def minimize_conformer(
         from ase.constraints import FixInternals
     except ModuleNotFoundError:
         class FixInternals:  # pragma: no cover - test fallback only
-            def __init__(self, *, dihedrals_deg=None, **kwargs):
+            def __init__(self, *, bonds=None, dihedrals_deg=None, **kwargs):
                 del kwargs
+                self.bonds = bonds
                 self.dihedrals = dihedrals_deg or []
 
     atoms = model_to_atoms(model, charge=model.get("charge"), mult=model.get("mult"))
@@ -220,39 +265,46 @@ def minimize_conformer(
     index_map = _build_backbone_rotation_map(model)
     current_phi = _measure_dihedral(atoms, index_map["phi"])
     current_psi = _measure_dihedral(atoms, index_map["psi"])
-    phi_delta = ((phi_deg - current_phi + 180.0) % 360.0) - 180.0
-    psi_delta = ((psi_deg - current_psi + 180.0) % 360.0) - 180.0
+    phi_delta = _wrap_degrees(phi_deg - current_phi)
+    psi_delta = _wrap_degrees(psi_deg - current_psi)
     resolved_phi = current_phi + phi_delta
     resolved_psi = current_psi + psi_delta
-    phi_steps = max(1, ceil(abs(phi_delta) / 15.0))
-    psi_steps = max(1, ceil(abs(psi_delta) / 15.0))
 
-    scan_result = run_silent_scan(
-        output=output,
-        atoms=atoms,
-        constraints=[
-            [*(index + 1 for index in index_map["phi"]), phi_delta / phi_steps, phi_steps],
-            [*(index + 1 for index in index_map["psi"]), psi_delta / psi_steps, psi_steps],
-        ],
-        params={
-            "mode": "rigid",  #relaxed or rigid
-            "opt": {
-                "max_iter": max_iter,
-                "max_step": max_step,
-            },
-        },
-        method="lbfgs",
-    )
-    scan_xyz = scan_result.xyz_path
-
-    with open(scan_xyz, encoding="utf-8") as handle:
-        lines = [line.strip() for line in handle if line.strip()]
-    frame = lines[-(len(atoms) + 2) :]
     minimized_atoms = atoms.copy()
-    minimized_atoms.set_positions(np.asarray([line.split()[1:4] for line in frame[2:]], dtype=float))
+    ace_count = int(model["segment_sizes"]["ace"])
+    target_count = int(model["segment_sizes"]["residue"])
+    nme_start = ace_count + target_count
+    _rotate_cap_to_dihedral(
+        minimized_atoms,
+        index_map["phi"],
+        resolved_phi,
+        [index < ace_count for index in range(len(atoms))],
+    )
+    _rotate_cap_to_dihedral(
+        minimized_atoms,
+        index_map["psi"],
+        resolved_psi,
+        [index >= nme_start for index in range(len(atoms))],
+    )
+    guess_xyz = os.path.splitext(output)[0] + "_guess.xyz"
+    with open(guess_xyz, "w", encoding="utf-8") as handle:
+        symbols = minimized_atoms.get_chemical_symbols()
+        handle.write(f"{len(symbols)}\n")
+        handle.write(f"NCAA cap-only conformer guess: phi={resolved_phi:.4f} psi={resolved_psi:.4f}\n")
+        for symbol, (x, y, z) in zip(symbols, minimized_atoms.get_positions()):
+            handle.write(f"{symbol:2s} {x: .10f} {y: .10f} {z: .10f}\n")
     copy_thresholds(source_atoms, minimized_atoms)
     minimized_atoms.calc = source_atoms.calc
+    nme_residue = model["residues"][2]
+    index_by_serial = {
+        atom["serial"]: index
+        for index, (_residue, atom) in enumerate(flatten_model_atoms(model))
+    }
+    nnm_idx,hnm_idx = index_by_serial[search_atom(nme_residue, "NNM")["serial"]], index_by_serial[search_atom(nme_residue, "HNM")["serial"]]
+    positions = np.asarray(minimized_atoms.get_positions(), dtype=float)
+    nme_nh_distance = float(np.linalg.norm(positions[nnm_idx] - positions[hnm_idx]))
     constraint = FixInternals(
+        bonds=[[nme_nh_distance, [nnm_idx, hnm_idx]]],
         dihedrals_deg=[
             [resolved_phi, list(index_map["phi"])],
             [resolved_psi, list(index_map["psi"])],
@@ -385,7 +437,7 @@ def infer_mainchain_names(residue: dict) -> list[str]:
     return [atoms[index - 1]["name"] for index in path[1:-1]]
 
 
-def build_ncaa_center_bond_filter(representative_model: dict):
+def _ncaa_residue_r_group_indices(representative_model: dict) -> tuple[set[int], set[int], set[int], set[int]]:
     target_residue = find_residue_by_key(
         representative_model,
         representative_model["target_key"],
@@ -425,6 +477,62 @@ def build_ncaa_center_bond_filter(representative_model: dict):
                 continue
             seen.add(neighbor)
             stack.append(neighbor)
+
+    sidechain_relax_indices = set(r_group_indices)
+    heavy_atoms = [
+        (local_index, atom)
+        for local_index, atom in enumerate(residue_atoms, start=1)
+        if atom["element"] != "H"
+    ]
+    for local_index, atom in enumerate(residue_atoms, start=1):
+        if atom["element"] != "H":
+            continue
+        nearest = min(
+            heavy_atoms,
+            key=lambda item: float(np.linalg.norm(get_atom_xyz(atom) - get_atom_xyz(item[1]))),
+        )
+        if (residue_start + nearest[0] - 1) in r_group_indices:
+            sidechain_relax_indices.add(residue_start + local_index - 1)
+    return residue_indices, backbone_indices, r_group_indices, sidechain_relax_indices
+
+
+def build_ncaa_sidechain_relax_indices(representative_model: dict) -> tuple[int, ...]:
+    _residue_indices, _backbone_indices, _r_group_indices, sidechain_relax_indices = _ncaa_residue_r_group_indices(representative_model)
+    return tuple(sorted(sidechain_relax_indices))
+
+
+def build_ncaa_mobile_atom_indices(representative_model: dict) -> tuple[int, ...]:
+    return build_ncaa_sidechain_relax_indices(representative_model)
+
+
+def warn_capped_proton_transfer(conformers: list[NCAAConformer]) -> None:
+    for conformer in conformers:
+        nme_residue = next((residue for residue in conformer.model["residues"] if residue["resname"].upper() == "NME"), None)
+        if nme_residue is None:
+            continue
+        nnm_atom = search_atom(nme_residue, "NNM")
+        hnm_atom = search_atom(nme_residue, "HNM")
+        if nnm_atom is None or hnm_atom is None:
+            continue
+        hnm_xyz = get_atom_xyz(hnm_atom)
+        nnm_distance = float(np.linalg.norm(hnm_xyz - get_atom_xyz(nnm_atom)))
+        nearest = None
+        for _residue, atom in flatten_model_atoms(conformer.model):
+            if atom is hnm_atom or atom["element"] == "H":
+                continue
+            distance = float(np.linalg.norm(hnm_xyz - get_atom_xyz(atom)))
+            if nearest is None or distance < nearest[0]:
+                nearest = (distance, atom)
+        if nnm_distance > 1.35 or nearest is not None and nearest[1] is not nnm_atom:
+            nearest_name = "unknown" if nearest is None else nearest[1]["name"]
+            print(
+                f"  [WARNING] NCAA capped model {conformer.label}: possible cap proton transfer; "
+                f"HNM-NNM={nnm_distance:.3f} A, nearest heavy atom is {nearest_name}.",
+            )
+
+
+def build_ncaa_center_bond_filter(representative_model: dict):
+    residue_indices, backbone_indices, r_group_indices, _mobile_indices = _ncaa_residue_r_group_indices(representative_model)
 
     def keep(center_bond: tuple[int, int]) -> bool:
         return (

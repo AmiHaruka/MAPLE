@@ -58,7 +58,7 @@ def _internal_ser_site_model() -> dict:
     }
 
 
-def test_reference_charge_library_reads_ff19sb_libs() -> None:
+def test_reference_charge_library_reads_default_ff14sb_libs() -> None:
     library = resp_module.load_reference_charge_library()
 
     assert "ALA" in library["internal"]
@@ -67,6 +67,51 @@ def test_reference_charge_library_reads_ff19sb_libs() -> None:
     assert library["internal"]["ALA"]["N"][1] == pytest.approx(-0.4157)
     assert library["nterm"]["NALA"]["N"][1] == pytest.approx(0.1414)
     assert library["cterm"]["CALA"]["OXT"][1] == pytest.approx(-0.8055)
+
+
+def test_prom_reference_lookup_switches_internal_ca_type_without_changing_charge() -> None:
+    ca_ff14 = resp_module.lookup_standard_residue_entry(
+        resname="SER",
+        atom_name="CA",
+        category="internal",
+        prom="ff14SB",
+    )
+    ca_ff19 = resp_module.lookup_standard_residue_entry(
+        resname="SER",
+        atom_name="CA",
+        category="internal",
+        prom="ff19SB",
+    )
+    n_ff14 = resp_module.lookup_standard_residue_entry(
+        resname="SER",
+        atom_name="N",
+        category="internal",
+        prom="ff14SB",
+    )
+    n_ff19 = resp_module.lookup_standard_residue_entry(
+        resname="SER",
+        atom_name="N",
+        category="internal",
+        prom="ff19SB",
+    )
+    nterm_ca_ff19 = resp_module.lookup_standard_residue_entry(
+        resname="SER",
+        atom_name="CA",
+        category="nterm",
+        prom="ff19SB",
+    )
+
+    assert ca_ff14 is not None
+    assert ca_ff19 is not None
+    assert n_ff14 is not None
+    assert n_ff19 is not None
+    assert nterm_ca_ff19 is not None
+    assert ca_ff14[0] == "CX"
+    assert ca_ff19[0] == "XC"
+    assert ca_ff14[1] == pytest.approx(ca_ff19[1])
+    assert n_ff14[0] == n_ff19[0]
+    assert n_ff14[1] == pytest.approx(n_ff19[1])
+    assert nterm_ca_ff19[0] == "CX"
 
 
 @pytest.mark.parametrize(

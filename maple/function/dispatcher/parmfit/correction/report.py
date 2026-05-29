@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from math import degrees, isclose
+from math import degrees, isclose, sqrt
 from typing import Optional
 
 from ..utils.readparm import Angle, Bond, CorrectionParameterSet, Dihedral, FourierTerm, Improper, Nonbond
@@ -50,6 +50,7 @@ def summary_lines(
         f"TorsionFit:        {'enabled' if torsion.enabled else 'disabled'}\n",
         f"Torsion backend:   {torsion.backend}\n",
         f"Torsion constraint:{torsion.constraint_mode}\n",
+        _torsion_ensemble_setup_line(torsion),
         f"Scan grid:         {torsion.torsion_step_deg:.4f} deg x {torsion.torsion_steps} steps\n",
         f"Stage2 refine:     cycles={torsion.refine_rounds}, block_max_iter={torsion.refine_max_iter}, tol={torsion.refine_tol:.6g}\n",
         (
@@ -67,6 +68,16 @@ def summary_lines(
         "=" * RESULT_WIDTH + "\n",
     ]
     return lines
+
+
+def _torsion_ensemble_setup_line(torsion) -> str:
+    if not getattr(torsion, "torsion_ensemble", False):
+        return "Torsion ensemble:false\n"
+    return (
+        "Torsion ensemble:"
+        f"enabled, ratio={float(torsion.torsion_ensemble_ratio):.3f}, "
+        f"weight={float(torsion.torsion_ensemble_weight):.3f}\n"
+    )
 
 
 def parameter_change_lines(
@@ -141,10 +152,10 @@ def correction_result_lines(config: CorrectionConfig, result: CorrectionWorkflow
             f"  angles changed by mSeminario:    {mseminario_counts['angles']}\n",
             f"  dihedrals changed by TorsionFit: {torsion_counts['dihedrals']}\n",
             f"  other changes:                   {other_changes if other_changes else 'none'}\n",
-            "\n",
-            "TorsionFit:\n",
         ]
     )
+    lines.extend(_torsion_energy_trace_lines(config, result))
+    lines.extend(["\n", "TorsionFit:\n"])
     if not config.torsion.enabled:
         lines.append("  state: disabled by parmfit(torsionfit=false)\n")
     elif not result.torsion.center_bonds:
@@ -156,18 +167,8 @@ def correction_result_lines(config: CorrectionConfig, result: CorrectionWorkflow
             lines.append("  scan files:\n")
             for center_bond, path in sorted(result.torsion.scan_xyz.items()):
                 lines.append(f"    {center_bond}: {_relative_path(path)}\n")
-    if not config.torsion.enabled:
-        lines.append("  stage2: disabled because torsion fitting is disabled\n")
-    elif config.torsion.refine_rounds <= 0:
-        lines.append("  stage2: not requested\n")
-    elif result.torsion.refine_cycles:
-        accepted_blocks = sum(cycle.accepted_blocks for cycle in result.torsion.refine_cycles)
-        rejected_blocks = sum(cycle.rejected_blocks for cycle in result.torsion.refine_cycles)
-        lines.append(
-            f"  stage2: cycles={len(result.torsion.refine_cycles)}, accepted_blocks={accepted_blocks}, rejected_blocks={rejected_blocks}\n"
-        )
-    else:
-        lines.append("  stage2: no accepted refinement\n")
+    lines.extend(_torsion_refine_round_lines(config, result))
+    lines.extend(_stage2_debug_lines(config, result))
 
     lines.extend(["\n", "Warnings:\n"])
     if warnings:
@@ -177,6 +178,161 @@ def correction_result_lines(config: CorrectionConfig, result: CorrectionWorkflow
         lines.append("  none\n")
     lines.append("=" * RESULT_WIDTH + "\n")
     return lines
+
+
+def _torsion_refine_round_lines(config: CorrectionConfig, result: CorrectionWorkflowResult) -> list[str]:
+    if not config.torsion.enabled:
+        return [
+            "  stage1: not run\n",
+            "  stage2: not run\n",
+            "  final parameters: mSeminario result\n",
+        ]
+    if not result.torsion.center_bonds:
+        return [
+            "  stage1: not run because no fittable center bonds\n",
+            "  stage2: not run\n",
+            "  final parameters: mSeminario result\n",
+        ]
+
+    requested_rounds = max(int(config.torsion.refine_rounds), 0)
+    if requested_rounds <= 0:
+        return [
+            "  stage1: completed\n",
+            "  stage2: disabled by torsion_refine_rounds=0\n",
+            "  final parameters: Stage1 result\n",
+        ]
+
+    diagnostics = result.torsion.stage2_diagnostics if isinstance(result.torsion.stage2_diagnostics, dict) else {}
+    accepted_rounds = int(diagnostics.get("accepted_cycles", _accepted_refine_rounds(result)))
+    rejected_rounds = int(diagnostics.get("rejected_cycles", _rejected_refine_rounds(result)))
+    lines = [
+        "  stage1: completed\n",
+        f"  stage2: enabled, requested_rounds={requested_rounds}\n",
+        f"  refine rounds: accepted={accepted_rounds}, rejected={rejected_rounds}\n",
+    ]
+    if accepted_rounds > 0 and rejected_rounds > 0:
+        lines.append(
+            f"  final parameters: round {accepted_rounds} accepted; round {accepted_rounds + 1} rejected, keeping round {accepted_rounds}\n"
+        )
+    elif accepted_rounds > 0:
+        lines.append(f"  final parameters: round {accepted_rounds} accepted\n")
+    elif result.torsion.refine_cycles:
+        lines.append("  final parameters: Stage1 result; round 1 rejected\n")
+    else:
+        lines.append("  final parameters: Stage1 result; Stage2 produced no accepted round\n")
+    return lines
+
+
+def _accepted_refine_rounds(result: CorrectionWorkflowResult) -> int:
+    return sum(1 for cycle in result.torsion.refine_cycles if int(cycle.accepted_blocks) > 0)
+
+
+def _rejected_refine_rounds(result: CorrectionWorkflowResult) -> int:
+    return sum(1 for cycle in result.torsion.refine_cycles if int(cycle.rejected_blocks) > 0)
+
+
+def _stage2_debug_lines(config: CorrectionConfig, result: CorrectionWorkflowResult) -> list[str]:
+    if not getattr(config.torsion, "report_debug", False):
+        return []
+    if not result.torsion.refine_cycles:
+        return []
+    diagnostics = result.torsion.refine_cycles[-1].diagnostics
+    if not isinstance(diagnostics, dict):
+        return []
+    required = ("initial_total_loss", "final_total_loss")
+    if not all(key in diagnostics for key in required):
+        return []
+    lines = ["  Stage2 loss:\n"]
+    lines.append(
+        f"    scan:      {float(diagnostics.get('initial_scan_loss', 0.0)):.6f} -> {float(diagnostics.get('final_scan_loss', 0.0)):.6f}\n"
+    )
+    lines.append(
+        f"    ensemble:  {float(diagnostics.get('initial_ensemble_loss', 0.0)):.6f} -> {float(diagnostics.get('final_ensemble_loss', 0.0)):.6f}\n"
+    )
+    lines.append(
+        f"    prior:     {float(diagnostics.get('initial_prior_loss', 0.0)):.6f} -> {float(diagnostics.get('final_prior_loss', 0.0)):.6f}\n"
+    )
+    lines.append(
+        f"    total:     {float(diagnostics.get('initial_total_loss', 0.0)):.6f} -> {float(diagnostics.get('final_total_loss', 0.0)):.6f}\n"
+    )
+    lines.append(f"    status:    {diagnostics.get('status', 'unknown')}\n")
+    return lines
+
+
+def _torsion_energy_trace_lines(config: CorrectionConfig, result: CorrectionWorkflowResult) -> list[str]:
+    lines = ["\n", "Torsion energy trace:\n"]
+    if not config.torsion.enabled:
+        return lines + ["  disabled by parmfit(torsionfit=false)\n"]
+    if not result.torsion.center_bonds:
+        return lines + ["  no fittable center bonds\n"]
+
+    reports = list(getattr(result.torsion, "fit_reports", []) or [])
+    if not reports:
+        return lines + ["  not available\n"]
+
+    wrote_table = False
+    for report in reports:
+        report_lines = _torsion_fit_report_energy_trace_lines(report)
+        if report_lines:
+            wrote_table = True
+            lines.extend(report_lines)
+    if not wrote_table:
+        lines.append("  not available\n")
+    return lines
+
+
+def _torsion_fit_report_energy_trace_lines(report) -> list[str]:
+    curves = getattr(report, "curves", None)
+    if curves is None:
+        return []
+    if (
+        curves.qm_rel is None
+        or curves.mm_orig_rel is None
+        or curves.mm_stage0_rel is None
+        or curves.mm_stage1_rel is None
+    ):
+        return []
+
+    angles = list(curves.angles_deg)
+    mlip_ref = list(curves.qm_rel)
+    orig_ref = list(curves.mm_orig_rel)
+    stage0_ref = list(curves.mm_stage0_rel)
+    stage1_ref = list(curves.mm_stage1_rel)
+    stage2_ref = None if curves.mm_stage2_rel is None else list(curves.mm_stage2_rel)
+    row_count = min(len(angles), len(mlip_ref), len(orig_ref), len(stage0_ref), len(stage1_ref))
+    if row_count == 0:
+        return []
+    if stage2_ref is not None:
+        row_count = min(row_count, len(stage2_ref))
+
+    lines = [
+        f"  \ncenter bond {report.center_bond}:\n",
+        f"    scan xyz: {_relative_path(getattr(report, 'scan_source_path', None))}\n",
+        "    angle_deg    MLIP_ref     orig_ref    stage0_ref    stage1_ref    stage2_ref\n",
+    ]
+    for index in range(row_count):
+        stage2_text = "NA" if stage2_ref is None else f"{float(stage2_ref[index]):10.6f}"
+        lines.append(
+            f"    {float(angles[index]):9.4f}  "
+            f"{float(mlip_ref[index]):10.6f}  "
+            f"{float(orig_ref[index]):10.6f}  "
+            f"{float(stage0_ref[index]):10.6f}  "
+            f"{float(stage1_ref[index]):10.6f}  "
+            f"{stage2_text:>10s}\n"
+        )
+    if stage2_ref is not None:
+        mae, rmse = _mae_rmse(mlip_ref[:row_count], stage2_ref[:row_count])
+        lines.append(f"    MLIP_ref vs stage2_final: MAE = {mae:.6f} kcal/mol, RMSE = {rmse:.6f} kcal/mol\n")
+    return lines
+
+
+def _mae_rmse(reference: list[float], predicted: list[float]) -> tuple[float, float]:
+    residuals = [float(lhs) - float(rhs) for lhs, rhs in zip(reference, predicted)]
+    if not residuals:
+        return 0.0, 0.0
+    mae = sum(abs(value) for value in residuals) / len(residuals)
+    rmse = sqrt(sum(value * value for value in residuals) / len(residuals))
+    return float(mae), float(rmse)
 
 
 def _relative_path(path: str | None) -> str:

@@ -18,12 +18,13 @@ from .topology import (
 from .records import TorsionGlobalProblem, TorsionLocalProblem, TorsionScanData, TorsionSharedGroupSpec
 from .config import TorsionFitParams, normalize_center_bond
 
-_SLOT_PERIODS = (1, 2, 3, 4)
+_SLOT_PERIODS = (1, 2, 3, 4, 6)
 _SLOT_PHASES = {
     1: 0.0,
     2: np.pi,
     3: 0.0,
     4: np.pi,
+    6: np.pi,
 }
 _LOCAL_EXISTING_TERM_PRIOR_WEIGHT = 6.0
 _LOCAL_NEW_TERM_PRIOR_SCALE = 4.0
@@ -36,6 +37,18 @@ _GLOBAL_INACTIVE_TERM_PRIOR_WEIGHT = _GLOBAL_NEW_TERM_PRIOR_WEIGHT * 2.0
 def _normalize_phase_signed(phase: float) -> float:
     value = ((float(phase) + np.pi) % (2.0 * np.pi)) - np.pi
     return float(np.pi) if np.isclose(abs(value), np.pi, atol=1.0e-12) else float(value)
+
+
+def _default_slot_phase(slot_period: int) -> float:
+    return float(_SLOT_PHASES.get(int(slot_period), 0.0 if int(slot_period) % 2 else np.pi))
+
+
+def _integer_period(period: float) -> int | None:
+    value = float(period)
+    rounded = int(round(value))
+    if rounded <= 0 or abs(value - float(rounded)) > 1.0e-8:
+        return None
+    return rounded
 
 
 def _terms_for_period(dihedral, slot_period: int) -> list:
@@ -63,7 +76,7 @@ def _aggregate_period_coefficients(dihedrals, slot_period: int) -> tuple[float, 
 
 def _coefficients_to_k_phase(coefficients: tuple[float, float] | None, slot_period: int) -> tuple[float, float]:
     if coefficients is None:
-        return 0.0, float(_SLOT_PHASES[int(slot_period)])
+        return 0.0, _default_slot_phase(int(slot_period))
     cos_coeff, sin_coeff = coefficients
     k_value = float(np.hypot(cos_coeff, sin_coeff))
     if k_value <= 1.0e-12:
@@ -73,7 +86,8 @@ def _coefficients_to_k_phase(coefficients: tuple[float, float] | None, slot_peri
 
 def _template_slot_signature(dihedral) -> tuple[float | None, ...]:
     signature: list[float | None] = []
-    for slot_period in _SLOT_PERIODS:
+    periods = sorted(set(_SLOT_PERIODS) | {period for period in (_integer_period(term.period) for term in dihedral.terms) if period is not None})
+    for slot_period in periods:
         coefficients = _aggregate_period_coefficients((dihedral,), slot_period)
         if coefficients is None:
             signature.append(None)
@@ -82,25 +96,50 @@ def _template_slot_signature(dihedral) -> tuple[float | None, ...]:
     return tuple(signature)
 
 
+def _member_template_periods(members: list[tuple[int, object]]) -> tuple[int, ...]:
+    periods: set[int] = set()
+    for _local_index, dihedral in members:
+        for term in dihedral.terms:
+            period = _integer_period(term.period)
+            if period is not None:
+                periods.add(period)
+    return tuple(sorted(periods))
+
+
 def _build_group_spec(
     atom_types: tuple[str, str, str, str],
     members: list[tuple[int, object]],
     slot_offset: int,
     *,
     label: str | None = None,
+    spectral_slots=(),
 ) -> tuple[TorsionSharedGroupSpec, int]:
     slot_indices: list[int] = []
     slot_periods: list[int] = []
     slot_phases: list[float] = []
     existing_slot_mask: list[bool] = []
-    for slot_period in _SLOT_PERIODS:
+    slot_sources: list[str] = []
+    slot_coherences: list[float] = []
+    spectral_by_period = {int(slot.period): slot for slot in spectral_slots}
+    candidate_periods = sorted(set(_member_template_periods(members)) | set(spectral_by_period))
+    for slot_period in candidate_periods:
         member_dihedrals = [dihedral for _, dihedral in members]
         coefficients = _aggregate_period_coefficients(member_dihedrals, slot_period)
         slot_k, slot_phase = _coefficients_to_k_phase(coefficients, slot_period)
+        spectral_slot = spectral_by_period.get(int(slot_period))
+        source_parts: list[str] = []
+        if coefficients is not None:
+            source_parts.append("existing")
+        if spectral_slot is not None:
+            source_parts.append("spectral")
+            if coefficients is None or abs(float(slot_k)) <= 1.0e-10:
+                slot_phase = float(spectral_slot.phase_seed)
         slot_indices.append(slot_offset)
         slot_periods.append(slot_period)
         slot_phases.append(slot_phase)
         existing_slot_mask.append(coefficients is not None and abs(float(slot_k)) > 1.0e-10)
+        slot_sources.append("+".join(source_parts) if source_parts else "candidate")
+        slot_coherences.append(float(getattr(spectral_slot, "coherence", 1.0)) if spectral_slot is not None else 1.0)
         slot_offset += 1
 
     return (
@@ -114,6 +153,8 @@ def _build_group_spec(
             slot_periods=tuple(slot_periods),
             slot_phases=tuple(slot_phases),
             existing_slot_mask=tuple(existing_slot_mask),
+            slot_sources=tuple(slot_sources),
+            slot_coherences=tuple(slot_coherences),
         ),
         slot_offset,
     )
@@ -267,7 +308,12 @@ def _group_slot_initial_values(dihedrals, group_specs: tuple[TorsionSharedGroupS
             slot_k, _slot_phase = _coefficients_to_k_phase(coefficients, slot_period)
             k_orig[slot_index] = float(slot_k)
             scales[slot_index] = max(1.0, abs(k_orig[slot_index]))
-            prior_weights[slot_index] = _LOCAL_EXISTING_TERM_PRIOR_WEIGHT if existing else _LOCAL_NEW_TERM_PRIOR_WEIGHT
+            slot_source = str(group.slot_sources[group.slot_indices.index(slot_index)])
+            prior_weights[slot_index] = (
+                _LOCAL_EXISTING_TERM_PRIOR_WEIGHT
+                if "existing" in slot_source
+                else _LOCAL_NEW_TERM_PRIOR_WEIGHT
+            )
 
     return k_orig, scales, prior_weights
 
@@ -310,11 +356,134 @@ def _center_torsion_relative_profile(scan_data: TorsionScanData, dihedrals) -> n
     return torsion_total - torsion_total[int(scan_data.ref_idx)]
 
 
+class _MMProfileCache:
+    """Cache fixed-geometry MM profiles for fast torsion refit cycles."""
+
+    def __init__(
+        self,
+        reference_parameter_set: CorrectionParameterSet,
+        center_bonds,
+        scan_map: dict[tuple[int, int], TorsionScanData],
+        topology_cache=None,
+    ) -> None:
+        self.center_bonds = tuple(normalize_center_bond(center_bond) for center_bond in center_bonds)
+        self.scan_map = {
+            normalize_center_bond(center_bond): scan_data
+            for center_bond, scan_data in scan_map.items()
+        }
+        self.dihedral_indices_by_center: dict[tuple[int, int], tuple[int, ...]] = {}
+        for center_bond in self.center_bonds:
+            indices = tuple(_center_bond_dihedral_indices(reference_parameter_set, center_bond))
+            if not indices:
+                raise ValueError(f"No proper torsions were found for center bond {center_bond}.")
+            self.dihedral_indices_by_center[center_bond] = indices
+
+        tracked_dihedral_indices = tuple(
+            sorted({index for indices in self.dihedral_indices_by_center.values() for index in indices})
+        )
+        cache = topology_cache if topology_cache is not None else build_mm_topology_cache(reference_parameter_set)
+        self._ref_idx_by_scan: dict[tuple[int, int], int] = {}
+        self._base_total_by_scan: dict[tuple[int, int], np.ndarray] = {}
+        self._phi_by_scan: dict[tuple[int, int], dict[int, np.ndarray]] = {}
+
+        for scan_center in self.center_bonds:
+            if scan_center not in self.scan_map:
+                raise ValueError(f"No fixed scan data was supplied for center bond {scan_center}.")
+            scan_data = self.scan_map[scan_center]
+            self._ref_idx_by_scan[scan_center] = int(scan_data.ref_idx)
+            full_total = np.asarray(
+                [evaluate_mm_energy(atoms, reference_parameter_set, topology_cache=cache).total for atoms in scan_data.frames],
+                dtype=float,
+            )
+            phi_by_dihedral: dict[int, np.ndarray] = {}
+            for dihedral_index in tracked_dihedral_indices:
+                dihedral = reference_parameter_set.dihedrals[int(dihedral_index)]
+                phi_by_dihedral[int(dihedral_index)] = np.asarray(
+                    [
+                        dihedral_radians(atoms.get_positions(), *dihedral.atoms)
+                        for atoms in scan_data.frames
+                    ],
+                    dtype=float,
+                )
+            self._phi_by_scan[scan_center] = phi_by_dihedral
+            fitted_torsion_total = np.zeros(len(scan_data.frames), dtype=float)
+            for target_center in self.center_bonds:
+                fitted_torsion_total += self._center_torsion_total(reference_parameter_set, scan_center, target_center)
+            self._base_total_by_scan[scan_center] = full_total - fitted_torsion_total
+
+    def _relative(self, scan_center: tuple[int, int], total_values: np.ndarray) -> np.ndarray:
+        totals = np.asarray(total_values, dtype=float)
+        return totals - totals[self._ref_idx_by_scan[scan_center]]
+
+    def _center_torsion_total(
+        self,
+        parameter_set: CorrectionParameterSet,
+        scan_center: tuple[int, int],
+        target_center: tuple[int, int],
+    ) -> np.ndarray:
+        scan_center = normalize_center_bond(scan_center)
+        target_center = normalize_center_bond(target_center)
+        if scan_center not in self._phi_by_scan:
+            raise ValueError(f"No cached scan profile for center bond {scan_center}.")
+        if target_center not in self.dihedral_indices_by_center:
+            raise ValueError(f"No cached torsion profile for center bond {target_center}.")
+        n_points = len(self.scan_map[scan_center].frames)
+        torsion_total = np.zeros(n_points, dtype=float)
+        phi_by_dihedral = self._phi_by_scan[scan_center]
+        for dihedral_index in self.dihedral_indices_by_center[target_center]:
+            dihedral = parameter_set.dihedrals[int(dihedral_index)]
+            phi_values = phi_by_dihedral[int(dihedral_index)]
+            for term in dihedral.terms:
+                torsion_total += float(term.kPhi) * (
+                    1.0 + np.cos(float(term.period) * phi_values - float(term.phase))
+                )
+        return torsion_total
+
+    def center_torsion_rel(
+        self,
+        parameter_set: CorrectionParameterSet,
+        scan_center: tuple[int, int],
+        target_center: tuple[int, int],
+    ) -> np.ndarray:
+        scan_center = normalize_center_bond(scan_center)
+        return self._relative(scan_center, self._center_torsion_total(parameter_set, scan_center, target_center))
+
+    def full_total(self, parameter_set: CorrectionParameterSet, scan_center: tuple[int, int]) -> np.ndarray:
+        scan_center = normalize_center_bond(scan_center)
+        if scan_center not in self._base_total_by_scan:
+            raise ValueError(f"No cached scan profile for center bond {scan_center}.")
+        total = np.asarray(self._base_total_by_scan[scan_center], dtype=float).copy()
+        for target_center in self.center_bonds:
+            total += self._center_torsion_total(parameter_set, scan_center, target_center)
+        return total
+
+    def full_rel(self, parameter_set: CorrectionParameterSet, scan_center: tuple[int, int]) -> np.ndarray:
+        scan_center = normalize_center_bond(scan_center)
+        return self._relative(scan_center, self.full_total(parameter_set, scan_center))
+
+    def center_zeroed_rel(
+        self,
+        parameter_set: CorrectionParameterSet,
+        scan_center: tuple[int, int],
+        target_center: tuple[int, int],
+    ) -> np.ndarray:
+        scan_center = normalize_center_bond(scan_center)
+        zeroed_total = self.full_total(parameter_set, scan_center) - self._center_torsion_total(
+            parameter_set,
+            scan_center,
+            target_center,
+        )
+        return self._relative(scan_center, zeroed_total)
+
+
 def build_local_torsion_problem(
     scan_data: TorsionScanData,
     parameter_set: CorrectionParameterSet,
     center_bond: tuple[int, int],
     topology_cache=None,
+    *,
+    mm_base_rel_override: np.ndarray | None = None,
+    stage0_mm_rel_override: np.ndarray | None = None,
 ) -> TorsionLocalProblem:
     cache = topology_cache if topology_cache is not None else build_mm_topology_cache(parameter_set)
     center = normalize_center_bond(center_bond)
@@ -330,21 +499,31 @@ def build_local_torsion_problem(
     representative_dihedral = target_dihedrals[0].atoms
     qm_rel = np.asarray(scan_data.qm_rel, dtype=float).copy()
 
-    mm_zeroed_total = np.asarray(
-        [
-            evaluate_mm_energy(
-                atoms,
-                parameter_set,
-                topology_cache=cache,
-                zero_proper_center_bond=center,
-            ).total
-            for atoms in scan_data.frames
-        ],
-        dtype=float,
-    )
-    mm_zeroed_rel = mm_zeroed_total - mm_zeroed_total[int(scan_data.ref_idx)]
-    orig_mm_rel = mm_zeroed_rel + _center_torsion_relative_profile(scan_data, target_dihedrals)
-    residual = qm_rel - mm_zeroed_rel
+    if mm_base_rel_override is None:
+        mm_base_total = np.asarray(
+            [
+                evaluate_mm_energy(
+                    atoms,
+                    parameter_set,
+                    topology_cache=cache,
+                    zero_proper_center_bond=center,
+                ).total
+                for atoms in scan_data.frames
+            ],
+            dtype=float,
+        )
+        mm_base_rel = mm_base_total - mm_base_total[int(scan_data.ref_idx)]
+    else:
+        mm_base_rel = np.asarray(mm_base_rel_override, dtype=float).copy()
+        if mm_base_rel.shape != qm_rel.shape:
+            raise ValueError(f"MM base relative profile for center bond {center} must match qm_rel shape.")
+    if stage0_mm_rel_override is None:
+        orig_mm_rel = mm_base_rel + _center_torsion_relative_profile(scan_data, target_dihedrals)
+    else:
+        orig_mm_rel = np.asarray(stage0_mm_rel_override, dtype=float).copy()
+        if orig_mm_rel.shape != qm_rel.shape:
+            raise ValueError(f"stage-0 MM relative profile for center bond {center} must match qm_rel shape.")
+    fit_target_rel = qm_rel - mm_base_rel
 
     k_orig, scales, prior_weights = _group_slot_initial_values(target_dihedrals, shared_groups)
     active_mask = np.asarray(
@@ -359,8 +538,8 @@ def build_local_torsion_problem(
         basis=basis,
         qm_rel=qm_rel,
         orig_mm_rel=orig_mm_rel,
-        mm_zeroed_rel=mm_zeroed_rel,
-        residual=residual,
+        mm_zeroed_rel=mm_base_rel,
+        residual=fit_target_rel,
         k_orig=k_orig,
         scales=scales,
         active_mask=active_mask,

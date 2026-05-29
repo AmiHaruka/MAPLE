@@ -103,20 +103,6 @@ def copy_thresholds(source_atoms, target_atoms) -> None:
         setattr(target_atoms, attr, float(getattr(source_atoms, attr, default)))
 
 
-def copy_atoms_for_scan(atoms: Atoms) -> Atoms:
-    copied = atoms.copy()
-    copied.calc = atoms.calc
-    copy_thresholds(atoms, copied)
-    return copied
-
-
-def require_lbfgs_thresholds(atoms: Atoms) -> None:
-    missing = [attr for attr in MEDIUM_THRESHOLDS if not hasattr(atoms, attr)]
-    if missing:
-        joined = ", ".join(missing)
-        raise ValueError(f"LBFGS thresholds are required on atoms before silent optimization: missing {joined}.")
-
-
 def silent_lbfgs_params(params: LBFGSParams | None = None) -> LBFGSParams:
     resolved = deepcopy(params) if params is not None else LBFGSParams()
     resolved.write_traj = False
@@ -129,13 +115,23 @@ def silent_lbfgs_params(params: LBFGSParams | None = None) -> LBFGSParams:
 SilentLBFGS = LBFGS
 
 
+def _require_lbfgs_thresholds(atoms: Atoms) -> None:
+    missing = [
+        attr
+        for attr in ("f_max_th", "f_rms_th", "dp_max_th", "dp_rms_th")
+        if not hasattr(atoms, attr)
+    ]
+    if missing:
+        raise ValueError(f"LBFGS thresholds are missing on atoms: {', '.join(missing)}.")
+
+
 def run_silent_lbfgs(
     atoms: Atoms,
     *,
     output: str,
     params: LBFGSParams | None = None,
 ) -> LBFGS:
-    require_lbfgs_thresholds(atoms)
+    _require_lbfgs_thresholds(atoms)
     optimizer = LBFGS(atoms=atoms, output=output, params=silent_lbfgs_params(params))
     optimizer.run()
     return optimizer
@@ -300,6 +296,7 @@ def run_resp_pipeline(
     fixchg_resids: list[str] | None = None,
     label: str = "metal_site_resp",
     watm: str | None = None,
+    prom: str = "ff14SB",
     charge_groups: list[tuple[list[int], float]] | None = None,
 ) -> RespPipelineResult:
     paths = _resp_paths(output, label=label)
@@ -324,6 +321,7 @@ def run_resp_pipeline(
         chgmod=chgmod,
         fixchg_resids=fixchg_resids,
         charge_groups=charge_groups,
+        prom=prom,
     )
     paths["resp1_in"] = resp_inputs.resp1_in
     paths["resp2_in"] = resp_inputs.resp2_in
@@ -350,7 +348,7 @@ def run_resp_pipeline(
 
     charges = resp_utils.read_resp_charges(paths["resp2_chg"])
     charged_model = resp_utils.apply_resp_charges(model, charges)
-    resp_utils.write_resp_mol2(paths["mol2"], charged_model, bond_pairs)
+    resp_utils.write_resp_mol2(paths["mol2"], charged_model, bond_pairs, prom=prom)
 
     return RespPipelineResult(
         model=charged_model,
@@ -413,6 +411,7 @@ def run_multiconformer_resp(
     total_charge: int,
     multiplicity: int,
     qm: QMMethod,
+    prom: str = "ff14SB",
 ) -> MultiRespPipelineResult:
     if not conformers:
         raise ValueError("Multiconformer RESP requires at least one conformer.")
@@ -489,7 +488,7 @@ def run_multiconformer_resp(
         handle.write(" ".join(f"{charge:.10f}" for charge in reference_charges))
         handle.write("\n")
     charged_model = resp_utils.apply_resp_charges(representative_model, reference_charges)
-    resp_utils.write_resp_mol2(paths["mol2"], charged_model, bond_pairs)
+    resp_utils.write_resp_mol2(paths["mol2"], charged_model, bond_pairs, prom=prom)
 
     return MultiRespPipelineResult(
         model=charged_model,

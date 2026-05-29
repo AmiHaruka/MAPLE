@@ -113,16 +113,20 @@ from maple.function.dispatcher.parmfit.utils.TorsionFit.stage1 import (
     _solve_local_stage1_active_set_with_phases,
     _stage1_retained_rows,
 )
+from maple.function.dispatcher.parmfit.utils.TorsionFit.spectral import (
+    DEFAULT_SPECTRAL_PERIODS,
+    dominant_spectral_peaks,
+    shared_group_response,
+)
+from maple.function.dispatcher.parmfit.utils.TorsionFit import ensemble as torsion_ensemble_module
 from maple.function.dispatcher.parmfit.utils.TorsionFit.stage2 import (
-    _stage2_default_active_mask,
     _build_stage2_objective_cache,
-    _stage2_coefficient_bounds,
-    _evaluate_stage2_active_objective_with_gradient,
-    _evaluate_global_continuous_phase_objective_with_gradient,
+    _delta_from_stage2_k_phase,
+    _evaluate_stage2_k_phase_objective_with_gradient,
     _global_mm_rel_map,
-    _optimize_stage2_coefficients,
-    _pack_stage2_active_vector,
-    _scatter_stage2_active_vector,
+    _optimize_stage2_k_phase,
+    _pack_stage2_k_phase,
+    _stage2_k_phase_bounds,
     _split_global_vector,
     apply_global_delta,
     evaluate_global_refit_objective,
@@ -130,18 +134,22 @@ from maple.function.dispatcher.parmfit.utils.TorsionFit.stage2 import (
 )
 from maple.function.dispatcher.parmfit.utils.TorsionFit.fit import _stage2_fit_report_from_stage1
 from maple.function.dispatcher.parmfit.utils.TorsionFit.fit import run_loss_mode
+from maple.function.dispatcher.parmfit.utils.TorsionFit.ensemble import build_stage2_extra_targets
 from maple.function.dispatcher.parmfit.utils.TorsionFit.records import (
+    TorsionEnsembleResult,
     TorsionFitCurves,
     TorsionFitMetrics,
     TorsionFitReport,
     TorsionFitTerms,
     TorsionGlobalProblem,
     TorsionLocalProblem,
+    TorsionObjectiveTarget,
+    TorsionRefineCycle,
     TorsionScanData,
     TorsionSharedGroupSpec,
     TorsionWorkflowResult,
 )
-from maple.function.dispatcher.parmfit.utils.TorsionFit.config import TorsionFitParams
+from maple.function.dispatcher.parmfit.utils.TorsionFit.config import TorsionFitParams, normalize_center_bond
 from maple.function.dispatcher.parmfit.utils.TorsionFit import basis as torsion_problem_module
 from maple.function.dispatcher.parmfit.utils.TorsionFit.scanio import HARTREE_TO_KCAL_MOL, read_scan_xyz
 from maple.function.dispatcher.parmfit.utils.TorsionFit.workflow import run_torsion_workflow
@@ -160,7 +168,7 @@ from maple.function.dispatcher.parmfit.utils.TorsionFit.records import TorsionSc
 
 
 def _four_atom_frame(phi_deg: float) -> Atoms:
-    rad = math.radians(180.0 + phi_deg)
+    rad = math.radians(phi_deg)
     positions = [
         (1.0, 0.0, 0.0),
         (0.0, 0.0, 0.0),
@@ -168,6 +176,17 @@ def _four_atom_frame(phi_deg: float) -> Atoms:
         (math.cos(rad), math.sin(rad), 1.0),
     ]
     return Atoms(symbols=["C", "C", "C", "C"], positions=positions)
+
+
+def _two_fragment_frame(phi_a_deg: float, phi_b_deg: float) -> Atoms:
+    frag_a = _four_atom_frame(phi_a_deg)
+    frag_b = _four_atom_frame(phi_b_deg)
+    shifted_b = np.asarray(frag_b.get_positions(), dtype=float).copy()
+    shifted_b[:, 0] += 8.0
+    return Atoms(
+        symbols=["C"] * 8,
+        positions=np.vstack((frag_a.get_positions(), shifted_b)),
+    )
 
 
 def _make_parameter_set(k_values: tuple[float, ...]) -> CorrectionParameterSet:
@@ -202,6 +221,208 @@ def _make_parameter_set(k_values: tuple[float, ...]) -> CorrectionParameterSet:
         unmatched_dihedrals=[],
         unmatched_impropers=[],
         unmatched_nonbonds=[],
+    )
+
+
+def _make_two_center_parameter_set() -> CorrectionParameterSet:
+    mol2 = Mol2Topology(
+        atoms=[Mol2Atom(atom_id=i, name=f"A{i}", atom_type="c", charge=0.0) for i in range(1, 9)],
+        bonds=[
+            Mol2Bond(bond_id=1, atom1=1, atom2=2, bond_type="1"),
+            Mol2Bond(bond_id=2, atom1=2, atom2=3, bond_type="1"),
+            Mol2Bond(bond_id=3, atom1=3, atom2=4, bond_type="1"),
+            Mol2Bond(bond_id=4, atom1=5, atom2=6, bond_type="1"),
+            Mol2Bond(bond_id=5, atom1=6, atom2=7, bond_type="1"),
+            Mol2Bond(bond_id=6, atom1=7, atom2=8, bond_type="1"),
+        ],
+        id_to_index={i: i for i in range(1, 9)},
+        adjacency={
+            1: {2},
+            2: {1, 3},
+            3: {2, 4},
+            4: {3},
+            5: {6},
+            6: {5, 7},
+            7: {6, 8},
+            8: {7},
+        },
+    )
+    dihedrals = [
+        Dihedral(
+            atoms=(1, 2, 3, 4),
+            atom_types=("c", "c", "c", "c"),
+            terms=[FourierTerm(kPhi=0.40, period=1.0, phase=0.0)],
+        ),
+        Dihedral(
+            atoms=(5, 6, 7, 8),
+            atom_types=("c", "c", "c", "c"),
+            terms=[FourierTerm(kPhi=0.60, period=2.0, phase=np.pi)],
+        ),
+    ]
+    return CorrectionParameterSet(
+        mol2=mol2,
+        frcmod=FrcmodDB(),
+        bonds=[],
+        angles=[],
+        dihedrals=dihedrals,
+        impropers=[],
+        nonbonds=[Nonbond(atom=i, atom_type="c", charge=0.0, rmin_half=1.5, epsilon=0.0) for i in range(1, 9)],
+        unmatched_bonds=[],
+        unmatched_angles=[],
+        unmatched_dihedrals=[],
+        unmatched_impropers=[],
+        unmatched_nonbonds=[],
+    )
+
+
+def _make_terminal_h_first_rotor_parameter_set() -> CorrectionParameterSet:
+    mol2 = Mol2Topology(
+        atoms=[
+            Mol2Atom(atom_id=1, name="C1", atom_type="c", charge=0.0),
+            Mol2Atom(atom_id=2, name="H1", atom_type="h1", charge=0.0),
+            Mol2Atom(atom_id=3, name="H2", atom_type="h1", charge=0.0),
+            Mol2Atom(atom_id=4, name="H3", atom_type="h1", charge=0.0),
+            Mol2Atom(atom_id=5, name="C2", atom_type="c", charge=0.0),
+            Mol2Atom(atom_id=6, name="H4", atom_type="h1", charge=0.0),
+            Mol2Atom(atom_id=7, name="H5", atom_type="h1", charge=0.0),
+            Mol2Atom(atom_id=8, name="O1", atom_type="oh", charge=0.0),
+        ],
+        bonds=[
+            Mol2Bond(bond_id=1, atom1=1, atom2=2, bond_type="1"),
+            Mol2Bond(bond_id=2, atom1=1, atom2=3, bond_type="1"),
+            Mol2Bond(bond_id=3, atom1=1, atom2=4, bond_type="1"),
+            Mol2Bond(bond_id=4, atom1=1, atom2=5, bond_type="1"),
+            Mol2Bond(bond_id=5, atom1=5, atom2=6, bond_type="1"),
+            Mol2Bond(bond_id=6, atom1=5, atom2=7, bond_type="1"),
+            Mol2Bond(bond_id=7, atom1=5, atom2=8, bond_type="1"),
+        ],
+        id_to_index={i: i for i in range(1, 9)},
+        adjacency={
+            1: {2, 3, 4, 5},
+            2: {1},
+            3: {1},
+            4: {1},
+            5: {1, 6, 7, 8},
+            6: {5},
+            7: {5},
+            8: {5},
+        },
+    )
+    dihedrals = [
+        Dihedral(
+            atoms=(2, 1, 5, 6),
+            atom_types=("h1", "c", "c", "h1"),
+            terms=[FourierTerm(kPhi=0.25, period=1.0, phase=0.0)],
+        ),
+        Dihedral(
+            atoms=(2, 1, 5, 8),
+            atom_types=("h1", "c", "c", "oh"),
+            terms=[FourierTerm(kPhi=0.25, period=1.0, phase=0.0)],
+        ),
+    ]
+    return CorrectionParameterSet(
+        mol2=mol2,
+        frcmod=FrcmodDB(),
+        bonds=[],
+        angles=[],
+        dihedrals=dihedrals,
+        impropers=[],
+        nonbonds=[Nonbond(atom=i, atom_type="c", charge=0.0, rmin_half=1.5, epsilon=0.0) for i in range(1, 9)],
+        unmatched_bonds=[],
+        unmatched_angles=[],
+        unmatched_dihedrals=[],
+        unmatched_impropers=[],
+        unmatched_nonbonds=[],
+    )
+
+
+def _make_terminal_cl_rotor_parameter_set() -> CorrectionParameterSet:
+    mol2 = Mol2Topology(
+        atoms=[
+            Mol2Atom(atom_id=1, name="C1", atom_type="c", charge=0.0),
+            Mol2Atom(atom_id=2, name="C2", atom_type="c", charge=0.0),
+            Mol2Atom(atom_id=3, name="Cl1", atom_type="cl", charge=0.0),
+            Mol2Atom(atom_id=4, name="C3", atom_type="c", charge=0.0),
+        ],
+        bonds=[
+            Mol2Bond(bond_id=1, atom1=1, atom2=2, bond_type="1"),
+            Mol2Bond(bond_id=2, atom1=2, atom2=3, bond_type="1"),
+            Mol2Bond(bond_id=3, atom1=1, atom2=4, bond_type="1"),
+        ],
+        id_to_index={i: i for i in range(1, 5)},
+        adjacency={1: {2, 4}, 2: {1, 3}, 3: {2}, 4: {1}},
+    )
+    return CorrectionParameterSet(
+        mol2=mol2,
+        frcmod=FrcmodDB(),
+        bonds=[],
+        angles=[],
+        dihedrals=[
+            Dihedral(
+                atoms=(1, 2, 3, 1),
+                atom_types=("c", "c", "c", "cl"),
+                terms=[FourierTerm(kPhi=0.30, period=1.0, phase=0.0)],
+            )
+        ],
+        impropers=[],
+        nonbonds=[Nonbond(atom=i, atom_type="c", charge=0.0, rmin_half=1.5, epsilon=0.0) for i in range(1, 5)],
+        unmatched_bonds=[],
+        unmatched_angles=[],
+        unmatched_dihedrals=[],
+        unmatched_impropers=[],
+        unmatched_nonbonds=[],
+    )
+
+
+def _make_ring_center_parameter_set() -> CorrectionParameterSet:
+    mol2 = Mol2Topology(
+        atoms=[Mol2Atom(atom_id=i, name=f"C{i}", atom_type="c", charge=0.0) for i in range(1, 5)],
+        bonds=[
+            Mol2Bond(bond_id=1, atom1=1, atom2=2, bond_type="1"),
+            Mol2Bond(bond_id=2, atom1=2, atom2=3, bond_type="1"),
+            Mol2Bond(bond_id=3, atom1=3, atom2=4, bond_type="1"),
+            Mol2Bond(bond_id=4, atom1=4, atom2=1, bond_type="1"),
+        ],
+        id_to_index={i: i for i in range(1, 5)},
+        adjacency={1: {2, 4}, 2: {1, 3}, 3: {2, 4}, 4: {1, 3}},
+    )
+    return CorrectionParameterSet(
+        mol2=mol2,
+        frcmod=FrcmodDB(),
+        bonds=[],
+        angles=[],
+        dihedrals=[
+            Dihedral(
+                atoms=(1, 2, 3, 4),
+                atom_types=("c", "c", "c", "c"),
+                terms=[FourierTerm(kPhi=0.30, period=1.0, phase=0.0)],
+            )
+        ],
+        impropers=[],
+        nonbonds=[Nonbond(atom=i, atom_type="c", charge=0.0, rmin_half=1.5, epsilon=0.0) for i in range(1, 5)],
+        unmatched_bonds=[],
+        unmatched_angles=[],
+        unmatched_dihedrals=[],
+        unmatched_impropers=[],
+        unmatched_nonbonds=[],
+    )
+
+
+def _two_center_scan(center: tuple[int, int]) -> TorsionScanData:
+    angles = np.asarray([0.0, 45.0, 90.0, 135.0], dtype=float)
+    if center == (2, 3):
+        frames = [_two_fragment_frame(float(angle), 20.0) for angle in angles]
+    else:
+        frames = [_two_fragment_frame(float(angle) * 0.5, float(angle)) for angle in angles]
+    qm_kcal = np.zeros(len(frames), dtype=float)
+    return TorsionScanData(
+        angles_deg=angles,
+        qm_hartree=qm_kcal,
+        qm_kcal=qm_kcal,
+        frames=frames,
+        source_path=f"two_center_{center[0]}-{center[1]}.xyz",
+        ref_idx=0,
+        qm_rel=qm_kcal.copy(),
     )
 
 
@@ -251,10 +472,116 @@ def test_stage1_preserves_inactive_zero_amplitude_template_terms():
     assert merged[0].phase == pytest.approx(np.pi)
 
 
+def test_spectral_selector_uses_amber_compatible_periods_and_keeps_phase():
+    phi_values = np.linspace(0.0, 2.0 * np.pi, 72, endpoint=False)
+    phase = 0.73
+    target = 1.4 * (np.cos(6.0 * phi_values - phase) - np.cos(6.0 * phi_values[0] - phase))
+
+    peaks = dominant_spectral_peaks(phi_values, target, ref_idx=0, allowed_periods=DEFAULT_SPECTRAL_PERIODS)
+
+    periods = [peak.period for peak in peaks]
+    assert 6 in periods
+    assert 5 not in periods
+    period6 = next(peak for peak in peaks if peak.period == 6)
+    assert period6.phase == pytest.approx(phase, abs=1.0e-10)
+
+
+def test_shared_group_response_migrates_path_phase_and_detects_cancellation():
+    phi_rep = np.linspace(-np.pi, np.pi, 24, endpoint=False)
+    shifted_paths = np.column_stack((phi_rep + 0.40, phi_rep + 0.40))
+
+    response = shared_group_response(shifted_paths, phi_rep, period=2)
+
+    assert response.coherence == pytest.approx(1.0, abs=1.0e-12)
+    assert response.phase_shift == pytest.approx(0.80, abs=1.0e-12)
+
+    cancelling_paths = np.column_stack((phi_rep, phi_rep + np.pi / 2.0))
+    cancelled = shared_group_response(cancelling_paths, phi_rep, period=2)
+
+    assert cancelled.coherence < 1.0e-10
+
+
+def test_mm_profile_cache_matches_direct_zeroed_mm_for_multiple_centers(monkeypatch):
+    monkeypatch.setattr(torsion_problem_module, "evaluate_mm_energy", _fake_mm_energy)
+    parameter_set = _make_two_center_parameter_set()
+    scan_map = {
+        (2, 3): _two_center_scan((2, 3)),
+        (6, 7): _two_center_scan((6, 7)),
+    }
+
+    cache = torsion_problem_module._MMProfileCache(parameter_set, [(2, 3), (6, 7)], scan_map)
+
+    updated = deepcopy(parameter_set)
+    updated.dihedrals[0].terms = [FourierTerm(kPhi=1.15, period=1.0, phase=0.35)]
+    updated.dihedrals[1].terms = [FourierTerm(kPhi=0.25, period=2.0, phase=np.pi)]
+
+    direct = np.asarray(
+        [
+            _fake_mm_energy(atoms, updated, zero_proper_center_bond=(6, 7)).total
+            for atoms in scan_map[(6, 7)].frames
+        ],
+        dtype=float,
+    )
+    direct_rel = direct - direct[int(scan_map[(6, 7)].ref_idx)]
+
+    assert cache.center_zeroed_rel(updated, (6, 7), (6, 7)).tolist() == pytest.approx(direct_rel.tolist(), abs=1.0e-8)
+
+
+def test_mm_profile_cache_uses_cached_phi_for_new_period_terms(monkeypatch):
+    monkeypatch.setattr(torsion_problem_module, "evaluate_mm_energy", _fake_mm_energy)
+    parameter_set = _make_two_center_parameter_set()
+    scan_map = {(6, 7): _two_center_scan((6, 7))}
+    cache = torsion_problem_module._MMProfileCache(parameter_set, [(6, 7)], scan_map)
+
+    updated = deepcopy(parameter_set)
+    updated.dihedrals[1].terms = [
+        FourierTerm(kPhi=0.60, period=2.0, phase=np.pi),
+        FourierTerm(kPhi=0.45, period=6.0, phase=0.42),
+    ]
+
+    direct_full = np.asarray([_fake_mm_energy(atoms, updated).total for atoms in scan_map[(6, 7)].frames], dtype=float)
+    direct_zeroed = np.asarray(
+        [
+            _fake_mm_energy(atoms, updated, zero_proper_center_bond=(6, 7)).total
+            for atoms in scan_map[(6, 7)].frames
+        ],
+        dtype=float,
+    )
+    direct_rel = (direct_full - direct_zeroed) - (direct_full - direct_zeroed)[int(scan_map[(6, 7)].ref_idx)]
+
+    assert cache.center_torsion_rel(updated, (6, 7), (6, 7)).tolist() == pytest.approx(direct_rel.tolist(), abs=1.0e-8)
+
+
+def test_fast_mm_cycle_reuses_profile_cache_instead_of_full_mm_refresh(monkeypatch):
+    call_count = {"count": 0}
+
+    def counted_mm_energy(*args, **kwargs):
+        call_count["count"] += 1
+        return _fake_mm_energy(*args, **kwargs)
+
+    monkeypatch.setattr(torsion_problem_module, "evaluate_mm_energy", counted_mm_energy)
+    monkeypatch.setattr(torsion_stage1_module, "evaluate_mm_energy", counted_mm_energy)
+
+    scan_data = _period_phase_shifted_scan(1, 1.20, 0.30)
+    parameter_set = _make_sparse_parameter_set([(0.20, 1.0, 0.0)])
+
+    run_loss_mode(
+        base_parameter_set=parameter_set,
+        original_parameter_set=parameter_set,
+        center_bonds=[(2, 3)],
+        scan_data_map={(2, 3): scan_data},
+        scan_xyz_map={(2, 3): "synthetic.xyz"},
+        scan_mm_orig_rel_map={(2, 3): np.zeros_like(scan_data.qm_rel)},
+        params=TorsionFitParams(enabled=True, refine_rounds=2, refine_max_iter=3),
+    )
+
+    assert call_count["count"] == len(scan_data.frames)
+
+
 def _write_scan_xyz(path: Path, qm_k_values: tuple[float, ...]) -> None:
     frames = []
     for phi_deg in (0.0, 60.0, 120.0, 180.0, -120.0, -60.0):
-        phi = math.radians(180.0 + phi_deg)
+        phi = math.radians(phi_deg)
         energy_kcal = 0.0
         for period, k_value in enumerate(qm_k_values, start=1):
             phase = 0.0 if period % 2 == 1 else np.pi
@@ -456,6 +783,21 @@ def _methyl_like_scan(left_k3: float, right_k3: float) -> TorsionScanData:
     )
 
 
+def _single_frame_scan_map(atoms: Atoms, centers: tuple[tuple[int, int], ...]) -> dict[tuple[int, int], TorsionScanData]:
+    return {
+        normalize_center_bond(center): TorsionScanData(
+            angles_deg=np.asarray([0.0], dtype=float),
+            qm_hartree=np.asarray([0.0], dtype=float),
+            qm_kcal=np.asarray([0.0], dtype=float),
+            frames=[atoms.copy()],
+            source_path=f"{center[0]}-{center[1]}_scan.xyz",
+            ref_idx=0,
+            qm_rel=np.asarray([0.0], dtype=float),
+        )
+        for center in centers
+    }
+
+
 def _guard_problem(
     qm_rel: list[float],
     constant_rel: list[float],
@@ -505,19 +847,59 @@ def _patch_stage2_minimize(monkeypatch, fake_minimize):
     monkeypatch.setattr(torsion_stage2_module, "minimize", fake_minimize)
 
 
-def test_stage2_uses_best_checkpoint_not_worse_optimizer_final(monkeypatch):
+def test_stage2_optimizer_uses_k_phase_vector(monkeypatch):
+    problem = replace(
+        _guard_problem(
+            qm_rel=[0.0, 0.0],
+            constant_rel=[0.0, 0.0],
+            basis=[[0.0], [1.0]],
+            scales=[100.0],
+        ),
+        k_orig=np.asarray([1.0], dtype=float),
+        phase_orig=np.asarray([0.0], dtype=float),
+    )
+    seen: dict[str, np.ndarray] = {}
+
+    def fake_minimize(fun, x0, jac, method, bounds, options):
+        del jac, method, options
+        seen["x0"] = np.asarray(x0, dtype=float).copy()
+        assert seen["x0"].tolist() == pytest.approx([1.0, 0.0])
+        assert bounds[0][0] == pytest.approx(0.0)
+        assert bounds[0][1] > 0.0
+        loss, gradient = fun(np.asarray([0.0, 0.0], dtype=float))
+        assert np.isfinite(loss)
+        assert gradient.shape == (2,)
+        return _FakeMinimizeResult([0.0, 0.0])
+
+    _patch_stage2_minimize(monkeypatch, fake_minimize)
+
+    vector_final, cycles = refine_torsion_scans_global(
+        problem,
+        delta_init=np.zeros(2 * len(problem.k_orig), dtype=float),
+        enabled=True,
+        max_block_iter=5,
+        tol=1.0e-8,
+    )
+
+    assert seen["x0"].tolist() == pytest.approx([1.0, 0.0])
+    assert vector_final.tolist() == pytest.approx([-1.0, 0.0])
+    assert cycles[-1].accepted_blocks == 1
+    assert cycles[-1].diagnostics["status"] == "accepted"
+
+
+def test_stage2_uses_optimizer_final_without_intermediate_selection(monkeypatch):
     problem = _guard_problem(
         qm_rel=[0.0, 1.0, 0.0, 1.0],
         constant_rel=[0.0, 0.0, 0.0, 0.0],
         basis=[[0.0], [1.0], [0.0], [1.0]],
         scales=[100.0],
     )
-    best_checkpoint = np.asarray([1.0, 0.0], dtype=float)
+    better_intermediate = np.asarray([1.0, 0.0], dtype=float)
     worse_final = np.asarray([0.5, 0.0], dtype=float)
 
     def fake_minimize(fun, x0, jac, method, bounds, options):
         del x0, jac, method, bounds, options
-        fun(best_checkpoint)
+        fun(better_intermediate)
         fun(worse_final)
         return _FakeMinimizeResult(worse_final)
 
@@ -531,11 +913,11 @@ def test_stage2_uses_best_checkpoint_not_worse_optimizer_final(monkeypatch):
         tol=1.0e-8,
     )
 
-    assert vector_final.tolist() == pytest.approx(best_checkpoint.tolist())
-    assert cycles[-1].diagnostics["best_checkpoint_source"] == "optimizer_eval"
+    assert vector_final.tolist() == pytest.approx(worse_final.tolist())
+    assert cycles[-1].diagnostics["status"] == "accepted"
 
 
-def test_stage2_rejects_geometry_jump_checkpoint_with_k_efficiency(monkeypatch):
+def test_stage2_direct_optimizer_keeps_stage1_when_total_loss_not_improved(monkeypatch):
     problem = _guard_problem(
         qm_rel=[0.0, 1.0, 2.0, 20.0, 3.0, 2.0],
         constant_rel=[0.0, 0.975, 1.975, 19.975, 2.975, 1.975],
@@ -561,18 +943,15 @@ def test_stage2_rejects_geometry_jump_checkpoint_with_k_efficiency(monkeypatch):
         tol=1.0e-8,
     )
 
-    assert calls["count"] == 0
+    assert calls["count"] == 1
     assert vector_final.tolist() == pytest.approx([0.0, 0.0])
     assert cycles[-1].accepted_blocks == 0
     assert cycles[-1].rejected_blocks == 1
-    scan_diag = cycles[-1].diagnostics["per_scan"][str((2, 3))]
-    assert scan_diag["scan_quality"] == "geometry_jump"
-    assert scan_diag["scan_quality_note"] == "geometry_jump"
-    assert scan_diag["stage2_status"] == "geometry_jump_frozen"
-    assert "geometry_jump" in cycles[-1].diagnostics["diagnostic_flags"]
+    assert cycles[-1].diagnostics["status"] == "kept_stage1"
+    assert "per_scan" not in cycles[-1].diagnostics
 
 
-def test_stage2_selects_checkpoint_by_total_loss_not_data_loss_only(monkeypatch):
+def test_stage2_accepts_only_when_final_total_loss_improves(monkeypatch):
     problem = _guard_problem(
         qm_rel=[0.0, 2.0],
         constant_rel=[0.0, -1.0],
@@ -603,11 +982,365 @@ def test_stage2_selects_checkpoint_by_total_loss_not_data_loss_only(monkeypatch)
         tol=1.0e-8,
     )
 
-    assert vector_final.tolist() == pytest.approx(low_total.tolist())
-    assert cycles[-1].diagnostics["best_checkpoint_source"] == "optimizer_eval"
+    assert vector_final.tolist() == pytest.approx([0.0, 0.0])
+    assert cycles[-1].diagnostics["status"] == "kept_stage1"
 
 
-def test_stage2_falls_back_only_degraded_center_block(monkeypatch):
+def test_stage2_extra_target_contributes_to_hybrid_objective():
+    scan_only = _guard_problem(
+        qm_rel=[0.0, 0.0],
+        constant_rel=[0.0, 0.0],
+        basis=[[0.0], [0.0]],
+        scales=[1.0],
+    )
+    extra = TorsionObjectiveTarget(
+        label="ensemble",
+        center_bond=(2, 3),
+        qm_rel=np.asarray([0.0, 2.0], dtype=float),
+        constant_rel=np.asarray([0.0, 0.0], dtype=float),
+        cos_basis=np.asarray([[0.0], [0.0]], dtype=float),
+        sin_basis=np.asarray([[0.0], [0.0]], dtype=float),
+        weight=0.5,
+        source_path="ensemble.xyz",
+    )
+    hybrid = replace(scan_only, extra_targets=(extra,))
+    zero_weight = replace(scan_only, extra_targets=(replace(extra, weight=0.0),))
+    vector = np.zeros(2 * len(scan_only.k_orig), dtype=float)
+
+    scan_eval = evaluate_global_refit_objective(scan_only, vector)
+    hybrid_eval = evaluate_global_refit_objective(hybrid, vector)
+    zero_eval = evaluate_global_refit_objective(zero_weight, vector)
+
+    assert hybrid_eval.data_loss > scan_eval.data_loss
+    assert hybrid_eval.total_loss > scan_eval.total_loss
+    assert zero_eval.data_loss == pytest.approx(scan_eval.data_loss)
+    assert zero_eval.total_loss == pytest.approx(scan_eval.total_loss)
+
+
+def test_stage2_extra_target_builder_converts_ensemble_frames_to_centered_basis():
+    problem = _guard_problem(
+        qm_rel=[0.0, 0.0],
+        constant_rel=[0.0, 0.0],
+        basis=[[0.0], [1.0]],
+        scales=[1.0],
+    )
+    frames = (_four_atom_frame(0.0), _four_atom_frame(60.0))
+    ensemble = TorsionEnsembleResult(
+        frames_by_center={(2, 3): frames},
+        energies_by_center={(2, 3): np.asarray([10.0, 13.0], dtype=float)},
+        xyz_paths={(2, 3): "ensemble.xyz"},
+    )
+
+    targets = build_stage2_extra_targets(
+        problem,
+        ensemble,
+        TorsionFitParams(enabled=True, torsion_ensemble=True, torsion_ensemble_weight=0.25),
+    )
+
+    assert len(targets) == 1
+    assert targets[0].qm_rel.tolist() == pytest.approx([10.0, 13.0])
+    assert targets[0].cos_basis.shape == (2, len(problem.k_orig))
+    assert targets[0].sin_basis.shape == (2, len(problem.k_orig))
+    assert targets[0].weight == pytest.approx(0.25)
+    assert targets[0].source_path == "ensemble.xyz"
+
+
+def test_stage2_extra_target_builder_aligns_ensemble_to_scan_reference():
+    problem = _guard_problem(
+        qm_rel=[4.0, 1.0],
+        constant_rel=[0.0, 0.0],
+        basis=[[0.0], [1.0]],
+        scales=[1.0],
+    )
+    frames = (_four_atom_frame(0.0), _four_atom_frame(60.0))
+    ensemble = TorsionEnsembleResult(
+        frames_by_center={(2, 3): frames},
+        energies_by_center={(2, 3): np.asarray([10.0, 13.0], dtype=float)},
+        xyz_paths={(2, 3): "ensemble.xyz"},
+    )
+
+    targets = build_stage2_extra_targets(
+        problem,
+        ensemble,
+        TorsionFitParams(enabled=True, torsion_ensemble=True, torsion_ensemble_weight=0.25),
+    )
+
+    scan_data = problem.scan_map[(2, 3)]
+    scan_ref_frame = scan_data.frames[int(scan_data.ref_idx)]
+    ensemble_const, ensemble_cos, ensemble_sin = torsion_ensemble_module._absolute_basis_for_frames(problem, frames)
+    ref_const, ref_cos, ref_sin = torsion_ensemble_module._absolute_basis_for_frames(problem, (scan_ref_frame,))
+
+    assert len(targets) == 1
+    assert targets[0].qm_rel.tolist() == pytest.approx([9.0, 12.0])
+    assert targets[0].constant_rel.tolist() == pytest.approx([0.0, 0.0])
+    np.testing.assert_allclose(targets[0].cos_basis, ensemble_cos - ref_cos[0])
+    np.testing.assert_allclose(targets[0].sin_basis, ensemble_sin - ref_sin[0])
+
+
+def test_stage2_accepts_optimizer_final_when_total_loss_improves(monkeypatch):
+    scan_only = _guard_problem(
+        qm_rel=[0.0, 1.0],
+        constant_rel=[0.0, 0.0],
+        basis=[[0.0], [1.0]],
+        scales=[1.0],
+    )
+    extra = TorsionObjectiveTarget(
+        label="ensemble",
+        center_bond=(2, 3),
+        qm_rel=np.asarray([0.0, -0.08], dtype=float),
+        constant_rel=np.asarray([0.0, 0.0], dtype=float),
+        cos_basis=np.asarray([[0.0], [1.0]], dtype=float),
+        sin_basis=np.asarray([[0.0], [0.0]], dtype=float),
+        weight=10.0,
+        source_path="ensemble.xyz",
+    )
+    problem = replace(scan_only, extra_targets=(extra,))
+    candidate = np.asarray([-0.02, 0.0], dtype=float)
+    before = evaluate_global_refit_objective(problem, np.zeros(2 * len(problem.k_orig), dtype=float))
+    after = evaluate_global_refit_objective(problem, candidate)
+
+    assert after.total_loss < before.total_loss
+
+    monkeypatch.setattr(torsion_stage2_module, "minimize", lambda *args, **kwargs: _FakeMinimizeResult(candidate))
+
+    vector_final, cycles = refine_torsion_scans_global(
+        problem,
+        delta_init=np.zeros(2 * len(problem.k_orig), dtype=float),
+        enabled=True,
+        max_block_iter=5,
+        tol=1.0e-8,
+    )
+
+    assert vector_final.tolist() == pytest.approx(candidate.tolist())
+    assert cycles[-1].accepted_blocks == 1
+    assert cycles[-1].diagnostics["status"] == "accepted"
+
+
+def test_stage2_accepts_total_loss_gain_even_when_scan_loss_worsens(monkeypatch):
+    scan_only = _guard_problem(
+        qm_rel=[0.0, 1.0],
+        constant_rel=[0.0, 0.0],
+        basis=[[0.0], [1.0]],
+        scales=[1.0],
+    )
+    extra = TorsionObjectiveTarget(
+        label="ensemble",
+        center_bond=(2, 3),
+        qm_rel=np.asarray([0.0, -0.20], dtype=float),
+        constant_rel=np.asarray([0.0, 0.0],
+        dtype=float),
+        cos_basis=np.asarray([[0.0], [1.0]], dtype=float),
+        sin_basis=np.asarray([[0.0], [0.0]], dtype=float),
+        weight=20.0,
+        source_path="ensemble.xyz",
+    )
+    problem = replace(scan_only, extra_targets=(extra,))
+    candidate = np.asarray([-0.20, 0.0], dtype=float)
+    before = evaluate_global_refit_objective(problem, np.zeros(2 * len(problem.k_orig), dtype=float))
+    after = evaluate_global_refit_objective(problem, candidate)
+
+    assert after.total_loss < before.total_loss
+
+    monkeypatch.setattr(torsion_stage2_module, "minimize", lambda *args, **kwargs: _FakeMinimizeResult(candidate))
+
+    vector_final, cycles = refine_torsion_scans_global(
+        problem,
+        delta_init=np.zeros(2 * len(problem.k_orig), dtype=float),
+        enabled=True,
+        max_block_iter=5,
+        tol=1.0e-8,
+    )
+
+    assert vector_final.tolist() == pytest.approx(candidate.tolist())
+    assert cycles[-1].accepted_blocks == 1
+    assert cycles[-1].diagnostics["status"] == "accepted"
+
+
+def test_ensemble_effective_size_uses_ratio_of_scan_conf_count():
+    params = TorsionFitParams(enabled=True, torsion_ensemble=True, torsion_ensemble_ratio=0.25, torsion_steps=36)
+
+    assert torsion_ensemble_module._effective_ensemble_size(params, ((2, 3), (6, 7))) == 19
+    assert torsion_ensemble_module._effective_ensemble_size(
+        params,
+        ((1, 2), (2, 3), (3, 4), (4, 5), (5, 6)),
+    ) == 47
+    assert torsion_ensemble_module._effective_ensemble_size(
+        params,
+        tuple((index, index + 1) for index in range(1, 21)),
+    ) == 185
+
+    small_ratio = TorsionFitParams(enabled=True, torsion_ensemble=True, torsion_ensemble_ratio=0.01, torsion_steps=36)
+    assert torsion_ensemble_module._effective_ensemble_size(small_ratio, ((2, 3), (6, 7))) == 1
+
+
+def test_ensemble_trial_sampling_can_activate_more_than_four_rotors():
+    rotors = tuple((idx, idx + 1, idx + 2, idx + 3) for idx in range(1, 8))
+    center_bonds = tuple((idx + 1, idx + 2) for idx in range(1, 8))
+
+    trials = torsion_ensemble_module._trial_offset_maps(rotors, center_bonds, size=50)
+
+    assert any(len(trial) > 4 for _center, trial in trials)
+
+
+def test_ensemble_trial_sampling_can_include_noncenter_eligible_rotors():
+    rotors = (
+        (1, 2, 3, 4),
+        (4, 5, 6, 7),
+        (7, 8, 9, 10),
+    )
+
+    trials = torsion_ensemble_module._trial_offset_maps(rotors, ((2, 3), (5, 6)), size=80)
+
+    sampled_centers = {
+        tuple(sorted((rotor[1], rotor[2])))
+        for _center, trial in trials
+        for rotor in trial
+    }
+    assert (8, 9) in sampled_centers
+
+
+def test_ensemble_rotor_uses_graph_fragment_not_terminal_dihedral_atom():
+    parameter_set = _make_terminal_h_first_rotor_parameter_set()
+
+    rotor = next(
+        rotor
+        for rotor in torsion_ensemble_module._eligible_rotors(parameter_set, None, 8)
+        if tuple(sorted((rotor[1], rotor[2]))) == (1, 5)
+    )
+    moved_atoms = [
+        index + 1
+        for index, flag in enumerate(torsion_ensemble_module._rotation_mask(parameter_set, rotor, None, 8))
+        if flag
+    ]
+
+    assert moved_atoms != [6]
+    assert len(moved_atoms) > 1
+
+
+def test_ensemble_rotor_keeps_terminal_heavy_atom_sides():
+    parameter_set = _make_terminal_cl_rotor_parameter_set()
+
+    rotors = torsion_ensemble_module._eligible_rotors(parameter_set, None, 4)
+
+    assert rotors
+
+
+def test_ensemble_rotor_skips_ring_center_bonds():
+    parameter_set = _make_ring_center_parameter_set()
+
+    rotors = torsion_ensemble_module._eligible_rotors(parameter_set, None, 4)
+
+    assert rotors == ()
+
+
+def test_ensemble_sampling_uses_global_budget_and_mlip_sp_only_after_mm_screen(tmp_path, monkeypatch):
+    parameter_set = _make_two_center_parameter_set()
+    atoms = _two_fragment_frame(0.0, 20.0)
+    params = TorsionFitParams(
+        enabled=True,
+        torsion_ensemble=True,
+        torsion_ensemble_ratio=0.05,
+    )
+    mlip_calls = {"count": 0}
+
+    def fake_mlip_single_point(candidate):
+        mlip_calls["count"] += 1
+        return float(0.01 * mlip_calls["count"])
+
+    monkeypatch.setattr(torsion_ensemble_module, "_ensemble_worker_count", lambda: 1, raising=False)
+    monkeypatch.setattr(torsion_ensemble_module, "evaluate_mm_energy", _fake_mm_energy)
+    monkeypatch.setattr(torsion_ensemble_module, "get_potential_energy", fake_mlip_single_point)
+
+    result = torsion_ensemble_module.build_torsion_local_ensemble(
+        atoms=atoms,
+        parameter_set=parameter_set,
+        center_bonds=((2, 3), (6, 7)),
+        scan_data_map=_single_frame_scan_map(atoms, ((2, 3), (6, 7))),
+        params=params,
+        output=str(tmp_path / "toy.out"),
+    )
+
+    selected = sum(len(frames) for frames in result.frames_by_center.values())
+    assert 0 < selected <= 4
+    assert mlip_calls["count"] == selected
+    assert result.xyz_paths
+    assert len(set(result.xyz_paths.values())) == 1
+    xyz_path = next(iter(result.xyz_paths.values()))
+    assert xyz_path.endswith("_torsionfit_ensemble.xyz")
+    xyz_text = Path(xyz_path).read_text()
+    assert "mm_screen_rel=" in xyz_text
+    assert "mlip_stage_rel=" in xyz_text
+    assert "mm_rel=" not in xyz_text
+    assert "mlip_rel=" not in xyz_text
+    assert "sampled=" in xyz_text
+
+
+def test_ensemble_sampling_filters_high_mlip_relative_frames_after_sp(tmp_path, monkeypatch):
+    parameter_set = _make_two_center_parameter_set()
+    atoms = _two_fragment_frame(0.0, 20.0)
+    params = TorsionFitParams(enabled=True, torsion_ensemble=True, torsion_ensemble_ratio=0.25)
+    base_positions = np.asarray(atoms.get_positions(), dtype=float)
+    selected = []
+    for index, dy in enumerate((0.10, 0.25, 0.40), start=1):
+        shifted = base_positions.copy()
+        shifted[3, 1] += dy
+        selected.append(((2, 3), shifted, float(index), {(1, 2, 3, 4): float(15 * index)}))
+
+    mlip_kcal = iter((0.0, 10.0, 80.0))
+
+    monkeypatch.setattr(torsion_ensemble_module, "_ensemble_worker_count", lambda: 1, raising=False)
+    monkeypatch.setattr(torsion_ensemble_module, "_screen_trials_with_mm", lambda **kwargs: list(selected))
+    monkeypatch.setattr(torsion_ensemble_module, "_select_low_mm_energy_diverse", lambda candidates, **kwargs: list(candidates))
+    monkeypatch.setattr(torsion_ensemble_module, "get_potential_energy", lambda atoms: next(mlip_kcal) / HARTREE_TO_KCAL_MOL)
+
+    result = torsion_ensemble_module.build_torsion_local_ensemble(
+        atoms=atoms,
+        parameter_set=parameter_set,
+        center_bonds=((2, 3), (6, 7)),
+        scan_data_map=_single_frame_scan_map(atoms, ((2, 3), (6, 7))),
+        params=params,
+        output=str(tmp_path / "toy.out"),
+    )
+
+    assert len(result.frames_by_center[(2, 3)]) == 2
+    assert any("high-MLIP" in warning for warning in result.warnings)
+    xyz_text = Path(result.xyz_paths[(2, 3)]).read_text()
+    assert "mlip_stage_rel=80" not in xyz_text
+
+
+def test_ensemble_sampling_skips_single_center_bond(tmp_path, monkeypatch):
+    params = TorsionFitParams(
+        enabled=True,
+        torsion_ensemble=True,
+        torsion_ensemble_ratio=0.25,
+    )
+    mlip_calls = {"count": 0}
+
+    def fake_mlip_single_point(candidate):
+        del candidate
+        mlip_calls["count"] += 1
+        return 0.0
+
+    monkeypatch.setattr(torsion_ensemble_module, "_ensemble_worker_count", lambda: 1, raising=False)
+    monkeypatch.setattr(torsion_ensemble_module, "evaluate_mm_energy", _fake_mm_energy)
+    monkeypatch.setattr(torsion_ensemble_module, "get_potential_energy", fake_mlip_single_point)
+
+    result = torsion_ensemble_module.build_torsion_local_ensemble(
+        atoms=_four_atom_frame(0.0),
+        parameter_set=_make_sparse_parameter_set([(0.2, 1.0, 0.0)]),
+        center_bonds=((2, 3),),
+        scan_data_map={},
+        params=params,
+        output=str(tmp_path / "single.out"),
+    )
+
+    assert result.frames_by_center == {}
+    assert result.xyz_paths == {}
+    assert mlip_calls["count"] == 0
+    assert any("only one fitted center bond" in warning for warning in result.warnings)
+
+
+def test_stage2_direct_optimizer_updates_global_vector(monkeypatch):
     center_a = (2, 3)
     center_b = (3, 4)
     parameter_set = _make_parameter_set((0.0, 0.0))
@@ -670,12 +1403,10 @@ def test_stage2_falls_back_only_degraded_center_block(monkeypatch):
         tol=1.0e-8,
     )
 
-    assert vector_final.tolist() == pytest.approx([2.0, 0.0, 0.0, 0.0])
-    assert cycles[-1].accepted_blocks == 1
-    assert cycles[-1].rejected_blocks == 1
-    assert cycles[-1].diagnostics["per_scan"][str(center_a)]["stage2_status"] == "accepted"
-    assert cycles[-1].diagnostics["per_scan"][str(center_b)]["stage2_status"] == "stage2_rejected"
-    assert str(center_b) in cycles[-1].diagnostics["center_fallbacks"]
+    assert vector_final.tolist() == pytest.approx([2.0, 0.5, 0.0, 0.0])
+    assert cycles[-1].accepted_blocks == 2
+    assert cycles[-1].rejected_blocks == 0
+    assert cycles[-1].diagnostics["status"] == "accepted"
 
 
 def test_run_loss_mode_exposes_public_five_curve_outputs(tmp_path: Path, monkeypatch):
@@ -710,6 +1441,67 @@ def test_run_loss_mode_exposes_public_five_curve_outputs(tmp_path: Path, monkeyp
     assert f"{float(scan_data.qm_rel[0]):10.6f}" in text
     assert result.stage1_diagnostics["solver"] == "local_restrained_lls"
     assert result.stage2_diagnostics["solver"] == "continuous_phase_k_refine"
+    assert result.stage2_diagnostics["requested_cycles"] == 2
+    assert result.stage2_diagnostics["cycles"] == len(result.refine_cycles)
+    assert "final_cycle" in result.stage2_diagnostics
+
+
+def test_run_loss_mode_does_not_accept_rejected_stage2_first_cycle(monkeypatch):
+    import maple.function.dispatcher.parmfit.utils.TorsionFit.fit as fit_module
+
+    parameter_set = _make_parameter_set((0.0,))
+    report = types.SimpleNamespace(
+        center_bond=(2, 3),
+        curves=types.SimpleNamespace(mm_stage1_rel=np.asarray([0.0, 1.0], dtype=float)),
+    )
+    before_eval = types.SimpleNamespace(
+        total_loss=1.0,
+        data_loss=1.0,
+        prior_loss=0.0,
+        global_rmse=1.0,
+        objective_kind="direct_k_phase",
+    )
+    after_eval = types.SimpleNamespace(
+        total_loss=1.0,
+        data_loss=1.0,
+        prior_loss=0.0,
+        global_rmse=1.0,
+        objective_kind="direct_k_phase",
+    )
+
+    def fake_fit_stage1_cycle(**_kwargs):
+        return parameter_set, [report], {"solver": "fake_stage1"}
+
+    def fake_run_stage2_cycle(**_kwargs):
+        cycle = TorsionRefineCycle(
+            cycle=1,
+            total_loss_before=1.0,
+            total_loss_after=1.0,
+            global_rmse_before=1.0,
+            global_rmse_after=1.0,
+            accepted_blocks=0,
+            rejected_blocks=1,
+            per_scan_rmse_before={(2, 3): 1.0},
+            per_scan_rmse_after={(2, 3): 1.0},
+            diagnostics={"status": "kept_stage1", "reject_reason": "no_total_loss_gain"},
+        )
+        return parameter_set, [report], [cycle], before_eval, after_eval, dict(cycle.diagnostics)
+
+    monkeypatch.setattr(fit_module, "_MMProfileCache", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(fit_module, "_fit_stage1_cycle", fake_fit_stage1_cycle)
+    monkeypatch.setattr(fit_module, "_run_stage2_cycle", fake_run_stage2_cycle)
+
+    result = fit_module.run_loss_mode(
+        base_parameter_set=parameter_set,
+        center_bonds=[(2, 3)],
+        scan_data_map={},
+        scan_xyz_map={},
+        params=TorsionFitParams(enabled=True, refine_rounds=1),
+    )
+
+    assert result.stage2_diagnostics["accepted_cycles"] == 0
+    assert result.stage2_diagnostics["rejected_cycles"] == 1
+    assert result.refine_cycles[0].diagnostics["outer_cycle_rejected"] is True
 
 
 def test_stage2_rejects_large_cancelling_terms_even_when_profile_improves(monkeypatch):
@@ -766,11 +1558,11 @@ def test_stage2_records_data_loss_regression_without_hard_reject(monkeypatch):
 
     assert vector_final.tolist() == pytest.approx([0.0, 0.0])
     assert cycles[-1].accepted_blocks == 0
-    assert cycles[-1].diagnostics["reject_reason"] is None
-    assert "data_loss_degraded" in cycles[-1].diagnostics["diagnostic_flags"]
+    assert cycles[-1].diagnostics["reject_reason"] == "no_total_loss_gain"
+    assert cycles[-1].diagnostics["status"] == "kept_stage1"
 
 
-def test_stage2_records_geometry_jump_without_accepting_unidentifiable_update(monkeypatch):
+def test_stage2_keeps_stage1_when_optimizer_returns_initial_vector(monkeypatch):
     import maple.function.dispatcher.parmfit.utils.TorsionFit.fit as fit_module
 
     problem = _guard_problem(
@@ -797,15 +1589,12 @@ def test_stage2_records_geometry_jump_without_accepting_unidentifiable_update(mo
         tol=1.0e-8,
     )
 
-    assert calls["count"] == 0
+    assert calls["count"] == 1
     assert vector_final.tolist() == pytest.approx(initial.tolist())
     assert cycles[-1].accepted_blocks == 0
     assert cycles[-1].rejected_blocks == 1
-    scan_diag = cycles[-1].diagnostics["per_scan"][str((2, 3))]
-    assert scan_diag["scan_quality"] == "geometry_jump"
-    assert "torsion_unidentifiable" in scan_diag["diagnostic_flags"]
-    assert scan_diag["stage2_status"] == "geometry_jump_frozen"
-    assert "geometry_jump" in cycles[-1].diagnostics["diagnostic_flags"]
+    assert cycles[-1].diagnostics["status"] == "kept_stage1"
+    assert "per_scan" not in cycles[-1].diagnostics
 
 
 def test_stage2_keeps_smooth_high_barrier_refinable(monkeypatch):
@@ -833,9 +1622,7 @@ def test_stage2_keeps_smooth_high_barrier_refinable(monkeypatch):
 
     assert vector_final.tolist() == pytest.approx(candidate.tolist())
     assert cycles[-1].accepted_blocks == 1
-    scan_diag = cycles[-1].diagnostics["per_scan"][str((2, 3))]
-    assert scan_diag["scan_quality"] == "smooth"
-    assert "stage2_frozen_reason" not in scan_diag
+    assert cycles[-1].diagnostics["status"] == "accepted"
 
 
 def test_stage2_records_low_efficiency_large_k_update(monkeypatch):
@@ -865,10 +1652,7 @@ def test_stage2_records_low_efficiency_large_k_update(monkeypatch):
     assert vector_final.tolist() == pytest.approx([3.0, 0.0])
     assert cycles[-1].accepted_blocks == 1
     assert cycles[-1].diagnostics["reject_reason"] is None
-    scan_diag = cycles[-1].diagnostics["per_scan"][str((2, 3))]
-    assert scan_diag["max_abs_k"] <= 3.0 + 1.0e-10
-    assert scan_diag["max_k_cap"] == pytest.approx(3.0)
-    assert "k_efficiency" in cycles[-1].diagnostics["diagnostic_flags"]
+    assert cycles[-1].diagnostics["status"] == "accepted"
 
 
 def test_stage_weights_keep_high_energy_points_visible():
@@ -933,9 +1717,10 @@ def test_stage_slots_use_one_phase_seed_per_period():
     )
 
     assert len(groups) == 1
-    assert groups[0].slot_periods == (1, 2, 3, 4)
-    assert len(groups[0].slot_indices) == 4
+    assert groups[0].slot_periods == (1,)
+    assert len(groups[0].slot_indices) == 1
     assert math.degrees(groups[0].slot_phases[0]) == pytest.approx(45.0)
+    assert groups[0].slot_sources == ("existing",)
 
 
 def test_existing_noncanonical_phase_initialization_preserves_relative_profile(monkeypatch):
@@ -962,7 +1747,7 @@ def test_existing_noncanonical_phase_initialization_preserves_relative_profile(m
     assert (problem.basis @ problem.k_orig).tolist() == pytest.approx(direct_rel.tolist())
 
 
-def test_stage1_existing_term_keeps_fixed_phase(monkeypatch):
+def test_stage1_existing_term_uses_variable_phase_when_spectral_signal_is_clear(monkeypatch):
     import maple.function.dispatcher.parmfit.utils.TorsionFit.fit as fit_module
 
     monkeypatch.setattr(torsion_problem_module, "evaluate_mm_energy", _fake_mm_energy)
@@ -982,12 +1767,11 @@ def test_stage1_existing_term_keeps_fixed_phase(monkeypatch):
     fitted = result.terms.fitted_terms[0]
     period1 = [term for term in fitted if int(term.period) == 1]
     assert len(period1) == 1
-    assert period1[0].phase == pytest.approx(0.0, abs=1.0e-12)
-    assert all(term.phase == pytest.approx(0.0, abs=1.0e-12) or term.phase == pytest.approx(np.pi, abs=1.0e-12) for term in fitted)
+    assert period1[0].phase == pytest.approx(phase, abs=5.0e-2)
     assert "k1" in result.terms.shared_groups[0].active_slots
 
 
-def test_stage1_candidate_expansion_keeps_new_slot_fixed_phase(monkeypatch):
+def test_stage1_candidate_expansion_uses_variable_phase(monkeypatch):
     import maple.function.dispatcher.parmfit.utils.TorsionFit.fit as fit_module
 
     monkeypatch.setattr(torsion_problem_module, "evaluate_mm_energy", _fake_mm_energy)
@@ -1006,7 +1790,7 @@ def test_stage1_candidate_expansion_keeps_new_slot_fixed_phase(monkeypatch):
 
     fitted_period2 = [term for term in result.terms.fitted_terms[0] if int(term.period) == 2]
     assert len(fitted_period2) == 1
-    assert fitted_period2[0].phase == pytest.approx(0.0, abs=1.0e-12) or fitted_period2[0].phase == pytest.approx(np.pi, abs=1.0e-12)
+    assert fitted_period2[0].phase == pytest.approx(phase, abs=8.0e-2)
     assert "k2" in result.terms.shared_groups[0].active_slots
 
 
@@ -1175,57 +1959,49 @@ def test_stage2_objective_cache_matches_public_mm_map():
     )
 
 
-def test_stage2_objective_gradient_matches_finite_difference():
+def test_stage2_k_phase_objective_gradient_matches_finite_difference():
     problem = _guard_problem(
         qm_rel=[0.0, 0.7, 0.2, 1.1, 0.4],
         constant_rel=[0.0, 0.1, -0.2, 0.3, -0.1],
         basis=[[0.0, 0.0], [0.8, -0.3], [0.2, 0.5], [-0.4, 0.9], [0.6, 0.1]],
         scales=[1.2, 0.8],
     )
-    vector = np.asarray([0.13, -0.27, 0.31, 0.19], dtype=float)
+    vector = np.asarray([0.6, 0.4, 0.7, -0.3], dtype=float)
     cache = _build_stage2_objective_cache(problem)
 
-    evaluation, gradient = _evaluate_global_continuous_phase_objective_with_gradient(problem, vector, cache=cache)
+    evaluation, gradient = _evaluate_stage2_k_phase_objective_with_gradient(problem, vector, cache=cache)
 
     epsilon = 1.0e-6
     finite_difference = np.zeros_like(vector)
     for index in range(vector.size):
         step = np.zeros_like(vector)
         step[index] = epsilon
-        plus = evaluate_global_refit_objective(problem, vector + step, cache=cache).total_loss
-        minus = evaluate_global_refit_objective(problem, vector - step, cache=cache).total_loss
+        plus = _evaluate_stage2_k_phase_objective_with_gradient(problem, vector + step, cache=cache)[0].total_loss
+        minus = _evaluate_stage2_k_phase_objective_with_gradient(problem, vector - step, cache=cache)[0].total_loss
         finite_difference[index] = (plus - minus) / (2.0 * epsilon)
 
     assert np.isfinite(evaluation.total_loss)
-    assert gradient.tolist() == pytest.approx(finite_difference.tolist(), abs=1.0e-6)
+    assert gradient.tolist() == pytest.approx(finite_difference.tolist(), rel=1.0e-5, abs=1.0e-6)
 
 
-def test_stage2_active_objective_matches_full_vector_objective_on_active_terms():
-    problem = _guard_problem(
-        qm_rel=[0.0, 0.7, 0.2, 1.1, 0.4],
-        constant_rel=[0.0, 0.1, -0.2, 0.3, -0.1],
-        basis=[[0.0, 0.0], [0.8, -0.3], [0.2, 0.5], [-0.4, 0.9], [0.6, 0.1]],
-        scales=[1.2, 0.8],
+def test_stage2_k_phase_pack_round_trips_coefficient_delta():
+    problem = replace(
+        _guard_problem(
+            qm_rel=[0.0, 0.7],
+            constant_rel=[0.0, 0.1],
+            basis=[[0.0, 0.0], [0.8, -0.3]],
+            scales=[1.2, 0.8],
+        ),
+        k_orig=np.asarray([0.3, 0.4], dtype=float),
+        phase_orig=np.asarray([0.2, -0.5], dtype=float),
     )
-    cache = _build_stage2_objective_cache(problem)
-    active_mask = np.asarray([True, False], dtype=bool)
-    vector_base = np.asarray([0.02, -0.27, -0.03, 0.19], dtype=float)
-    active_vector = np.asarray([0.13, 0.31], dtype=float)
-    full_vector = _scatter_stage2_active_vector(vector_base, active_mask, active_vector)
+    target = np.asarray([0.9, 0.2, 1.1, -2.0], dtype=float)
 
-    full_eval, full_gradient = _evaluate_global_continuous_phase_objective_with_gradient(problem, full_vector, cache=cache)
-    active_eval, active_gradient = _evaluate_stage2_active_objective_with_gradient(
-        problem,
-        active_vector,
-        vector_base,
-        active_mask,
-        cache=cache,
-    )
+    delta = _delta_from_stage2_k_phase(problem, target)
+    packed = _pack_stage2_k_phase(problem, delta)
 
-    assert active_eval.total_loss == pytest.approx(full_eval.total_loss)
-    assert active_eval.data_loss == pytest.approx(full_eval.data_loss)
-    assert active_eval.prior_loss == pytest.approx(full_eval.prior_loss)
-    assert _pack_stage2_active_vector(full_gradient, active_mask).tolist() == pytest.approx(active_gradient.tolist())
+    assert packed[:2].tolist() == pytest.approx(target[:2].tolist())
+    assert packed[2:].tolist() == pytest.approx(target[2:].tolist())
 
 
 def test_stage1_active_set_cache_matches_uncached_solver():
@@ -1424,11 +2200,11 @@ def test_stage1_can_activate_two_new_harmonics_for_high_signal_profile(monkeypat
     group = report.terms.shared_groups[0]
     original_periods = {int(term.period) for term in group.original_terms}
     fitted_periods = {int(term.period) for term in group.fitted_terms}
-    assert len(fitted_periods - original_periods) == 2
-    assert all(term.phase in (0.0, np.pi) for term in group.fitted_terms)
+    assert 1 <= len(fitted_periods - original_periods) <= 3
+    assert all(1 <= int(round(float(term.period))) <= 6 for term in group.fitted_terms)
 
 
-def test_stage1_keeps_existing_phase_before_stage2_refinement(monkeypatch):
+def test_stage1_refits_existing_phase_when_spectral_signal_is_asymmetric(monkeypatch):
     import maple.function.dispatcher.parmfit.utils.TorsionFit.fit as fit_module
     import maple.function.dispatcher.parmfit.utils.TorsionFit.basis as problem_module
 
@@ -1447,7 +2223,44 @@ def test_stage1_keeps_existing_phase_before_stage2_refinement(monkeypatch):
         if int(round(float(term.period))) == 1 and abs(float(term.kPhi)) > 1.0e-6
     ]
     assert len(period1_terms) == 1
-    assert period1_terms[0].phase == pytest.approx(0.0, abs=1.0e-12)
+    assert period1_terms[0].phase == pytest.approx(-np.pi / 6.0, abs=5.0e-2)
+
+
+def test_stage1_can_add_period6_spectral_candidate(monkeypatch):
+    import maple.function.dispatcher.parmfit.utils.TorsionFit.fit as fit_module
+    import maple.function.dispatcher.parmfit.utils.TorsionFit.basis as problem_module
+
+    monkeypatch.setattr(problem_module, "evaluate_mm_energy", _fake_mm_energy)
+    monkeypatch.setattr(torsion_stage1_module, "evaluate_mm_energy", _fake_mm_energy)
+
+    phase = 0.65
+    angles_deg = np.arange(0.0, 360.0, 15.0, dtype=float)
+    frames = [_four_atom_frame(float(angle_deg)) for angle_deg in angles_deg]
+    qm_kcal = np.zeros(len(frames), dtype=float)
+    for index, atoms in enumerate(frames):
+        phi = dihedral_radians(atoms.get_positions(), 1, 2, 3, 4)
+        qm_kcal[index] = 1.1 * (1.0 + math.cos(6.0 * phi - phase))
+    scan_data = TorsionScanData(
+        angles_deg=angles_deg,
+        qm_hartree=qm_kcal / HARTREE_TO_KCAL_MOL,
+        qm_kcal=qm_kcal,
+        frames=frames,
+        source_path="synthetic_period6_phase_shifted.xyz",
+        ref_idx=int(np.argmin(qm_kcal)),
+        qm_rel=qm_kcal - qm_kcal[int(np.argmin(qm_kcal))],
+    )
+    parameter_set = _make_sparse_parameter_set([(0.0, 1.0, 0.0)])
+
+    report = fit_torsion_scan(scan_data, parameter_set, center_bond=(2, 3), params=TorsionFitParams(enabled=True))
+
+    period6_terms = [
+        term
+        for group in report.terms.shared_groups
+        for term in group.fitted_terms
+        if int(round(float(term.period))) == 6 and abs(float(term.kPhi)) > 1.0e-6
+    ]
+    assert len(period6_terms) == 1
+    assert period6_terms[0].phase == pytest.approx(phase, abs=8.0e-2)
 
 
 def test_stage1_never_keeps_two_phase_variants_for_same_period(monkeypatch):
@@ -1487,7 +2300,7 @@ def test_stage1_low_signal_center_can_activate_more_than_one_group_but_caps_each
     for group in report.terms.shared_groups:
         original_periods = {int(term.period) for term in group.original_terms}
         fitted_periods = {int(term.period) for term in group.fitted_terms}
-        assert len(fitted_periods - original_periods) <= 2
+        assert len(fitted_periods - original_periods) <= 3
 
 
 def test_stage1_new_harmonic_limit_is_shared_across_whole_center():
@@ -1565,7 +2378,7 @@ def test_stage1_new_harmonic_limit_is_shared_across_whole_center():
         for slot_index, existing in zip(group.slot_indices, group.existing_slot_mask)
         if active_mask[slot_index] and not existing
     ]
-    assert len(active_new_slots) <= 2
+    assert len(active_new_slots) <= 3
 
 
 def test_stage2_rejects_legacy_k_delta_vector(monkeypatch, tmp_path: Path):
@@ -1597,7 +2410,7 @@ def test_stage2_rejects_legacy_k_delta_vector(monkeypatch, tmp_path: Path):
     assert phase_values.shape == problem.phase_orig.shape
 
 
-def test_stage2_optimizer_projects_coefficients_to_k_cap(monkeypatch):
+def test_stage2_optimizer_projects_k_phase_result_to_k_cap(monkeypatch):
     import maple.function.dispatcher.parmfit.utils.TorsionFit.fit as fit_module
 
     problem = _guard_problem(
@@ -1607,22 +2420,20 @@ def test_stage2_optimizer_projects_coefficients_to_k_cap(monkeypatch):
         scales=[100.0],
     )
     vector_init = np.zeros(2 * len(problem.k_orig), dtype=float)
-    active_mask = np.ones(len(problem.k_orig), dtype=bool)
     cache = _build_stage2_objective_cache(problem)
-    bounds = _stage2_coefficient_bounds(problem, vector_init, active_mask, cache=cache)
+    bounds = _stage2_k_phase_bounds(problem)
     k_cap = float(bounds[0][1])
-    illegal_but_box_bounded = np.asarray([k_cap, k_cap], dtype=float)
+    illegal_result = np.asarray([2.0 * k_cap, 0.0], dtype=float)
 
     def fake_minimize(fun, x0, jac, method, bounds, options):
         del fun, x0, jac, method, bounds, options
-        return _FakeMinimizeResult(illegal_but_box_bounded)
+        return _FakeMinimizeResult(illegal_result)
 
     monkeypatch.setattr(torsion_stage2_module, "minimize", fake_minimize)
 
-    vector_final = _optimize_stage2_coefficients(
+    vector_final = _optimize_stage2_k_phase(
         problem,
         vector_init,
-        active_mask,
         max_iter=5,
         tol=1.0e-8,
         cache=cache,
@@ -1787,43 +2598,6 @@ def test_stage2_continuously_refines_existing_phase_for_shifted_profile(monkeypa
     assert refined_terms[0].phase == pytest.approx(0.85, abs=0.20)
 
 
-def test_stage2_keeps_only_largest_existing_phase_variant_active(monkeypatch):
-    import maple.function.dispatcher.parmfit.utils.TorsionFit.fit as fit_module
-    import maple.function.dispatcher.parmfit.utils.TorsionFit.basis as problem_module
-
-    monkeypatch.setattr(problem_module, "evaluate_mm_energy", _fake_mm_energy)
-    monkeypatch.setattr(torsion_stage1_module, "evaluate_mm_energy", _fake_mm_energy)
-
-    scan_data = _phase_shifted_scan(1.10, 0.0)
-    parameter_set = _make_sparse_parameter_set(
-        [
-            (0.20, 1.0, 0.0),
-            (0.90, 1.0, np.pi / 6.0),
-            (0.35, 2.0, np.pi),
-        ]
-    )
-    problem = build_global_torsion_problem(
-        parameter_set,
-        [(2, 3)],
-        {(2, 3): scan_data},
-        typed_shared=True,
-        original_parameter_set=parameter_set,
-        params=TorsionFitParams(enabled=True),
-    )
-
-    active_mask = _stage2_default_active_mask(problem)
-    group = problem.shared_groups_map[(2, 3)][0]
-    period1_active_slots = [
-        slot_index
-        for slot_index, slot_period in zip(group.slot_indices, group.slot_periods)
-        if int(slot_period) == 1 and bool(active_mask[slot_index])
-    ]
-
-    assert len(period1_active_slots) == 1
-    expected_phase = np.arctan2(0.90 * np.sin(np.pi / 6.0), 0.20 + 0.90 * np.cos(np.pi / 6.0))
-    assert problem.phase_orig[period1_active_slots[0]] == pytest.approx(expected_phase)
-
-
 def test_format_torsion_fit_report_only_emits_public_curve_columns(tmp_path: Path, monkeypatch):
     import maple.function.dispatcher.parmfit.utils.TorsionFit.fit as fit_module
     import maple.function.dispatcher.parmfit.utils.TorsionFit.basis as problem_module
@@ -1983,8 +2757,10 @@ def test_run_torsion_workflow_filters_loss_mode_scan_points(tmp_path: Path, monk
         topology_cache=None,
         original_parameter_set=None,
         log_info=None,
+        ensemble_result=None,
     ):
-        del base_parameter_set, scan_xyz_map, scan_mm_orig_rel_map, params, topology_cache, original_parameter_set, log_info
+        del base_parameter_set, scan_xyz_map, scan_mm_orig_rel_map, params, topology_cache
+        del original_parameter_set, log_info, ensemble_result
         filtered = scan_data_map[(2, 3)]
         captured["angles_deg"] = filtered.angles_deg.copy()
         captured["qm_rel"] = filtered.qm_rel.copy()
@@ -2051,8 +2827,9 @@ def test_run_torsion_workflow_writes_filtered_point_table(tmp_path: Path, monkey
         topology_cache=None,
         original_parameter_set=None,
         log_info=None,
+        ensemble_result=None,
     ):
-        del scan_xyz_map, scan_mm_orig_rel_map, params, topology_cache, original_parameter_set
+        del scan_xyz_map, scan_mm_orig_rel_map, params, topology_cache, original_parameter_set, ensemble_result
         filtered = scan_data_map[(2, 3)]
         report = TorsionFitReport(
             center_bond=(2, 3),

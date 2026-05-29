@@ -56,6 +56,14 @@ class FixInternals:  # pragma: no cover - import stub only
         self.dihedrals_deg = dihedrals_deg
 
 
+class FixAtoms:  # pragma: no cover - import stub only
+    def __init__(self, indices=None):
+        self.indices = indices or []
+
+    def get_indices(self):
+        return self.indices
+
+
 class NeighborList:  # pragma: no cover - import stub only
     def __init__(self, cutoffs, self_interaction=False, bothways=True):
         del cutoffs, self_interaction, bothways
@@ -73,16 +81,60 @@ def natural_cutoffs(atoms):
     return [1.0] * len(atoms)
 
 
+class Cell:  # pragma: no cover - import stub only
+    @staticmethod
+    def fromcellpar(cellpar):
+        return cellpar
+
+
 ase_module = sys.modules.get("ase")
 if ase_module is not None and not hasattr(ase_module, "__path__"):
     ase_module.__path__ = []  # type: ignore[attr-defined]
 
 if "ase.constraints" not in sys.modules:
     constraints_stub = types.ModuleType("ase.constraints")
+    constraints_stub.FixAtoms = FixAtoms
     constraints_stub.FixInternals = FixInternals
     sys.modules["ase.constraints"] = constraints_stub
     if ase_module is not None:
         ase_module.constraints = constraints_stub
+
+if "ase.calculators.calculator" not in sys.modules:
+    calculators_stub = types.ModuleType("ase.calculators")
+    calculators_stub.__path__ = []  # type: ignore[attr-defined]
+    calculator_stub = types.ModuleType("ase.calculators.calculator")
+
+    class Calculator:  # pragma: no cover - import stub only
+        pass
+
+    class PropertyNotImplementedError(Exception):  # pragma: no cover - import stub only
+        pass
+
+    calculator_stub.Calculator = Calculator
+    calculator_stub.PropertyNotImplementedError = PropertyNotImplementedError
+    calculators_stub.calculator = calculator_stub
+    sys.modules["ase.calculators"] = calculators_stub
+    sys.modules["ase.calculators.calculator"] = calculator_stub
+    if ase_module is not None:
+        ase_module.calculators = calculators_stub
+
+if "ase.cell" not in sys.modules:
+    cell_stub = types.ModuleType("ase.cell")
+    cell_stub.Cell = Cell
+    sys.modules["ase.cell"] = cell_stub
+    if ase_module is not None:
+        ase_module.cell = cell_stub
+
+if "ase.io" not in sys.modules:
+    io_stub = types.ModuleType("ase.io")
+
+    def read(*args, **kwargs):  # pragma: no cover - import stub only
+        raise NotImplementedError("ase.io.read is not available in the test stub.")
+
+    io_stub.read = read
+    sys.modules["ase.io"] = io_stub
+    if ase_module is not None:
+        ase_module.io = io_stub
 
 if "ase.neighborlist" not in sys.modules:
     neighborlist_stub = types.ModuleType("ase.neighborlist")

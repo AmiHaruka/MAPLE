@@ -43,7 +43,7 @@ def build_metal_large_model(
     target: str,
     add_resid: Optional[list[str]] = None,
     cluster_cutoff: float = 3.0,
-    donor_cutoff: float = 3.0,
+    donor_cutoff: float = 2.7,
     bond_policy: str = "auto",
     core: Optional[MetalSiteSelection] = None,
 ) -> dict:
@@ -83,7 +83,7 @@ def build_metal_model_bundle(
     target: str,
     add_resid: Optional[list[str]] = None,
     cluster_cutoff: float = 3.0,
-    donor_cutoff: float = 3.0,
+    donor_cutoff: float = 2.7,
     bond_policy: str = "auto",
     selection: Optional[MetalSiteSelection] = None,
 ) -> MetalModelBundle:

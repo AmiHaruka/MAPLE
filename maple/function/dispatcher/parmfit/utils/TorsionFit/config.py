@@ -18,15 +18,18 @@ def normalize_center_bond(center_bond: tuple[int, int]) -> tuple[int, int]:
 class TorsionFitParams:
     enabled: bool = True
     center_bonds: Optional[tuple[tuple[int, int], ...]] = None
-    torsion_steps: int = 72
+    torsion_steps: int = 36
     torsion_step_deg: float = field(init=False)
     backend: str = "cgbs"   #lbfgs/cgws/cgbs
     constraint_mode: str = "projected"  #fixinternals/projected
 
     refine_rounds: int = 2
-    refine_max_iter: int = 10
+    refine_max_iter: int = 100
     refine_tol: float = 1.0e-6
     report_debug: bool = False
+    torsion_ensemble: bool = True
+    torsion_ensemble_ratio: float = 0.3
+    torsion_ensemble_weight: float = 0.50
 
     def __post_init__(self):
         self._refresh_derived()
@@ -50,6 +53,13 @@ class TorsionFitParams:
         self.refine_max_iter = int(self.refine_max_iter)
         self.refine_tol = float(self.refine_tol)
         self.report_debug = bool(self.report_debug)
+        self.torsion_ensemble = bool(self.torsion_ensemble)
+        self.torsion_ensemble_ratio = float(self.torsion_ensemble_ratio)
+        if self.torsion_ensemble_ratio <= 0.0:
+            raise ValueError("torsion_ensemble_ratio must be positive.")
+        self.torsion_ensemble_weight = float(self.torsion_ensemble_weight)
+        if self.torsion_ensemble_weight < 0.0:
+            raise ValueError("torsion_ensemble_weight must be non-negative.")
         self.torsion_step_deg = 360.0 / float(self.torsion_steps)
 
 
@@ -58,6 +68,12 @@ def _coerce_bool(value) -> bool:
         return value
     if isinstance(value, (int, float)):
         return bool(value)
+    if isinstance(value, str):
+        token = value.strip().lower()
+        if token in {"true", "t", "yes", "y", "1", "on"}:
+            return True
+        if token in {"false", "f", "no", "n", "0", "off"}:
+            return False
     raise ValueError(f"Invalid torsionfit boolean value: {value!r}")
 
 
@@ -123,8 +139,14 @@ def build_torsion_fit_params(paras: Optional[dict]) -> TorsionFitParams:
         torsion.refine_max_iter = _coerce_int(source["torsion_refine_max_iter"])
     if "torsion_refine_tol" in source:
         torsion.refine_tol = _coerce_float(source["torsion_refine_tol"])
-    if "torsion_report_debug" in source:
-        torsion.report_debug = _coerce_bool(source["torsion_report_debug"])
+    if "report_debug" in source:
+        torsion.report_debug = _coerce_bool(source["report_debug"])
+    if "torsion_ensemble" in source:
+        torsion.torsion_ensemble = _coerce_bool(source["torsion_ensemble"])
+    if "torsion_ensemble_ratio" in source:
+        torsion.torsion_ensemble_ratio = _coerce_float(source["torsion_ensemble_ratio"])
+    if "torsion_ensemble_weight" in source:
+        torsion.torsion_ensemble_weight = _coerce_float(source["torsion_ensemble_weight"])
 
     torsion._refresh_derived()
     return torsion

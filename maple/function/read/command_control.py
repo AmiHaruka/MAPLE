@@ -1,6 +1,5 @@
-import os
 import re
-import os 
+import os
 from typing import Dict, Any, List, Optional
 
 
@@ -29,7 +28,7 @@ class CommandControl:
         "macepoll",
     }
 
-    SUPPORTED_TASKS = {"sp", "opt", "ts", "scan", "freq", "irc"}
+    SUPPORTED_TASKS = {"sp", "opt", "ts", "scan", "freq", "irc", "md", "parmfit"}
 
     SUPPORTED_UMA_TASKS = {"omol", "omat", "oc20", "odac", "omc", "oc22", "oc25"}
     SUPPORTED_UMA_SIZES = {"uma-s-1p1", "uma-s-1p2", "uma-m-1p1"}

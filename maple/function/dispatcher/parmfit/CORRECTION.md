@@ -1,8 +1,6 @@
 # Parmfit Correction 技术说明
 
-本文档描述 `method=correction` 的当前实现。Correction 的职责是从已有 `mol2` 和当前 MAPLE calculator 出发，修正 bonded parameters，并导出 Maple Amber/GROMACS 参数。
-
-Correction 的 torsion correction 只有一条正式路径：基于 constrained scan 数据的 shared TorsionFit。没有独立的 torsion fitting mode 选择，也不在 workflow 中写额外 JSON 曲线文件。
+本文档描述 `method=correction` 的当前实现。Correction 从已有 `mol2` 和 MAPLE calculator 出发，修正 bonded parameters，并导出 Maple Amber/GROMACS 参数。
 
 ## 1. Workflow
 
@@ -13,7 +11,7 @@ input mol2 + atoms.calc
 parmchk2 -> <base>_original.frcmod
         |
         v
-original CorrectionParameterSet
+initial CorrectionParameterSet
         |
         v
 LBFGS geometry optimization
@@ -25,304 +23,486 @@ Cartesian Hessian -> modified Seminario bond/angle
 stage0 parameter set
         |
         v
-rotatable center bond selection
+TorsionFit scan + spectral shared-group Stage1
         |
         v
-Scan API constrained torsion scans
+Stage2 direct k/phase fast MM cycles
         |
         v
-MM_orig high-energy frame filter
+final parameter set
         |
         v
-Stage1 per-center fixed-phase restrained LLS
-        |
-        v
-Stage2 global continuous-phase refinement
-        |
-        v
-final parameter set + report + exports
+Amber mol2/frcmod + GROMACS top/gro
 ```
 
 正式输出：
 
-- `<base>_work/<base>_original.frcmod`
-- `<base>_work/<base>_maple.top`
-- `<base>_work/<base>_maple.gro`
-- `<base>_work/<base>_maple.mol2`
-- `<base>_work/<base>_maple.frcmod`
+```text
+<base>_work/<base>_original.frcmod
+<base>_work/<base>_maple.mol2
+<base>_work/<base>_maple.frcmod
+<base>_work/<base>_maple.top
+<base>_work/<base>_maple.gro
+```
 
-Torsion scan 过程文件写到：
+Torsion scan 文件写到：
 
 ```text
 <base>_work/torsionfit/
 ```
 
-TorsionFit 模块的当前责任划分：
+## 2. 模块边界
 
-- `workflow.py`：center bond 选择、scan 复用/执行、scan 点过滤。
-- `core.py`：proper torsion 拓扑、center bond 判断和参数写回。
-- `problem.py`：构建 local/global fitting problem。
-- `profiles.py`：scan profile 权重、质量判断、RMSE 和尺度归一化。
-- `stage1.py`：Stage1 local fixed-phase restrained LLS、active set、新 slot 试探和 local report 数据。
-- `stage2.py`：Stage2 global continuous-phase refinement、checkpoint、guard、rollback 和 cos/sin delta。
-- `fit.py`：public fitting entrypoints，连接 local problem、Stage1 和 report 组装。
-- `mode_loss.py`：把 Stage1 与 Stage2 连接成 correction/NCAA 共用路线。
-- `report.py`：格式化报告文字。
+| 文件 | 责任 |
+|---|---|
+| `correction/config.py` | 解析 `mol2`、LBFGS 和 TorsionFit 参数 |
+| `correction/parameters.py` | 运行 `parmchk2` 并构建初始 `CorrectionParameterSet` |
+| `correction/workflow.py` | 串联 correction 主流程 |
+| `correction/artifacts.py` | 保存 workflow result，写 Amber/GROMACS 文件 |
+| `correction/report.py` | 输出 setup、参数变化、energy trace 和 result block |
+| `correction/correction.py` | dispatcher-facing thin facade |
 
-## 2. Center Bond Selection
+TorsionFit 当前文件边界：
 
-自动选择 center bond 时必须同时满足：
+| 文件 | 责任 |
+|---|---|
+| `workflow.py` | center bond 选择、scan 复用/执行、scan 点过滤、调用 fitting |
+| `topology.py` | rotatable center bond、proper torsion 拓扑、参数写回 |
+| `basis.py` | local/global fitting problem、shared group basis、fast MM profile cache |
+| `quality.py` | scan profile 权重、尺度、RMSE、geometry jump 判断 |
+| `spectral.py` | FFT/DiFT-style candidate period 和 shared-group phase seed |
+| `ensemble.py` | optional rigid rotor ensemble sampling and Stage2 extra targets |
+| `stage1.py` | spectral shared-group restrained LLS |
+| `stage2.py` | global direct k/phase loss refinement |
+| `fit.py` | Stage1/Stage2/cycle 组合入口 |
+| `records.py` | scan、report、cycle、workflow result 数据对象 |
+| `report.py` | torsion fit 报告 |
 
-1. 该键是 proper torsion 的中心键。
-2. 该键不在 ring 中。
-3. 该键在 mol2 bond table 中标记为单键。
+## 3. 初始参数链路
 
-当前可旋转性只信任 mol2 `bond_type`：
-
-```text
-rotatable bond_type in {"1", "1.0", "s", "single"}
-```
-
-如果输入 mol2 把双键、芳香键或 amide-like 键错误标成单键，Correction 会把它当作可旋转键。修正方式是修正 mol2，而不是让 TorsionFit 用额外规则猜拓扑。
-
-显式 `torsion_bonds` 可以指定 center bond。非 mol2 单键会报错；ring center bond 按当前策略允许但给出 warning。
-
-## 3. Scan 数据语义
-
-scan 是构象和相对能量数据来源，不是对“理想单自由度 torsion potential”的承诺。对每个 selected center bond，workflow 选择一个 representative dihedral，生成一组 frames：
+`correction/parameters.py` 执行：
 
 ```text
-theta_i      scan angle in degrees
-X_i          generated structure
-Q_i          reference energy
+mol2
+ -> parmchk2 -s gaff2 -a Y
+ -> <base>_original.frcmod
+ -> build_correction_parameter_set(...)
 ```
 
-内部使用相对能量：
+`CorrectionParameterSet` 中每个实际 atom pair/tuple 都应有对应参数或明确的 unmatched 记录：
+
+```text
+Bond      -> atom pair
+Angle     -> atom triple
+Dihedral  -> atom quartet
+Improper  -> atom quartet
+Nonbond   -> atom
+```
+
+Amber 导出前会检查缺项。缺 MASS/NONBON/DIHE/IMPROPER 不会静默写出。
+
+## 4. mSeminario Stage
+
+几何优化后，workflow 读取 Cartesian Hessian：
+
+```text
+H_cartesian = d^2E / dx_i dx_j
+```
+
+`apply_mseminario(...)` 把 Hessian 投影到 internal coordinate，更新：
+
+```text
+Bond:  kBond, rEq
+Angle: kTheta, thetaEq
+```
+
+不更新：
+
+```text
+DIHE.kPhi / phase / period
+IMPROPER
+NONBON
+```
+
+因此参数来源分层是：
+
+```text
+initial GAFF2/parmchk2
+ -> mSeminario changes BOND/ANGLE
+ -> TorsionFit changes selected DIHE
+```
+
+## 5. Classical MM 语义
+
+Correction 的内部 profile 计算使用 `utils/mechanics.py`：
+
+```text
+E_MM = E_bond + E_angle + E_proper + E_improper + E_vdw + E_elec
+```
+
+Bond/angle/torsion：
+
+```text
+E_bond    = sum_b k_b (r_b - r0_b)^2
+E_angle   = sum_a k_a (theta_a - theta0_a)^2
+E_torsion = sum_t sum_n k_n [1 + cos(n phi_t - gamma_n)]
+```
+
+非键项：
+
+```text
+E_vdw  = epsilon_ij [(R_ij/r_ij)^12 - 2(R_ij/r_ij)^6]
+E_elec = 332.05221729 q_i q_j / r_ij
+```
+
+AMBER exclusions：
+
+```text
+1-2 pair: excluded
+1-3 pair: excluded
+1-4 electrostatic: / 1.2
+1-4 vdw:           / 2.0
+```
+
+`dihedral_radians(...)` 返回 AMBER/sander/cpptraj convention 下的 `phi`。`phase` 在内部是 radian，写 frcmod/top 时转成 degree。
+
+## 6. Center Bond Selection
+
+自动选择 center bond 时要求：
+
+1. 它是 proper torsion 的中心键。
+2. 它不在 ring 中。
+3. mol2 bond type 表示单键。
+
+可旋转单键识别：
+
+```text
+{"1", "1.0", "s", "single"}
+```
+
+如果输入 mol2 把 amide、芳香键或双键错误标成单键，Correction 会按 mol2 执行。此类问题应修正 mol2，而不是让 TorsionFit 猜拓扑。
+
+显式 `torsion_bonds` 可以指定 center bond。非单键会报错；ring center bond 当前允许但会给 warning。
+
+## 7. Scan 数据
+
+每个 center bond 选择一个 representative dihedral，并生成 scan frames：
+
+```text
+theta_i      scan angle
+X_i          optimized / constrained frame
+Q_i          MLIP/QM reference energy
+```
+
+内部相对能量：
 
 ```text
 QM_rel_i = Q_i - min(Q)
 ```
 
-这些点可以包含 relaxed geometry 的耦合变化。构象突跳、位阻释放或其它 branch change 不会让数据自动失效；它们只影响后续是否允许新增自由度或 Stage2 更新。
-
-Stage1 前会用 original MM 参数过滤明显异常的高能 frames：
+拟合前使用 original MM 过滤明显异常 frame：
 
 ```text
 MM_orig_rel_i <= 50.0 kcal/mol
 ```
 
-这个 filter 用来避免明显不物理的 MM frame 主导拟合，不表示高 QM 能量点必然无效。
+scan 数据可以包含 relaxed geometry 的耦合变化。`geometry_jump` 只作为 profile 诊断和人工解读信息；当前 Stage2 不把它作为参数接受/拒绝条件。
 
-## 4. Shared Torsion Group
+## 8. Shared Group
 
-TorsionFit 不做 per-instance torsion fit。一个 center bond 下的 proper torsion instances 会按 shared group 拟合，同一 group-slot 的参数写回 group 内所有 instances。
+TorsionFit 不做 atom-id 级别 per-instance fitting。同一 center bond 下的 proper torsion instances 会按 shared group 共同拟合。
 
-shared key 当前由两部分组成：
-
-```text
-canonical torsion atom types + one-hop non-torsion environment signature
-```
-
-这比单纯 GAFF atom type 更细，但仍避免退化成 atom-id 级别拟合。它的目标是放松错误共享，而不是完全放弃参数经济性。
-
-对 scan frame `i`、shared group `g`、slot `s`，Stage1 basis 是 group 内 instances 的贡献和：
+当前 shared key：
 
 ```text
-B_i,g,s = sum_m [1 + cos(n_s * phi_i,m - gamma_s)]
+canonical torsion atom types + one-hop non-torsion environment
 ```
 
-其中 `m` 是 group 内 torsion instance，`n_s` 是 period，`gamma_s` 是 Stage1 固定 phase。
-
-## 5. Stage1: Fixed-Phase Restrained LLS
-
-Stage1 对每个 center bond 独立构建 local linear problem。核心目标是让 selected center bond 的 torsion contribution 解释：
+对 scan frame `i`、group `g`、slot `s`：
 
 ```text
-target = QM_rel - MM_zeroed_rel
+B_i,g,s = sum_m [1 + cos(n_s phi_i,m - gamma_g,s)]
 ```
 
-其中 `MM_zeroed_rel` 是把当前 center bond 的待拟合 proper torsion contribution 置零后的 MM relative profile。
+其中 `m` 是 group 内 torsion path。这样同一化学环境共享一套参数，同时允许不同 one-hop environment 分裂。
 
-Stage1 默认 fixed phase，只优化 `k`：
+## 9. Stage1: Spectral Shared-Group Restrained LLS
+
+Stage1 的 target 是当前 center bond 的 torsion contribution：
 
 ```text
-min_k || W(Ak - target) ||^2 + || R(k - k0) ||^2
+mm_base_rel    = MM relative profile with this center-bond proper torsion removed
+fit_target_rel = QM_rel - mm_base_rel
 ```
 
-含义：
-
-- `A` 是 active group-slot basis。
-- `W` 是 profile weights，低能点权重大，高能点仍保留。
-- `R(k-k0)` 是 restrained prior，防止欠定方向任意漂移。
-- `k0` 来自当前 parameter set。
-
-Stage1 active-set 语义：
-
-1. existing slots 默认参与 restrained LLS。
-2. 缺失 slot 只从 canonical `k1..k4` 试探。
-3. candidate 必须让 restrained LLS residual 有实际改善。
-4. candidate 必须满足 k cap、贡献幅度、rank/cancellation 等检查。
-5. 每个 center 只允许有限数量的 new slots。
-6. `geometry_jump` center 不扩新 slot，但已有 slot 仍做 restrained LLS。
-
-Stage1 不负责“回退到原始 torsion”。它是初拟合器，负责稳定地产生 restrained LLS 参数。最终是否接受 Stage2 的进一步更新由 Stage2 per-center selector 处理。
-
-负系数会折叠成：
+Stage1 解 restrained least squares：
 
 ```text
-k = abs(k)
-phase = phase + pi
+min ||B k - fit_target_rel||^2 + lambda sum_j w_j (k_j - k0_j)^2
 ```
 
-selected target terms 最终硬约束：
+语义：
+
+- existing term 进入 weak-prior refit。
+- existing term 可以被 refit 到接近 0。
+- old zero-amplitude term 不进 active fitting，但保留到最终参数，避免 Amber 缺项。
+- spectral helper 从 `n = 1, 2, 3, 4, 6` 中选 candidate。
+- 默认不主动新增 `n=5`；若原始参数已有 `n=5`，会作为 existing term 保留。
+- 单个 center bond 默认最多新增 3 个 spectral slots。
+
+Spectral candidate 的代表 profile 近似写作：
 
 ```text
-k <= 3.0
+fit_target_rel(phi) ~= a_n cos(n phi) + b_n sin(n phi)
 ```
 
-## 6. Geometry Jump Diagnostic
-
-`geometry_jump` 是 profile-level 风险标记，表示相邻 scan 点的 reference relative energy 出现异常突跳。它不等于“数据无效”，也不要求把该 scan 丢弃。
-
-当前语义：
-
-- scan 数据保留。
-- 误差评估保留。
-- Stage1 不为该 center 新增 slot。
-- Stage1 已有 slot 仍做 restrained LLS。
-- Stage2 冻结该 center 的 active variables，保留 Stage1 block。
-
-这样处理的原因是：proper torsion Fourier terms 可以拟合一组构象上的相对能量趋势，但不应该用额外高阶项去硬解释 relaxed branch hop 或其它非 torsion-only 的结构事件。
-
-## 7. Stage2: Global Continuous-Phase Refinement
-
-Stage2 从 Stage1 parameter set 出发，构建跨所有 scan 的 global problem。它不新增 inactive slot，只优化 Stage1 active slots 的 cos/sin coefficient delta：
+并转成 AMBER form：
 
 ```text
-MM_s(x) = constant_s
-        + cos_basis_s @ (orig_cos + delta_cos)
-        + sin_basis_s @ (orig_sin + delta_sin)
+k_n = sqrt(a_n^2 + b_n^2)
+gamma_n = atan2(b_n, a_n)
 ```
 
-每个 scan 的 loss 是 weighted relative-energy error，global objective 是所有 scan 的平均 data loss 加 coefficient prior：
+Shared-group phase migration 使用：
 
 ```text
-total_loss = mean_s(data_loss_s) + prior_loss
+response_g,n = mean_frames(mean_paths exp(i n (phi_path - phi_rep)))
+coherence_g,n = |response_g,n|
+phase_seed_g,n = phase_fft,n + arg(response_g,n)
 ```
 
-Stage2 的作用不是替代 Stage1，而是在 Stage1 已确定 active set 后进行连续 phase/amplitude 微调。
+coherence 过低表示 group 内 path cancellation，candidate 不会激活。
 
-### 7.1 Stage2 Guard
+## 10. Stage2: Global Direct K/Phase Refinement
 
-Stage2 使用 checkpoint + guard + per-center selector。
-
-硬条件：
-
-- objective 和参数必须 finite。
-- selected target term 必须满足 `k <= 3.0`。
-- cancellation ratio 不能过大。
-- 被判定为 `geometry_jump` 的 center 不允许 Stage2 更新。
-- 标记为 unidentifiable 的 torsion 不允许被无意义扰动。
-
-诊断条件：
-
-- `k_efficiency` 是 diagnostic。
-- global total loss 中途上升不直接失败。
-- per-scan data loss 的变化会进入报告，用于 per-center 接受判断。
-
-最终选择：
-
-- optimizer 可以记录多个合法 checkpoint。
-- 全局先选 hard-safe checkpoint。
-- 然后按 center 比较 Stage1 block 与 Stage2 block。
-- Stage2 没有改善或违反 center guard 的 block 回到 Stage1。
-
-## 8. Scan API Usage
-
-Correction 不再直接依赖旧 `runtime.SilentScan`。scan 入口是：
-
-```python
-run_silent_scan(...)
-```
-
-来自：
+Stage2 不新增 slot，不做 candidate gate；它直接优化 Stage1 已确定 slot 的 AMBER torsion 参数：
 
 ```text
-utils/Scan/
+x = [k_1, gamma_1, k_2, gamma_2, ...]
 ```
 
-默认 TorsionFit scan 参数：
+计算时仍使用 cached cos/sin basis，以避免逐 frame 重算完整 MM：
 
 ```text
-backend         = cgbs
-constraint_mode = projected
-torsion_steps   = 72
+a_j = k_j cos(gamma_j)
+b_j = k_j sin(gamma_j)
+
+MM_s(x) = constant_s + cos_basis_s @ a + sin_basis_s @ b
 ```
 
-路由要点：
-
-- `fixinternals + rigid`：只做 rigid geometry。
-- `fixinternals + relaxed + lbfgs`：走 global classic LBFGS。
-- `projected + relaxed`：走 `utils/Scan/optimizer.py`。
-- `projected + rigid`：抛 `ValueError`。
-- scan 支持 1D/2D/3D。
-
-## 9. Report 输出
-
-Correction 主报告包含：
+目标函数：
 
 ```text
-Parmfit Correction Summary
-Parmfit Torsion Scan Fit
-Parmfit Torsion Stage-2 Final Fit
-Parmfit Correction Parameter Report
+L = L_scan + w_ensemble L_ensemble + L_prior
 ```
 
-curve table 使用五条曲线：
+其中 scan 和 ensemble target 使用同一套相对 reference 约定；`torsion_ensemble_weight` 只作为 ensemble loss 的权重。prior 在 coefficient space 约束 Stage2 不要无意义偏离 Stage1：
+
+```text
+a0_j = k0_j cos(gamma0_j)
+b0_j = k0_j sin(gamma0_j)
+
+L_prior = lambda sum_j p_j [(a_j-a0_j)^2 + (b_j-b0_j)^2] / scale_j^2
+```
+
+Stage2 的接受规则是全局 loss 判断：
+
+```text
+if finite(final_total_loss) and final_total_loss < initial_total_loss - tol:
+    accept optimized k/phase
+else:
+    keep Stage1
+```
+
+数值边界：
+
+- `0 <= kPhi <= k_cap`，由 L-BFGS-B bounds 约束。
+- `phase` 优化时不设硬边界，写回前 wrap 到 `(-pi, pi]`。
+- nonfinite loss / vector 返回大 penalty；最终非有限则拒绝。
+- 不再使用 checkpoint selection、per-center rollback、geometry jump/cancellation/torsion-unidentifiable hard guard。
+
+`stage2_ref` 在报告中表示最终 accepted parameter set 对 scan frames 的 MM profile。如果 Stage2 没有降低 total loss，最终参数保持 Stage1。
+
+## 11. Optional Torsion Ensemble Target
+
+`torsion_ensemble=true` 时，Correction 可以给 Stage2 增加额外构象约束。它不改变 Stage1，不改变 scan 文件，也不在 `corr.out` 展开额外 profile 表。
+
+当前 ensemble 采样链路：
+
+```text
+optimized starting structure
+ -> 15 degree rigid random rotor trials
+ -> CPU MM energy / clash / duplicate filtering
+ -> selected frames only
+ -> MLIP single point
+ -> Stage2 extra target
+```
+
+触发边界：
+
+- 至少需要两个 fitted center bonds；只有一个 center bond 时跳过 ensemble。
+- correction 可以采全分子 eligible rotors；NCAA 可传入 R-group mobile mask，冻结 backbone/cap。
+- trial 不做 `FixInternals` relaxed optimization，不占用 GPU 做结构优化。
+- 最终只写一个 ensemble xyz：
+
+```text
+<base>_work/torsionfit/<base>_torsionfit_ensemble.xyz
+```
+
+ensemble target 与 scan 使用同一个 reference convention。对某个 center bond：
+
+```text
+qm_rel_ens      = MLIP_abs_ens - MLIP_abs_scan_ref
+constant_rel    = constant_abs_ens - constant_abs_scan_ref
+cos_basis_rel   = cos_basis_abs_ens - cos_basis_abs_scan_ref
+sin_basis_rel   = sin_basis_abs_ens - sin_basis_abs_scan_ref
+```
+
+因此 ensemble frame 如果比 scan reference 更低能，`qm_rel_ens` 可以为负。这是允许的；它表示 scan 没覆盖到的更低能构象。
+
+`torsion_ensemble_ratio` 控制目标 ensemble 规模：
+
+```text
+target_count ~= ceil(number_of_center_bonds * (torsion_steps + 1) * torsion_ensemble_ratio)
+```
+
+最终进入 Stage2 的 frame 数还会受 MM filter、MLIP high-energy filter 和每个 center 至少 2 帧的要求影响。`torsion_ensemble_weight` 只在 Stage2 loss 中缩放 ensemble target。
+
+## 12. Fast MM Cycle
+
+`torsion_refine_rounds` 当前语义：
+
+```text
+0: Stage1 only
+1: Stage1 + Stage2 once
+N: 最多 N 轮 Stage1 + Stage2 fast MM cycle
+```
+
+每轮：
+
+```text
+current parameter set
+ -> cached MM profile refresh
+ -> Stage1 refit
+ -> Stage2 direct k/phase refinement
+ -> inner Stage2 accepts only if total loss improves
+ -> outer fast-cycle accepts only if this round improves the best scan score
+ -> otherwise keep previous best and stop
+```
+
+不做：
+
+- 不重新跑 MLIP。
+- 不重新生成 scan。
+- 不重新 constrained optimization。
+- 不做 relaxed-rescan loop。
+
+`basis.py::_MMProfileCache` 保存：
+
+```text
+full MM reference energy
+phi(frame) for fitted center-bond proper torsions
+base profile after removing all fitted-center torsions
+```
+
+因此任意 current parameter set 下：
+
+```text
+full_rel = base_rel + sum(all fitted-center torsion_rel)
+center_zeroed_rel(A) = full_rel - torsion_rel(A)
+```
+
+这保证多 center-bond cycle 中，先前 center 的新参数会影响后续 center 的 base profile。
+
+## 13. Amber / GROMACS Export
+
+Amber 导出：
+
+- 写 refined mol2。
+- 写 refined frcmod。
+- 对 Maple atom type 的 MASS/NONBON/BOND/ANGLE/DIHE/IMPROPER 做完整检查。
+- 依赖 Amber/tleap 的 atom type pattern 匹配。
+
+GROMACS 导出：
+
+- 写 explicit atom、bond、angle、proper、improper、nonbond rows。
+- 不依赖 tleap wildcard。
+- 单位转换按 GROMACS 语义：
+  - bond length: Angstrom -> nm
+  - bond force: kcal/mol/A^2 -> kJ/mol/nm^2
+  - angle/torsion energy: kcal/mol -> kJ/mol
+  - phase: rad -> degree
+
+## 14. Report
+
+`corr.out` 当前采用：
+
+```text
+short stage progress
+-> mSeminario bond/angle changes
+-> TorsionFit dihedral changes
+-> PARMFIT CORRECTION RESULT
+```
+
+结尾块包含：
+
+- final Amber/GROMACS files。
+- stage timing。
+- mSeminario 修改数量。
+- TorsionFit 修改数量。
+- Torsion energy trace。
+- `MLIP_ref vs stage2_final` MAE/RMSE。
+- warnings。
+
+Torsion energy trace 列：
 
 ```text
 angle_deg
-QM_ref
-MM_orig
-MM_stage0
-MM_stage1
-MM_stage2
+MLIP_ref
+orig_ref
+stage0_ref
+stage1_ref
+stage2_ref
 ```
 
-默认报告保持简洁。`torsion_report_debug=true` 时才输出 candidate trial、gate reason、rank、cap 等 debug 细节。
+其中：
 
-## 10. 结果解释
+- `MLIP_ref = TorsionFitReport.curves.qm_rel`
+- `orig_ref = mm_orig_rel`，即原始 GAFF2/parmchk2 参数在同一 scan reference 下的 MM relative profile
+- `stage0_ref = mm_stage0_rel`
+- `stage1_ref = mm_stage1_rel`
+- `stage2_ref = mm_stage2_rel`，即最终接受参数的 profile；如果 Stage2 被拒绝，它等价于最终保留的 Stage1/best profile
 
-### 10.1 Stage1 有改善但外部 ensemble 变差
+## 15. 结果解释
 
-这通常说明 scan training distribution 与外部 conformer ensemble 不一致。TorsionFit 在 scan 构象上拟合相对能量，但没有外部 500-frame 数据时，不能保证 broad ensemble 排序一定改善。
+### 15.1 Stage1 好，外部 ensemble 差
 
-chonf25/chonf26 类问题属于这个范畴：scan-union 上可以改善，但外部 ensemble 的目标 torsion correction 解释力弱。
+这通常表示 scan training distribution 与外部 conformer ensemble 不一致。TorsionFit 优化 scan frames 上的相对能量，不保证自动改善外部 500-frame ensemble 排序。
 
-### 10.2 高 RMSE 且 `geometry_jump`
+### 15.2 高 RMSE 或 profile 分支变化
 
-这是保守失败，不是 optimizer 没运行。常见来源：
+这不是 optimizer 没运行。常见原因：
 
-- branch hop
-- steric clash release
-- nonbonded/improper/bond-angle 耦合主导误差
-- relaxed scan 进入另一条构象分支
+- branch hop。
+- steric clash release。
+- nonbonded/improper/bond-angle 耦合主导误差。
+- relaxed scan 进入另一条构象分支。
 
-当前策略是不让 proper torsion 用额外 new slots 或 Stage2 自由 phase 去硬拟合这种突跳。
+当前策略是保留这些数据进入评估；Stage2 不因为 geometry jump 自动拒绝参数，但最终仍要求 total loss 有数值改善。
 
-### 10.3 Stage2 被拒绝
+### 15.3 Stage2 rejected
 
-Stage2 被拒绝通常表示该 center 的 Stage2 block 没有比 Stage1 更好，或违反了硬条件。最终参数会回到 Stage1 block，而不是原始 torsion。
+Stage2 rejected 表示直接 `k/phase` 优化没有降低 finite total loss。最终参数使用 Stage1 或上一轮 best accepted result，而不是 blindly 使用最后一轮 optimizer 输出。
 
-## 11. Debug 顺序
+## 16. Debug 顺序
 
-建议按以下顺序排查：
+建议排查顺序：
 
 1. 检查 mol2 bond type。
 2. 检查 selected center bonds。
-3. 检查 scan xyz 是否对应当前输入和当前 scan 设置。
+3. 检查 scan xyz 是否对应当前输入和当前 torsion settings。
 4. 查看 high-energy frame filter warning。
-5. 比较 `QM_ref`、`MM_orig`、`MM_stage0`、`MM_stage1`、`MM_stage2`。
-6. 查看 `geometry_jump`、active slots、rank、cancellation、capped terms。
-7. 如 Stage2 异常，设置 `torsion_refine_rounds=0` 判断 Stage1 是否合理。
-8. 如 scan fit 好但外部 ensemble 差，优先考虑 scan 覆盖和 torsion 可识别性，而不是放宽 `k` 上限。
+5. 比较 `MLIP_ref / orig_ref / stage0_ref / stage1_ref / stage2_ref`。
+6. 查看 active slots、spectral candidate、coherence、k cap 和 Stage2 loss summary。
+7. 用 `torsion_refine_rounds=0` 单独判断 Stage1。
+8. 如果 scan 内改善但外部 ensemble 变差，优先检查 scan 覆盖和 torsion 可识别性。

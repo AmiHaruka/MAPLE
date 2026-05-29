@@ -1,0 +1,27 @@
+method=abinitio
+target=A462
+cmo=-1 6 3
+
+# QM / RESP
+theory=PBE1PBE
+basis=def2SVP
+route=Guess=Read
+nproc=8
+mem=24
+chgmod=1
+fixchg_resids=
+
+# force field / water / ion
+prom=ff14SB
+watm=tip3p
+ionm=12_6
+bonded=mseminario
+
+# custom cofactor mol2, config-relative path
+cfmol2=HEM_ff.mol2
+
+# MetalAA specific
+add_resid=
+set_bonded=
+cluster_cutoff=3.0
+donor_cutoff=2.7

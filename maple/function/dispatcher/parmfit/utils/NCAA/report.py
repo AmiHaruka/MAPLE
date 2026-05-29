@@ -17,6 +17,7 @@ def format_ncaa_start_lines(
         f"  residue name: {config.rn}\n",
         f"  chirality: {identity.chirality}\n",
         f"  charge/mult: {config.charge} {config.mult}\n",
+        f"  protein model: {config.prom}\n",
         f"  QM ESP method: {config.resp.qm.theory}/{config.resp.qm.basis}\n",
     ]
 

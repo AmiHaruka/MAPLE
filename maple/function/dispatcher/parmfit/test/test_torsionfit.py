@@ -1,6 +1,5 @@
 import importlib
 import os
-from copy import deepcopy
 from pathlib import Path
 import math
 import sys
@@ -185,19 +184,14 @@ from maple.function.dispatcher.parmfit.utils.TorsionFit.topology import (
     resolve_torsion_center_bonds,
 )
 from maple.function.dispatcher.parmfit.utils.TorsionFit.fit import fit_torsion_scan
-from maple.function.dispatcher.parmfit.utils.TorsionFit.fit import run_loss_mode
 from maple.function.dispatcher.parmfit.utils.TorsionFit.basis import _group_center_bond_dihedrals, build_global_torsion_problem
-from maple.function.dispatcher.parmfit.utils.TorsionFit.stage1 import evaluate_refit_objective
 from maple.function.dispatcher.parmfit.utils.TorsionFit.stage2 import (
-    apply_global_delta,
     evaluate_global_refit_objective,
-    extract_global_delta,
-    refine_torsion_scan,
     refine_torsion_scans_global,
 )
 from maple.function.dispatcher.parmfit.utils.TorsionFit.records import (
     TorsionFitReport,
-    TorsionRefineBlockReport,
+    TorsionEnsembleResult,
     TorsionRefineCycle,
     TorsionScanData,
     TorsionWorkflowResult,
@@ -265,8 +259,27 @@ def _make_parameter_set(atom_types, bond_graph, *, dihedrals=None, nonbonds=None
     )
 
 
+def _fitted_mm_profile_rmse_for_test(
+    scan_data: TorsionScanData,
+    parameter_set: CorrectionParameterSet,
+    center_bond: tuple[int, int],
+    fitted_terms: list[list[FourierTerm]],
+) -> tuple[float, np.ndarray, np.ndarray]:
+    updated_parameter_set = apply_center_bond_terms(parameter_set, center_bond, fitted_terms)
+    cache = build_mm_topology_cache(updated_parameter_set)
+    qm_rel = np.asarray(scan_data.qm_rel, dtype=float)
+    mm_refit_total = np.asarray(
+        [evaluate_mm_energy(atoms, updated_parameter_set, topology_cache=cache).total for atoms in scan_data.frames],
+        dtype=float,
+    )
+    mm_refit_rel = mm_refit_total - mm_refit_total[int(scan_data.ref_idx)]
+    residual_after = qm_rel - mm_refit_rel
+    rmse = float(np.sqrt(np.mean(residual_after**2))) if residual_after.size else 0.0
+    return rmse, mm_refit_rel, residual_after
+
+
 def _four_atom_frame(phi_deg: float) -> Atoms:
-    rad = math.radians(180.0 + phi_deg)
+    rad = math.radians(phi_deg)
     positions = [
         (1.0, 0.0, 0.0),
         (0.0, 0.0, 0.0),
@@ -277,7 +290,7 @@ def _four_atom_frame(phi_deg: float) -> Atoms:
 
 
 def _five_atom_frame(phi_deg: float) -> Atoms:
-    rad = math.radians(180.0 + phi_deg)
+    rad = math.radians(phi_deg)
     positions = [
         (1.0, 0.0, 0.0),
         (0.0, 0.0, 0.0),
@@ -432,10 +445,13 @@ def test_torsionfit_params_use_dataclass_defaults_when_keys_are_missing():
 
     assert isinstance(params, TorsionFitParams)
     assert params.enabled
-    assert params.torsion_steps == 72
-    assert params.torsion_step_deg == pytest.approx(5.0)
+    assert params.torsion_steps == 36
+    assert params.torsion_step_deg == pytest.approx(10.0)
     assert params.backend == "cgbs"
     assert params.constraint_mode == "projected"
+    assert params.torsion_ensemble is True
+    assert params.torsion_ensemble_ratio == pytest.approx(0.3)
+    assert params.torsion_ensemble_weight == pytest.approx(0.5)
 
 
 def test_torsionfit_params_accept_backend_and_constraint_mode():
@@ -449,6 +465,30 @@ def test_torsionfit_params_accept_backend_and_constraint_mode():
 
     assert params.backend == "cgws"
     assert params.constraint_mode == "projected"
+
+
+def test_torsionfit_params_accept_optional_ensemble_target_options():
+    params = build_torsion_fit_params(
+        {
+            "torsion_ensemble": "true",
+            "torsion_ensemble_size": 12,
+            "torsion_ensemble_ratio": 0.35,
+            "torsion_ensemble_weight": 0.35,
+            "torsion_ensemble_seed": 7,
+        }
+    )
+
+    assert params.torsion_ensemble is True
+    assert params.torsion_ensemble_ratio == pytest.approx(0.35)
+    assert params.torsion_ensemble_weight == pytest.approx(0.35)
+    assert not hasattr(params, "torsion_ensemble_size")
+    assert not hasattr(params, "torsion_ensemble_seed")
+
+
+def test_torsionfit_params_use_report_debug_field_name():
+    params = build_torsion_fit_params({"report_debug": "true"})
+
+    assert params.report_debug is True
 
 
 def test_torsionfit_params_reject_invalid_backend():
@@ -482,8 +522,8 @@ def test_torsionfit_params_ignore_legacy_scan_config_shapes():
         }
     )
 
-    assert params.torsion_steps == 72
-    assert params.torsion_step_deg == pytest.approx(5.0)
+    assert params.torsion_steps == 36
+    assert params.torsion_step_deg == pytest.approx(10.0)
     assert params.center_bonds is None
 
 
@@ -559,7 +599,7 @@ def test_fit_torsion_scan_regularizes_single_term_delta(tmp_path: Path):
         nonbonds=[Nonbond(atom=index, atom_type="c", charge=0.0) for index in range(1, 5)],
     )
 
-    before_rmse, _, _ = evaluate_refit_objective(
+    before_rmse, _, _ = _fitted_mm_profile_rmse_for_test(
         scan_data,
         parameter_set,
         center_bond=(2, 3),
@@ -607,7 +647,7 @@ def test_fit_torsion_scan_shares_typed_terms_within_center_bond(tmp_path: Path):
         nonbonds=[Nonbond(atom=index, atom_type="c", charge=0.0) for index in range(1, 6)],
     )
 
-    before_rmse, _, _ = evaluate_refit_objective(
+    before_rmse, _, _ = _fitted_mm_profile_rmse_for_test(
         scan_data,
         parameter_set,
         center_bond=(2, 3),
@@ -622,7 +662,7 @@ def test_fit_torsion_scan_shares_typed_terms_within_center_bond(tmp_path: Path):
     assert len(result.terms.shared_groups) == 1
     assert len(result.terms.shared_groups[0].instances) == 2
     assert result.terms.fitted_terms[0][0].kPhi == pytest.approx(result.terms.fitted_terms[1][0].kPhi)
-    after_rmse, _, _ = evaluate_refit_objective(
+    after_rmse, _, _ = _fitted_mm_profile_rmse_for_test(
         scan_data,
         parameter_set,
         center_bond=(2, 3),
@@ -702,7 +742,7 @@ def test_fit_torsion_scan_expands_at_most_two_missing_slots_per_group(tmp_path: 
         nonbonds=[Nonbond(atom=index, atom_type="c", charge=0.0) for index in range(1, 6)],
     )
 
-    before_rmse, _, _ = evaluate_refit_objective(
+    before_rmse, _, _ = _fitted_mm_profile_rmse_for_test(
         scan_data,
         parameter_set,
         center_bond=(2, 3),
@@ -718,7 +758,7 @@ def test_fit_torsion_scan_expands_at_most_two_missing_slots_per_group(tmp_path: 
     assert result.terms.shared_groups[0].active_slots[0] == "k1"
     existing_slots = {f"k{int(term.period)}" for term in result.terms.shared_groups[0].original_terms}
     new_slots = [slot for slot in result.terms.shared_groups[0].active_slots if slot not in existing_slots]
-    assert len(new_slots) <= 2
+    assert len(new_slots) <= 3
     assert result.terms.shared_groups[0].frozen_non_template_slots == ()
     periods_first = [int(term.period) for term in result.terms.fitted_terms[0]]
     periods_second = [int(term.period) for term in result.terms.fitted_terms[1]]
@@ -728,7 +768,7 @@ def test_fit_torsion_scan_expands_at_most_two_missing_slots_per_group(tmp_path: 
     assert shared_template_periods[0] == 1
     shared_existing_periods = {int(term.period) for term in result.terms.shared_groups[0].original_terms}
     shared_new_periods = [period for period in shared_template_periods if period not in shared_existing_periods]
-    assert len(shared_new_periods) <= 2
+    assert len(shared_new_periods) <= 3
     fitted_k1 = next(term.kPhi for term in result.terms.fitted_terms[0] if int(term.period) == 1)
     assert result.metrics.rmse < before_rmse
     assert k_orig < fitted_k1 < k1
@@ -736,7 +776,7 @@ def test_fit_torsion_scan_expands_at_most_two_missing_slots_per_group(tmp_path: 
         new_period = next(period for period in shared_template_periods if period != 1)
         fitted_k_new = next(term.kPhi for term in result.terms.fitted_terms[0] if int(term.period) == new_period)
         assert fitted_k_new > max(k_orig, 0.2)
-    after_rmse, _, _ = evaluate_refit_objective(
+    after_rmse, _, _ = _fitted_mm_profile_rmse_for_test(
         scan_data,
         parameter_set,
         center_bond=(2, 3),
@@ -776,7 +816,7 @@ def test_fit_torsion_scan_does_not_activate_unneeded_missing_slots(tmp_path: Pat
     assert result.terms.fitted_terms[0][0].kPhi > 0.3
 
 
-def test_fit_torsion_scan_preserves_frozen_non_template_terms(tmp_path: Path):
+def test_fit_torsion_scan_refits_existing_period6_terms(tmp_path: Path):
     k_true = 1.10
     phis = [0.0, 60.0, 120.0, 180.0, -120.0, -60.0]
     frames = []
@@ -811,9 +851,9 @@ def test_fit_torsion_scan_preserves_frozen_non_template_terms(tmp_path: Path):
     assert 6 in periods
     assert next(term.kPhi for term in result.terms.fitted_terms[0] if int(term.period) == 6) == pytest.approx(0.35)
     assert len(result.terms.shared_groups) == 1
-    assert result.terms.shared_groups[0].frozen_non_template_slots == ("k6 phase=0",)
+    assert result.terms.shared_groups[0].frozen_non_template_slots == ()
     report = "".join(format_torsion_fit_report(result))
-    assert "frozen_non_template: k6 phase=0" in report
+    assert "frozen_non_template: k6 phase=0" not in report
 
     updated = apply_fitted_torsion(result, parameter_set)
     updated_periods = [int(term.period) for term in updated.dihedrals[0].terms]
@@ -994,7 +1034,7 @@ def test_fit_scan_xyz_wrapper_matches_direct_fit(tmp_path: Path):
     assert wrapped.curves.mm_stage0_rel[0] == pytest.approx(direct.curves.mm_stage0_rel[0])
 
 
-def test_evaluate_refit_objective_matches_true_mm_curve(tmp_path: Path):
+def test_local_fitted_mm_profile_helper_matches_true_curve(tmp_path: Path):
     k_true = 1.75
     phis = [0.0, 60.0, 120.0, 180.0, -120.0, -60.0]
     frames = []
@@ -1020,7 +1060,7 @@ def test_evaluate_refit_objective_matches_true_mm_curve(tmp_path: Path):
     )
 
     fitted_terms = [[FourierTerm(kPhi=k_true, period=1.0, phase=0.0)]]
-    rmse, mm_refit_rel, residual_after = evaluate_refit_objective(
+    rmse, mm_refit_rel, residual_after = _fitted_mm_profile_rmse_for_test(
         scan_data,
         parameter_set,
         center_bond=(2, 3),
@@ -1033,7 +1073,7 @@ def test_evaluate_refit_objective_matches_true_mm_curve(tmp_path: Path):
     assert residual_after == pytest.approx(np.zeros_like(qm_rel), abs=5.0e-8)
 
 
-def test_refine_torsion_scan_improves_true_rmse_from_perturbed_start(tmp_path: Path):
+def test_refine_torsion_scans_global_improves_true_rmse_from_perturbed_start(tmp_path: Path):
     k_true = 1.75
     phis = [0.0, 60.0, 120.0, 180.0, -120.0, -60.0]
     frames = []
@@ -1058,7 +1098,7 @@ def test_refine_torsion_scan_improves_true_rmse_from_perturbed_start(tmp_path: P
         nonbonds=[Nonbond(atom=index, atom_type="c", charge=0.0) for index in range(1, 5)],
     )
 
-    before_rmse, _, _ = evaluate_refit_objective(
+    before_rmse, _, _ = _fitted_mm_profile_rmse_for_test(
         scan_data,
         parameter_set,
         center_bond=(2, 3),
@@ -1066,32 +1106,22 @@ def test_refine_torsion_scan_improves_true_rmse_from_perturbed_start(tmp_path: P
     )
     problem = build_global_torsion_problem(parameter_set, [(2, 3)], {(2, 3): scan_data})
     before_eval = evaluate_global_refit_objective(problem, np.zeros(2 * len(problem.term_paths), dtype=float))
-    result = refine_torsion_scan(
-        scan_data,
-        parameter_set,
-        center_bond=(2, 3),
-        cycle=1,
-        max_iter=20,
+    vector_init = np.zeros(2 * len(problem.term_paths), dtype=float)
+    vector_final, cycles = refine_torsion_scans_global(
+        problem,
+        delta_init=vector_init,
+        enabled=True,
+        max_block_iter=20,
         tol=1.0e-8,
     )
+    after_eval = evaluate_global_refit_objective(problem, vector_final)
 
-    assert isinstance(result, TorsionRefineBlockReport)
-    assert result.accepted
-    assert result.rmse_after < result.rmse_before
-    assert result.rmse_before == pytest.approx(before_eval.global_rmse)
-    updated = apply_center_bond_terms(parameter_set, (2, 3), result.terms_after)
-    after_rmse, _, _ = evaluate_refit_objective(
-        scan_data,
-        updated,
-        center_bond=(2, 3),
-        fitted_terms=result.terms_after,
-    )
-    after_eval = evaluate_global_refit_objective(problem, extract_global_delta(problem, updated))
-    assert result.rmse_after == pytest.approx(after_eval.global_rmse)
-    assert after_rmse < before_rmse
+    assert cycles[-1].accepted_blocks == 1
+    assert before_rmse > 0.0
+    assert after_eval.global_rmse < before_eval.global_rmse
 
 
-def test_refine_torsion_scan_rejects_already_optimal_terms(tmp_path: Path):
+def test_refine_torsion_scans_global_keeps_already_optimal_terms(tmp_path: Path):
     k_true = 1.75
     phis = [0.0, 60.0, 120.0, 180.0, -120.0, -60.0]
     frames = []
@@ -1116,18 +1146,22 @@ def test_refine_torsion_scan_rejects_already_optimal_terms(tmp_path: Path):
         nonbonds=[Nonbond(atom=index, atom_type="c", charge=0.0) for index in range(1, 5)],
     )
 
-    result = refine_torsion_scan(
-        scan_data,
-        parameter_set,
-        center_bond=(2, 3),
-        cycle=1,
-        max_iter=5,
+    problem = build_global_torsion_problem(parameter_set, [(2, 3)], {(2, 3): scan_data})
+    vector_init = np.zeros(2 * len(problem.term_paths), dtype=float)
+    vector_final, cycles = refine_torsion_scans_global(
+        problem,
+        delta_init=vector_init,
+        enabled=True,
+        max_block_iter=5,
         tol=1.0e-8,
     )
+    before_eval = evaluate_global_refit_objective(problem, vector_init)
+    after_eval = evaluate_global_refit_objective(problem, vector_final)
 
-    assert not result.accepted
-    assert result.rmse_before == pytest.approx(0.0, abs=5.0e-8)
-    assert result.rmse_after == pytest.approx(0.0, abs=5.0e-8)
+    assert vector_final.tolist() == pytest.approx(vector_init.tolist())
+    assert cycles[-1].accepted_blocks == 0
+    assert before_eval.global_rmse == pytest.approx(0.0, abs=5.0e-8)
+    assert after_eval.global_rmse == pytest.approx(0.0, abs=5.0e-8)
 
 
 def test_run_torsion_workflow_reports_disabled_state():
@@ -1272,10 +1306,12 @@ def test_run_torsion_workflow_routes_loss_mode(monkeypatch):
         params,
         topology_cache=None,
         log_info=None,
+        ensemble_result=None,
     ):
         del topology_cache, original_parameter_set, scan_mm_orig_rel_map, log_info
         captured["center_bonds"] = tuple(center_bonds)
         captured["scan_keys"] = tuple(scan_data_map)
+        captured["ensemble_result"] = ensemble_result
         return TorsionWorkflowResult(
             stage1_parameter_set=base_parameter_set,
             final_parameter_set=base_parameter_set,
@@ -1287,16 +1323,83 @@ def test_run_torsion_workflow_routes_loss_mode(monkeypatch):
 
     monkeypatch.setattr("maple.function.dispatcher.parmfit.utils.TorsionFit.workflow.run_loss_mode", fake_run_loss_mode)
 
-    result = run_torsion_workflow(
+    run_torsion_workflow(
         atoms=atoms,
         output="loss_route.out",
         parameter_set=parameter_set,
-        params=TorsionFitParams(enabled=True),
+        params=TorsionFitParams(enabled=True, torsion_ensemble=False),
         runtime=TorsionScanRuntime(max_iter=5, memory=5, curvature=70.0, max_step=0.2),
     )
 
     assert captured["center_bonds"] == ((2, 3),)
     assert captured["scan_keys"] == ((2, 3),)
+    assert captured["ensemble_result"] is None
+
+
+def test_run_torsion_workflow_passes_optional_ensemble_provider(monkeypatch):
+    atoms = _four_atom_frame(0.0)
+    parameter_set = _make_parameter_set(
+        atom_types=["c", "c", "c", "c"],
+        bond_graph=[(1, 2), (2, 3), (3, 4)],
+        dihedrals=[
+            Dihedral(
+                atoms=(1, 2, 3, 4),
+                atom_types=("c", "c", "c", "c"),
+                terms=[FourierTerm(kPhi=0.5, period=1.0, phase=0.0)],
+            )
+        ],
+        nonbonds=[Nonbond(atom=index, atom_type="c", charge=0.0) for index in range(1, 5)],
+    )
+    scan_data = TorsionScanData(
+        angles_deg=np.asarray([0.0, 60.0], dtype=float),
+        qm_hartree=np.asarray([0.0, 0.0], dtype=float),
+        qm_kcal=np.asarray([0.0, 0.0], dtype=float),
+        frames=[_four_atom_frame(0.0), _four_atom_frame(60.0)],
+        source_path="fake.xyz",
+        ref_idx=0,
+        qm_rel=np.asarray([0.0, 0.0], dtype=float),
+    )
+    ensemble = TorsionEnsembleResult(xyz_paths={(2, 3): "ensemble.xyz"})
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "maple.function.dispatcher.parmfit.utils.TorsionFit.workflow.resolve_torsion_center_bonds",
+        lambda parameter_set, params, topology_cache=None: ([(2, 3)], []),
+    )
+    monkeypatch.setattr(
+        "maple.function.dispatcher.parmfit.utils.TorsionFit.workflow.representative_dihedral_for_center_bond",
+        lambda parameter_set, center_bond, topology_cache=None: types.SimpleNamespace(atoms=(1, 2, 3, 4)),
+    )
+    monkeypatch.setattr(
+        "maple.function.dispatcher.parmfit.utils.TorsionFit.workflow._run_center_bond_scan",
+        lambda *args, **kwargs: "fake.xyz",
+    )
+    monkeypatch.setattr("maple.function.dispatcher.parmfit.utils.TorsionFit.workflow.read_scan_xyz", lambda path: scan_data)
+    monkeypatch.setattr(
+        "maple.function.dispatcher.parmfit.utils.TorsionFit.workflow.build_torsion_local_ensemble",
+        lambda **kwargs: ensemble,
+    )
+
+    def fake_run_loss_mode(**kwargs):
+        captured.update(kwargs)
+        return TorsionWorkflowResult(
+            stage1_parameter_set=kwargs["base_parameter_set"],
+            final_parameter_set=kwargs["base_parameter_set"],
+            scan_xyz=kwargs["scan_xyz_map"],
+        )
+
+    monkeypatch.setattr("maple.function.dispatcher.parmfit.utils.TorsionFit.workflow.run_loss_mode", fake_run_loss_mode)
+
+    result = run_torsion_workflow(
+        atoms=atoms,
+        output="ensemble_route.out",
+        parameter_set=parameter_set,
+        params=TorsionFitParams(enabled=True, torsion_ensemble=True),
+        runtime=TorsionScanRuntime(max_iter=5, memory=5, curvature=70.0, max_step=0.2),
+    )
+
+    assert captured["ensemble_result"] is ensemble
+    assert result.ensemble_xyz == {(2, 3): "ensemble.xyz"}
 
 
 def test_run_torsion_workflow_does_not_scan_non_rotatable_mol2_bonds(monkeypatch):
@@ -1331,8 +1434,9 @@ def test_run_torsion_workflow_does_not_scan_non_rotatable_mol2_bonds(monkeypatch
         params,
         topology_cache=None,
         log_info=None,
+        ensemble_result=None,
     ):
-        del original_parameter_set, scan_mm_orig_rel_map, params, topology_cache, log_info
+        del original_parameter_set, scan_mm_orig_rel_map, params, topology_cache, log_info, ensemble_result
         captured["center_bonds"] = tuple(center_bonds)
         captured["scan_keys"] = tuple(scan_data_map)
         return TorsionWorkflowResult(

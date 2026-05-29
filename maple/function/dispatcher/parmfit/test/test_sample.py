@@ -183,13 +183,13 @@ def test_run_conformer_benchmark_is_reproducible_and_changes_dihedral():
         random_seed=7,
     )
 
-    assert len(confs_a) == len(confs_b) == 3
+    assert len(confs_a) == len(confs_b) == 2
     assert mlp_a == pytest.approx(mlp_b)
     assert mm_a == pytest.approx(mm_b)
     assert rmse_a == pytest.approx(rmse_b)
 
     observed = sorted(round(((_torsion_deg(conf) + 360.0) % 360.0), 3) for conf in confs_a)
-    assert observed == pytest.approx([60.0, 180.0, 300.0], abs=1.0e-2)
+    assert observed == pytest.approx([180.0, 300.0], abs=1.0e-2)
 
 
 def test_run_conformer_benchmark_deduplicates_and_keeps_lowest_mlp():
@@ -214,7 +214,7 @@ def test_run_conformer_benchmark_deduplicates_and_keeps_lowest_mlp():
         random_seed=3,
     )
 
-    assert len(dedup_confs) == 3
+    assert len(dedup_confs) == 2
     assert len(kept_confs) == 1
     assert ((_torsion_deg(kept_confs[0]) + 360.0) % 360.0) == pytest.approx(180.0, abs=1.0e-2)
     assert mlp_rel.tolist() == pytest.approx([0.0])
@@ -236,9 +236,9 @@ def test_run_conformer_benchmark_uses_common_mlp_reference_for_mm():
         random_seed=11,
     )
 
-    assert mlp_rel.tolist() == pytest.approx([0.0, 3.0, 3.0], abs=1.0e-6)
-    assert mm_rel.tolist() == pytest.approx([0.0, -1.5, -1.5], abs=1.0e-6)
-    assert rmse == pytest.approx(math.sqrt(13.5), abs=1.0e-6)
+    assert mlp_rel.tolist() == pytest.approx([0.0, 3.0], abs=1.0e-6)
+    assert mm_rel.tolist() == pytest.approx([0.0, -1.5], abs=1.0e-6)
+    assert rmse == pytest.approx(math.sqrt(10.125), abs=1.0e-6)
 
 
 def test_run_conformer_benchmark_handles_excluded_or_missing_rotatable_bonds():
@@ -257,7 +257,7 @@ def test_run_conformer_benchmark_handles_excluded_or_missing_rotatable_bonds():
     )
 
     assert len(confs) == 1
-    assert ((_torsion_deg(confs[0]) + 360.0) % 360.0) == pytest.approx(180.0, abs=1.0e-2)
+    assert ((_torsion_deg(confs[0]) + 360.0) % 360.0) == pytest.approx(0.0, abs=1.0e-2)
     assert mlp_rel.tolist() == pytest.approx([0.0])
     assert mm_rel.tolist() == pytest.approx([0.0])
     assert rmse == pytest.approx(0.0)

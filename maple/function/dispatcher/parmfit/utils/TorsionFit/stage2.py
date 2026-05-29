@@ -2,52 +2,34 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 from dataclasses import dataclass
 
 import numpy as np
 from scipy.optimize import minimize
 
 from ..readparm import CorrectionParameterSet, FourierTerm
-from .topology import apply_center_bond_terms
 from .records import (
     TorsionGlobalProblem,
-    TorsionLocalProblem,
     TorsionObjectiveEvaluation,
-    TorsionRefineBlockReport,
     TorsionRefineCycle,
-    TorsionScanData,
 )
 from .config import normalize_center_bond
-from .basis import _build_group_spec, _group_slot_coefficient_basis, _normalize_phase_signed, build_global_torsion_problem
+from .basis import (
+    _normalize_phase_signed,
+)
 from .quality import (
-    _PROFILE_SCALE_FLOOR,
     _profile_fit_scale,
     _profile_loss_metrics,
     _profile_scale_from_arrays,
-    _rmse_from_residual,
-    _robust_profile_range,
     _scan_energy_weights,
-    _scan_profile_quality,
-    _stable_rows_from_scan_quality,
-    ScanProfileQuality,
 )
 from .stage1 import (
     _FITTED_TERM_MAX_K,
-    _cap_k_value,
-    _format_slot_label,
-    _group_active_slot_labels,
-    _group_slots_by_period,
     _merge_template_and_frozen_terms,
-    _relative_profile,
 )
 
 _STAGE2_K_PRIOR_WEIGHT = 0.05
-_STAGE2_CANCELLATION_RATIO_CAP = 10.0
-_STAGE2_K_EFFICIENCY_SMALL_GAIN = 0.50
-_STAGE2_K_EFFICIENCY_MEDIUM_GAIN = 1.00
-_STAGE2_K_EFFICIENCY_MAX_DELTA_K = 2.00
-_STAGE2_K_EFFICIENCY_MAX_K = 3.0
+_STAGE2_NONFINITE_LOSS = 1.0e30
 
 
 @dataclass(frozen=True)
@@ -65,6 +47,23 @@ class _Stage2ScanCache:
 
 
 @dataclass(frozen=True)
+class _Stage2ExtraTargetCache:
+    label: str
+    center_bond: tuple[int, int]
+    row_slice: slice
+    qm_rel: np.ndarray
+    constant_rel: np.ndarray
+    cos_basis: np.ndarray
+    sin_basis: np.ndarray
+    weights: np.ndarray
+    weight_sum: float
+    profile_scale: float
+    scale_class: str
+    target_weight: float
+    source_path: str
+
+
+@dataclass(frozen=True)
 class _Stage2ObjectiveCache:
     center_bonds: tuple[tuple[int, int], ...]
     n_terms: int
@@ -73,20 +72,9 @@ class _Stage2ObjectiveCache:
     cos_basis: np.ndarray
     sin_basis: np.ndarray
     scan_caches: dict[tuple[int, int], _Stage2ScanCache]
+    extra_target_caches: tuple[_Stage2ExtraTargetCache, ...]
     prior_weights: np.ndarray
     scales: np.ndarray
-
-
-@dataclass(frozen=True)
-class _Stage2Checkpoint:
-    source: str
-    vector: np.ndarray
-    evaluation: TorsionObjectiveEvaluation
-    hard_safe: bool
-    hard_reasons: tuple[str, ...]
-    diagnostic_flags: tuple[str, ...]
-    summary: dict[str, object]
-
 
 def _global_term_count(problem: TorsionGlobalProblem) -> int:
     return len(problem.term_paths)
@@ -125,33 +113,6 @@ def _split_global_coeff_delta(problem: TorsionGlobalProblem, vector: np.ndarray)
         raise ValueError(f"Expected {expected} coefficient deltas, got {values.size}.")
     return values[:n_terms], values[n_terms:]
 
-def _stage2_active_indices(active_mask: np.ndarray) -> np.ndarray:
-    return np.flatnonzero(np.asarray(active_mask, dtype=bool))
-
-def _pack_stage2_active_vector(vector: np.ndarray, active_mask: np.ndarray) -> np.ndarray:
-    values = np.asarray(vector, dtype=float).reshape(-1)
-    active_indices = _stage2_active_indices(active_mask)
-    n_terms = np.asarray(active_mask, dtype=bool).size
-    expected = 2 * n_terms
-    if values.size != expected:
-        raise ValueError(f"Expected {expected} coefficient deltas, got {values.size}.")
-    return np.concatenate((values[active_indices], values[n_terms + active_indices]))
-
-def _scatter_stage2_active_vector(vector_base: np.ndarray, active_mask: np.ndarray, active_vector: np.ndarray) -> np.ndarray:
-    full_vector = np.asarray(vector_base, dtype=float).reshape(-1).copy()
-    active_indices = _stage2_active_indices(active_mask)
-    n_terms = np.asarray(active_mask, dtype=bool).size
-    expected_full = 2 * n_terms
-    expected_active = 2 * active_indices.size
-    values = np.asarray(active_vector, dtype=float).reshape(-1)
-    if full_vector.size != expected_full:
-        raise ValueError(f"Expected {expected_full} base coefficient deltas, got {full_vector.size}.")
-    if values.size != expected_active:
-        raise ValueError(f"Expected {expected_active} active coefficient deltas, got {values.size}.")
-    full_vector[active_indices] = values[: active_indices.size]
-    full_vector[n_terms + active_indices] = values[active_indices.size :]
-    return full_vector
-
 def _global_coefficients(problem: TorsionGlobalProblem, vector: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     delta_cos, delta_sin = _split_global_coeff_delta(problem, vector)
     orig_cos, orig_sin = _original_coefficients(problem)
@@ -162,6 +123,23 @@ def _split_global_vector(problem: TorsionGlobalProblem, vector: np.ndarray) -> t
     k_values = np.hypot(cos_coeff, sin_coeff)
     phase_values = np.asarray([_normalize_phase_signed(value) for value in np.arctan2(sin_coeff, cos_coeff)], dtype=float)
     return k_values, phase_values
+
+def _pack_stage2_k_phase(problem: TorsionGlobalProblem, delta_vector: np.ndarray) -> np.ndarray:
+    k_values, phase_values = _split_global_vector(problem, delta_vector)
+    return np.concatenate([k_values, phase_values])
+
+def _delta_from_stage2_k_phase(problem: TorsionGlobalProblem, k_phase_vector: np.ndarray) -> np.ndarray:
+    n_terms = _global_term_count(problem)
+    values = np.asarray(k_phase_vector, dtype=float).reshape(-1)
+    expected = 2 * n_terms
+    if values.size != expected:
+        raise ValueError(f"Expected {expected} k/phase values, got {values.size}.")
+    k_values = values[:n_terms]
+    phase_values = values[n_terms:]
+    orig_cos, orig_sin = _original_coefficients(problem)
+    cos_coeff = k_values * np.cos(phase_values)
+    sin_coeff = k_values * np.sin(phase_values)
+    return np.concatenate([cos_coeff - orig_cos, sin_coeff - orig_sin])
 
 def _build_stage2_objective_cache(problem: TorsionGlobalProblem) -> _Stage2ObjectiveCache:
     n_terms = _global_term_count(problem)
@@ -208,6 +186,51 @@ def _build_stage2_objective_cache(problem: TorsionGlobalProblem) -> _Stage2Objec
         sin_blocks.append(sin_basis)
         offset += qm_rel.size
 
+    extra_target_caches: list[_Stage2ExtraTargetCache] = []
+    for target in problem.extra_targets:
+        target_weight = float(target.weight)
+        if target_weight <= 0.0:
+            continue
+        center_bond = normalize_center_bond(target.center_bond)
+        qm_rel = np.asarray(target.qm_rel, dtype=float)
+        constant_rel = np.asarray(target.constant_rel, dtype=float)
+        cos_basis = np.asarray(target.cos_basis, dtype=float)
+        sin_basis = np.asarray(target.sin_basis, dtype=float)
+        if cos_basis.shape != (qm_rel.size, n_terms):
+            raise ValueError(f"extra target {target.label!r} cos basis has shape {cos_basis.shape}, expected {(qm_rel.size, n_terms)}.")
+        if sin_basis.shape != (qm_rel.size, n_terms):
+            raise ValueError(f"extra target {target.label!r} sin basis has shape {sin_basis.shape}, expected {(qm_rel.size, n_terms)}.")
+        if constant_rel.shape != qm_rel.shape:
+            raise ValueError(f"extra target {target.label!r} constant profile must match qm_rel shape.")
+        target_like = qm_rel - constant_rel
+        profile_scale = _profile_fit_scale(qm_rel, target_like)
+        _unused_scale, scale_class = _profile_scale_from_arrays(qm_rel, target_like)
+        weights = _scan_energy_weights(qm_rel)
+        weight_sum = float(np.sum(weights))
+        row_slice = slice(offset, offset + qm_rel.size)
+        extra_target_caches.append(
+            _Stage2ExtraTargetCache(
+                label=str(target.label),
+                center_bond=center_bond,
+                row_slice=row_slice,
+                qm_rel=qm_rel,
+                constant_rel=constant_rel,
+                cos_basis=cos_basis,
+                sin_basis=sin_basis,
+                weights=weights,
+                weight_sum=weight_sum,
+                profile_scale=float(profile_scale),
+                scale_class=scale_class,
+                target_weight=target_weight,
+                source_path=str(target.source_path),
+            )
+        )
+        qm_blocks.append(qm_rel)
+        constant_blocks.append(constant_rel)
+        cos_blocks.append(cos_basis)
+        sin_blocks.append(sin_basis)
+        offset += qm_rel.size
+
     prior_weights = problem.prior_weights if problem.prior_weights is not None else np.ones_like(problem.scales, dtype=float)
     prior_weights = np.asarray(prior_weights, dtype=float)
     if prior_weights.size:
@@ -221,6 +244,7 @@ def _build_stage2_objective_cache(problem: TorsionGlobalProblem) -> _Stage2Objec
         cos_basis=np.vstack(cos_blocks) if cos_blocks else np.zeros((0, n_terms), dtype=float),
         sin_basis=np.vstack(sin_blocks) if sin_blocks else np.zeros((0, n_terms), dtype=float),
         scan_caches=scan_caches,
+        extra_target_caches=tuple(extra_target_caches),
         prior_weights=prior_weights,
         scales=np.asarray(problem.scales, dtype=float),
     )
@@ -426,7 +450,30 @@ def _stage2_data_evaluation_and_gradient_weights(
     #   prior_loss = lambda * prior_weight * mean_j prior_w_j *
     #                ((delta_cos_j / scale_j)^2 + (delta_sin_j / scale_j)^2)
     #   total_loss = mean_s(data_loss_s) + prior_loss
-    mean_data_loss = float(np.mean(list(per_scan_data_loss.values()))) if per_scan_data_loss else 0.0
+    scan_data_loss = float(np.mean(list(per_scan_data_loss.values()))) if per_scan_data_loss else 0.0
+    extra_data_loss = 0.0
+    # Extra Loss from ensemble targets:
+    for target_cache in cache.extra_target_caches:
+        mm_rel = stacked_mm_rel[target_cache.row_slice]
+        qm_rel = target_cache.qm_rel
+        residual = mm_rel - qm_rel
+        loss_metrics = _profile_loss_metrics(
+            qm_rel,
+            mm_rel,
+            profile_scale=target_cache.profile_scale,
+            weights=target_cache.weights,
+        )
+        weighted_loss = float(target_cache.target_weight) / len(cache.extra_target_caches) * float(loss_metrics["data_loss"])
+        extra_data_loss += weighted_loss
+        if target_cache.weight_sum > 0.0 and target_cache.target_weight > 0.0:
+            residual_gradient_weights[target_cache.row_slice] = (
+                float(target_cache.target_weight)
+                / len(cache.extra_target_caches)
+                * target_cache.weights
+                / (target_cache.weight_sum * max(target_cache.profile_scale, 1.0e-12) ** 2)
+            )
+
+    mean_data_loss = float(scan_data_loss + extra_data_loss)
     evaluation = TorsionObjectiveEvaluation(
         total_loss=mean_data_loss + prior_loss,
         data_loss=mean_data_loss,
@@ -436,15 +483,17 @@ def _stage2_data_evaluation_and_gradient_weights(
         per_scan_data_loss=dict(per_scan_data_loss),
         bucket_by_scan=bucket_by_scan,
         objective_kind="continuous_phase_k",
+        scan_data_loss=float(scan_data_loss),
+        ensemble_data_loss=float(extra_data_loss),
     )
     return evaluation, residual_gradient_weights, stacked_residual
 
-def _evaluate_global_continuous_phase_objective_with_gradient(
+def _evaluate_stage2_delta_objective(
     problem: TorsionGlobalProblem,
     delta_vector: np.ndarray,
     *,
     cache: _Stage2ObjectiveCache | None = None,
-) -> tuple[TorsionObjectiveEvaluation, np.ndarray]:
+) -> TorsionObjectiveEvaluation:
     cache = _build_stage2_objective_cache(problem) if cache is None else cache
     raw_vector = np.asarray(delta_vector, dtype=float).reshape(-1)
     delta_cos, delta_sin = _split_global_coeff_delta(problem, raw_vector)
@@ -455,73 +504,6 @@ def _evaluate_global_continuous_phase_objective_with_gradient(
         cache,
         prior_loss=prior_loss,
     )
-    gradient_scale = 2.0 * residual_gradient_weights * stacked_residual
-    grad_cos = cache.cos_basis.T @ gradient_scale
-    grad_sin = cache.sin_basis.T @ gradient_scale
-    if cache.n_terms:
-        prior_factor = 2.0 * _STAGE2_K_PRIOR_WEIGHT * problem.prior_weight / float(cache.n_terms)
-        grad_cos = grad_cos + (prior_factor * cache.prior_weights * delta_cos / (cache.scales**2))
-        grad_sin = grad_sin + (prior_factor * cache.prior_weights * delta_sin / (cache.scales**2))
-    return evaluation, np.concatenate([grad_cos, grad_sin])
-
-def _evaluate_stage2_active_objective_with_gradient(
-    problem: TorsionGlobalProblem,
-    active_vector: np.ndarray,
-    vector_base: np.ndarray,
-    active_mask: np.ndarray,
-    *,
-    cache: _Stage2ObjectiveCache | None = None,
-) -> tuple[TorsionObjectiveEvaluation, np.ndarray]:
-    cache = _build_stage2_objective_cache(problem) if cache is None else cache
-    active_indices = _stage2_active_indices(active_mask)
-    active_values = np.asarray(active_vector, dtype=float).reshape(-1)
-    if active_values.size != 2 * active_indices.size:
-        raise ValueError(f"Expected {2 * active_indices.size} active coefficient deltas, got {active_values.size}.")
-
-    base_vector = np.asarray(vector_base, dtype=float).reshape(-1)
-    base_delta_cos, base_delta_sin = _split_global_coeff_delta(problem, base_vector)
-    active_delta_cos = active_values[: active_indices.size]
-    active_delta_sin = active_values[active_indices.size :]
-    delta_cos = base_delta_cos.copy()
-    delta_sin = base_delta_sin.copy()
-    delta_cos[active_indices] = active_delta_cos
-    delta_sin[active_indices] = active_delta_sin
-
-    base_mm_rel = _stage2_cached_mm_values(problem, base_vector, cache)
-    stacked_mm_rel = base_mm_rel
-    if active_indices.size:
-        stacked_mm_rel = stacked_mm_rel + (
-            cache.cos_basis[:, active_indices] @ (active_delta_cos - base_delta_cos[active_indices])
-        )
-        stacked_mm_rel = stacked_mm_rel + (
-            cache.sin_basis[:, active_indices] @ (active_delta_sin - base_delta_sin[active_indices])
-        )
-    prior_loss = _stage2_prior_loss(problem, delta_cos, delta_sin, cache)
-    evaluation, residual_gradient_weights, stacked_residual = _stage2_data_evaluation_and_gradient_weights(
-        stacked_mm_rel,
-        cache,
-        prior_loss=prior_loss,
-    )
-    gradient_scale = 2.0 * residual_gradient_weights * stacked_residual
-    grad_cos = cache.cos_basis[:, active_indices].T @ gradient_scale
-    grad_sin = cache.sin_basis[:, active_indices].T @ gradient_scale
-    if cache.n_terms and active_indices.size:
-        prior_factor = 2.0 * _STAGE2_K_PRIOR_WEIGHT * problem.prior_weight / float(cache.n_terms)
-        grad_cos = grad_cos + (
-            prior_factor * cache.prior_weights[active_indices] * active_delta_cos / (cache.scales[active_indices] ** 2)
-        )
-        grad_sin = grad_sin + (
-            prior_factor * cache.prior_weights[active_indices] * active_delta_sin / (cache.scales[active_indices] ** 2)
-        )
-    return evaluation, np.concatenate([grad_cos, grad_sin])
-
-def _evaluate_global_continuous_phase_objective(
-    problem: TorsionGlobalProblem,
-    delta_vector: np.ndarray,
-    *,
-    cache: _Stage2ObjectiveCache | None = None,
-) -> TorsionObjectiveEvaluation:
-    evaluation, _gradient = _evaluate_global_continuous_phase_objective_with_gradient(problem, delta_vector, cache=cache)
     return evaluation
 
 def evaluate_global_refit_objective(
@@ -530,313 +512,115 @@ def evaluate_global_refit_objective(
     *,
     cache: _Stage2ObjectiveCache | None = None,
 ) -> TorsionObjectiveEvaluation:
-    return _evaluate_global_continuous_phase_objective(problem, delta_vector, cache=cache)
+    return _evaluate_stage2_delta_objective(problem, delta_vector, cache=cache)
 
-
-# -----------------------------------------------------------------------------
-# Stage2 guards and coefficient optimization
-# -----------------------------------------------------------------------------
-
-def _stage2_term_profiles(
+def _evaluate_stage2_k_phase_objective_with_gradient(
     problem: TorsionGlobalProblem,
-    center_bond: tuple[int, int],
-    vector: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
-    cos_coeff, sin_coeff = _global_coefficients(problem, vector)
-    k_values, _phase_values = _split_global_vector(problem, vector)
-    start, end = problem.block_slices[center_bond]
-    if end <= start:
-        return np.zeros((len(problem.qm_rel_map[center_bond]), 0), dtype=float), np.zeros(0, dtype=float)
-    k_block = k_values[start:end]
-    cos_basis = np.asarray(problem.centered_cos_basis_map[center_bond][:, start:end], dtype=float)
-    sin_basis = np.asarray(problem.centered_sin_basis_map[center_bond][:, start:end], dtype=float)
-    return (
-        (cos_basis * cos_coeff[start:end][np.newaxis, :]) + (sin_basis * sin_coeff[start:end][np.newaxis, :]),
-        k_block,
-    )
-
-def _stage2_cancellation_metrics(
-    problem: TorsionGlobalProblem,
-    center_bond: tuple[int, int],
-    vector: np.ndarray,
-) -> tuple[float, float]:
-    term_profiles, k_block = _stage2_term_profiles(problem, center_bond, vector)
-    active = np.flatnonzero(np.max(np.abs(term_profiles), axis=0) > 1.0e-10) if term_profiles.size else np.asarray([], dtype=int)
-    max_abs_k = float(np.max(np.abs(k_block))) if k_block.size else 0.0
-    if active.size <= 1:
-        return 1.0, max_abs_k
-    active_profiles = term_profiles[:, active]
-    individual_span = float(sum(_robust_profile_range(active_profiles[:, index]) for index in range(active_profiles.shape[1])))
-    net_span = _robust_profile_range(np.sum(active_profiles, axis=1))
-    return individual_span / max(net_span, _PROFILE_SCALE_FLOOR), max_abs_k
-
-def _stage2_active_slot_labels(problem: TorsionGlobalProblem, center_bond: tuple[int, int], vector: np.ndarray) -> list[str]:
-    k_values, phase_values = _split_global_vector(problem, vector)
-    start, end = problem.block_slices[center_bond]
-    labels: list[str] = []
-    for global_index in range(start, end):
-        if abs(float(k_values[global_index])) <= 1.0e-10:
-            continue
-        labels.append(_format_slot_label(problem.period_orig[global_index], phase_values[global_index]))
-    return labels
-
-def _stage2_candidate_guard(
-    problem: TorsionGlobalProblem,
-    before_vector: np.ndarray,
-    candidate_vector: np.ndarray,
-    tol: float,
+    k_phase_vector: np.ndarray,
     *,
     cache: _Stage2ObjectiveCache | None = None,
-    scan_quality_by_center: dict[tuple[int, int], ScanProfileQuality] | None = None,
-) -> tuple[bool, dict[str, object]]:
-    before_profiles = _global_mm_rel_map(problem, before_vector, cache=cache)
-    candidate_profiles = _global_mm_rel_map(problem, candidate_vector, cache=cache)
-    before_eval = evaluate_global_refit_objective(problem, before_vector, cache=cache)
-    candidate_eval = evaluate_global_refit_objective(problem, candidate_vector, cache=cache)
-    before_k_values, _before_phase_values = _split_global_vector(problem, before_vector)
-    candidate_k_values, _candidate_phase_values = _split_global_vector(problem, candidate_vector)
-    per_scan: dict[str, dict[str, object]] = {}
-    hard_reasons: list[str] = []
-    diagnostic_flags: list[str] = []
-
-    def add_diagnostic(flag: str) -> None:
-        if flag not in diagnostic_flags:
-            diagnostic_flags.append(flag)
-
-    for center_bond in problem.center_bonds:
-        qm_rel = np.asarray(problem.qm_rel_map[center_bond], dtype=float)
-        scan_quality = (
-            scan_quality_by_center[center_bond]
-            if scan_quality_by_center is not None and center_bond in scan_quality_by_center
-            else _scan_profile_quality(qm_rel)
-        )
-        before_mm = np.asarray(before_profiles[center_bond], dtype=float)
-        candidate_mm = np.asarray(candidate_profiles[center_bond], dtype=float)
-        target_like = qm_rel - np.asarray(problem.constant_rel_map.get(center_bond, np.zeros_like(qm_rel)), dtype=float)
-        profile_scale = _profile_fit_scale(qm_rel, target_like)
-        _unused_scale, scale_class = _profile_scale_from_arrays(qm_rel, target_like)
-        stable_mask = _stable_rows_from_scan_quality(qm_rel.size, scan_quality)
-        before_rmse = _rmse_from_residual(before_mm - qm_rel)
-        candidate_rmse = _rmse_from_residual(candidate_mm - qm_rel)
-        before_stable_rmse = _rmse_from_residual(before_mm - qm_rel, stable_mask)
-        candidate_stable_rmse = _rmse_from_residual(candidate_mm - qm_rel, stable_mask)
-        weights = _scan_energy_weights(qm_rel)
-        before_metrics = _profile_loss_metrics(qm_rel, before_mm, profile_scale=profile_scale, weights=weights)
-        candidate_metrics = _profile_loss_metrics(qm_rel, candidate_mm, profile_scale=profile_scale, weights=weights)
-        cancellation_ratio, max_abs_k = _stage2_cancellation_metrics(problem, center_bond, candidate_vector)
-        cancellation_cap = _STAGE2_CANCELLATION_RATIO_CAP
-        max_k_cap = _stage2_max_k_cap_for_center(problem, center_bond)
-        data_slack = max(float(tol), 1.0e-4, 0.05 * max(before_metrics["data_loss"], 1.0e-6))
-        scan_hard_reasons: list[str] = []
-        scan_diagnostics: list[str] = []
-        start, end = problem.block_slices[center_bond]
-        max_delta_k = (
-            float(np.max(np.abs(candidate_k_values[start:end] - before_k_values[start:end])))
-            if end > start
-            else 0.0
-        )
-        has_update = max_delta_k > max(float(tol), 1.0e-8)
-        rmse_gain = float(before_rmse - candidate_rmse)
-        stable_rmse_gain = float(before_stable_rmse - candidate_stable_rmse)
-        capped_terms = _stage2_capped_term_count(problem, candidate_vector, center_bond)
-        at_cap_terms = _stage2_at_cap_term_count(problem, candidate_vector, center_bond)
-        raw_scan_quality = str(scan_quality.quality)
-        scan_quality_label = "geometry_jump" if raw_scan_quality in {"discontinuous", "geometry_jump"} else raw_scan_quality
-        scan_quality_note = "geometry_jump" if scan_quality_label == "geometry_jump" else None
-        target_signal = _robust_profile_range(target_like)
-        torsion_unidentifiable = target_signal < max(0.05, 0.01 * float(profile_scale))
-
-        if scan_quality_note is not None:
-            scan_diagnostics.append("geometry_jump")
-            add_diagnostic("geometry_jump")
-        if torsion_unidentifiable:
-            scan_diagnostics.append("torsion_unidentifiable")
-            add_diagnostic("torsion_unidentifiable")
-        if candidate_metrics["data_loss"] > before_metrics["data_loss"] + data_slack:
-            scan_diagnostics.append("data_loss_degraded")
-            add_diagnostic("data_loss_degraded")
-        if cancellation_ratio > cancellation_cap:
-            scan_hard_reasons.append("cancellation")
-        if max_abs_k > max_k_cap:
-            scan_hard_reasons.append("k_too_large")
-        if at_cap_terms > 0:
-            scan_diagnostics.append("at_cap")
-            add_diagnostic("at_cap")
-        k_efficiency_failed = (
-            rmse_gain < _STAGE2_K_EFFICIENCY_SMALL_GAIN and max_delta_k > _STAGE2_K_EFFICIENCY_MAX_DELTA_K
-        ) or (
-            rmse_gain < _STAGE2_K_EFFICIENCY_MEDIUM_GAIN and max_abs_k > _STAGE2_K_EFFICIENCY_MAX_K
-        )
-        if k_efficiency_failed:
-            scan_diagnostics.append("k_efficiency")
-            add_diagnostic("k_efficiency")
-        if torsion_unidentifiable and has_update:
-            scan_hard_reasons.append("torsion_unidentifiable")
-        if scan_quality_note is not None and has_update:
-            scan_hard_reasons.append("geometry_jump_frozen")
-
-        if scan_hard_reasons:
-            hard_reasons.extend(f"{center_bond}:{reason}" for reason in scan_hard_reasons)
-        per_scan[str(center_bond)] = {
-            "scale_class": scale_class,
-            "scale": float(profile_scale),
-            "profile_issue": scan_quality_note,
-            "scan_quality": scan_quality_label,
-            "scan_quality_note": scan_quality_note,
-            "max_adjacent_qm_jump": float(scan_quality.max_adjacent_qm_jump),
-            "active_slots": _stage2_active_slot_labels(problem, center_bond, candidate_vector),
-            "reject_reason": ",".join(scan_hard_reasons) if scan_hard_reasons else None,
-            "diagnostic_flags": tuple(scan_diagnostics),
-            "max_abs_k": float(max_abs_k),
-            "max_k_cap": float(max_k_cap),
-            "capped_terms": int(capped_terms),
-            "at_cap_terms": int(at_cap_terms),
-            "max_delta_k": float(max_delta_k),
-            "cancellation_ratio": float(cancellation_ratio),
-            "rmse_before": float(before_rmse),
-            "rmse_after": float(candidate_rmse),
-            "rmse_gain": float(rmse_gain),
-            "stable_rmse_before": float(before_stable_rmse),
-            "stable_rmse_after": float(candidate_stable_rmse),
-            "stable_rmse_gain": float(stable_rmse_gain),
-            "data_loss_before": float(before_metrics["data_loss"]),
-            "data_loss_after": float(candidate_metrics["data_loss"]),
-        }
-
-    if not np.isfinite(candidate_eval.total_loss):
-        hard_reasons.append("nonfinite_objective")
-    if candidate_eval.total_loss >= before_eval.total_loss - float(tol):
-        add_diagnostic("no_total_loss_gain")
-    if candidate_eval.data_loss > before_eval.data_loss + max(float(tol), 0.05 * max(before_eval.data_loss, 1.0)):
-        add_diagnostic("data_loss_degraded")
-
-    summary = {
-        "accepted": not hard_reasons,
-        "reject_reason": ",".join(hard_reasons) if hard_reasons else None,
-        "hard_reasons": tuple(hard_reasons),
-        "diagnostic_flags": tuple(diagnostic_flags),
-        "per_scan": per_scan,
-        "total_loss_before": float(before_eval.total_loss),
-        "total_loss_after": float(candidate_eval.total_loss),
-        "data_loss_before": float(before_eval.data_loss),
-        "data_loss_after": float(candidate_eval.data_loss),
-    }
-    return not hard_reasons, summary
-
-def _stage2_apply_center_fallbacks(
-    problem: TorsionGlobalProblem,
-    initial_vector: np.ndarray,
-    candidate_vector: np.ndarray,
-    *,
-    tol: float,
-    cache: _Stage2ObjectiveCache | None = None,
-    scan_quality_by_center: dict[tuple[int, int], ScanProfileQuality] | None = None,
-) -> tuple[np.ndarray, dict[str, tuple[str, ...]]]:
-    before_profiles = _global_mm_rel_map(problem, initial_vector, cache=cache)
-    candidate_profiles = _global_mm_rel_map(problem, candidate_vector, cache=cache)
-    final_vector = np.asarray(candidate_vector, dtype=float).reshape(-1).copy()
+) -> tuple[TorsionObjectiveEvaluation, np.ndarray]:
+    cache = _build_stage2_objective_cache(problem) if cache is None else cache
     n_terms = _global_term_count(problem)
-    center_status: dict[str, tuple[str, ...]] = {}
-    for center_bond in problem.center_bonds:
-        qm_rel = np.asarray(problem.qm_rel_map[center_bond], dtype=float)
-        before_mm = np.asarray(before_profiles[center_bond], dtype=float)
-        candidate_mm = np.asarray(candidate_profiles[center_bond], dtype=float)
-        target_like = qm_rel - np.asarray(problem.constant_rel_map.get(center_bond, np.zeros_like(qm_rel)), dtype=float)
-        profile_scale = _profile_fit_scale(qm_rel, target_like)
-        weights = _scan_energy_weights(qm_rel)
-        before_metrics = _profile_loss_metrics(qm_rel, before_mm, profile_scale=profile_scale, weights=weights)
-        candidate_metrics = _profile_loss_metrics(qm_rel, candidate_mm, profile_scale=profile_scale, weights=weights)
-        scan_quality = (
-            scan_quality_by_center[center_bond]
-            if scan_quality_by_center is not None and center_bond in scan_quality_by_center
-            else _scan_profile_quality(qm_rel)
+    values = np.asarray(k_phase_vector, dtype=float).reshape(-1)
+    if values.size != 2 * n_terms:
+        raise ValueError(f"Expected {2 * n_terms} k/phase values, got {values.size}.")
+    if not np.all(np.isfinite(values)):
+        evaluation = TorsionObjectiveEvaluation(
+            total_loss=_STAGE2_NONFINITE_LOSS,
+            data_loss=_STAGE2_NONFINITE_LOSS,
+            prior_loss=0.0,
+            global_rmse=float(np.sqrt(_STAGE2_NONFINITE_LOSS)),
+            per_scan_rmse={},
+            objective_kind="direct_k_phase",
         )
-        reasons: list[str] = []
-        if scan_quality.has_geometry_jump:
-            reasons.append("geometry_jump_frozen")
-        else:
-            improvement_tol = max(float(tol), 1.0e-10)
-            if candidate_metrics["data_loss"] < before_metrics["data_loss"] - improvement_tol:
-                center_status[str(center_bond)] = ("accepted",)
-                continue
-            reasons.append("stage2_rejected")
-            if candidate_metrics["data_loss"] > before_metrics["data_loss"] + improvement_tol:
-                reasons.append("data_loss_degraded")
-            else:
-                reasons.append("no_center_residual_gain")
-        if not reasons:
-            continue
-        start, end = problem.block_slices[center_bond]
-        final_vector[start:end] = initial_vector[start:end]
-        final_vector[n_terms + start : n_terms + end] = initial_vector[n_terms + start : n_terms + end]
-        center_status[str(center_bond)] = tuple(reasons)
-    return final_vector, center_status
+        return evaluation, np.zeros_like(values, dtype=float)
 
-def _stage2_default_active_mask(problem: TorsionGlobalProblem) -> np.ndarray:
-    n_terms = _global_term_count(problem)
-    if not problem.grouped:
-        return np.ones(n_terms, dtype=bool)
-    active_mask = np.zeros(n_terms, dtype=bool)
-    for center_bond in problem.center_bonds:
-        for group in problem.shared_groups_map.get(center_bond, ()):
-            for period_slots in _group_slots_by_period(group).values():
-                existing_slots = [
-                    int(slot_index)
-                    for slot_index, slot_present in zip(group.slot_indices, group.existing_slot_mask)
-                    if int(slot_index) in period_slots and bool(slot_present)
-                ]
-                if not existing_slots:
-                    continue
-                selected = max(existing_slots, key=lambda slot_index: abs(float(problem.k_orig[slot_index])))
-                active_mask[selected] = True
-    return active_mask
-
-def _stage2_freeze_geometry_jump_centers(
-    problem: TorsionGlobalProblem,
-    active_mask: np.ndarray,
-    scan_quality_by_center: dict[tuple[int, int], ScanProfileQuality],
-) -> np.ndarray:
-    mask = np.asarray(active_mask, dtype=bool).copy()
-    for center_bond in problem.center_bonds:
-        scan_quality = scan_quality_by_center.get(center_bond)
-        if scan_quality is None or not scan_quality.has_geometry_jump:
-            continue
-        start, end = problem.block_slices[center_bond]
-        mask[start:end] = False
-    return mask
-
-def _stage2_coefficient_bounds(
-    problem: TorsionGlobalProblem,
-    vector_init: np.ndarray,
-    active_mask: np.ndarray | None = None,
-    *,
-    cache: _Stage2ObjectiveCache | None = None,
-) -> list[tuple[float, float]]:
-    vector_values = np.asarray(vector_init, dtype=float).reshape(-1)
-    allowed_mask = np.ones(_global_term_count(problem), dtype=bool) if active_mask is None else np.asarray(active_mask, dtype=bool)
-    n_terms = _global_term_count(problem)
+    k_values = values[:n_terms]
+    phase_values = values[n_terms:]
+    cos_phase = np.cos(phase_values)
+    sin_phase = np.sin(phase_values)
+    cos_coeff = k_values * cos_phase
+    sin_coeff = k_values * sin_phase
     orig_cos, orig_sin = _original_coefficients(problem)
-    bounds = [(-np.inf, np.inf) for _ in range(_global_vector_size(problem))]
-    del cache
-    for center_bond in problem.center_bonds:
-        max_abs_k = _FITTED_TERM_MAX_K
-        start, end = problem.block_slices[center_bond]
-        for global_index in range(start, end):
-            if not bool(allowed_mask[global_index]):
-                frozen_cos_delta = float(vector_values[global_index])
-                frozen_sin_delta = float(vector_values[n_terms + global_index])
-                bounds[global_index] = (frozen_cos_delta, frozen_cos_delta)
-                bounds[n_terms + global_index] = (frozen_sin_delta, frozen_sin_delta)
-                continue
-            bounds[global_index] = (
-                float(-max_abs_k - orig_cos[global_index]),
-                float(max_abs_k - orig_cos[global_index]),
-            )
-            bounds[n_terms + global_index] = (
-                float(-max_abs_k - orig_sin[global_index]),
-                float(max_abs_k - orig_sin[global_index]),
-            )
-    return bounds
+    delta_cos = cos_coeff - orig_cos
+    delta_sin = sin_coeff - orig_sin
+
+    stacked_mm_rel = cache.constant_rel + (cache.cos_basis @ cos_coeff) + (cache.sin_basis @ sin_coeff)
+    prior_loss = _stage2_prior_loss(problem, delta_cos, delta_sin, cache)
+    evaluation, residual_gradient_weights, stacked_residual = _stage2_data_evaluation_and_gradient_weights(
+        stacked_mm_rel,
+        cache,
+        prior_loss=prior_loss,
+    )
+    object.__setattr__(evaluation, "objective_kind", "direct_k_phase")
+    gradient_scale = 2.0 * residual_gradient_weights * stacked_residual
+    grad_cos_coeff = cache.cos_basis.T @ gradient_scale
+    grad_sin_coeff = cache.sin_basis.T @ gradient_scale
+    if cache.n_terms:
+        prior_factor = 2.0 * _STAGE2_K_PRIOR_WEIGHT * problem.prior_weight / float(cache.n_terms)
+        grad_cos_coeff = grad_cos_coeff + (prior_factor * cache.prior_weights * delta_cos / (cache.scales**2))
+        grad_sin_coeff = grad_sin_coeff + (prior_factor * cache.prior_weights * delta_sin / (cache.scales**2))
+    grad_k = grad_cos_coeff * cos_phase + grad_sin_coeff * sin_phase
+    grad_phase = (-grad_cos_coeff * k_values * sin_phase) + (grad_sin_coeff * k_values * cos_phase)
+    gradient = np.concatenate([grad_k, grad_phase])
+    if not np.isfinite(evaluation.total_loss) or not np.all(np.isfinite(gradient)):
+        evaluation = TorsionObjectiveEvaluation(
+            total_loss=_STAGE2_NONFINITE_LOSS,
+            data_loss=_STAGE2_NONFINITE_LOSS,
+            prior_loss=0.0,
+            global_rmse=float(np.sqrt(_STAGE2_NONFINITE_LOSS)),
+            per_scan_rmse={},
+            objective_kind="direct_k_phase",
+        )
+        return evaluation, np.zeros_like(values, dtype=float)
+    return evaluation, gradient
+
+def _stage2_k_phase_bounds(problem: TorsionGlobalProblem) -> list[tuple[float | None, float | None]]:
+    n_terms = _global_term_count(problem)
+    k_caps = _stage2_k_caps(problem, np.zeros(2 * n_terms, dtype=float), np.ones(n_terms, dtype=bool))
+    k_bounds = [(0.0, float(cap) if np.isfinite(cap) else None) for cap in k_caps]
+    phase_bounds = [(None, None) for _ in range(n_terms)]
+    return k_bounds + phase_bounds
+
+def _optimize_stage2_k_phase(
+    problem: TorsionGlobalProblem,
+    delta_init: np.ndarray,
+    *,
+    max_iter: int,
+    tol: float,
+    cache: _Stage2ObjectiveCache | None = None,
+) -> np.ndarray:
+    cache = _build_stage2_objective_cache(problem) if cache is None else cache
+    n_terms = _global_term_count(problem)
+    k_caps = _stage2_k_caps(problem, delta_init, np.ones(n_terms, dtype=bool), cache=cache)
+    delta_base = _stage2_project_vector_to_k_caps(problem, np.asarray(delta_init, dtype=float).reshape(-1), k_caps)
+    x0 = _pack_stage2_k_phase(problem, delta_base)
+
+    def objective_and_gradient(x):
+        evaluation, gradient = _evaluate_stage2_k_phase_objective_with_gradient(problem, x, cache=cache)
+        return evaluation.total_loss, gradient
+
+    result = minimize(
+        fun=objective_and_gradient,
+        x0=x0,
+        jac=True,
+        method="L-BFGS-B",
+        bounds=_stage2_k_phase_bounds(problem),
+        options={"maxiter": max(int(max_iter), 1), "ftol": float(tol)},
+    )
+    optimized = np.asarray(getattr(result, "x", x0), dtype=float).reshape(-1)
+    if optimized.size != 2 * n_terms:
+        return delta_base
+    if not np.all(np.isfinite(optimized)):
+        return delta_base
+    delta_final = _delta_from_stage2_k_phase(problem, optimized)
+    return _stage2_project_vector_to_k_caps(problem, delta_final, k_caps)
+
+
+# -----------------------------------------------------------------------------
+# K cap helpers
+# -----------------------------------------------------------------------------
 
 def _stage2_k_caps(
     problem: TorsionGlobalProblem,
@@ -848,61 +632,6 @@ def _stage2_k_caps(
     del vector_init, active_mask, cache
     caps = np.full(_global_term_count(problem), _FITTED_TERM_MAX_K, dtype=float)
     return caps
-
-def _stage2_capped_term_count(
-    problem: TorsionGlobalProblem,
-    vector: np.ndarray,
-    center_bond: tuple[int, int] | None = None,
-    k_caps: np.ndarray | None = None,
-) -> int:
-    k_values, _phase_values = _split_global_vector(problem, vector)
-    caps = (
-        _stage2_k_caps(problem, vector, np.ones(_global_term_count(problem), dtype=bool))
-        if k_caps is None
-        else np.asarray(k_caps, dtype=float)
-    )
-    if center_bond is not None:
-        start, end = problem.block_slices[center_bond]
-        k_values = k_values[start:end]
-        caps = caps[start:end]
-    return int(np.count_nonzero(np.isfinite(caps) & (k_values > caps + 1.0e-10)))
-
-def _stage2_at_cap_term_count(
-    problem: TorsionGlobalProblem,
-    vector: np.ndarray,
-    center_bond: tuple[int, int] | None = None,
-    k_caps: np.ndarray | None = None,
-) -> int:
-    k_values, _phase_values = _split_global_vector(problem, vector)
-    caps = (
-        _stage2_k_caps(problem, vector, np.ones(_global_term_count(problem), dtype=bool))
-        if k_caps is None
-        else np.asarray(k_caps, dtype=float)
-    )
-    if center_bond is not None:
-        start, end = problem.block_slices[center_bond]
-        k_values = k_values[start:end]
-        caps = caps[start:end]
-    finite = np.isfinite(caps)
-    return int(np.count_nonzero(finite & (np.abs(k_values - caps) <= 1.0e-8)))
-
-def _stage2_max_k_cap_for_center(
-    problem: TorsionGlobalProblem,
-    center_bond: tuple[int, int],
-    k_caps: np.ndarray | None = None,
-) -> float:
-    caps = (
-        _stage2_k_caps(
-            problem,
-            np.zeros(_global_vector_size(problem), dtype=float),
-            np.ones(_global_term_count(problem), dtype=bool),
-        )
-        if k_caps is None
-        else np.asarray(k_caps, dtype=float)
-    )
-    start, end = problem.block_slices[center_bond]
-    finite = caps[start:end][np.isfinite(caps[start:end])]
-    return float(np.max(finite)) if finite.size else float("inf")
 
 def _stage2_project_vector_to_k_caps(
     problem: TorsionGlobalProblem,
@@ -918,122 +647,6 @@ def _stage2_project_vector_to_k_caps(
     if capped_count == 0:
         return raw_vector
     return np.concatenate((cos_coeff - orig_cos, sin_coeff - orig_sin))
-
-def _optimize_stage2_coefficients(
-    problem: TorsionGlobalProblem,
-    vector_init: np.ndarray,
-    active_mask: np.ndarray,
-    *,
-    max_iter: int,
-    tol: float,
-    cache: _Stage2ObjectiveCache | None = None,
-    on_checkpoint=None,
-) -> np.ndarray:
-    cache = _build_stage2_objective_cache(problem) if cache is None else cache
-    vector_base = np.asarray(vector_init, dtype=float).reshape(-1).copy()
-    active_mask = np.asarray(active_mask, dtype=bool)
-    active_indices = _stage2_active_indices(active_mask)
-    if active_indices.size == 0:
-        k_caps = _stage2_k_caps(problem, vector_base, active_mask, cache=cache)
-        return _stage2_project_vector_to_k_caps(problem, vector_base, k_caps)
-
-    k_caps = _stage2_k_caps(problem, vector_base, active_mask, cache=cache)
-    vector_base = _stage2_project_vector_to_k_caps(problem, vector_base, k_caps)
-
-    def objective_and_gradient(x):
-        evaluation, gradient = _evaluate_stage2_active_objective_with_gradient(
-            problem,
-            x,
-            vector_base,
-            active_mask,
-            cache=cache,
-        )
-        if on_checkpoint is not None:
-            full_vector = _scatter_stage2_active_vector(vector_base, active_mask, np.asarray(x, dtype=float).reshape(-1))
-            on_checkpoint("optimizer_eval", _stage2_project_vector_to_k_caps(problem, full_vector, k_caps))
-        return evaluation.total_loss, gradient
-
-    full_bounds = _stage2_coefficient_bounds(problem, vector_base, active_mask, cache=cache)
-    n_terms = _global_term_count(problem)
-    active_bounds = [full_bounds[index] for index in active_indices] + [full_bounds[n_terms + index] for index in active_indices]
-
-    result = minimize(
-        fun=objective_and_gradient,
-        x0=_pack_stage2_active_vector(vector_base, active_mask),
-        jac=True,
-        method="L-BFGS-B",
-        bounds=active_bounds,
-        options={"maxiter": max(int(max_iter), 1), "ftol": float(tol)},
-    )
-    active_candidate = np.asarray(getattr(result, "x", _pack_stage2_active_vector(vector_base, active_mask)), dtype=float).reshape(-1)
-    if active_candidate.size != 2 * active_indices.size:
-        return vector_base
-    return _stage2_project_vector_to_k_caps(
-        problem,
-        _scatter_stage2_active_vector(vector_base, active_mask, active_candidate),
-        k_caps,
-    )
-
-
-# -----------------------------------------------------------------------------
-# Solver seams
-# -----------------------------------------------------------------------------
-
-def _clone_term_blocks(terms: list[list[FourierTerm]]) -> list[list[FourierTerm]]:
-    return [[FourierTerm(term.kPhi, term.period, term.phase) for term in block] for block in terms]
-
-def _terms_for_center_bond_from_delta(
-    problem: TorsionGlobalProblem,
-    delta_vector: np.ndarray,
-    center_bond: tuple[int, int],
-) -> list[list[FourierTerm]]:
-    k_caps = _stage2_k_caps(problem, delta_vector, np.ones(_global_term_count(problem), dtype=bool))
-    capped_vector = _stage2_project_vector_to_k_caps(problem, delta_vector, k_caps)
-    k_values, phase_values = _split_global_vector(problem, capped_vector)
-    if problem.grouped:
-        center = normalize_center_bond(center_bond)
-        reference_parameter_set = problem.reference_parameter_set if problem.reference_parameter_set is not None else problem.stage0_parameter_set
-        terms_by_dihedral: dict[int, list[FourierTerm]] = {}
-        for group in problem.shared_groups_map.get(center, ()):
-            shared_term_map: dict[int, FourierTerm] = {}
-            for slot_index, slot_was_present in zip(group.slot_indices, group.existing_slot_mask):
-                if not bool(slot_was_present) and abs(float(k_values[slot_index])) <= 1.0e-10:
-                    continue
-                shared_term_map[int(problem.period_orig[slot_index])] = FourierTerm(
-                    kPhi=float(k_values[slot_index]),
-                    period=float(problem.period_orig[slot_index]),
-                    phase=float(phase_values[slot_index]),
-                )
-            for dihedral_index in group.dihedral_indices:
-                original_terms = reference_parameter_set.dihedrals[dihedral_index].terms
-                terms_by_dihedral[dihedral_index] = _merge_template_and_frozen_terms(original_terms, shared_term_map)
-        return [
-            terms_by_dihedral[dihedral_index]
-            for dihedral_index in sorted(terms_by_dihedral)
-        ]
-
-    start, end = problem.block_slices[normalize_center_bond(center_bond)]
-    center_terms: list[list[FourierTerm]] = []
-    current_dihedral_index: int | None = None
-    current_terms: list[FourierTerm] = []
-    for global_index in range(start, end):
-        dihedral_index, term_index = problem.term_paths[global_index]
-        dihedral = problem.stage0_parameter_set.dihedrals[dihedral_index]
-        new_term = FourierTerm(
-            kPhi=float(k_values[global_index]),
-            period=float(problem.period_orig[global_index]),
-            phase=float(phase_values[global_index]),
-        )
-        if current_dihedral_index is None:
-            current_dihedral_index = dihedral_index
-        if dihedral_index != current_dihedral_index:
-            center_terms.append(current_terms)
-            current_terms = []
-            current_dihedral_index = dihedral_index
-        current_terms.append(new_term)
-    if current_terms:
-        center_terms.append(current_terms)
-    return center_terms
 
 
 # -----------------------------------------------------------------------------
@@ -1064,122 +677,38 @@ def refine_torsion_scans_global(
     initial_vector = vector_init.copy()
     before_eval = evaluate_global_refit_objective(problem, initial_vector, cache=objective_cache)
     max_iter = max(int(max_block_iter), int(problem.global_max_iter), 1)
-    scan_quality_by_center = {
-        center_bond: _scan_profile_quality(problem.qm_rel_map[center_bond])
-        for center_bond in problem.center_bonds
-    }
-    active_mask = _stage2_freeze_geometry_jump_centers(
-        problem,
-        _stage2_default_active_mask(problem),
-        scan_quality_by_center,
-    )
-    checkpoints: list[_Stage2Checkpoint] = []
-
-    def record_checkpoint(source: str, vector: np.ndarray) -> None:
-        checkpoint_vector = _stage2_project_vector_to_k_caps(
-            problem,
-            np.asarray(vector, dtype=float).reshape(-1).copy(),
-            all_k_caps,
-        )
-        checkpoint_eval = evaluate_global_refit_objective(problem, checkpoint_vector, cache=objective_cache)
-        hard_safe, summary = _stage2_candidate_guard(
-            problem,
-            initial_vector,
-            checkpoint_vector,
-            tol=tol,
-            cache=objective_cache,
-            scan_quality_by_center=scan_quality_by_center,
-        )
-        checkpoints.append(
-            _Stage2Checkpoint(
-                source=source,
-                vector=checkpoint_vector,
-                evaluation=checkpoint_eval,
-                hard_safe=hard_safe,
-                hard_reasons=tuple(summary.get("hard_reasons", ())),
-                diagnostic_flags=tuple(summary.get("diagnostic_flags", ())),
-                summary=summary,
-            )
-        )
-
-    record_checkpoint("initial", initial_vector)
-    baseline_candidate = _optimize_stage2_coefficients(
+    optimized_vector = _optimize_stage2_k_phase(
         problem,
         initial_vector,
-        active_mask,
         max_iter=max_iter,
         tol=tol,
         cache=objective_cache,
-        on_checkpoint=record_checkpoint,
     )
-    record_checkpoint("optimizer_final", baseline_candidate)
-    safe_checkpoints = [checkpoint for checkpoint in checkpoints if checkpoint.hard_safe]
-    best_checkpoint = (
-        min(safe_checkpoints, key=lambda checkpoint: checkpoint.evaluation.total_loss)
-        if safe_checkpoints
-        else checkpoints[0]
+    optimized_eval = evaluate_global_refit_objective(problem, optimized_vector, cache=objective_cache)
+    improvement_tol = max(float(tol), 1.0e-12)
+    accepted = bool(
+        np.isfinite(optimized_eval.total_loss)
+        and optimized_eval.total_loss < before_eval.total_loss - improvement_tol
     )
-    final_vector = _stage2_project_vector_to_k_caps(problem, best_checkpoint.vector.copy(), all_k_caps)
-    final_vector, center_status = _stage2_apply_center_fallbacks(
-        problem,
-        initial_vector,
-        final_vector,
-        tol=tol,
-        cache=objective_cache,
-        scan_quality_by_center=scan_quality_by_center,
-    )
-    center_fallbacks = {
-        center: reasons
-        for center, reasons in center_status.items()
-        if not reasons or reasons[0] != "accepted"
+    final_vector = optimized_vector if accepted else initial_vector
+    final_eval = optimized_eval if accepted else before_eval
+    accepted_count = len(problem.center_bonds) if accepted else 0
+    rejected_count = 0 if accepted else len(problem.center_bonds)
+    final_guard_summary = {
+        "objective_kind": "direct_k_phase",
+        "accepted": accepted,
+        "status": "accepted" if accepted else "kept_stage1",
+        "rolled_back": not accepted,
+        "reject_reason": None if accepted else "no_total_loss_gain",
+        "initial_scan_loss": float(before_eval.scan_data_loss),
+        "final_scan_loss": float(final_eval.scan_data_loss),
+        "initial_ensemble_loss": float(before_eval.ensemble_data_loss),
+        "final_ensemble_loss": float(final_eval.ensemble_data_loss),
+        "initial_prior_loss": float(before_eval.prior_loss),
+        "final_prior_loss": float(final_eval.prior_loss),
+        "initial_total_loss": float(before_eval.total_loss),
+        "final_total_loss": float(final_eval.total_loss),
     }
-    final_vector = _stage2_project_vector_to_k_caps(problem, final_vector, all_k_caps)
-    final_eval = evaluate_global_refit_objective(problem, final_vector, cache=objective_cache)
-    _final_hard_safe, final_guard_summary = _stage2_candidate_guard(
-        problem,
-        initial_vector,
-        final_vector,
-        tol=tol,
-        cache=objective_cache,
-        scan_quality_by_center=scan_quality_by_center,
-    )
-    accepted_count = sum(1 for reasons in center_status.values() if reasons and reasons[0] == "accepted")
-    rejected_count = max(len(problem.center_bonds) - accepted_count, 0)
-    accepted = accepted_count > 0
-    hard_reject_reasons: list[str] = []
-    diagnostic_flags: list[str] = []
-    for checkpoint in checkpoints:
-        hard_reject_reasons.extend(checkpoint.hard_reasons)
-        if checkpoint.source == "initial":
-            continue
-        for flag in checkpoint.diagnostic_flags:
-            if flag not in diagnostic_flags:
-                diagnostic_flags.append(flag)
-    final_guard_summary["objective_kind"] = final_eval.objective_kind
-    final_guard_summary["rolled_back"] = not accepted
-    final_guard_summary["accepted"] = accepted
-    final_guard_summary["best_checkpoint_source"] = best_checkpoint.source
-    final_guard_summary["checkpoint_count"] = len(checkpoints)
-    final_guard_summary["hard_reject_count"] = sum(1 for checkpoint in checkpoints if not checkpoint.hard_safe)
-    final_guard_summary["hard_reject_reasons"] = tuple(hard_reject_reasons)
-    final_guard_summary["diagnostic_flags"] = tuple(diagnostic_flags)
-    final_guard_summary["center_fallbacks"] = tuple(center_fallbacks)
-    final_guard_summary["center_fallback_reasons"] = center_fallbacks
-    final_guard_summary["center_status"] = center_status
-    per_scan_summary = final_guard_summary.get("per_scan", {})
-    if isinstance(per_scan_summary, dict):
-        for center_bond in problem.center_bonds:
-            key = str(center_bond)
-            info = per_scan_summary.get(key)
-            if not isinstance(info, dict):
-                continue
-            reasons = center_status.get(key, ("stage2_rejected",))
-            status = reasons[0] if reasons else "stage2_rejected"
-            info["stage2_status"] = status
-            if status != "accepted":
-                info["stage2_reject_reasons"] = tuple(reasons)
-    if not accepted and hard_reject_reasons and not final_guard_summary.get("reject_reason"):
-        final_guard_summary["reject_reason"] = ",".join(hard_reject_reasons)
     cycles = [
         TorsionRefineCycle(
             cycle=1,
@@ -1191,7 +720,6 @@ def refine_torsion_scans_global(
             rejected_blocks=rejected_count,
             per_scan_rmse_before=dict(before_eval.per_scan_rmse),
             per_scan_rmse_after=dict(final_eval.per_scan_rmse),
-            block_reports=[],
             data_loss_before=before_eval.data_loss,
             data_loss_after=final_eval.data_loss,
             bucket_by_scan=dict(final_eval.bucket_by_scan),
@@ -1199,65 +727,3 @@ def refine_torsion_scans_global(
         )
     ]
     return final_vector, cycles
-
-def refine_torsion_scan(
-    scan_data: TorsionScanData,
-    parameter_set: CorrectionParameterSet,
-    center_bond: tuple[int, int],
-    cycle: int,
-    topology_cache=None,
-    max_iter: int = 30,
-    tol: float = 1.0e-4,
-) -> TorsionRefineBlockReport:
-    center = normalize_center_bond(center_bond)
-    problem = build_global_torsion_problem(
-        parameter_set,
-        [center],
-        {center: scan_data},
-        topology_cache=topology_cache,
-    )
-    vector_init = np.zeros(_global_vector_size(problem), dtype=float)
-    vector_final, cycles = refine_torsion_scans_global(
-        problem,
-        delta_init=vector_init,
-        enabled=cycle > 0,
-        max_block_iter=max_iter,
-        tol=tol,
-    )
-    before_eval = evaluate_global_refit_objective(problem, vector_init)
-    after_eval = evaluate_global_refit_objective(problem, vector_final)
-    if not cycles:
-        terms = _terms_for_center_bond_from_delta(problem, vector_init, center)
-        return TorsionRefineBlockReport(
-            center_bond=center,
-            accepted=False,
-            iterations=0,
-            rmse_before=before_eval.global_rmse,
-            rmse_after=before_eval.global_rmse,
-            total_loss_before=before_eval.total_loss,
-            total_loss_after=before_eval.total_loss,
-            data_loss_before=before_eval.data_loss,
-            data_loss_after=before_eval.data_loss,
-            terms_before=_clone_term_blocks(terms),
-            terms_after=_clone_term_blocks(terms),
-            per_scan_rmse_before=dict(before_eval.per_scan_rmse),
-            per_scan_rmse_after=dict(before_eval.per_scan_rmse),
-        )
-    terms_before = _terms_for_center_bond_from_delta(problem, vector_init, center)
-    terms_after = _terms_for_center_bond_from_delta(problem, vector_final, center)
-    accepted = bool(cycles[-1].accepted_blocks > 0)
-    return TorsionRefineBlockReport(
-        center_bond=center,
-        accepted=accepted,
-        iterations=int(getattr(cycles[-1], "cycle", 1)),
-        rmse_before=before_eval.global_rmse,
-        rmse_after=after_eval.global_rmse,
-        total_loss_before=before_eval.total_loss,
-        total_loss_after=after_eval.total_loss,
-        data_loss_before=before_eval.data_loss,
-        data_loss_after=after_eval.data_loss,
-        terms_before=_clone_term_blocks(terms_before),
-        terms_after=_clone_term_blocks(terms_after),
-        per_scan_rmse_before=dict(before_eval.per_scan_rmse),
-        per_scan_rmse_after=dict(after_eval.per_scan_rmse),
-    )

@@ -50,6 +50,11 @@ def angle_radians(positions, i: int, j: int, k: int) -> float:
     return float(np.arccos(cosine))
 
 
+def _wrap_signed_pi(angle: float) -> float:
+    value = ((float(angle) + np.pi) % (2.0 * np.pi)) - np.pi
+    return float(np.pi) if np.isclose(abs(value), np.pi, atol=1.0e-12) else float(value)
+
+
 def dihedral_radians(positions, i: int, j: int, k: int, l: int) -> float:
     array = _positions_array(positions)
     p0 = _point(array, i)
@@ -77,9 +82,7 @@ def dihedral_radians(positions, i: int, j: int, k: int, l: int) -> float:
     x = np.dot(v, w)
     y = np.dot(np.cross(b1_hat, v), w)
     angle = float(np.arctan2(y, x))
-    if angle <= -np.pi:
-        angle += 2.0 * np.pi
-    return angle
+    return _wrap_signed_pi(angle + np.pi)
 
 
 @dataclass(frozen=True)
@@ -223,7 +226,8 @@ def evaluate_mm_energy(
                 rij = atom_i.rmin_half + atom_j.rmin_half
                 epsilon_ij = sqrt(atom_i.epsilon * atom_j.epsilon)
                 ratio = rij / r
-                vdw = epsilon_ij * (ratio ** 12 - 2.0 * ratio ** 6)
+                ratio6 = ratio ** 6
+                vdw = epsilon_ij * (ratio6 ** 2 - 2.0 * ratio6)
                 if pair in cache.scaled_14:
                     vdw /= SCNB
                 vdw_energy += vdw

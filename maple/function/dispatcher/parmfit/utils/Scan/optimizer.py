@@ -865,7 +865,7 @@ class LBFGS(JobABC):
 
         iteration = 0
         while iteration < self.params.max_iter:
-            direction = self._two_loop(forces.reshape(-1)).reshape(forces.shape)
+            direction = self._two_loop(-forces.reshape(-1)).reshape(forces.shape)
             direction = self._apply_direction_projection(positions, direction)
 
             if self.params.use_line_search:
@@ -902,8 +902,7 @@ class LBFGS(JobABC):
                 self.constraints,
                 use_projection=self.params.use_projection,
             )
-
-            self._update_history((positions - positions_old).reshape(-1), (forces - forces_old).reshape(-1))
+            self._update_history((positions - positions_old).reshape(-1), (-forces - (-forces_old)).reshape(-1))
             iteration += 1
 
             traj_atoms_list.append(atoms.copy())
@@ -1432,17 +1431,3 @@ class CGBS(JobABC):
             )
         return atoms
 
-
-# ============================================================================
-# ### Optimizer factory
-# ============================================================================
-
-def build_scan_optimizer(backend: str, atoms: Atoms, output: str, params: dict):
-    resolved = str(backend).strip().lower()
-    if resolved == "lbfgs":
-        return LBFGS(atoms, output=output, paras=params)
-    if resolved == "cgws":
-        return CGWS(atoms, output=output, paras=params)
-    if resolved == "cgbs":
-        return CGBS(atoms, output=output, paras=params)
-    raise ValueError(f"Unsupported scan optimizer backend {backend!r}; expected lbfgs, cgws, or cgbs.")

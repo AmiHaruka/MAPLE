@@ -63,6 +63,21 @@ class TorsionSharedGroupSpec:
     slot_periods: tuple[int, ...]
     slot_phases: tuple[float, ...]
     existing_slot_mask: tuple[bool, ...]
+    slot_sources: tuple[str, ...] = ()
+    slot_coherences: tuple[float, ...] = ()
+
+    def __post_init__(self) -> None:
+        slot_count = len(self.slot_indices)
+        if not self.slot_sources:
+            object.__setattr__(
+                self,
+                "slot_sources",
+                tuple("existing" if existing else "candidate" for existing in self.existing_slot_mask),
+            )
+        if not self.slot_coherences:
+            object.__setattr__(self, "slot_coherences", tuple(1.0 for _ in range(slot_count)))
+        if len(self.slot_sources) != slot_count or len(self.slot_coherences) != slot_count:
+            raise ValueError("TorsionSharedGroupSpec slot metadata must match slot_indices.")
 
 
 @dataclass(frozen=True)
@@ -85,6 +100,14 @@ class TorsionLocalProblem:
     cos_basis: np.ndarray | None = None
     sin_basis: np.ndarray | None = None
 
+    @property
+    def mm_base_rel(self) -> np.ndarray:
+        return self.mm_zeroed_rel
+
+    @property
+    def fit_target_rel(self) -> np.ndarray:
+        return self.residual
+
 
 @dataclass(frozen=True)
 class TorsionObjectiveEvaluation:
@@ -96,6 +119,20 @@ class TorsionObjectiveEvaluation:
     per_scan_data_loss: dict[tuple[int, int], float] = field(default_factory=dict)
     bucket_by_scan: dict[tuple[int, int], str] = field(default_factory=dict)
     objective_kind: str = "continuous_phase_k"
+    scan_data_loss: float = 0.0
+    ensemble_data_loss: float = 0.0
+
+
+@dataclass(frozen=True)
+class TorsionObjectiveTarget:
+    label: str
+    center_bond: tuple[int, int]
+    qm_rel: np.ndarray
+    constant_rel: np.ndarray
+    cos_basis: np.ndarray
+    sin_basis: np.ndarray
+    weight: float
+    source_path: str
 
 
 @dataclass(frozen=True)
@@ -120,6 +157,15 @@ class TorsionGlobalProblem:
     shared_groups_map: dict[tuple[int, int], tuple[TorsionSharedGroupSpec, ...]] = field(default_factory=dict)
     prior_weight: float = 1.0
     global_max_iter: int = 50
+    extra_targets: tuple[TorsionObjectiveTarget, ...] = ()
+
+
+@dataclass(frozen=True)
+class TorsionEnsembleResult:
+    frames_by_center: dict[tuple[int, int], tuple[Any, ...]] = field(default_factory=dict)
+    energies_by_center: dict[tuple[int, int], np.ndarray] = field(default_factory=dict)
+    xyz_paths: dict[tuple[int, int], str] = field(default_factory=dict)
+    warnings: tuple[str, ...] = ()
 
 
 @dataclass
@@ -269,24 +315,6 @@ class TorsionFitReport:
 
 
 @dataclass
-class TorsionRefineBlockReport:
-    center_bond: tuple[int, int]
-    accepted: bool
-    iterations: int
-    rmse_before: float
-    rmse_after: float
-    total_loss_before: float
-    total_loss_after: float
-    terms_before: list[list[FourierTerm]]
-    terms_after: list[list[FourierTerm]]
-    per_scan_rmse_before: dict[tuple[int, int], float]
-    per_scan_rmse_after: dict[tuple[int, int], float]
-    data_loss_before: float = 0.0
-    data_loss_after: float = 0.0
-    bucket: str = "normal"
-
-
-@dataclass
 class TorsionRefineCycle:
     cycle: int
     total_loss_before: float
@@ -297,7 +325,6 @@ class TorsionRefineCycle:
     rejected_blocks: int
     per_scan_rmse_before: dict[tuple[int, int], float]
     per_scan_rmse_after: dict[tuple[int, int], float]
-    block_reports: list[TorsionRefineBlockReport] = field(default_factory=list)
     data_loss_before: float = 0.0
     data_loss_after: float = 0.0
     bucket_by_scan: dict[tuple[int, int], str] = field(default_factory=dict)
@@ -311,6 +338,8 @@ class TorsionWorkflowResult:
     refine_cycles: list[TorsionRefineCycle] = field(default_factory=list)
     scan_xyz: dict[tuple[int, int], str] = field(default_factory=dict)
     center_bonds: list[tuple[int, int]] = field(default_factory=list)
+    fit_reports: list[TorsionFitReport] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     stage1_diagnostics: dict[str, Any] = field(default_factory=dict)
     stage2_diagnostics: dict[str, Any] = field(default_factory=dict)
+    ensemble_xyz: dict[tuple[int, int], str] = field(default_factory=dict)

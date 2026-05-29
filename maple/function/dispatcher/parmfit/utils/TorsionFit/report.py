@@ -271,23 +271,6 @@ def format_torsion_refine_cycle(report: TorsionRefineCycle) -> list[str]:
         f"global weighted energy RMSE {report.global_rmse_before:.6f} -> {report.global_rmse_after:.6f}"
     )
     lines = [headline + "\n"]
-    for block in report.block_reports:
-        state = "accepted" if block.accepted else "rejected"
-        detail = (
-            f"  center bond {block.center_bond}: objective {block.total_loss_before:.6f} -> {block.total_loss_after:.6f}  "
-            f"data_loss {block.data_loss_before:.6f} -> {block.data_loss_after:.6f}  "
-            f"global weighted energy RMSE {block.rmse_before:.6f} -> {block.rmse_after:.6f}  "
-            f"({state}, iterations={block.iterations})"
-        )
-        lines.append(detail + "\n")
-        for proper_index, (old_terms, new_terms) in enumerate(zip(block.terms_before, block.terms_after), start=1):
-            for term_index, (old_term, new_term) in enumerate(zip(old_terms, new_terms), start=1):
-                lines.append(
-                    "    "
-                    f"{proper_index:>2d}.{term_index}: "
-                    f"kPhi {old_term.kPhi:.6f} -> {new_term.kPhi:.6f}  "
-                    f"n={new_term.period:.3f}  phase={degrees(new_term.phase):.3f}\n"
-                )
     lines.append("  per-scan RMSE:\n")
     for center_bond in report.per_scan_rmse_before:
         lines.append(

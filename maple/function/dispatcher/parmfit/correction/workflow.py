@@ -72,13 +72,13 @@ def run_correction_workflow(
     torsion_workflow_fn=run_torsion_workflow,
 ) -> CorrectionWorkflowResult:
     stage_timings: list[tuple[str, float]] = []
-    log_info(stage_lines("[Correction] initial parameter assignment ..."))
+    log_info(stage_lines("\n[Correction] initial parameter assignment ..."))
     with _timed_stage("initial parameter assignment", stage_timings):
         initial_result, auto_frcmod_path = build_parameter_set(output, atoms, config)
     original_result = deepcopy(initial_result)
     log_info(summary_lines(config, original_result, auto_frcmod_path))
 
-    log_info(stage_lines("[Correction] geometry optimization ..."))
+    log_info(stage_lines("\n[Correction] geometry optimization ..."))
     with _timed_stage("geometry optimization", stage_timings):
         optimizer = run_geometry_optimization(atoms, output, config)
     if not optimizer.converged:
@@ -101,7 +101,7 @@ def run_correction_workflow(
         )
     )
 
-    log_info(stage_lines("[Correction] TorsionFit ..."))
+    log_info(stage_lines("\n[Correction] TorsionFit ..."))
     with _timed_stage("TorsionFit", stage_timings):
         torsion = torsion_workflow_fn(
             atoms=atoms,
@@ -131,7 +131,7 @@ def run_correction_workflow(
             )
         )
 
-    log_info(stage_lines("[Correction] export GROMACS ..."))
+    log_info(stage_lines("\n[Correction] export GROMACS ..."))
     with _timed_stage("export GROMACS", stage_timings):
         gromacs = export_gromacs(output, atoms, final_parameter_set)
 

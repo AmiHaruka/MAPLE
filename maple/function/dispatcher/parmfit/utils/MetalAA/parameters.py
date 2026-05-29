@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from functools import lru_cache
-from math import pi
 from pathlib import Path
 import re
 
@@ -254,28 +253,28 @@ def parse_amber_frcmod(path: Path) -> AmberParameterDB:
     return db
 
 
-@lru_cache(maxsize=8)
-def load_default_parameters(watm: str = "opc") -> AmberParameterDB:
+@lru_cache(maxsize=32)
+def load_parameters(
+    prom: str = "ff14SB",
+    watm: str | None = None,
+) -> AmberParameterDB:
     base = parm_dir()
+    dat_file = "parm19.dat" if prom == "ff19SB" else "parm10.dat"
+    frcmod_file = f"frcmod.{prom}"
     db = AmberParameterDB()
-    for filename, parser in (
-        ("parm19.dat", parse_amber_dat),
-        ("frcmod.ff19SB", parse_amber_frcmod),
-        ("gaff2.dat", parse_amber_dat),
-        (f"frcmod.{watm}", parse_amber_frcmod),
-    ):
+    files_and_parsers = [(dat_file, parse_amber_dat), (frcmod_file, parse_amber_frcmod)]
+    if watm is not None:
+        files_and_parsers.extend(
+            [
+                ("gaff2.dat", parse_amber_dat),
+                (f"frcmod.{watm}", parse_amber_frcmod),
+            ]
+        )
+    for filename, parser in files_and_parsers:
         path = base / filename
         if path.exists():
             _merge(db, parser(path))
     return db
-
-
-def match_dihedral(
-    atom_types: tuple[str, str, str, str],
-    templates: dict[tuple[str, str, str, str], list[TorsionParameter]],
-) -> list[TorsionParameter]:
-    match = match_dihedral_template(atom_types, templates)
-    return [] if match is None else match[1]
 
 
 def match_dihedral_template(

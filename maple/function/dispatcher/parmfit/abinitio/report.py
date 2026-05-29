@@ -90,6 +90,7 @@ def _timing_label(label: str) -> str:
     mapping = {
         "large RESP/Gaussian ESP": "large RESP/Gaussian ESP",
         "Hessian/mSeminario/frcmod export": "Hessian + mSeminario",
+        "Hessian/Seminario/frcmod export": "Hessian + Seminario",
         "large optimization": "large optimization",
         "site deployment export": "site export",
         "site selection/model build": "site selection/model build",
@@ -97,6 +98,7 @@ def _timing_label(label: str) -> str:
         "multiconformer RESP": "multiconformer RESP",
         "AmberTools template build": "AmberTools template build",
         "mSeminario setup/Hessian": "Hessian + mSeminario",
+        "Seminario setup/Hessian": "Hessian + Seminario",
         "TorsionFit": "TorsionFit",
         "final export": "final export",
         "tleap validation": "tleap validation",
@@ -203,6 +205,17 @@ def _next_step_lines(files: dict) -> list[str]:
     ]
 
 
+def _ncaa_prom_note_lines(config) -> list[str]:
+    prom = getattr(config, "prom", "ff14SB")
+    if prom != "ff19SB":
+        return []
+    return [
+        "\nff19SB note:\n",
+        "  NCAA boundary exact terms follow ff19SB atom types.\n",
+        "  CMAP terms are not generated for the NCAA residue; inspect tleap output before production MD.\n",
+    ]
+
+
 def _header() -> list[str]:
     return [
         "\n",
@@ -215,6 +228,10 @@ def _header() -> list[str]:
 
 def _footer() -> list[str]:
     return ["=" * _WIDTH + "\n"]
+
+
+def _prom_label(config) -> str:
+    return getattr(config, "prom", "ff14SB")
 
 
 def _metal_warnings(result) -> list[str]:
@@ -255,6 +272,7 @@ def _format_metal_summary(*, target_label: str, config, result) -> list[str]:
         [
             "Route: MetalAA\n",
             f"Target: {target_label}\n",
+            f"Protein model: {_prom_label(config)}\n",
             f"Charge/mult/oxidation: {getattr(config, 'charge', 'unknown')} {getattr(config, 'mult', 'unknown')} {oxidation}\n",
             f"Large model charge/mult: {large_model.get('charge', 'unknown')} {large_model.get('mult', 'unknown')}\n",
             f"Core residues: {_labels(getattr(selection, 'core_residues', []))}\n",
@@ -290,18 +308,21 @@ def _format_ncaa_summary(*, target_label: str, config, result) -> list[str]:
             f"Target: {target_label}\n",
             f"Residue name: {getattr(config, 'rn', 'unknown')}\n",
             f"Chirality: {getattr(identity, 'chirality', 'unknown')}\n",
+            f"Protein model: {_prom_label(config)}\n",
             f"Charge/mult: {getattr(config, 'charge', 'unknown')} {getattr(config, 'mult', 'unknown')}\n",
             f"Representative conformer: {getattr(representative, 'label', 'unknown')}\n",
             f"RESP conformers: {_names(conformer_labels)}\n",
             "\nMain products:\n",
             f"  refined prepin: {_relative_path(refined_prepin)}\n",
             f"  refined frcmod: {_relative_path(refined_frcmod)}\n",
+            f"  tleap PDB:      {_relative_path(_safe_get(files, 'tleap_pdb'))}\n",
             f"  tleap input:    {_relative_path(_safe_get(files, 'tleap_input'))}\n",
         ]
     )
     lines.extend(_timing_lines(result))
     lines.extend(_next_step_lines(files))
-    lines.extend(_tleap_status_lines(TLeapSummary(status="not executed")))
+    lines.extend(_tleap_status_lines(_parse_tleap_summary(_tleap_output_path(files))))
+    lines.extend(_ncaa_prom_note_lines(config))
     lines.extend(_warning_lines([]))
     lines.extend(_footer())
     return lines

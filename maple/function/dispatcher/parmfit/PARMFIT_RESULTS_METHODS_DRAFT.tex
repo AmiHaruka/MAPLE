@@ -1,0 +1,243 @@
+% ParmFit Results and Methods draft.
+% Framework-only version: numerical claims are intentionally left as placeholders.
+
+\section{1 Introduction}
+
+Automated molecular mechanics parametrization remains difficult when the target chemistry departs from the regime covered by established biomolecular and small-molecule force fields. Generic atom-typing and rule-based parameter completion can provide chemically plausible starting points, but local bonded terms, peptide-boundary terms, metal coordination bonds and torsional profiles may remain inconsistent with the reference potential used for the system of interest. Machine-learning interatomic potentials (MLIPs) offer a practical route to obtain energies, forces and Hessians for such local environments without running a new quantum-chemical workflow for every scan point. However, converting these reference data into AMBER-compatible force-field files requires a workflow that respects atom-type matching, residue-template construction, bonded-term conventions and downstream topology validation.
+
+Here we introduce ParmFit, a modular MAPLE workflow for MLIP-guided force-field construction and refinement. ParmFit couples local MLIP reference calculations with AMBER-style parameter objects, modified Seminario bonded fitting, torsion-profile optimization and route-specific export logic for ligand/cofactor correction, noncanonical amino acid (NCAA) template generation and metalloprotein site parametrization. The following Results section presents the framework and its three main routes, while the Methods section defines the projection and torsion-fitting mathematics used by the current implementation.
+
+\section{2 Results}
+
+\subsection{2.1 The ParmFit framework}
+
+ParmFit is organized as a route dispatcher that maps the same input philosophy onto three parametrization tasks: correction of an existing ligand or cofactor force field, construction of an NCAA residue template and generation of a local metalloprotein site model (Fig.~X). In all routes, the central data object is an AMBER-like parameter set containing topology, atom types, bonded terms, nonbonded terms and unmatched records. This design keeps chemical perception, MLIP reference generation, parameter fitting and file export separate: route-specific modules decide which atoms and interactions should be refined, whereas shared utilities evaluate molecular-mechanics energies, apply Hessian-based bonded fitting and write AMBER or GROMACS outputs.
+
+The correction route starts from a user-provided mol2 file and generates a GAFF2-compatible initial parameter set with \texttt{parmchk2}. The NCAA route builds a capped residue model, derives RESP charges and writes an AMBER residue template. The MetalAA route builds a metal-centered large model for reference calculations and a smaller site model for deployment. These routes differ in chemical scope, but they share two design constraints. First, all fitted parameters must be returned to explicit AMBER-style sections before export. Second, generated files must be validated at the topology-construction level, because successful MLIP fitting alone does not guarantee that \texttt{tleap} can resolve atom-type patterns and residue templates.
+
+This modular structure allows ParmFit to expose multiple force-field products without changing the reference-calculation layer. The correction route writes refined AMBER mol2/frcmod files and explicit GROMACS top/gro files. NCAA writes a refined \texttt{prepin}/\texttt{frcmod} pair, a processed protein PDB in which the target residue name matches the generated template and a \texttt{tleap} input/output pair. MetalAA writes per-residue mol2 files, a final metal frcmod and a \texttt{tleap}-validated deployment PDB. The framework-level validation reported in this work should therefore include both parameter-quality metrics and file-level checks, including missing-parameter diagnostics from \texttt{tleap} (Table~X).
+
+\subsection{2.2 Refinement of force-field parameters using MLIP}
+
+The correction route refines a pre-existing small-molecule or cofactor parameterization by separating the parameter updates according to their physical source (Fig.~X). An initial GAFF2 parameter set is generated from the input mol2 file, followed by MLIP geometry optimization and Hessian evaluation. The modified Seminario procedure updates only bond and angle equilibrium values and force constants. Proper torsions are then refined by TorsionFit using constrained scan frames, while impropers and nonbonded parameters are not altered by the torsion-fitting stage.
+
+This separation is important because each parameter class is supported by a different reference signal. Bond and angle terms are local curvature parameters and are therefore fitted from the Cartesian Hessian projected onto internal coordinates. Torsion terms instead control relative conformational energies along rotatable center bonds. ParmFit reports this progression through a torsion energy trace with five profiles: \texttt{MLIP\_ref}, \texttt{orig\_ref}, \texttt{stage0\_ref}, \texttt{stage1\_ref} and \texttt{stage2\_ref}. Here, \texttt{orig\_ref} is the original GAFF2/parmchk2 relative molecular-mechanics profile, \texttt{stage0\_ref} is the profile after bond/angle refinement, \texttt{stage1\_ref} is the spectral shared-group linear fit and \texttt{stage2\_ref} is the final accepted direct $k_{\Phi}$/phase refinement. This trace provides a compact diagnostic of which part of the workflow changes the torsional energy surface.
+
+The final correction files are written through two complementary export paths. The AMBER path uses renamed atom types so that local fitted parameters can be represented as exact frcmod patterns that \texttt{tleap} can match. The GROMACS path writes explicit bonded and nonbonded interaction rows and therefore serves as an independent representation of the same final parameter object. In the framework-only version of this manuscript, the expected validation figure should compare MLIP relative profiles against original, stage0, stage1 and stage2 MM profiles for representative molecules, while a companion table should report missing-parameter checks and topology-generation status (Fig.~X and Table~X).
+
+\subsection{2.3 Development of force-field parameters for NCAAs using MLIP}
+
+For NCAAs, ParmFit constructs an AMBER residue template rather than only refining an existing mol2/frcmod pair. The route begins by extracting the target residue from a protein PDB and building an ACE-target-NME capped representative model. This model defines the residue identity, chirality, atom ordering and main-chain path used by downstream AmberTools. ParmFit then generates alpha- and beta-like backbone conformers, computes multiconformer electrostatic reference data and obtains RESP charges for the target residue. The charged capped model is converted through the standard AmberTools sequence of \texttt{antechamber}, \texttt{prepgen} and \texttt{parmchk2} to generate an initial residue template and frcmod.
+
+After template construction, ParmFit refines the NCAA bonded terms in the same physical order as the correction route. The Hessian of the optimized capped representative model is projected into bond and angle terms by mSeminario. TorsionFit is then applied only to side-chain-related center bonds inside the target residue; pure backbone-backbone and cap bonds are excluded so that the workflow does not attempt to refit the peptide force field from a capped model. The output \texttt{RN\_maple.prepin} and \texttt{RN\_maple.frcmod} use renamed atom types for the target residue, allowing fitted local parameters to be expressed as exact AMBER patterns.
+
+A key deployment step is the peptide-boundary repair. Once the target residue is represented as a custom AMBER template, the standard protein library no longer supplies every boundary term involving the target residue and its neighboring peptide atoms. ParmFit therefore adds exact boundary terms only for the actual upstream and downstream peptide connections present in the protein: previous $C$--target $N$ and target $C$--next $N$. The protein PDB used by \texttt{tleap} is also processed so that the target residue name matches the generated template. This design allows NCAA parameters to be validated in the protein context while avoiding automatic guesses for unrelated cofactors or additional nonstandard residues. The corresponding Results figure should show the capped-model generation, template remapping and protein-level \texttt{tleap} validation workflow (Fig.~X).
+
+\subsection{2.4 Development of force-field parameters for metalloproteins using MLIP}
+
+The MetalAA route addresses a different parametrization problem: fitting metal-site bonded terms while preserving the surrounding protein and cofactor chemistry. ParmFit first identifies the target ion, direct donor atoms, user-specified core residues and optional cofactor mol2 templates. A large model is constructed for geometry optimization, RESP and Hessian evaluation, whereas a smaller site model is used for final deployment. This large/site split allows reference calculations to include the local electrostatic and coordination environment without forcing every large-model atom into the final AMBER deployment files.
+
+Charge handling is explicitly separated from bonded fitting. The route-level charge and multiplicity define the metal, nonprotein ligand and cofactor fragments, while formal protein residue charges are added to obtain the large-model charge. RESP charges are computed on the optimized large model and then projected back to the site model through original PDB serial mappings. This avoids re-normalizing the deployed site charges after the RESP calculation and keeps the correspondence between the reference model and final mol2 files explicit.
+
+Metal-related bonded terms are derived from the optimized large-model Hessian. mSeminario updates metal-donor bonds and angles, which are then remapped into the final site parameter set. Metal-related dihedrals are written as zero torsion terms to satisfy AMBER bonded-pattern requirements rather than to introduce additional torsional barriers. If a cofactor mol2 is provided, its original frcmod is preserved and merged into the final metal frcmod, while donor atom types are renamed only where needed to represent fitted local interactions. The final product is a single metal frcmod plus per-residue mol2 files and a \texttt{tleap}-validated deployment PDB. The intended validation for this section is a file-level and chemistry-level comparison against representative MCPB-style outputs, including successful topology construction and inspection of metal-donor bond and angle terms (Table~X).
+
+\section{5 Methods}
+
+\subsection{5.1 Projected constrained relaxation}
+
+ParmFit uses projected forces to generate relaxed scan points. At each scan value, the selected bond, angle or torsion coordinate is held at its target value, while the remaining geometry is relaxed with the MLIP force after removing components that would move the active scan coordinate. For a scan structure with coordinates $\mathbf{R}=(\mathbf{r}_1,\ldots,\mathbf{r}_N)$, the MLIP provides an energy $E(\mathbf{R})$ and an original force
+\begin{equation}
+\mathbf{F}^{\mathrm{orig}}(\mathbf{R})=-\nabla_{\mathbf{R}}E(\mathbf{R}) .
+\end{equation}
+The force on atom $i$ is denoted by $\mathbf{f}_i$. The projected force used for the relaxed scan update is obtained by applying the active bond, angle and torsion revisions in the scan geometry,
+\begin{equation}
+\mathbf{F}^{\mathrm{proj}}
+=
+\left(
+\mathcal{P}_{\mathrm{torsion}}
+\circ
+\mathcal{P}_{\mathrm{angle}}
+\circ
+\mathcal{P}_{\mathrm{bond}}
+\right)
+\left(\mathbf{F}^{\mathrm{orig}};\mathbf{R}\right).
+\end{equation}
+For a bond scan $i$--$j$, the bond revision sets the two endpoint forces to zero,
+\begin{equation}
+\widetilde{\mathbf{f}}_i=\mathbf{0},
+\qquad
+\widetilde{\mathbf{f}}_j=\mathbf{0}.
+\end{equation}
+
+For an angle scan $i$--$j$--$k$, ParmFit constructs local frames along the two angle arms. For the $i$--$j$ arm,
+\begin{equation}
+\mathbf{e}_{ij}=
+\frac{\mathbf{r}_i-\mathbf{r}_j}
+{\left\|\mathbf{r}_i-\mathbf{r}_j\right\|},
+\qquad
+\mathbf{Q}_{ij}=
+\begin{bmatrix}
+\mathbf{e}_{ij}^{\mathrm{T}}\\
+\mathbf{u}_{ij}^{\mathrm{T}}\\
+\mathbf{v}_{ij}^{\mathrm{T}}
+\end{bmatrix},
+\end{equation}
+where $\mathbf{u}_{ij}$ and $\mathbf{v}_{ij}$ are orthonormal vectors that complete the local frame. The endpoint force is transformed to this frame and only the axial component is retained,
+\begin{equation}
+\mathbf{f}^{\mathrm{loc}}_i=\mathbf{Q}_{ij}\mathbf{f}_i,
+\qquad
+\widetilde{\mathbf{f}}^{\mathrm{loc}}_i
+=
+\left(f^{\mathrm{loc}}_{i,x},0,0\right),
+\qquad
+\widetilde{\mathbf{f}}_i=
+\mathbf{Q}_{ij}^{\mathrm{T}}
+\widetilde{\mathbf{f}}^{\mathrm{loc}}_i .
+\end{equation}
+The central atom force is set to zero, $\widetilde{\mathbf{f}}_j=\mathbf{0}$, and atom $k$ is treated with the same operation using $\mathbf{Q}_{kj}$.
+
+For a torsion scan $a$--$b$--$c$--$d$, ParmFit builds the central-bond frame $\mathbf{Q}_{bc}=[\mathbf{e}_x,\mathbf{e}_y,\mathbf{e}_z]^{\mathrm{T}}$ from
+\begin{equation}
+\mathbf{e}_x =
+\frac{\mathbf{r}_b-\mathbf{r}_c}
+{\left\|\mathbf{r}_b-\mathbf{r}_c\right\|},
+\quad
+\mathbf{e}_y =
+\frac{
+(\mathbf{r}_d-\mathbf{r}_c)
+-
+\left[(\mathbf{r}_d-\mathbf{r}_c)\cdot\mathbf{e}_x\right]\mathbf{e}_x
+}{
+\left\|
+(\mathbf{r}_d-\mathbf{r}_c)
+-
+\left[(\mathbf{r}_d-\mathbf{r}_c)\cdot\mathbf{e}_x\right]\mathbf{e}_x
+\right\|
+},
+\quad
+\mathbf{e}_z=\mathbf{e}_x\times\mathbf{e}_y .
+\end{equation}
+The frame matrix $\mathbf{Q}_{bc}$ uses these three axes as rows.
+For each torsion atom $m$, the local force is $\mathbf{g}_m=\mathbf{Q}_{bc}\mathbf{f}_m$. The central atoms $b$ and $c$ retain only the force component along the central bond,
+\begin{equation}
+\widetilde{\mathbf{g}}_b
+=
+\left(g_{b,x},0,0\right),
+\qquad
+\widetilde{\mathbf{g}}_c
+=
+\left(g_{c,x},0,0\right).
+\end{equation}
+For each terminal atom, the transverse plane is rotated so that the radial direction of that atom lies along the local $y$ axis. For atom $a$, this gives
+\begin{equation}
+\mathbf{h}_a=\mathbf{R}_a\mathbf{g}_a,
+\qquad
+\widetilde{\mathbf{h}}_a=
+\left(h_{a,x},h_{a,y},0\right),
+\qquad
+\widetilde{\mathbf{g}}_a=
+\mathbf{R}_a^{\mathrm{T}}\widetilde{\mathbf{h}}_a .
+\end{equation}
+Thus the radial component of the terminal force is retained and the azimuthal component that directly changes the scan dihedral is removed. Atom $d$ is treated in the same way with $\mathbf{R}_d$, and the revised local forces are transformed back with $\widetilde{\mathbf{f}}_m=\mathbf{Q}_{bc}^{\mathrm{T}}\widetilde{\mathbf{g}}_m$. The same projection rules are applied to search directions during relaxed scan optimization.
+
+\subsection{5.2 Projected nonlinear minimization}
+
+Each relaxed scan point is optimized by projected nonlinear minimization. At iteration $k$, the optimizer first forms the projected force
+\begin{equation}
+\widetilde{\mathbf{F}}_k =
+\mathcal{P}_C(\mathbf{R}_k)\mathbf{F}_k ,
+\end{equation}
+where $\mathcal{P}_C$ denotes the active sequence of local force-revision maps. The projected nonlinear conjugate-gradient update uses this projected force as the descent signal,
+\begin{equation}
+\mathbf{d}_k =
+\widetilde{\mathbf{F}}_k+\gamma_k\mathbf{d}_{k-1}.
+\end{equation}
+ParmFit uses a non-negative Polak--Ribiere coefficient,
+\begin{equation}
+\gamma_k =
+\max\left[
+0,\,
+\frac{
+\left(\widetilde{\mathbf{F}}_k-\widetilde{\mathbf{F}}_{k-1}\right)\cdot \widetilde{\mathbf{F}}_k
+}{
+\widetilde{\mathbf{F}}_{k-1}\cdot\widetilde{\mathbf{F}}_{k-1}
+}
+\right].
+\end{equation}
+The combined direction is projected again before applying the coordinate update,
+\begin{equation}
+\mathbf{R}_{k+1}
+=
+\mathbf{R}_k+\alpha_k\mathbf{d}_k .
+\end{equation}
+
+The step length is selected by either a projected Wolfe line search or a safeguarded Armijo backtracking rule. In both cases, the directional derivative is evaluated with the projected force, and the trial displacement is clipped by a maximum per-atom step before the next MLIP energy and force evaluation. The output is a relaxed scan frame at the requested scan value; downstream parameter fitting uses only the generated geometries and MLIP energies.
+
+\subsection{5.3 MLIP-guided torsion parameter optimization}
+
+ParmFit represents proper torsion energies with the AMBER Fourier form
+\begin{equation}
+E_{\mathrm{tor}}(\boldsymbol{\theta}) =
+\sum_j
+k_j
+\left[
+1+\cos\left(n_j\phi_j-\gamma_j\right)
+\right],
+\end{equation}
+where $k_j$ is the barrier amplitude, $n_j$ is the periodicity, $\phi_j$ is evaluated with the AMBER torsion convention and $\gamma_j$ is the phase. For each selected center bond, TorsionFit compares the MLIP relative scan profile with the MM profile obtained after removing the proper torsions assigned to that center bond. The fitted torsion target is
+\begin{equation}
+y_i =
+Q_i^{\mathrm{rel}} -
+M_{i,\mathrm{base}}^{\mathrm{rel}} .
+\end{equation}
+This subtraction keeps non-torsional and non-target torsional contributions in the MM baseline and assigns only the remaining profile to the center-bond proper torsions.
+
+Stage1 performs a spectral shared-group refit. Torsion paths around the same center bond are grouped by atom-type pattern and local environment, so chemically equivalent paths contribute to the same fitted slot. Fourier amplitudes of the target profile select candidate AMBER-compatible periodicities, and phase seeds are migrated from a representative path to the corresponding shared group. With the shared-group basis matrix $\mathbf{B}$, Stage1 solves the restrained linear problem
+\begin{equation}
+\min_{\mathbf{k}}
+\left\|
+\mathbf{B}\mathbf{k}-\mathbf{y}
+\right\|_2^2
++ \lambda
+\sum_j
+w_j\left(k_j-k_{0,j}\right)^2 .
+\end{equation}
+Existing torsion terms enter this fit with weak priors and can be driven toward zero, whereas zero-amplitude template terms are retained for AMBER completeness. New slots are restricted to periodicities that can be written back to the AMBER DIHE section.
+
+Stage2 then directly refines the AMBER $k_{\Phi}$ and phase parameters initialized by Stage1. Let $\boldsymbol{\theta}$ collect the fitted $(k_j,\gamma_j)$ values, let $M_{si}(\boldsymbol{\theta})$ be the relative MM energy of frame $i$ in scan block $s$, and let $Q_{si}$ be the corresponding MLIP relative energy. The Stage2 objective combines scan-frame profile error, optional ensemble-frame error and a coefficient-space prior around the Stage1 solution,
+\begin{equation}
+\begin{aligned}
+L(\boldsymbol{\theta})
+=&
+\frac{1}{N_{\mathrm{scan}}}
+\sum_s
+\frac{
+\sum_i w_{si}
+\left[
+M_{si}(\boldsymbol{\theta})-Q_{si}
+\right]^2
+}{
+\sum_i w_{si}\sigma_s^2
+}
++w_{\mathrm{ens}}L_{\mathrm{ens}}(\boldsymbol{\theta}) \\
+&+
+\lambda
+\frac{1}{N_t}
+\sum_j
+p_j
+\left[
+\left(
+\frac{
+k_j\cos\gamma_j-k_j^0\cos\gamma_j^0
+}{s_j}
+\right)^2
++
+\left(
+\frac{
+k_j\sin\gamma_j-k_j^0\sin\gamma_j^0
+}{s_j}
+\right)^2
+\right].
+\end{aligned}
+\end{equation}
+The last term regularizes the two Fourier coefficients implied by each amplitude and phase relative to the Stage1 solution, which keeps the phase representation continuous during refinement. The fitted solution is written back in AMBER form, with non-negative amplitudes and phases mapped to a canonical interval. The optional ensemble term uses the same normalized profile error on selected off-scan conformations after alignment to the scan reference energy, so it contributes additional Stage2 constraints without changing the scan profiles reported in the correction output.

@@ -812,7 +812,7 @@ def test_projected_lbfgs_default_takes_plain_lbfgs_step(tmp_path: Path):
     if test_result is None:
         test_result = test_atoms
 
-    expected_step = projected_lbfgs_module.clip_step(initial_positions / 70.0, 0.2)
+    expected_step = projected_lbfgs_module.clip_step(-initial_positions / 70.0, 0.2)
     expected_positions = initial_positions + expected_step
     np.testing.assert_allclose(test_result.get_positions(), expected_positions, atol=1.0e-10)
 
@@ -951,7 +951,7 @@ def test_projected_lbfgs_uses_ref_per_atom_norm_clip_when_projection_enabled(tmp
         result = atoms
 
     displacement = result.get_positions() - start
-    np.testing.assert_allclose(displacement[0], np.asarray([0.12, 0.16, 0.0]), atol=1.0e-12)
+    np.testing.assert_allclose(displacement[0], np.asarray([-0.12, -0.16, 0.0]), atol=1.0e-12)
     assert np.linalg.norm(displacement[0]) == pytest.approx(0.2)
 
 

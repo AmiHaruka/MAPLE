@@ -29,9 +29,7 @@ from maple.function.dispatcher.parmfit.utils import resp as resp_module
 from maple.function.dispatcher.parmfit.utils import runtime as runtime_module
 from maple.function.dispatcher.parmfit.utils.MetalAA.artifacts import MetalArtifacts, MetalAtomTypeRow
 from maple.function.dispatcher.parmfit.utils.MetalAA.charges import project_resp_charges_onto_site_model
-from maple.function.dispatcher.parmfit.utils.MetalAA.config import (
-    parse_metal_abinitio_config,
-)
+from maple.function.dispatcher.parmfit.utils.MetalAA.config import parse_metal_abinitio_config
 from maple.function.dispatcher.parmfit.utils.MetalAA import report as metal_report_module
 from maple.function.dispatcher.parmfit.utils.MetalAA import artifacts as metal_export_module
 from maple.function.dispatcher.parmfit.utils.MetalAA import parameters as metal_parameters_module
@@ -196,6 +194,7 @@ def _fake_metal_large_resp_pipeline(output: str):
         qm,
         label,
         watm,
+        prom="ff14SB",
         charge_groups=None,
     ):
         del bond_pairs, multiplicity, chgmod, fixchg_resids, qm
@@ -224,7 +223,8 @@ def _fake_metal_large_resp_pipeline(output: str):
         assert model["name"] == "large_model"
         assert label == "metal_large_resp"
         assert total_charge == 1
-        assert watm == "opc"
+        assert watm == "tip3p"
+        assert prom in {"ff14SB", "ff19SB"}
 
         gaussian_input.write_text("# HF/6-31G* Pop=MK IOp(6/33=2) SCF=Tight\n", encoding="utf-8")
         mol2.write_text("@<TRIPOS>MOLECULE\nFAKE\n", encoding="utf-8")
@@ -292,15 +292,42 @@ def test_parse_metal_abinitio_config_splits_fixchg_resids_string() -> None:
     assert not hasattr(config, "fixchg_resids")
     assert config.resp.fixchg_resids == ["A10", "A11"]
     assert empty_config.resp.fixchg_resids == []
-    assert config.resp.watm == "opc"
+    assert config.watm == "tip3p"
+    assert config.resp.watm == "tip3p"
     assert config.ionm == "12_6"
     assert config.cluster_cutoff == pytest.approx(3.0)
-    assert config.donor_cutoff == pytest.approx(3.0)
+    assert config.donor_cutoff == pytest.approx(2.7)
     assert config.resp.chgmod == 1
     assert config.opt_max_iter == 256
     assert config.opt_max_step == pytest.approx(0.2)
     assert config.resp.qm.theory == "PBE1PBE"
     assert config.resp.qm.basis == "def2SVP"
+    assert config.prom == "ff14SB"
+    assert config.resp.prom == "ff14SB"
+
+
+@pytest.mark.parametrize(
+    ("raw_prom", "expected"),
+    [
+        ("ff14SB", "ff14SB"),
+        ("FF14SB", "ff14SB"),
+        ("ff14sb", "ff14SB"),
+        ("ff19SB", "ff19SB"),
+        ("FF19SB", "ff19SB"),
+    ],
+)
+def test_parse_metal_abinitio_config_accepts_prom(raw_prom: str, expected: str) -> None:
+    config = parse_metal_abinitio_config(
+        {"prom": raw_prom},
+        pdb_path="demo.pdb",
+        target="A301",
+        charge=2,
+        mult=1,
+        target_residue=_make_zn_residue("A", 301),
+    )
+
+    assert config.prom == expected
+    assert config.resp.prom == expected
 
 
 def test_parse_metal_abinitio_config_splits_add_resid_string() -> None:
@@ -324,6 +351,49 @@ def test_parse_metal_abinitio_config_splits_add_resid_string() -> None:
 
     assert config.target == "A301"
     assert config.add_resid == ["A10", "B11"]
+
+
+def test_parse_metal_abinitio_config_parses_set_bonded_pairs() -> None:
+    config = parse_metal_abinitio_config(
+        {
+            "pdb": "demo.pdb",
+            "target": "A301",
+            "set_bonded": "1-144,2-144",
+        },
+        pdb_path="demo.pdb",
+        target="A301",
+        charge=2,
+        mult=1,
+        target_residue=_make_zn_residue("A", 301),
+    )
+    spaced = parse_metal_abinitio_config(
+        {
+            "pdb": "demo.pdb",
+            "target": "A301",
+            "set_bonded": "1-144 2-144",
+        },
+        pdb_path="demo.pdb",
+        target="A301",
+        charge=2,
+        mult=1,
+        target_residue=_make_zn_residue("A", 301),
+    )
+
+    assert config.set_bonded == [(1, 144), (2, 144)]
+    assert spaced.set_bonded == [(1, 144), (2, 144)]
+    with pytest.raises(ValueError, match="set_bonded"):
+        parse_metal_abinitio_config(
+            {
+                "pdb": "demo.pdb",
+                "target": "A301",
+                "set_bonded": "1:144",
+            },
+            pdb_path="demo.pdb",
+            target="A301",
+            charge=2,
+            mult=1,
+            target_residue=_make_zn_residue("A", 301),
+        )
 
 
 def test_parse_metal_abinitio_config_records_optional_oxy_and_cfmol2() -> None:
@@ -358,6 +428,19 @@ def test_parse_metal_abinitio_config_records_optional_oxy_and_cfmol2() -> None:
     assert config.cfmol2 == ["heme.mol2", "flavin.mol2"]
     assert fallback.oxy is None
     assert fallback.cfmol2 == []
+    comma_config = parse_metal_abinitio_config(
+        {
+            "pdb": "demo.pdb",
+            "target": "A301",
+            "cfmol2": "heme.mol2,flavin.mol2",
+        },
+        pdb_path="demo.pdb",
+        target="A301",
+        charge=-1,
+        mult=6,
+        target_residue=_make_zn_residue("A", 301),
+    )
+    assert comma_config.cfmol2 == ["heme.mol2", "flavin.mol2"]
 
 
 def test_parse_metal_abinitio_config_validates_watm_and_ionm() -> None:
@@ -370,8 +453,8 @@ def test_parse_metal_abinitio_config_validates_watm_and_ionm() -> None:
         {
             "pdb": "demo.pdb",
             "target": "A301",
-            "watm": "tip3p",
-            "ionm": "iod",
+            "watm": "opc3",
+            "ionm": "hfe",
         },
         pdb_path="demo.pdb",
         target="A301",
@@ -380,8 +463,9 @@ def test_parse_metal_abinitio_config_validates_watm_and_ionm() -> None:
         target_residue=_make_zn_residue("A", 301),
     )
 
-    assert config.resp.watm == "tip3p"
-    assert config.ionm == "iod"
+    assert config.watm == "opc3"
+    assert config.resp.watm == "opc3"
+    assert config.ionm == "hfe"
 
     with pytest.raises(ValueError, match="water model"):
         parse_metal_abinitio_config(
@@ -395,6 +479,61 @@ def test_parse_metal_abinitio_config_validates_watm_and_ionm() -> None:
     with pytest.raises(ValueError, match="ion parameter set"):
         parse_metal_abinitio_config(
             {"pdb": "demo.pdb", "target": "A301", "ionm": "bad"},
+            pdb_path="demo.pdb",
+            target="A301",
+            charge=2,
+            mult=1,
+            target_residue=_make_zn_residue("A", 301),
+        )
+
+
+def test_parse_metal_abinitio_config_validates_prom_as_protein_model() -> None:
+    config = parse_metal_abinitio_config(
+        {"pdb": "demo.pdb", "target": "A301", "prom": "FF19SB"},
+        pdb_path="demo.pdb",
+        target="A301",
+        charge=2,
+        mult=1,
+        target_residue=_make_zn_residue("A", 301),
+    )
+
+    assert config.prom == "ff19SB"
+    assert config.resp.prom == "ff19SB"
+
+    with pytest.raises(ValueError, match="protein model"):
+        parse_metal_abinitio_config(
+            {"pdb": "demo.pdb", "target": "A301", "prom": "bad"},
+            pdb_path="demo.pdb",
+            target="A301",
+            charge=2,
+            mult=1,
+            target_residue=_make_zn_residue("A", 301),
+        )
+
+
+def test_parse_metal_abinitio_config_parses_bonded_method() -> None:
+    default_config = parse_metal_abinitio_config(
+        {"pdb": "demo.pdb", "target": "A301"},
+        pdb_path="demo.pdb",
+        target="A301",
+        charge=2,
+        mult=1,
+        target_residue=_make_zn_residue("A", 301),
+    )
+    seminario_config = parse_metal_abinitio_config(
+        {"pdb": "demo.pdb", "target": "A301", "bonded": "Seminario"},
+        pdb_path="demo.pdb",
+        target="A301",
+        charge=2,
+        mult=1,
+        target_residue=_make_zn_residue("A", 301),
+    )
+
+    assert default_config.bonded == "mseminario"
+    assert seminario_config.bonded == "seminario"
+    with pytest.raises(ValueError, match="bonded method"):
+        parse_metal_abinitio_config(
+            {"pdb": "demo.pdb", "target": "A301", "bonded": "bad"},
             pdb_path="demo.pdb",
             target="A301",
             charge=2,
@@ -493,7 +632,12 @@ def test_parmfit_abinitio_bootstraps_charge_mult_from_cmo_without_oxy(monkeypatc
     result = Parmfit(
         output=str(tmp_path / "bootstrap.out"),
         atoms=atoms,
-        params={"method": "abinitio", "pdb": str(pdb_path), "target": "A301", "cmo": "2 3"},
+        params={
+            "method": "abinitio",
+            "pdb": str(pdb_path),
+            "target": "A301",
+            "cmo": "2 3",
+        },
     ).run()
 
     assert observed == {"charge": 2, "mult": 3, "spin": 1.0, "oxy": None, "pdb": str(pdb_path)}
@@ -538,7 +682,12 @@ def test_parmfit_abinitio_bootstraps_optional_oxy_from_cmo(monkeypatch, tmp_path
     Parmfit(
         output=str(tmp_path / "bootstrap_oxy.out"),
         atoms=atoms,
-        params={"method": "abinitio", "pdb": str(pdb_path), "target": "A301", "cmo": "-1 6 3"},
+        params={
+            "method": "abinitio",
+            "pdb": str(pdb_path),
+            "target": "A301",
+            "cmo": "-1 6 3",
+        },
     ).run()
 
     assert observed == {"charge": -1, "mult": 6, "spin": 2.5, "oxy": 3}
@@ -579,7 +728,12 @@ def test_parmfit_abinitio_rejects_malformed_cmo(tmp_path: Path) -> None:
         Parmfit(
             output=str(tmp_path / "bad_cmo.out"),
             atoms=atoms,
-            params={"method": "abinitio", "pdb": str(pdb_path), "target": "A301", "cmo": "2"},
+            params={
+                "method": "abinitio",
+                "pdb": str(pdb_path),
+                "target": "A301",
+                "cmo": "2",
+            },
         ).run()
 
 
@@ -615,7 +769,7 @@ def test_metal_report_lines_cover_summary_and_warning() -> None:
         resp_files={},
         mol2_files={"ZN1": "ZN1.mol2"},
         tleap_lines=[
-            "source leaprc.protein.ff19SB\n",
+            "source leaprc.protein.ff14SB\n",
             'addAtomTypes {\n',
             '    { "M1" "Zn" "sp3" }\n',
             '}\n',
@@ -642,7 +796,7 @@ def test_metal_report_lines_cover_summary_and_warning() -> None:
 
     assert "Target metal selector: A301" in start_lines
     assert "add_resid: ['A10']" in start_lines
-    assert "water model: opc" in start_lines
+    assert "water model: tip3p" in start_lines
     assert "ion parameter set: 12_6" in start_lines
     assert "metal site charge/mult: 2 1" in start_lines
     assert "metal oxidation: 2" in start_lines
@@ -722,7 +876,7 @@ Exiting LEaP: Errors = 0; Warnings = 14; Notes = 6.
     assert summary.checks == ("long bond OE1-FE = 3.436 A",)
 
 
-def test_metal_parameter_parser_reads_bundled_dat_and_frcmod_files() -> None:
+def test_metal_parameter_parser_reads_bundled_dat_and_frcmod() -> None:
     parm_dir = metal_parameters_module.parm_dir()
 
     parm19 = metal_parameters_module.parse_amber_dat(parm_dir / "parm19.dat")
@@ -748,6 +902,17 @@ def test_metal_parameter_parser_reads_bundled_dat_and_frcmod_files() -> None:
     assert gaff2.bond[metal_parameters_module.canonical_pair(("c3", "c3"))] == pytest.approx((228.89, 1.5354))
     assert gaff2.angle[metal_parameters_module.canonical_angle(("c3", "c3", "c3"))] == pytest.approx((59.87, 112.63))
     assert gaff2.nonbond["c3"] == pytest.approx((1.9069, 0.1078))
+
+
+def test_load_parameters_uses_prom_and_optional_system_pool() -> None:
+    protein_params = metal_parameters_module.load_parameters("ff14SB")
+    system_params = metal_parameters_module.load_parameters("ff14SB", "opc")
+    ff19_params = metal_parameters_module.load_parameters("ff19SB", "opc")
+
+    assert protein_params.mass["CX"] == pytest.approx(12.01)
+    assert "c3" not in protein_params.mass
+    assert system_params.mass["c3"] == pytest.approx(12.01)
+    assert ff19_params.mass["XC"] == pytest.approx(12.01)
 
 
 def test_metal_parameter_parser_accepts_frcmod_section_aliases(tmp_path: Path) -> None:
@@ -997,7 +1162,7 @@ def test_write_site_frcmod_inherits_standard_terms_and_writes_nonbon(tmp_path: P
     assert lines[0] == "REMARK MAPLE MetalAA generated metal-site frcmod"
     assert lines[1] == ""
     assert lines[2] == "MASS"
-    assert re.search(r"^Y1\s+1\.9825\s+0\.28240000", text, re.MULTILINE)
+    assert re.search(r"^Y1\s+2\.0000\s+0\.25000000", text, re.MULTILINE)
     assert re.search(r"^M1\s+1\.2190\s+0\.00150903", text, re.MULTILINE)
     assert re.search(r"^(?:2C-Y1|Y1-2C)\s+237\.0+\s+1\.8100", text, re.MULTILINE)
     assert re.search(r"^(?:M1-Y1|Y1-M1)\s+123\.4000\s+2\.2500", text, re.MULTILINE)
@@ -1007,6 +1172,60 @@ def test_write_site_frcmod_inherits_standard_terms_and_writes_nonbon(tmp_path: P
     assert all(len(line.split()) == 5 for line in dihe_lines if line.strip())
     assert all(len(line.split()) == 4 for line in improper_lines if line.strip())
     assert not any(re.match(r"^\S+\s+1\s+", line) for line in improper_lines if line.strip())
+    assert all("Y1" not in line for line in improper_lines if line.strip())
+
+
+def test_metal_site_typing_uses_prom_for_internal_protein_atom_types() -> None:
+    site_model = _make_cys_zn_site_model_for_export()
+    ca_index = next(
+        index
+        for index, (_residue, atom) in enumerate(model_module.flatten_model_atoms(site_model), start=1)
+        if atom["name"] == "CA"
+    )
+
+    ff14_typing = metal_export_module._build_site_typing(site_model, watm="opc", ionm="12_6", prom="ff14SB")
+    ff19_typing = metal_export_module._build_site_typing(site_model, watm="opc", ionm="12_6", prom="ff19SB")
+
+    assert ff14_typing.old_type_by_index[ca_index] == "CX"
+    assert ff19_typing.old_type_by_index[ca_index] == "XC"
+
+
+def test_metal_site_typing_keeps_terminal_ca_as_cx_under_ff19sb() -> None:
+    zn = make_residue("A", 301, "", "ZN", [make_atom(1, "ZN", "ZN", np.array((0.0, 0.0, 0.0)))], kind="ion")
+    gly = make_residue(
+        "A",
+        10,
+        "",
+        "GLY",
+        [
+            make_atom(2, "N", "N", np.array((1.0, 0.0, 0.0))),
+            make_atom(3, "H", "H", np.array((1.0, 0.9, 0.0))),
+            make_atom(4, "CA", "C", np.array((2.2, 0.0, 0.0))),
+            make_atom(5, "C", "C", np.array((3.0, 1.1, 0.0))),
+            make_atom(6, "O", "O", np.array((4.0, 1.1, 0.0))),
+        ],
+        kind="protein",
+    )
+    gly["_next_peptide_key"] = ("A", 11, "")
+    site_model = model_module.rebuild_model_index(
+        {
+            "name": "site_model",
+            "target_key": ("A", 301, ""),
+            "residues": [zn, gly],
+            "donor_atoms": {},
+            "explicit_pairs": set(),
+            "_pair_cache": {},
+        }
+    )
+    ca_index = next(
+        index
+        for index, (_residue, atom) in enumerate(model_module.flatten_model_atoms(site_model), start=1)
+        if atom["name"] == "CA"
+    )
+
+    typing = metal_export_module._build_site_typing(site_model, watm="opc", ionm="12_6", prom="ff19SB")
+
+    assert typing.old_type_by_index[ca_index] == "CX"
 
 
 def test_frcmod_formats_proper_and_improper_torsions_with_amber_fields() -> None:
@@ -1224,6 +1443,7 @@ nx-cx-cc-ce  1  0.5000  180.0000  2.0000
 nx-cx-ce-cc  1  0.5000  180.0000  2.0000
 
 IMPROPER
+nx-cc-cx-ce  1.1000  180.0000  2.0000
 
 NONBON
 nx 1.7000 0.12000000
@@ -1283,6 +1503,130 @@ ce 1.8100 0.07000000
     assert re.search(r"^Y1\s+1\.7000\s+0\.12000000", frcmod_text, re.MULTILINE)
     assert re.search(r"^(?:M1-Y1|Y1-M1)\s+111\.0000\s+1\.9000", frcmod_text, re.MULTILINE)
     assert re.search(r"^(?:M1-Y1-cx|cx-Y1-M1)\s+22\.0000\s+120\.0000", frcmod_text, re.MULTILINE)
+
+
+def test_multiple_cofactor_frcmods_remap_terms_from_their_own_residue_source(tmp_path: Path) -> None:
+    fe = make_residue("A", 301, "", "FE", [make_atom(1, "FE", "FE", np.array((0.0, 0.0, 0.0)))], kind="ion")
+    fe["formal_charge"] = 3
+    lig1 = make_residue(
+        "A",
+        500,
+        "",
+        "LGA",
+        [
+            make_atom(2, "N1", "N", np.array((1.9, 0.0, 0.0))),
+            make_atom(3, "C1", "C", np.array((3.1, 0.0, 0.0))),
+        ],
+        kind="cofactor",
+    )
+    lig2 = make_residue(
+        "A",
+        501,
+        "",
+        "LGB",
+        [
+            make_atom(4, "N1", "N", np.array((-1.9, 0.0, 0.0))),
+            make_atom(5, "C1", "C", np.array((-3.1, 0.0, 0.0))),
+        ],
+        kind="cofactor",
+    )
+    for residue in (lig1, lig2):
+        residue["atoms"][0]["atom_type"] = "nx"
+        residue["atoms"][1]["atom_type"] = "cx"
+    site_model = model_module.rebuild_model_index(
+        {
+            "name": "site_model",
+            "target_key": ("A", 301, ""),
+            "residues": [fe, lig1, lig2],
+            "donor_atoms": {("A", 500, ""): ["N1"], ("A", 501, ""): ["N1"]},
+            "explicit_pairs": {
+                tuple(sorted((2, 3))),
+                tuple(sorted((4, 5))),
+            },
+            "_pair_cache": {},
+        }
+    )
+    first_frcmod = tmp_path / "first_orig.frcmod"
+    first_frcmod.write_text(
+        """MASS
+nx 14.0100
+cx 12.0100
+
+BOND
+nx-cx   111.0000  1.1100
+
+ANGLE
+
+DIHE
+
+IMPROPER
+
+NONBON
+nx 1.7000 0.12000000
+cx 1.9000 0.09000000
+""",
+        encoding="utf-8",
+    )
+    second_frcmod = tmp_path / "second_orig.frcmod"
+    second_frcmod.write_text(
+        """MASS
+nx 14.0100
+cx 12.0100
+
+BOND
+nx-cx   222.0000  1.2200
+
+ANGLE
+
+DIHE
+
+IMPROPER
+
+NONBON
+nx 1.7000 0.12000000
+cx 1.9000 0.09000000
+""",
+        encoding="utf-8",
+    )
+    artifacts = _make_metal_export_artifacts(tmp_path)
+    _site_pdb, _site_mol2, typing = metal_export_module.write_site_model_files(
+        artifacts,
+        structure=site_model,
+        site_model=site_model,
+        watm="opc",
+        ionm="12_6",
+        cofactor_frcmods=[str(first_frcmod), str(second_frcmod)],
+        cofactor_frcmod_by_residue={
+            ("A", 500, ""): str(first_frcmod),
+            ("A", 501, ""): str(second_frcmod),
+        },
+    )
+    bond_terms, angle_terms = model_module.build_bond_angle_terms(
+        site_model,
+        source_structure=site_model,
+        bond_pairs=metal_export_module._export_bond_pairs(site_model),
+    )
+    for bond in bond_terms:
+        if 1 in bond.atoms:
+            bond.kBond = 333.0
+            bond.rEq = 1.90
+    for angle in angle_terms:
+        if 1 in angle.atoms:
+            angle.kTheta = 44.0
+            angle.thetaEq = np.deg2rad(120.0)
+
+    metal_export_module.write_site_frcmod(
+        artifacts,
+        site_model=site_model,
+        bond_terms=bond_terms,
+        angle_terms=angle_terms,
+        typing=typing,
+    )
+
+    frcmod_text = Path(artifacts.files["frcmod"]).read_text(encoding="utf-8")
+    assert re.search(r"^Y1-cx\s+111\.0000\s+1\.1100", frcmod_text, re.MULTILINE)
+    assert re.search(r"^Y2-cx\s+222\.0000\s+1\.2200", frcmod_text, re.MULTILINE)
+    assert len(re.findall(r"^(?:M1-Y[12]|Y[12]-M1)\s+333\.0000\s+1\.9000", frcmod_text, re.MULTILINE)) == 2
 
 
 def test_cofactor_remap_preserves_wildcard_dihedral_for_heme_donor(tmp_path: Path) -> None:
@@ -1614,6 +1958,32 @@ def test_identify_metal_site_core_auto_detects_and_merges_manual_residues(tmp_pa
     assert any("potentially charged standard residues" in warning for warning in info["warnings"])
 
 
+def test_identify_metal_site_core_set_bonded_overrides_auto_donor_detection(tmp_path: Path) -> None:
+    pdb = "".join(
+        [
+            _pdb_atom("HETATM", 144, "ZN", "ZN", "A", 301, 0.0, 0.0, 0.0, "ZN"),
+            _pdb_atom("ATOM", 1, "SG", "CYS", "A", 10, 8.0, 0.0, 0.0, "S"),
+            _pdb_atom("ATOM", 3, "N", "CYS", "A", 10, 7.0, 0.0, 0.0, "N"),
+            _pdb_atom("ATOM", 4, "CA", "CYS", "A", 10, 7.0, 1.0, 0.0, "C"),
+            _pdb_atom("ATOM", 5, "C", "CYS", "A", 10, 7.0, 2.0, 0.0, "C"),
+            _pdb_atom("ATOM", 6, "O", "CYS", "A", 10, 7.0, 3.0, 0.0, "O"),
+            _pdb_atom("ATOM", 7, "CB", "CYS", "A", 10, 8.0, 1.0, 0.0, "C"),
+            _pdb_atom("ATOM", 2, "NE2", "HIS", "A", 11, 1.8, 0.0, 0.0, "N"),
+            _pdb_atom("ATOM", 8, "N", "HIS", "A", 11, 2.8, 0.0, 0.0, "N"),
+            _pdb_atom("ATOM", 9, "CA", "HIS", "A", 11, 2.8, 1.0, 0.0, "C"),
+            _pdb_atom("ATOM", 10, "C", "HIS", "A", 11, 2.8, 2.0, 0.0, "C"),
+            _pdb_atom("ATOM", 11, "O", "HIS", "A", 11, 2.8, 3.0, 0.0, "O"),
+            "END\n",
+        ]
+    )
+    path = _write_text(tmp_path / "explicit_metal_core.pdb", pdb)
+
+    info = identify_metal_site_core(read_pdb(path), target="A301", set_bonded="1-144")
+
+    assert [(res["chain"], res["resseq"]) for res in info["auto_core_residues"]] == [("A", 10)]
+    assert info["donor_atoms"] == {("A", 10, ""): ["SG"]}
+
+
 def test_cfmol2_injects_cofactor_atom_types_bonds_and_enables_auto_core(tmp_path: Path) -> None:
     from maple.function.dispatcher.parmfit.utils.MetalAA.recognize import apply_cfmol2_templates
 
@@ -1646,9 +2016,76 @@ USER_CHARGES
     hem = next(residue for residue in structure["residues"] if residue["resname"] == "HEM")
     assert templates[0].residue_key == ("A", 500, "")
     assert {atom["name"]: atom["atom_type"] for atom in hem["atoms"]} == {"N1": "nx", "C1": "cx"}
-    assert tuple(sorted((2, 3))) in structure["explicit_pairs"]
+    assert tuple(sorted((2, 3))) not in structure["explicit_pairs"]
+    assert hem["_cfmol2_bond_name_pairs"] == {("C1", "N1")}
     assert selection["auto_core_residues"][0]["resname"] == "HEM"
     assert selection["donor_atoms"][("A", 500, "")] == ["N1"]
+
+
+def test_cfmol2_preserves_name_bonds_when_pdb_serials_are_duplicated(tmp_path: Path) -> None:
+    from maple.function.dispatcher.parmfit.utils.MetalAA.recognize import apply_cfmol2_templates
+
+    pdb = "".join(
+        [
+            _pdb_atom("HETATM", 0, "HN31", "MNS", "A", 862, 0.0, 0.0, 0.0, "H"),
+            _pdb_atom("HETATM", 0, "HM23", "MNS", "A", 862, 4.0, 0.0, 0.0, "H"),
+            _pdb_atom("HETATM", 2049, "N3S", "MNS", "A", 862, 0.9, 0.0, 0.0, "N"),
+            "END\n",
+        ]
+    )
+    mol2 = """@<TRIPOS>MOLECULE
+MNS
+ 3 1 0 0 0
+SMALL
+USER_CHARGES
+@<TRIPOS>ATOM
+      1 HN31        0.0000    0.0000    0.0000 hn        1 MNS        0.300000
+      2 HM23        4.0000    0.0000    0.0000 h1        1 MNS        0.100000
+      3 N3S         0.9000    0.0000    0.0000 n2        1 MNS       -0.400000
+@<TRIPOS>BOND
+     1    1    3 1
+"""
+    structure = read_pdb(_write_text(tmp_path / "mns.pdb", pdb))
+    apply_cfmol2_templates(structure, [_write_text(tmp_path / "mns.mol2", mol2)])
+
+    residue = structure["residues"][0]
+    assert residue["_cfmol2_bond_name_pairs"] == {("HN31", "N3S")}
+
+
+def test_cfmol2_templates_bind_ambiguous_residues_in_structure_order(tmp_path: Path) -> None:
+    from maple.function.dispatcher.parmfit.utils.MetalAA.recognize import apply_cfmol2_templates
+
+    pdb = "".join(
+        [
+            _pdb_atom("HETATM", 1, "N1", "LIG", "A", 114, 0.0, 0.0, 0.0, "N"),
+            _pdb_atom("HETATM", 2, "C1", "LIG", "A", 114, 1.2, 0.0, 0.0, "C"),
+            _pdb_atom("HETATM", 3, "N1", "LIG", "A", 115, 3.0, 0.0, 0.0, "N"),
+            _pdb_atom("HETATM", 4, "C1", "LIG", "A", 115, 4.2, 0.0, 0.0, "C"),
+            "END\n",
+        ]
+    )
+    mol2 = """@<TRIPOS>MOLECULE
+LIG
+ 2 1 0 0 0
+SMALL
+USER_CHARGES
+@<TRIPOS>ATOM
+      1 N1          0.0000    0.0000    0.0000 n1        1 LIG       -0.300000
+      2 C1          1.2000    0.0000    0.0000 c1        1 LIG        0.300000
+@<TRIPOS>BOND
+     1    1    2 1
+"""
+    structure = read_pdb(_write_text(tmp_path / "two_lig.pdb", pdb))
+    first = _write_text(tmp_path / "first.mol2", mol2)
+    second = _write_text(tmp_path / "second.mol2", mol2.replace("n1", "n2").replace("c1", "c2"))
+
+    templates = apply_cfmol2_templates(structure, [first, second])
+
+    assert [template.residue_key for template in templates] == [("A", 114, ""), ("A", 115, "")]
+    first_residue = next(residue for residue in structure["residues"] if residue["resseq"] == 114)
+    second_residue = next(residue for residue in structure["residues"] if residue["resseq"] == 115)
+    assert {atom["name"]: atom["atom_type"] for atom in first_residue["atoms"]} == {"N1": "n1", "C1": "c1"}
+    assert {atom["name"]: atom["atom_type"] for atom in second_residue["atoms"]} == {"N1": "n2", "C1": "c2"}
 
 
 def test_extract_metal_cluster_excludes_nearby_waters(tmp_path: Path) -> None:
@@ -1798,7 +2235,7 @@ def test_optimize_model_geometry_is_the_shared_model_optimizer(monkeypatch) -> N
     assert np.allclose(first_atom["xyz"], np.array((0.25, 0.0, -0.25)))
 
 
-def test_project_resp_charges_maps_deployment_atoms_by_original_serial() -> None:
+def test_project_resp_charges_maps_deployment_atoms_by_model_order() -> None:
     site_model = _make_simple_site_model_nh_case()
     charged_large_model = deepcopy(site_model)
     for residue in charged_large_model["residues"]:
@@ -1813,7 +2250,46 @@ def test_project_resp_charges_maps_deployment_atoms_by_original_serial() -> None
             assert atom["charge"] == pytest.approx(float(atom["serial"]) / 100.0)
 
 
-def test_project_resp_charges_raises_for_missing_deployment_serial() -> None:
+def test_project_resp_charges_preserves_order_when_serials_are_duplicated() -> None:
+    site_model = {
+        "name": "site_model",
+        "target_key": ("A", 301, ""),
+        "core_keys": [("A", 301, ""), ("A", 862, "")],
+        "residues": [
+            make_residue("A", 301, "", "ZN", [make_atom(1, "ZN", "ZN", np.zeros(3))], kind="ion"),
+            make_residue(
+                "A",
+                862,
+                "",
+                "MNS",
+                [
+                    make_atom(0, "H1", "H", np.array((0.0, 0.0, 0.0))),
+                    make_atom(0, "H2", "H", np.array((1.0, 0.0, 0.0))),
+                    make_atom(0, "H3", "H", np.array((2.0, 0.0, 0.0))),
+                ],
+                kind="cofactor",
+            ),
+        ],
+    }
+    charged_large_model = deepcopy(site_model)
+    charges = {
+        ("ZN",): [0.2],
+        ("H1", "H2", "H3"): [0.11, 0.22, 0.33],
+    }
+    for residue in charged_large_model["residues"]:
+        atom_names = tuple(atom["name"] for atom in residue["atoms"])
+        for atom, charge in zip(residue["atoms"], charges[atom_names], strict=True):
+            atom["charge"] = charge
+
+    projected, warnings = project_resp_charges_onto_site_model(site_model, charged_large_model)
+
+    assert warnings == []
+    ligand_charges = [atom["charge"] for atom in projected["residues"][1]["atoms"]]
+    assert ligand_charges == pytest.approx([0.11, 0.22, 0.33])
+    assert sum(atom["charge"] for residue in projected["residues"] for atom in residue["atoms"]) == pytest.approx(0.86)
+
+
+def test_project_resp_charges_raises_for_missing_deployment_atom() -> None:
     site_model = _make_simple_site_model_nh_case()
     charged_large_model = deepcopy(site_model)
     charged_large_model["residues"][1]["atoms"] = charged_large_model["residues"][1]["atoms"][:-1]
@@ -1821,8 +2297,285 @@ def test_project_resp_charges_raises_for_missing_deployment_serial() -> None:
         for atom in residue["atoms"]:
             atom["charge"] = 0.0
 
-    with pytest.raises(ValueError, match="RESP charge for original atom serial"):
+    with pytest.raises(ValueError, match="atom count mismatch"):
         project_resp_charges_onto_site_model(site_model, charged_large_model)
+
+
+def test_mseminario_terms_remap_by_model_order_when_serials_are_duplicated() -> None:
+    from maple.function.dispatcher.parmfit.utils.readparm import Angle
+
+    zn = make_residue("A", 301, "", "ZN", [make_atom(1, "ZN", "ZN", np.zeros(3))], kind="ion")
+    ligand = make_residue(
+        "A",
+        862,
+        "",
+        "MNS",
+        [
+            make_atom(0, "HN31", "H", np.array((1.0, 0.0, 0.0))),
+            make_atom(0, "HM23", "H", np.array((2.0, 0.0, 0.0))),
+            make_atom(10, "N3S", "N", np.array((0.0, 1.0, 0.0))),
+        ],
+        kind="cofactor",
+    )
+    large_model = model_module.rebuild_model_index(
+        {
+            "name": "large_model",
+            "target_key": ("A", 301, ""),
+            "residues": [zn, ligand],
+            "explicit_pairs": set(),
+            "_pair_cache": {},
+        }
+    )
+    site_model = deepcopy(large_model)
+    angle = Angle(
+        atoms=(1, 4, 2),
+        atom_types=("ZN", "n2", "hn"),
+        kTheta=12.0,
+        thetaEq=np.deg2rad(109.5),
+    )
+
+    _mapped_bonds, mapped_angles = metal_workflow_module._remap_terms_to_site_model(large_model, site_model, [], [angle])
+
+    assert mapped_angles[0].atoms == (1, 4, 2)
+
+
+def test_metal_bonded_export_selects_seminario_method(monkeypatch, tmp_path: Path) -> None:
+    metal = make_residue(
+        "A",
+        301,
+        "",
+        "ZN",
+        [make_atom(1, "ZN", "ZN", np.array((0.0, 0.0, 0.0)))],
+        kind="ion",
+    )
+    donor = make_residue(
+        "A",
+        10,
+        "",
+        "CYS",
+        [make_atom(2, "SG", "S", np.array((2.0, 0.0, 0.0)))],
+        kind="protein",
+    )
+    model = {
+        "residues": [metal, donor],
+        "target_key": get_resid_key(metal),
+        "donor_atoms": {get_resid_key(donor): ["SG"]},
+    }
+    bundle = SimpleNamespace(
+        large_model=deepcopy(model),
+        site_model=deepcopy(model),
+        large_charge=2,
+        large_mult=1,
+    )
+    source_atoms = Atoms("ZnS", positions=[[0.0, 0.0, 0.0], [2.0, 0.0, 0.0]])
+    source_atoms.calc = ZeroHessianCalculator()
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        metal_workflow_module,
+        "apply_seminario",
+        lambda atoms, hessian, bonds, angles: calls.append("seminario"),
+    )
+    monkeypatch.setattr(
+        metal_workflow_module,
+        "apply_mseminario",
+        lambda atoms, hessian, bonds, angles: calls.append("mseminario"),
+    )
+    monkeypatch.setattr(metal_workflow_module, "write_site_frcmod", lambda *args, **kwargs: str(tmp_path / "metal.frcmod"))
+
+    for bonded_method in ("seminario", "mseminario"):
+        metal_workflow_module._export_metal_bonded_frcmod(
+            source_atoms=source_atoms,
+            bundle=bundle,
+            resp_problem=metal_workflow_module.MetalRespProblem(bond_pairs=[(1, 2)], charge_groups=[]),
+            artifacts=SimpleNamespace(files={"frcmod": str(tmp_path / "metal.frcmod")}),
+            site_typing=SimpleNamespace(),
+            stage_timings=[],
+            bonded_method=bonded_method,
+        )
+
+    assert calls == ["seminario", "mseminario"]
+
+
+def test_large_resp_charge_groups_do_not_depend_on_duplicate_serials() -> None:
+    zn = make_residue("A", 301, "", "ZN", [make_atom(1, "ZN", "ZN", np.zeros(3))], kind="ion")
+    ligand = make_residue(
+        "A",
+        862,
+        "",
+        "MNS",
+        [
+            make_atom(0, "HN31", "H", np.array((1.0, 0.0, 0.0))),
+            make_atom(0, "HM23", "H", np.array((2.0, 0.0, 0.0))),
+            make_atom(10, "N3S", "N", np.array((0.0, 1.0, 0.0))),
+        ],
+        kind="cofactor",
+    )
+    ligand["formal_charge"] = 0
+    large_model = model_module.rebuild_model_index(
+        {
+            "name": "large_model",
+            "target_key": ("A", 301, ""),
+            "residues": [zn, ligand],
+            "explicit_pairs": set(),
+            "_pair_cache": {},
+        }
+    )
+    core = SimpleNamespace(
+        final_core_residues=[zn],
+        target_key=("A", 301, ""),
+        metal_atom=zn["atoms"][0],
+        optimized_donor_atoms={},
+    )
+
+    problem = metal_workflow_module._build_large_resp_problem(SimpleNamespace(large_model=large_model), core)
+
+    assert problem.charge_groups == [([2, 3, 4], 0.0)]
+
+
+def test_large_resp_bond_graph_uses_cfmol2_name_pairs_with_duplicate_serials() -> None:
+    zn = make_residue("A", 301, "", "ZN", [make_atom(1, "ZN", "ZN", np.zeros(3))], kind="ion")
+    ligand = make_residue(
+        "A",
+        862,
+        "",
+        "MNS",
+        [
+            make_atom(0, "HN31", "H", np.array((0.0, 0.0, 0.0))),
+            make_atom(0, "HM23", "H", np.array((4.0, 0.0, 0.0))),
+            make_atom(2049, "N3S", "N", np.array((0.9, 0.0, 0.0))),
+        ],
+        kind="cofactor",
+    )
+    ligand["_cfmol2_path"] = "mns.mol2"
+    ligand["_cfmol2_bond_name_pairs"] = {("HN31", "N3S")}
+    large_model = model_module.rebuild_model_index(
+        {
+            "name": "large_model",
+            "target_key": ("A", 301, ""),
+            "residues": [zn, ligand],
+            "explicit_pairs": {tuple(sorted((0, 2049)))},
+            "_pair_cache": {},
+        }
+    )
+    core = SimpleNamespace(
+        final_core_residues=[zn, ligand],
+        target_key=("A", 301, ""),
+        metal_atom=zn["atoms"][0],
+        optimized_donor_atoms={("A", 862, ""): ["N3S"]},
+    )
+
+    problem = metal_workflow_module._build_large_resp_problem(SimpleNamespace(large_model=large_model), core)
+
+    assert (2, 4) in problem.bond_pairs
+    assert (1, 4) in problem.bond_pairs
+    assert (3, 4) not in problem.bond_pairs
+
+
+def test_residue_mol2_atom_type_overrides_do_not_depend_on_duplicate_serials(tmp_path: Path) -> None:
+    ligand = make_residue(
+        "A",
+        862,
+        "",
+        "MNS",
+        [
+            make_atom(0, "HN31", "H", np.array((1.0, 0.0, 0.0))),
+            make_atom(0, "HM23", "H", np.array((2.0, 0.0, 0.0))),
+            make_atom(10, "N3S", "N", np.array((0.0, 1.0, 0.0))),
+        ],
+        kind="cofactor",
+    )
+    for atom, charge in zip(ligand["atoms"], [0.1, 0.2, -0.3], strict=True):
+        atom["charge"] = charge
+    site_model = model_module.rebuild_model_index(
+        {
+            "name": "site_model",
+            "target_key": ("A", 301, ""),
+            "residues": [ligand],
+            "explicit_pairs": set(),
+            "_pair_cache": {},
+        }
+    )
+    typing = metal_export_module.MetalSiteTyping(
+        atom_type_rows=[],
+        mol2_atom_types={1: "hA", 2: "hB", 3: "nX"},
+        atom_type_overrides={},
+        old_type_by_index={},
+        renamed_atom_indices=set(),
+        ion_frcmods=[],
+        residue_names={("A", 862, ""): "MNS1"},
+    )
+    artifacts = _make_metal_export_artifacts(tmp_path)
+
+    mol2_files = metal_export_module._write_residue_mol2_files(artifacts, site_model=site_model, typing=typing)
+
+    mol2_text = Path(mol2_files["MNS1"]).read_text(encoding="utf-8")
+    atom_types = {}
+    for line in mol2_text.splitlines():
+        parts = line.split()
+        if len(parts) >= 9 and parts[0].isdigit():
+            atom_types[parts[1]] = parts[5]
+    assert atom_types["HN31"] == "hA"
+    assert atom_types["HM23"] == "hB"
+    assert atom_types["N3S"] == "nX"
+
+
+def test_typed_cofactor_bond_graph_uses_cfmol2_name_pairs_with_duplicate_serials(tmp_path: Path) -> None:
+    ligand = make_residue(
+        "A",
+        862,
+        "",
+        "MNS",
+        [
+            make_atom(0, "HN31", "H", np.array((0.0, 0.0, 0.0))),
+            make_atom(0, "HM23", "H", np.array((4.0, 0.0, 0.0))),
+            make_atom(2049, "N3S", "N", np.array((0.9, 0.0, 0.0))),
+        ],
+        kind="cofactor",
+    )
+    ligand["_cfmol2_path"] = "mns.mol2"
+    ligand["_cfmol2_bond_name_pairs"] = {("HN31", "N3S")}
+    for atom, atom_type, charge in zip(ligand["atoms"], ["hn", "h1", "Y6"], [0.3, 0.1, -0.4], strict=True):
+        atom["atom_type"] = atom_type
+        atom["charge"] = charge
+    protein = make_residue(
+        "B",
+        10,
+        "",
+        "CYS",
+        [make_atom(500, "CB", "C", np.array((4.7, 0.0, 0.0)))],
+        kind="protein",
+    )
+    site_model = model_module.rebuild_model_index(
+        {
+            "name": "site_model",
+            "target_key": ("A", 301, ""),
+            "residues": [ligand, protein],
+            "explicit_pairs": {tuple(sorted((0, 2049)))},
+            "_pair_cache": {},
+        }
+    )
+    typing = metal_export_module.MetalSiteTyping(
+        atom_type_rows=[],
+        mol2_atom_types={1: "hn", 2: "h1", 3: "Y6"},
+        atom_type_overrides={3: "Y6"},
+        old_type_by_index={1: "hn", 2: "h1", 3: "n2"},
+        renamed_atom_indices={3},
+        ion_frcmods=[],
+        residue_names={("A", 862, ""): "MS1"},
+    )
+    artifacts = _make_metal_export_artifacts(tmp_path)
+
+    export_pairs = metal_export_module._export_bond_pairs(site_model)
+    mol2_files = metal_export_module._write_residue_mol2_files(artifacts, site_model=site_model, typing=typing)
+
+    assert export_pairs == [(1, 3)]
+    assert not any(set(pair) == {1, 2} for pair in export_pairs)
+    assert not any(set(pair) == {2, 3} for pair in export_pairs)
+    assert all("Y6" not in metal_export_module._resolved_types(dihedral, typing) for dihedral in metal_export_module._enumerate_dihedrals_from_pairs(export_pairs))
+    mol2_text = Path(mol2_files["MS1"]).read_text(encoding="utf-8")
+    assert "\n     1    1    3 1\n" in mol2_text
+    assert "    1    1    2 " not in mol2_text
 
 
 def test_metal_site_typing_renames_only_metal_and_direct_donor_atoms() -> None:
@@ -2320,16 +3073,16 @@ def test_abinitio_metal_route_writes_models_and_outputs(monkeypatch, tmp_path: P
     assert "Y1" in site_mol2
     assert "ZN1" in metal_mol2
     assert "    2.000000" in metal_mol2
-    assert "source leaprc.protein.ff19SB" in tleap_input
+    assert "source leaprc.protein.ff14SB" in tleap_input
     assert "source leaprc.gaff2" in tleap_input
-    assert "source leaprc.water.opc" in tleap_input
+    assert "source leaprc.water.tip3p" in tleap_input
     assert "ZN1 = loadmol2 ZN1.mol2" in tleap_input
     assert f"loadamberparams {base.name}_metal.frcmod" in tleap_input
     assert f"mol = loadpdb {base.name}_metal_tleap.pdb" in tleap_input
-    assert "bond mol.10.SG mol.301.ZN" in tleap_input
+    assert "bond mol.2.SG mol.1.ZN" in tleap_input
     assert f"savepdb mol {base.name}_metal_tleap_dry.pdb" in tleap_input
     assert f"saveamberparm mol {base.name}_metal_tleap_dry.prmtop {base.name}_metal_tleap_dry.inpcrd" in tleap_input
-    assert "solvatebox mol OPCBOX 10.0" in tleap_input
+    assert "solvatebox mol TIP3PBOX 10.0" in tleap_input
     assert "addions mol Na+ 0" in tleap_input
     assert "addions mol Cl- 0" in tleap_input
     assert f"savepdb mol {base.name}_metal_tleap_solvated.pdb" in tleap_input
@@ -2490,8 +3243,8 @@ def test_metal_workflow_refreshes_donors_from_optimized_large_model(monkeypatch,
     site_mol2 = (output_root / f"{output.with_suffix('').name}_metal_site.mol2").read_text(encoding="utf-8")
     assert "OE1      1.8000    0.0000    0.0000" in site_mol2
     assert "OE2      0.0000    1.8000    0.0000" in site_mol2
-    assert "bond mol.10.OE1 mol.301.ZN\n" in result.artifacts.tleap_lines
-    assert "bond mol.10.OE2 mol.301.ZN\n" in result.artifacts.tleap_lines
+    assert "bond mol.2.OE1 mol.1.ZN\n" in result.artifacts.tleap_lines
+    assert "bond mol.2.OE2 mol.1.ZN\n" in result.artifacts.tleap_lines
 
     large_serial_to_index = {
         atom["serial"]: atom_index
@@ -2500,6 +3253,73 @@ def test_metal_workflow_refreshes_donors_from_optimized_large_model(monkeypatch,
     metal_index = large_serial_to_index[1]
     assert tuple(sorted((metal_index, large_serial_to_index[9]))) in captured_bond_pairs
     assert tuple(sorted((metal_index, large_serial_to_index[10]))) in captured_bond_pairs
+
+
+def test_metal_workflow_set_bonded_keeps_explicit_donors_after_optimization(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    pdb_path, atoms, output, _output_root = _make_carboxylate_route_inputs(tmp_path)
+    input_structure = read_pdb(pdb_path)
+    captured_bond_pairs: list[tuple[int, int]] = []
+
+    def fake_optimize_model_geometry(model, **_kwargs):
+        optimized = deepcopy(model)
+        glu = next(residue for residue in optimized["residues"] if residue["resname"] == "GLU")
+        search_atom(glu, "OE1")["xyz"] = np.array((1.80, 0.00, 0.00))
+        search_atom(glu, "OE2")["xyz"] = np.array((0.00, 1.80, 0.00))
+        refresh_resid(glu)
+        return model_module.rebuild_model_index(optimized)
+
+    real_build_bond_angle_terms = model_module.build_bond_angle_terms
+
+    def spy_build_bond_angle_terms(model, source_structure=None, bond_policy="auto", bond_pairs=None):
+        if model.get("name") == "large_model":
+            captured_bond_pairs[:] = list(bond_pairs or [])
+        if bond_pairs is None:
+            return real_build_bond_angle_terms(model, source_structure=source_structure, bond_policy=bond_policy)
+        return real_build_bond_angle_terms(
+            model,
+            source_structure=source_structure,
+            bond_policy=bond_policy,
+            bond_pairs=bond_pairs,
+        )
+
+    monkeypatch.setattr(metal_workflow_module, "optimize_model_geometry", fake_optimize_model_geometry)
+    monkeypatch.setattr(metal_workflow_module, "run_resp_pipeline", _fake_metal_large_resp_pipeline(str(output)))
+    monkeypatch.setattr(metal_workflow_module, "build_bond_angle_terms", spy_build_bond_angle_terms)
+
+    result = metal_workflow_module.run_metal_abinitio(
+        output=str(output),
+        source_atoms=atoms,
+        structure=input_structure,
+        config=parse_metal_abinitio_config(
+            {
+                "pdb": pdb_path,
+                "target": "A301",
+                "set_bonded": "9-1",
+                "donor_cutoff": 2.5,
+            },
+            pdb_path=pdb_path,
+            target="A301",
+            charge=2,
+            mult=1,
+            target_residue=input_structure["residues"][0],
+        ),
+        log_info=lambda lines: None,
+    )
+
+    assert result.site_model["donor_atoms"][("A", 10, "")] == ["OE1"]
+    assert "bond mol.2.OE1 mol.1.ZN\n" in result.artifacts.tleap_lines
+    assert "bond mol.2.OE2 mol.1.ZN\n" not in result.artifacts.tleap_lines
+
+    large_serial_to_index = {
+        atom["serial"]: atom_index
+        for atom_index, (_residue, atom) in enumerate(model_module.flatten_model_atoms(result.large_model), start=1)
+    }
+    metal_index = large_serial_to_index[1]
+    assert tuple(sorted((metal_index, large_serial_to_index[9]))) in captured_bond_pairs
+    assert tuple(sorted((metal_index, large_serial_to_index[10]))) not in captured_bond_pairs
 
 
 def test_run_metal_abinitio_returns_workflow_result(monkeypatch, tmp_path: Path) -> None:
@@ -2793,6 +3613,9 @@ def test_abinitio_ncaa_route_writes_user_summary_and_returns_result(monkeypatch,
     atoms.info["charge"] = 0
     atoms.info["mult"] = 1
     atoms.calc = ZeroHessianCalculator()
+    tleap_input = tmp_path / "NAA_tleap.in"
+    tleap_input.write_text("quit\n", encoding="utf-8")
+    tleap_input.with_suffix(".out").write_text("Errors = 0; Warnings = 2; Notes = 1\n", encoding="utf-8")
 
     artifacts = SimpleNamespace(
         files={
@@ -2802,7 +3625,8 @@ def test_abinitio_ncaa_route_writes_user_summary_and_returns_result(monkeypatch,
             "frcmod": "NAA.frcmod",
             "refined_prepin": "NAA_maple.prepin",
             "refined_frcmod": "NAA_maple.frcmod",
-            "tleap_input": "NAA_tleap.in",
+            "tleap_pdb": "NAA_tleap.pdb",
+            "tleap_input": str(tleap_input),
             "target_capped_pdb": "target_capped.pdb",
             "alpha_capped_pdb": "alpha_capped.pdb",
             "beta_capped_pdb": "beta_capped.pdb",
@@ -2840,14 +3664,22 @@ def test_abinitio_ncaa_route_writes_user_summary_and_returns_result(monkeypatch,
     assert "Target: A1:SER" in text
     assert "Residue name: NAA" in text
     assert "Chirality: L" in text
+    assert "Protein model: ff14SB" in text
     assert "Charge/mult: 0 1" in text
     assert "Representative conformer: ref" in text
     assert "RESP conformers: alpha, beta" in text
     assert "refined prepin: NAA_maple.prepin" in text
     assert "refined frcmod: NAA_maple.frcmod" in text
-    assert "tleap input:    NAA_tleap.in" in text
-    assert "input written, not executed" in text
+    assert "tleap input:" in text
+    assert "NAA_tleap.in" in text
+    assert "tleap PDB:      NAA_tleap.pdb" in text
+    assert "Errors: 0" in text
+    assert "Warnings: 2" in text
+    assert "Notes: 1" in text
+    assert "input written, not executed" not in text
     assert "tleap -s -f NAA_tleap.in" in text
+    assert "ff14SB manual note:" not in text
+    assert "ff19SB note:" not in text
 
 
 def test_abinitio_routes_no_chain_residue_name_target_to_ncaa(monkeypatch, tmp_path: Path) -> None:

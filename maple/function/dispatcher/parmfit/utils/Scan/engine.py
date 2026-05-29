@@ -6,7 +6,6 @@ import os
 from copy import deepcopy
 from typing import Callable, Optional
 
-import numpy as np
 from ase import Atoms
 from ase.constraints import FixInternals
 from ase.neighborlist import NeighborList, natural_cutoffs

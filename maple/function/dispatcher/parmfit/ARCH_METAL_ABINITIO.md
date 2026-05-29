@@ -1,324 +1,77 @@
-# MAPLE Parmfit Metal Ab Initio 架构
+# MAPLE Parmfit MetalAA Ab Initio 架构
 
-顶层 Parmfit 架构见 [ARCH_PARMFIT.md](./ARCH_PARMFIT.md)。
-
-这份文档描述当前 `parmfit(method=abinitio)` 的金属路线。它是源码现状说明，不定义未来行为。
+顶层架构见 [ARCH_PARMFIT.md](./ARCH_PARMFIT.md)。本文档描述 `parmfit(method=abinitio)` 中 target kind 为 `ion` 时的 MetalAA route。
 
 ## 1. 定位
 
-当前金属 ab initio 参数构建的 canonical implementation 是 `utils/MetalAA/`。
-
-`metalcc` 只是示例输入、输出文件名前缀或任务命名习惯，不是独立 Python 模块。实际入口仍然是：
+MetalAA 的目标是为金属位点生成 AMBER 可加载的局部参数。它参考 MCPB 的方法思想，但不调用 MCPB。
 
 ```text
-parmfit(method=abinitio, pdb=..., target=..., cmo=..., cfmol2=...)
-        |
-        v
-abinitio/abinitio.py
-        |
-        v
-utils/MetalAA/workflow.py
+PDB + target ion
+ -> metal site recognition
+ -> large_model
+ -> RESP
+ -> site_model deployment
+ -> Hessian + mSeminario
+ -> final metal frcmod
+ -> tleap validation
 ```
 
-`utils/MCPB/` 是范本和参考包。MetalAA 继承了 MCPB 对金属位点参数化问题的分层思想，但不在运行期调用 MCPB。
+MetalAA 当前只支持单金属中心。donor cutoff 内发现另一个 ion 会失败。
 
-当前 MetalAA 使用两层模型：
+## 2. 模块边界
 
-- `large_model`
-  - 用于几何优化、RESP、Hessian 和 modified Seminario。
-- `site_model`
-  - 定义最终部署 residue 集合，用于 RESP 电荷回填、per-residue mol2、renamed PDB、frcmod 和 `tleap.in` 导出。
+| 文件 | 责任 |
+|---|---|
+| `config.py` | 解析 MetalAA 用户输入 |
+| `recognize.py` | metal core、donor、cofactor mol2、orig frcmod 准备 |
+| `models.py` | `large_model` / `site_model` 构建 |
+| `charges.py` | large charge 推断和 RESP charge 投影 |
+| `parameters.py` | Amber/GAFF/ion 参数读取与匹配 |
+| `artifacts.py` | atom typing、frcmod merge/remap、mol2/PDB/tleap 文件 |
+| `workflow.py` | 串联 MetalAA 主流程 |
+| `report.py` | route progress 文案 |
 
-这比 MCPB 更小：
+共享层：
 
-- 没有 small / standard / large 三模型系统。
-- 没有 fingerprint 文件契约。
-- 没有 small-model-specific QM 分支。
-- 没有自动运行 `tleap` 或生成 topology/coordinate 文件。
-- 没有 multi-metal coupled workflow。
+- `runtime.py`: geometry optimization、Hessian、RESP runtime。
+- `resp.py`: RESP 输入/输出和固定电荷规则。
+- `interface.py`: Gaussian、AmberTools、tleap。
+- `mSeminario.py`: Hessian 到 bond/angle 参数。
+- `structure.py` / `context.py` / `model.py`: PDB、residue、model 和文件写出。
 
-## 2. 入口与路由
+## 3. 输入语义
 
-### 2.1 `Parmfit.run()`
+### 3.1 `cmo`
 
-`Parmfit.run()` 负责最外层分发：
-
-- `method="abinitio"` 时要求 `params["pdb"]` 存在并规范化为绝对路径。
-- 从 `params["cmo"]` 解析 charge / multiplicity / optional oxidation，默认 `"0 1"`。
-- 把 charge、mult、spin 和可选 `oxy` 写入 bootstrap `Atoms.info`。
-- 实例化 `Abinitio(output, atoms, params)` 并调用 `run()`。
-
-这里的 inline coordinate block 只用于 MAPLE 全局 reader 和 calculator bootstrap。金属路线的真实结构来自 `pdb`。
-
-### 2.2 `Abinitio.run()`
-
-`Abinitio.run()` 是薄 route orchestrator：
-
-1. 读取 `params["pdb"]`。
-2. 用 `params["target"]` 在 PDB 结构中定位唯一 residue。
-3. 调用 `classify_kind(target_residue)`。
-4. 当 `target_kind == "ion"` 时进入 MetalAA。
-5. 当 `target_kind == "protein"` 时进入 NCAA。
-
-MetalAA 路由只接受 `ion` target。其它 target kind 不会进入 `utils/MetalAA/`。
-
-### 2.3 `MetalAbinitioConfig`
-
-`parse_metal_abinitio_config(...)` 把 route 参数收束进 `MetalAbinitioConfig`：
-
-- 必要来源：
-  - `pdb_path`
-  - `target`
-  - `charge`
-  - `mult`
-  - `target_residue`
-- MetalAA 参数：
-  - `add_resid`
-  - `cluster_cutoff`
-  - `donor_cutoff`
-  - `chgmod`
-  - `fixchg_resids`
-  - `watm`
-  - `ionm`
-- QM 参数：
-  - `theory`
-  - `basis`
-  - `route`
-  - `nproc`
-  - `mem`
-
-当前默认值：
+MetalAA 使用：
 
 ```text
-cluster_cutoff = 3.0
-donor_cutoff   = 3.0
-chgmod         = 1
-watm           = opc
-ionm           = 12_6
-opt_max_iter   = 256
-opt_max_step   = 0.2
-QM             = gaussian / PBE1PBE / def2SVP
+cmo = "<charge> <multiplicity> [oxidation]"
 ```
 
-`watm` 和 `ionm` 都会校验。`watm` 影响 Gaussian `ReadRadii`；`watm/ionm` 共同决定生成的 ion frcmod 加载行，但 workflow 不自动运行 `tleap`。
-
-## 3. 模块职责
-
-Metal-specific code 位于 `utils/MetalAA/`：
-
-- `config.py`
-  - 定义 `MetalAbinitioConfig`。
-  - 解析 MetalAA 输入面和 QM 选项。
-- `core.py`
-  - 定义 `MetalSiteSelection`。
-  - 识别 target metal、自动 donor residues、手动 `add_resid`。
-  - 执行单金属邻近校验。
-- `models.py`
-  - 构建 `large_model` 和 `site_model`。
-  - 管理 `MetalModelBundle`。
-- `charges.py`
-  - 推断 `large_model` 总电荷。
-  - 把 RESP 电荷从 `large_model` 投影回 `site_model`。
-  - 投影键使用原始 PDB atom serial；找不到部署 atom 的 RESP charge 直接失败。
-- `workflow.py`
-  - 串起完整 MetalAA workflow。
-  - 返回 `MetalWorkflowResult`。
-- `export.py`
-  - 规划文件路径。
-  - 导出 large/site 过程文件、per-residue mol2、renamed full PDB、final frcmod 和完整 `tleap.in`。
-  - 只给 metal atom 和 direct donor atoms 分配局部 atom type，例如 `M1`、`Y1`。
-- `report.py`
-  - 输出开始/结束报告和 `tleap reference` 片段。
-
-MetalAA 使用的共享层：
-
-- `utils/structure.py`
-  - PDB parsing、residue key、target kind、formal charge 常量。
-- `utils/context.py`
-  - residue selector、peptide 前后邻居、cutoff environment。
-- `utils/model.py`
-  - `build_capped_selected_model(...)`、`model <-> ASE Atoms`、bond/angle 推断、PDB 写出。
-- `utils/runtime.py`
-  - `SilentLBFGS`、geometry optimization、Hessian helper、RESP pipeline。
-- `utils/resp.py`
-  - RESP 输入、固定电荷规则、RESP charge 读写、mol2 写出。
-- `utils/interface.py`
-  - Gaussian ESP input 和 Gaussian 调用。
-- `utils/ionparams.py`
-  - 本地离子半径表、Gaussian `ReadRadii` entries、离子 frcmod 名称推断。
-- `utils/mSeminario.py`
-  - modified Seminario bond / angle 力常数填充。
-
-## 4. 对象与数据流
-
-MetalAA 的核心数据流是：
+含义：
 
 ```text
-PDB
- |
- v
-structure
- |
- v
-MetalSiteSelection
- |
- v
-large_model
- |
- | optimize_model_geometry
- | run_resp_pipeline
- v
-charged large_model
- |
- v
-site_model
- |
- | project RESP charges
- | optimize_model_geometry
- | Hessian + mSeminario
- v
-MetalWorkflowResult + exported files
+config.charge = metal + nonprotein ligand/cofactor fragments
+config.mult   = QM multiplicity
+config.oxy    = optional metal oxidation identity
 ```
 
-### 4.1 `structure`
-
-`structure` 来自 `read_pdb(...)`，包含：
-
-- `residues`
-- `serial_to_atom`
-- `serial_to_residue`
-- `explicit_pairs`
-- `_pair_cache`
-
-每个 residue 通过 `classify_kind(...)` 标记为 `ion`、`protein`、`water`、`cofactor` 或 `ligand`。
-
-### 4.2 `MetalSiteSelection`
-
-`find_metal_site_core(...)` 生成 `MetalSiteSelection`：
-
-- `target`
-  - 目标金属 ion residue。
-- `auto_core_residues`
-  - donor cutoff 内自动识别到的 protein donor residues。
-- `manual_core_residues`
-  - 用户通过 `add_resid` 强制加入的 residues。
-- `core_residues`
-  - `target + auto_core_residues + manual_core_residues`。
-- `donor_atoms`
-  - key 为 residue key，value 为 donor atom name 列表。
-- `warnings`
-  - 手动加入但无自动 donor 的 residue、环境中潜在带电 residue 等提示。
-
-自动 donor 元素来自 `METAL_SITE_DONOR_ELEMENTS`：`N/O/S/P/SE/F/CL/BR/I`。
-
-如果 donor cutoff 内存在另一个 ion，当前 workflow 直接失败，因为 MetalAA 只支持单金属中心。
-
-### 4.3 `large_model`
-
-`build_metal_large_model(...)` 构建 `large_model`：
-
-- 包含 metal core。
-- 加入 `cluster_cutoff` 内、未在 core 中的 environment residues。
-- 默认不把 water 作为 cutoff environment 加入。
-- 对 peptide fragment 进行必要的 GLY bridge 和 ACE/NME cap。
-
-`large_model` 的关键字段：
-
-- `name = "large_model"`
-- `target_key`
-- `core_keys`
-- `environment_keys`
-- `donor_atoms`
-- `warnings`
-- `cluster_cutoff`
-- `charge`
-- `mult`
-
-`large_model` 是优化和 RESP 的对象，不是最终正式导出的 site parameter object。
-
-### 4.4 `site_model`
-
-`site_model` 从原始 PDB `structure` 和 `selection.core_residues` 中构建：
-
-- 包含 target metal。
-- 包含 donor residues。
-- 包含手动 `add_resid` residues。
-- 不包含 GLY bridge。
-- 不包含外边界 ACE/NME cap。
-- 不包含 large-only environment residues。
-
-`site_model` 的关键字段：
-
-- `name = "site_model"`
-- `target_key`
-- `core_keys`
-- `donor_atoms`
-- `charge`
-- `mult`
-- `warnings`
-
-`site_model` 是最终部署对象：RESP 电荷按原始 serial 回填到这一层；per-residue mol2、renamed PDB、final frcmod 和 `tleap.in` 都围绕这一层导出。Hessian 和 mSeminario 在 optimized `large_model` 上完成，然后只把能映射到部署 site 的 terms 写入 final frcmod。
-
-### 4.5 `RespPipelineResult`
-
-`run_resp_pipeline(...)` 返回 `RespPipelineResult`：
-
-- `model`
-  - 已写入 RESP charges 的 `large_model`。
-- `files`
-  - 当前主要包含 Gaussian input 和 RESP large mol2。
-- `resp_files`
-  - Gaussian log、ESP、resp1/resp2 输入输出、charge、calculated ESP 等 sidecar。
-- `decision`
-  - 使用的 `QMMethod`。
-
-MetalAA 不把 RESP 产生的 large-model mol2 作为最终 mol2。最终 mol2 总是从 charge-updated、re-optimized 的 `site_model` 写出。
-
-### 4.6 `MetalWorkflowResult`
-
-`run_metal_abinitio(...)` 最终返回 `MetalWorkflowResult`：
-
-- `selection`
-- `large_model`
-- `site_model`
-- `artifacts`
-- `site_typing`
-
-它提供：
-
-- `core_info`
-  - `selection.to_dict()`。
-- `files`
-  - 正式输出路径。
-- `resp_files`
-  - RESP / Gaussian sidecar 路径。
-
-## 5. 电荷链路
-
-### 5.1 `cmo` 的 MetalAA 语义
-
-用户通过 `cmo="q m"` 或 `cmo="q m oxy"` 提供 charge / multiplicity / optional oxidation。
-
-在 MetalAA 中，`q` 是 target metal + 非蛋白配位片段的总电荷，`m` 是 metal site QM multiplicity，`oxy` 是可选的金属氧化数：
+`oxy` 不参与 total charge。它只用于 metal formal charge / ion identity：
 
 ```text
-nonprotein_site_charge = config.charge
-site_mult              = config.mult
-metal_formal_charge    = config.oxy if config.oxy is not None else config.charge
+metal_formal_charge = config.oxy if config.oxy is not None else config.charge
 ```
 
-`q` 不等于 whole large model charge；标准蛋白残基电荷仍单独累加。离子元素来自 PDB atom `element/name`；离子形式电荷优先来自 `cmo[2]`，没有第三项时 fallback 到 `cmo[0]`。该形式电荷会传给 Gaussian `ReadRadii` 和 `watm/ionm` 对应的 ion frcmod 选择。
-
-### 5.2 `large_charge`
-
-`large_charge` 自动推断：
+large model charge：
 
 ```text
-large_charge = nonprotein_site_charge + sum(formal_charge(residue) for protein residues in large_model)
-large_mult   = site_mult
+Q_large = config.charge + sum(formal_charge(protein residue in large_model))
+M_large = config.mult
 ```
 
-标准 residue 形式电荷取自 `CHARGED_STANDARD_RESIDUES`：
+标准蛋白残基形式电荷来自内部表，例如：
 
 ```text
 ASP -1
@@ -329,254 +82,294 @@ HIP +1
 CYM -1
 ```
 
-ACE/NME/GLY cap/bridge、水和未带电标准 residue 贡献 0。当前实现描述的是现状：large model 的未知非标准 residue 没有独立电荷数据库时按 0 处理；真正进入最终部署且需要重命名/导出的非标准 residue 必须能提供 atom type 来源，否则导出阶段失败。
+### 3.2 `cfmol2`
 
-### 5.3 `chgmod` 和 `fixchg_resids`
+`cfmol2` 用于 HEM 等非蛋白 cofactor：
 
-`chgmod` 传入 `resp.write_resp_input_files(...)`，控制 RESP 阶段固定哪些标准 backbone 电荷：
+- 读取 mol2 atom names、atom types、charges、bonds。
+- 用 atom names 匹配 PDB 中 ligand/cofactor residue。
+- 把 mol2 atom type/charge 注入 PDB residue atom dict。
+- 把 mol2 bonds 映射为 explicit PDB serial pairs。
+- 对每个 cfmol2 调 `parmchk2 -s gaff2 -a Y` 生成 cofactor orig frcmod。
 
-- `0`
-  - 不按 backbone policy 自动固定。
-- `1`
-  - 固定 `N/CA/C/O/OXT`。
-- `2`
-  - 固定 `N/H/HA/CA/C/O/OXT`。
-- `3`
-  - 固定 `N/H/HA/CA/CB/C/O/OXT`。
+cofactor orig frcmod 是中间参数源，不在 final `tleap.in` 里单独加载。
 
-`fixchg_resids` 会把指定 residue 的所有可查标准 Amber 电荷固定到 reference library 值。如果指定 residue 没有标准参考定义，RESP 输入生成会失败。
+### 3.3 `set_bonded`
 
-### 5.4 RESP 运行对象
+`set_bonded` 显式指定 metal-donor serial pair：
+
+```text
+set_bonded = "FE_SERIAL-DONOR_SERIAL ..."
+```
+
+如果设置了它，MetalAA 使用这些 pair 作为直接 donor 关系；否则按 donor cutoff 自动识别。
+
+### 3.4 RESP 固定电荷
+
+`chgmod` 控制 RESP 中标准 backbone atom 的固定策略：
+
+| `chgmod` | 固定 atom names |
+|---:|---|
+| 0 | 不按 backbone policy 自动固定 |
+| 1 | `N/CA/C/O/OXT` |
+| 2 | `N/H/HA/CA/C/O/OXT` |
+| 3 | `N/H/HA/CA/CB/C/O/OXT` |
+
+`fixchg_resids` 可指定完整 residue 固定到标准 Amber 电荷。指定非标准 residue 时，如果无法查到参考电荷会失败。
+
+## 4. 模型定义
+
+### 4.1 `MetalSiteSelection`
+
+`find_metal_site_core(...)` 产生：
+
+- target metal residue。
+- direct donor atoms。
+- 自动 core residues。
+- 用户 `add_resid` core residues。
+- selection warnings。
+
+自动 donor 元素：
+
+```text
+N O S P SE F CL BR I
+```
+
+如果 donor 是 ligand/cofactor 且没有 atom type，workflow 会要求提供对应 `cfmol2`。
+
+### 4.2 `large_model`
+
+`large_model` 是优化、RESP、Hessian 和 mSeminario 的对象：
+
+```text
+large_model = metal core + cutoff environment + bridge/caps
+```
+
+包含：
+
+- target metal。
+- donor residues。
+- user-added residues。
+- cutoff environment。
+- peptide bridge/cap。
+
+不作为最终 AMBER 部署对象。
+
+### 4.3 `site_model`
+
+`site_model` 是最终部署对象：
+
+```text
+site_model = target metal + final core residues
+```
+
+它不包含 large-only environment 和 caps。RESP charges 从 `charged_large_model` 按 original PDB serial 映射回来：
+
+```text
+charge_map[original_serial] -> site atom charge
+```
+
+找不到对应 serial 会失败。
+
+## 5. Workflow
+
+当前 `run_metal_abinitio(...)` 顺序：
+
+```text
+plan artifacts
+ -> apply cfmol2 templates
+ -> build cofactor orig frcmods
+ -> recognize initial metal core
+ -> build large_model
+ -> annotate metal formal charge
+ -> infer large charge
+ -> write raw large PDB
+ -> optimize large_model
+ -> reselect optimized core donors
+ -> build RESP problem
+ -> run Gaussian ESP + RESP
+ -> deploy site_model
+ -> project RESP charges
+ -> write site deployment files
+ -> Hessian + mSeminario/Seminario
+ -> write final metal frcmod
+ -> run tleap validation
+ -> return MetalWorkflowResult
+```
+
+优化后会基于 optimized coordinates 重新判断 donor/core，除非用户通过 `set_bonded` 显式固定 metal-donor pair。
+
+## 6. RESP Charge Chain
 
 RESP 在 optimized `large_model` 上运行：
 
-1. `prepare_gaussian_esp_input(...)` 写 Gaussian ESP input。
-2. 如果模型包含 ion，Gaussian route 使用 `Pop(MK,ReadRadii)`。
-3. `collect_gaussian_readradii_entries(...)` 根据 `watm` 和 ion identity 追加 `Element radius` 行。
-4. `run_gaussian(...)` 运行 Gaussian。
-5. `espgen` 从 Gaussian log 抽 ESP。
-6. `resp` 运行两阶段拟合。
-7. `read_resp_charges(...)` 读取 `resp2.chg`。
-8. `apply_resp_charges(...)` 写回 `large_model`。
-
-### 5.5 RESP 回填到部署 `site_model`
-
-`project_resp_charges_onto_site_model(site_model, charged_large_model)` 的规则：
-
-- 构建 `charge_map[original_pdb_serial] = RESP charge`。
-- `site_model` 是部署模型，只含 target metal、自动 donor residues 和用户 `add_resid` core residues。
-- `site_model` 不包含 ACE/NME cap，也不包含 large-only GLY bridge。
-- 对部署 atom：
-  - 必须在 `charged_large_model` 中找到相同原始 PDB serial。
-  - 找不到即失败。
-  - charge 完全来自 RESP，不做后归一化。
-- cap/bridge/environment atom 没有最终部署目标，不参与回填。
-
-这个实现不使用 MCPB fingerprint；它依赖原始 PDB atom serial 在 large/site 两层之间保持稳定。
-
-## 6. 执行链路
-
-`run_metal_abinitio(...)` 的顺序是：
-
-1. `plan_metal_artifacts(output)`
-   - 生成正式输出路径和 RESP sidecar 容器。
-2. `find_metal_site_core(...)`
-   - 识别 metal core 和 donor atoms。
-3. `build_metal_model_bundle(...)`
-   - 构建 `large_model`。
-4. `infer_large_model_charge(...)`
-   - 计算 `large_charge`。
-5. `write_large_pdb(..., optimized=False)`
-   - 写 raw large PDB。
-6. `optimize_model_geometry(large_model, ...)`
-   - 用当前 `source_atoms.calc` 优化 large model。
-7. `write_large_pdb(..., optimized=True)`
-   - 写 optimized large PDB。
-8. `infer_bond_pairs(large_model, ...)`
-   - 给 RESP large mol2 准备 bond pairs。
-9. `run_resp_pipeline(...)`
-    - Gaussian ESP + espgen + RESP。
-10. `build_metal_site_model(...)`
-    - 从原始 PDB structure 和 `selection.core_residues` 构建部署 site model。
-11. `project_resp_charges_onto_site_model(...)`
-    - 按原始 PDB atom serial 把 RESP charges 映射回部署 site model。
-12. `write_site_model_files(...)`
-    - 写 diagnostic site PDB/mol2、per-residue mol2、renamed full PDB、`tleap.in`，并生成 `MetalSiteTyping`。
-13. `model_to_atoms(large_model, ...)`
-    - 把 optimized large model 转成 ASE Atoms。
-14. `get_cartesian_hessian(large_atoms)`
-    - 从 calculator 获取 large model Hessian。
-15. `apply_mseminario(...)`
-    - 填充 bond / angle 平衡值和力常数。
-16. remap large terms to deployment site indices
-    - 只保留所有 atom 都能映射到部署 site model 的 bond / angle terms。
-17. `write_site_frcmod(...)`
-    - 写最终 `<base>_metal.frcmod`。
-18. `format_metal_final_lines(...)`
-    - 写最终报告和 `tleap reference`。
-
-## 7. 导出链路
-
-### 7.1 正式输出
-
-正式输出写到 `"<base>_work/"`：
-
 ```text
-<base>_work/<base>_metal_large_raw.pdb
-<base>_work/<base>_metal_large_opt.pdb
-<base>_work/<base>_metal_site_opt.pdb
-<base>_work/<base>_metal_site.mol2
-<base>_work/<base>_metal.frcmod
-<base>_work/<base>_metal_tleap.pdb
-<base>_work/<base>_metal_tleap.in
-<base>_work/HD1.mol2
-<base>_work/GU1.mol2
-<base>_work/FE1.mol2
+large_model
+ -> Gaussian ESP input
+ -> Gaussian log
+ -> espgen
+ -> resp stage 1/2
+ -> resp2.chg
+ -> charged_large_model
 ```
 
-`*_metal_site.mol2` 是 diagnostic/check artifact；正式 `tleap` 导入目标是 MCPB-style per-residue mol2，例如 `HD1.mol2`、`GU1.mol2`、`FE1.mol2`。
-
-### 7.2 过程文件
-
-RESP / Gaussian sidecar 写到：
+如果包含 ion，Gaussian route 使用 `ReadRadii`。radii entries 根据：
 
 ```text
-<base>_work/metalaa/
+element + metal_formal_charge + water model
 ```
 
-典型文件包括：
+生成。
+
+部署阶段：
 
 ```text
-<base>_metal_large_resp.gjf
-<base>_metal_large_resp.log
-metal_large_resp.esp
-metal_large_resp.mol2
-resp1.in
-resp1.out
-resp1.pch
-resp1.chg
-resp1_calc.esp
-resp2.in
-resp2.out
-resp2.pch
-resp2.chg
-resp2_calc.esp
+charged_large_model charges
+ -> original serial mapping
+ -> site_model charges
+ -> per-residue mol2
 ```
 
-### 7.3 Atom type remapping
+不做额外归一化。
 
-`_build_site_typing(...)` 会给 final site 局部重新分配 atom type：
+## 7. Bonded Parameter Chain
 
-- ion atom 使用 `M1`, `M2`, ...。
-- direct donor atoms 使用 `Y1`, `Y2`, ...，再继续到 `Z/U/V/...`。
-- donor 所在 residue 的其他 atoms 保持标准 Amber / GAFF type。
-- cap / bridge atoms 不进入部署 site model，也不写 per-residue mol2。
+MetalAA 不运行 TorsionFit。金属相关 bonded 参数来自 Hessian：
 
-`frcmod` 只写和 renamed atom type 相关的：
+```text
+large_model optimized coordinates
+ -> Cartesian Hessian
+ -> mSeminario/Seminario
+ -> fitted BOND/ANGLE
+ -> remap to site_model atom indices
+```
 
-- `MASS`
-- `BOND`
-- `ANGLE`
+mSeminario 更新：
 
-当前 `DIHE`、`IMPROPER`、`NONBON` section 会保留为空 section。离子的 nonbonded 参数预期由报告里的标准 ion frcmod 提供。
+```text
+BOND:  kBond, rEq
+ANGLE: kTheta, thetaEq
+```
 
-### 7.4 `tleap reference`
+金属相关 DIHE 当前作为 zero torsion 写入，用于满足 AMBER 的 bonded pattern 需求，不表示额外拟合了 torsion barrier。
 
-MetalAA 不执行 `tleap`。它生成完整 `<base>_metal_tleap.in`，并在报告里复制同一段参考内容：
+## 8. Atom Type Remap
 
-- `source leaprc.protein.ff19SB`
-- `source leaprc.gaff2`
-- `source leaprc.water.<watm>`
-- `addAtomTypes { ... }`
-- `<RES> = loadmol2 <RES>.mol2`
-- `loadamberparams <ion frcmod>`
-- `loadamberparams <base>_metal.frcmod`
-- `mol = loadpdb <base>_metal_tleap.pdb`
-- `bond ...` metal-donor bonds、renamed protein residue peptide reconnect bonds、disulfide bonds
-- `quit`
+`artifacts.py` 给最终 site 局部重命名：
 
-这些文件是用户后续组装 AMBER 系统的输入；workflow 当前只生成输入，不自动运行 `tleap`。
+- metal atom: `M1`, `M2`, ...
+- direct donor atom: `Y1`, `Y2`, ...
+- donor residue 其它原子保持原 Amber/GAFF atom type。
 
-## 8. 失败点和边界
+旧 atom type 来源：
 
-当前 MetalAA 会在以下情况下失败或提前停止：
+- protein residue: protein force-field library。
+- water/ion: built-in lookup。
+- cofactor/ligand: `cfmol2` 注入。
 
-- `target` 缺失或找不到唯一 residue。
-- target residue 不是 `ion`。
-- donor cutoff 内发现另一个 ion。
-- `watm` 不在支持列表中。
-- `ionm` 不在支持列表中。
-- `chgmod` 不是 `0/1/2/3`。
-- geometry optimization 不收敛。
-- Gaussian、espgen 或 resp 外部程序失败。
-- RESP 返回 charge 数和 large model atom 数不匹配。
-- 部署 atom 无法从 charged large model 按原始 PDB serial 找到 RESP charge。
-- 部署 residue 无法解析出 Amber/GAFF old atom type。
-- `source_atoms.calc` 不提供 `get_hessian()`。
-- Hessian 形状不是 square 2D matrix。
+缺旧 atom type 会失败，而不是猜测。
 
-`apply_mseminario(...)` 的部分数值异常会被捕获并记录 warning；workflow 仍会写 `frcmod`，但缺失或无法确定的 terms 不会被强行填入。
+## 9. Final FRCMOD
 
-## 9. MCPB 对照
+最终 `<base>_metal.frcmod` 是唯一 cofactor/metal 参数入口：
 
-MCPB.py 是文件驱动的四步流水线：
+```text
+cofactor orig full frcmod
++ renamed donor MASS/NONBON
++ renamed donor inherited BOND/ANGLE/DIHE/IMPROPER
++ metal fitted BOND/ANGLE
++ metal-related zero DIHE
+```
 
-1. Step 1
-   - 识别 metal site。
-   - 构建 `small / standard / large` 三模型。
-   - 写 fingerprint 和 QM 输入。
-2. Step 2
-   - 生成 pre frcmod。
-   - 用 empirical / Seminario / modified Seminario / Z-matrix / blank 等方式补 metal bond / angle。
-3. Step 3
-   - 在 large model 上做 RESP 或 FQ。
-   - 通过 fingerprint 把电荷回填到 standard model。
-   - 输出每个 metal-center residue 的 mol2。
-4. Step 4
-   - 写 `tleap` 输入。
-   - 组合 mol2、frcmod 和原始 PDB。
-   - 生成最终 AMBER 建模文件。
+DIHE 继承遵循 AMBER/tleap wildcard 语义：
 
-MetalAA 的对应关系：
+- exact source -> exact renamed term。
+- wildcard source, 如 `X-cc-nd-X` -> wildcard-aware renamed term，如 `X-cc-Y2-X`。
+- metal-related torsion -> zero torsion。
+- nonmetal renamed torsion 找不到来源时失败。
+
+IMPROPER 继承只从已有参数源来，不对任意 improper 泛化默认值。
+
+## 10. Tleap Deployment
+
+MetalAA 生成：
+
+```text
+<base>_metal_tleap.pdb
+<base>_metal_tleap.in
+<base>_metal_tleap.out
+```
+
+`tleap.in` 包含：
+
+```text
+source leaprc.protein.<prom>
+source leaprc.gaff2
+source leaprc.water.<watm>
+addAtomTypes ...
+loadmol2 per-residue files
+loadamberparams ion frcmods
+loadamberparams <base>_metal.frcmod
+mol = loadpdb <base>_metal_tleap.pdb
+bond metal-donor pairs
+bond peptide reconnect pairs
+bond disulfide pairs
+check/charge/solvate/addions/saveamberparm
+```
+
+MetalAA 会自动运行：
+
+```text
+tleap -s -f <base>_metal_tleap.in |tee <base>_metal_tleap.out
+```
+
+abinitio summary 读取 tleap out 并报告 `Errors / Warnings / Notes`。
+
+## 11. MCPB 对照
 
 | MCPB 概念 | MetalAA 当前实现 |
 |---|---|
-| Step 1 metal site 识别 | `find_metal_site_core(...)` |
-| Step 1 large model | `build_metal_large_model(...)` |
-| Step 1 standard model | `site_model` 承担最终导出对象职责 |
-| Step 1 small model | 未实现独立 small model |
-| fingerprint | 未实现；使用 original PDB atom serial 映射 |
-| Step 2 modified Seminario | `apply_mseminario(...)` |
-| Step 3 RESP | `run_resp_pipeline(...)` |
-| Step 3 charge 回填 | `project_resp_charges_onto_site_model(...)` |
-| Step 4 tleap assembly | 生成 per-residue mol2、renamed full PDB、final frcmod 和 `<base>_metal_tleap.in`；不自动运行 `tleap` |
+| site recognition | `recognize.py` |
+| large model | `large_model` |
+| standard model | `site_model` |
+| small model | 未单独实现 |
+| fingerprint | 不使用；按 original PDB serial 映射 |
+| modified Seminario | `apply_mseminario(...)` |
+| RESP charge fitting | `run_resp_pipeline(...)` |
+| charge projection | `project_resp_charges_onto_site_model(...)` |
+| final tleap | `artifacts.py` 生成并验证 |
 
-MetalAA 继承 MCPB 的关键思想：
+MetalAA 与 MCPB 的共同点：
 
-- 把“位点识别”、“电荷拟合”、“bond/angle 补参”、“最终导出”分开。
-- RESP 使用更大的 capped environment，而不是只在最小 site 上拟合。
-- 金属相关 atom types 需要局部重命名，避免污染标准力场类型。
-- 离子 Gaussian `ReadRadii` 和 ion frcmod 选择应与 water model 相关。
-- 最终部署文件按 MCPB-style 分 residue 导出，并用 `bond` commands 恢复 metal-donor、peptide reconnect 和 disulfide 连接。
+- 金属相关 atom type 局部重命名。
+- 用较大环境做 RESP。
+- 用 Hessian/Seminario 补 metal BOND/ANGLE。
+- 用 explicit `bond` commands 恢复 metal-donor 连接。
 
-MetalAA 刻意没有继承 MCPB 的部分：
+区别：
 
-- fingerprint 文件边界。
-- 三模型系统。
-- small-model QM Hessian 分支。
-- 多个外部 step 手工串联。
-- GAMESS / SQM / FQ branch。
-- 自动 whole-protein `tleap` assembly。
-- multi-metal coupled site 支持。
+- MetalAA 不拆 small/standard/large 三模型。
+- MetalAA 不使用 MCPB fingerprint 文件。
+- MetalAA final frcmod 合并 cofactor orig 与 metal fitted 项，用户不需要分批加载 cofactor orig frcmod。
 
-## 10. 当前设计取舍
+## 12. CMAP 与蛋白力场
 
-当前 MetalAA 优先追求短链路和 MAPLE 内部可组合性：
+MetalAA 只重命名金属和 direct donor atom type。参与金属配位的通常是 sidechain atom，不改变标准蛋白 backbone atom type。因此标准蛋白 residue 的 ff19SB/ff14SB backbone 行为仍由 protein library 决定。
 
-- `Abinitio` 只做 route selection。
-- `MetalAA` 只做 metal chemistry。
-- `runtime` 只做外部程序 orchestration。
-- `resp` 只做 RESP 输入/输出规则。
-- `mSeminario` 只做 Hessian 到 bond/angle terms 的数值填充。
+MetalAA 不生成 CMAP。对于金属位点参数化，这通常不是问题，因为 MetalAA 的新增项集中在 metal-donor 局部 bonded terms，而不是把标准主链 residue 改成新的 NCAA template。
 
-因此，MetalAA 的正式产物是 site-level 参数文件，而不是完整蛋白部署包。后续如果要扩展到 whole-protein AMBER assembly，应作为新的明确 workflow stage 设计，而不是隐式塞进现有导出步骤。
+## 13. 失败点
+
+常见失败来源：
+
+- target 不是 ion。
+- donor cutoff 内有另一个 ion。
+- ligand/cofactor donor 缺 atom type 且未提供 `cfmol2`。
+- `cfmol2` atom names 无法匹配 PDB residue。
+- Gaussian / espgen / resp / parmchk2 / tleap 外部程序失败。
+- RESP charge 数量与 large model atom 数不一致。
+- site atom 无法按 original serial 从 charged large model 找到 charge。
+- Hessian 缺失或 shape 不合法。
+- final frcmod 缺 inherited nonmetal renamed parameter。
+
+这些失败通常说明输入结构、cofactor template 或参数来源不完整，不应通过静默猜参绕过。

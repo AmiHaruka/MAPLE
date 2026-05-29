@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from copy import deepcopy
-import math
 from pathlib import Path
 import sys
 
@@ -21,13 +20,12 @@ from maple.function.dispatcher.parmfit.utils.NCAA import artifacts as ncaa_expor
 from maple.function.dispatcher.parmfit.utils.NCAA import artifacts as ncaa_mapping_module
 from maple.function.dispatcher.parmfit.utils.NCAA import models as ncaa_build_module
 from maple.function.dispatcher.parmfit.utils.NCAA import models as ncaa_graph_module
-from maple.function.dispatcher.parmfit.utils.NCAA.models import NCAAConformer, NCAAIdentity, build_capped_ncaa_model, conformer_targets, detect_ncaa_chirality, infer_terminal_omit_names, minimize_conformer
+from maple.function.dispatcher.parmfit.utils.NCAA.models import NCAAConformer, NCAAIdentity, build_capped_ncaa_model, build_ncaa_sidechain_relax_indices, conformer_targets, detect_ncaa_chirality, infer_terminal_omit_names, minimize_conformer, warn_capped_proton_transfer
 from maple.function.dispatcher.parmfit.utils.NCAA.config import (
     parse_ncaa_abinitio_config,
 )
 from maple.function.dispatcher.parmfit.utils.NCAA import report as ncaa_report_module
 from maple.function.dispatcher.parmfit.utils.NCAA import workflow as ncaa_workflow_module
-from maple.function.dispatcher.parmfit.utils.Scan.models import SilentScanResult
 from maple.function.dispatcher.parmfit.utils.TorsionFit import TorsionWorkflowResult
 from maple.function.dispatcher.parmfit.utils.outputparm import format_tleap_add_atom_types_lines
 from maple.function.dispatcher.parmfit.utils.readparm import (
@@ -42,7 +40,7 @@ from maple.function.dispatcher.parmfit.utils.readparm import (
     Nonbond,
 )
 from maple.function.dispatcher.parmfit.utils.runtime import MultiRespPipelineResult
-from maple.function.dispatcher.parmfit.utils.structure import get_resid_key, make_atom, make_residue
+from maple.function.dispatcher.parmfit.utils.structure import get_resid_key, make_atom, make_residue, search_atom
 
 
 class ZeroCalculator:
@@ -99,6 +97,119 @@ def _translated_residue(
         atom["xyz"] = np.asarray(atom["xyz"], dtype=float) + shift
     copied["coords"] = np.asarray([atom["xyz"] for atom in copied["atoms"]], dtype=float)
     return copied
+
+
+def _previous_residue_for_boundary(target: dict) -> dict:
+    target_n = next(atom for atom in target["atoms"] if atom["name"] == "N")
+    n_xyz = np.asarray(target_n["xyz"], dtype=float)
+    return make_residue(
+        target["chain"],
+        target["resseq"] - 1,
+        "",
+        "GLY",
+        [
+            make_atom(101, "N", "N", n_xyz + np.array((0.0, 2.6, 0.0))),
+            make_atom(102, "CA", "C", n_xyz + np.array((0.0, 1.3, 0.0))),
+            make_atom(103, "C", "C", n_xyz + np.array((0.0, 0.0, 0.0))),
+            make_atom(104, "O", "O", n_xyz + np.array((0.0, -0.8, 0.9))),
+        ],
+        kind="protein",
+    )
+
+
+def _leading_residue_for_boundary(previous: dict) -> dict:
+    previous_n = next(atom for atom in previous["atoms"] if atom["name"] == "N")
+    n_xyz = np.asarray(previous_n["xyz"], dtype=float)
+    return make_residue(
+        previous["chain"],
+        previous["resseq"] - 1,
+        "",
+        "GLY",
+        [
+            make_atom(1, "N", "N", n_xyz + np.array((-2.4, 0.0, 0.0))),
+            make_atom(2, "CA", "C", n_xyz + np.array((-1.2, 0.0, 0.0))),
+            make_atom(3, "C", "C", n_xyz + np.array((0.0, 0.0, 0.0))),
+            make_atom(4, "O", "O", n_xyz + np.array((0.0, -0.8, 0.9))),
+        ],
+        kind="protein",
+    )
+
+
+def _next_residue_for_boundary(target: dict, resname: str) -> dict:
+    target_c = next(atom for atom in target["atoms"] if atom["name"] == "C")
+    c_xyz = np.asarray(target_c["xyz"], dtype=float)
+    if resname == "PRO":
+        atoms = [
+            make_atom(201, "N", "N", c_xyz + np.array((0.0, 0.0, 0.0))),
+            make_atom(202, "CD", "C", c_xyz + np.array((0.0, 1.2, 0.0))),
+            make_atom(203, "CA", "C", c_xyz + np.array((1.2, 0.0, 0.0))),
+            make_atom(204, "C", "C", c_xyz + np.array((2.4, 0.0, 0.0))),
+            make_atom(205, "O", "O", c_xyz + np.array((3.1, 0.6, 0.0))),
+        ]
+    else:
+        atoms = [
+            make_atom(201, "N", "N", c_xyz + np.array((0.0, 0.0, 0.0))),
+            make_atom(202, "H", "H", c_xyz + np.array((0.0, 0.9, 0.0))),
+            make_atom(203, "CA", "C", c_xyz + np.array((1.2, 0.0, 0.0))),
+            make_atom(204, "C", "C", c_xyz + np.array((2.4, 0.0, 0.0))),
+            make_atom(205, "O", "O", c_xyz + np.array((3.1, 0.6, 0.0))),
+        ]
+    return make_residue(target["chain"], target["resseq"] + 1, "", resname, atoms, kind="protein")
+
+
+def _following_residue_for_boundary(previous: dict) -> dict:
+    previous_c = next(atom for atom in previous["atoms"] if atom["name"] == "C")
+    c_xyz = np.asarray(previous_c["xyz"], dtype=float)
+    return make_residue(
+        previous["chain"],
+        previous["resseq"] + 1,
+        "",
+        "GLY",
+        [
+            make_atom(301, "N", "N", c_xyz + np.array((0.0, 0.0, 0.0))),
+            make_atom(302, "H", "H", c_xyz + np.array((0.0, 0.9, 0.0))),
+            make_atom(303, "CA", "C", c_xyz + np.array((1.2, 0.0, 0.0))),
+            make_atom(304, "C", "C", c_xyz + np.array((2.4, 0.0, 0.0))),
+            make_atom(305, "O", "O", c_xyz + np.array((3.1, 0.6, 0.0))),
+        ],
+        kind="protein",
+    )
+
+
+def _boundary_structure(
+    target: dict,
+    *,
+    next_resname: str = "ALA",
+    include_leading: bool = False,
+    include_following: bool = True,
+) -> dict:
+    previous = _previous_residue_for_boundary(target)
+    next_residue = _next_residue_for_boundary(target, next_resname)
+    residues = [previous, deepcopy(target), next_residue]
+    if include_leading:
+        residues.insert(0, _leading_residue_for_boundary(previous))
+    if include_following:
+        residues.append(_following_residue_for_boundary(next_residue))
+    return {"residues": residues}
+
+
+def _maple_type_context_for_residue(residue: dict) -> tuple[dict[str, int], dict[int, str]]:
+    names = [atom["name"] for atom in sorted(residue["atoms"], key=lambda atom: atom["serial"])]
+    preferred = {
+        "N": "Z0",
+        "H": "Z1",
+        "CA": "Z2",
+        "HA": "Z3",
+        "CB": "Z4",
+        "C": "ZE",
+        "O": "ZF",
+    }
+    name_to_global_index = {name: index for index, name in enumerate(names, start=1)}
+    global_to_maple_type = {
+        index: preferred.get(name, f"Z{index}")
+        for name, index in name_to_global_index.items()
+    }
+    return name_to_global_index, global_to_maple_type
 
 
 def _minimal_parameter_set() -> CorrectionParameterSet:
@@ -163,9 +274,77 @@ def test_parse_ncaa_abinitio_config_uses_current_defaults() -> None:
     assert config.vib_scale == pytest.approx(1.0)
     assert not hasattr(config, "max_iter")
     assert not hasattr(config, "max_step")
+    assert config.watm == "tip3p"
+    assert config.ionm == "12_6"
+    assert config.resp.watm == "tip3p"
+    assert config.prom == "ff14SB"
+    assert config.resp.prom == "ff14SB"
     assert config.torsion.enabled
-    assert config.torsion.torsion_steps == 72
-    assert config.torsion.torsion_step_deg == pytest.approx(5.0)
+    assert config.torsion.torsion_steps == 36
+    assert config.torsion.torsion_step_deg == pytest.approx(10.0)
+
+
+@pytest.mark.parametrize(
+    ("raw_prom", "expected"),
+    [
+        ("ff14SB", "ff14SB"),
+        ("FF14SB", "ff14SB"),
+        ("ff14sb", "ff14SB"),
+        ("ff19SB", "ff19SB"),
+        ("FF19SB", "ff19SB"),
+    ],
+)
+def test_parse_ncaa_abinitio_config_accepts_prom(raw_prom: str, expected: str) -> None:
+    config = parse_ncaa_abinitio_config(
+        {"pdb": "demo.pdb", "target": "A1", "prom": raw_prom},
+        pdb_path="demo.pdb",
+        target="A1",
+        charge=0,
+        mult=1,
+    )
+
+    assert config.prom == expected
+    assert config.resp.prom == expected
+
+    with pytest.raises(ValueError, match="protein model"):
+        parse_ncaa_abinitio_config(
+            {"pdb": "demo.pdb", "target": "A1", "prom": "bad"},
+            pdb_path="demo.pdb",
+            target="A1",
+            charge=0,
+            mult=1,
+        )
+
+
+def test_parse_ncaa_abinitio_config_accepts_watm_and_ionm() -> None:
+    config = parse_ncaa_abinitio_config(
+        {"pdb": "demo.pdb", "target": "A1", "watm": "opc", "ionm": "hfe"},
+        pdb_path="demo.pdb",
+        target="A1",
+        charge=0,
+        mult=1,
+    )
+
+    assert config.watm == "opc"
+    assert config.ionm == "hfe"
+    assert config.resp.watm == "opc"
+
+    with pytest.raises(ValueError, match="water model"):
+        parse_ncaa_abinitio_config(
+            {"pdb": "demo.pdb", "target": "A1", "watm": "bad"},
+            pdb_path="demo.pdb",
+            target="A1",
+            charge=0,
+            mult=1,
+        )
+    custom_ion_config = parse_ncaa_abinitio_config(
+        {"pdb": "demo.pdb", "target": "A1", "ionm": "custom"},
+        pdb_path="demo.pdb",
+        target="A1",
+        charge=0,
+        mult=1,
+    )
+    assert custom_ion_config.ionm == "custom"
 
 
 def test_parse_ncaa_abinitio_config_reads_shared_torsion_steps() -> None:
@@ -245,36 +424,94 @@ def test_build_capped_ncaa_model_uses_non_conflicting_cap_names() -> None:
     assert "N" not in nme_names
 
 
-def test_minimize_conformer_uses_2d_silent_scan_then_optimizes_last_frame(monkeypatch, tmp_path) -> None:
+def test_build_ncaa_sidechain_relax_indices_are_one_based_r_group_atoms() -> None:
+    target = _protein_residue(chirality="L")
+    target["atoms"].append(make_atom(8, "HB", "H", np.array((0.0, 0.0, 2.0))))
+    model = build_capped_ncaa_model(target, "NSR")
+    residue_start = model["segment_sizes"]["ace"] + 1
+    residue_atoms = sorted(model["residues"][1]["atoms"], key=lambda atom: atom["serial"])
+    index_by_name = {atom["name"]: residue_start + offset for offset, atom in enumerate(residue_atoms)}
+
+    assert build_ncaa_sidechain_relax_indices(model) == (
+        index_by_name["CB"],
+        index_by_name["HB"],
+    )
+
+
+def test_prepare_ncaa_models_uses_peptide_neighbors_for_caps(monkeypatch, tmp_path: Path) -> None:
+    target = _protein_residue(chirality="L")
+    previous = _previous_residue_for_boundary(target)
+    next_residue = _next_residue_for_boundary(target, "ALA")
+    structure = {"residues": [previous, target, next_residue], "explicit_pairs": set(), "_pair_cache": {}}
+    captured: dict[str, dict] = {}
+
+    def fake_optimize_capped_reference(model, **kwargs):
+        captured["model"] = model
+        captured["frozen_indices"] = kwargs["frozen_indices"]
+        return NCAAConformer(label="ref", phi_deg=0.0, psi_deg=0.0, energy=0.0, model=model)
+
+    monkeypatch.setattr(ncaa_workflow_module, "optimize_capped_reference", fake_optimize_capped_reference)
+    monkeypatch.setattr(ncaa_workflow_module, "build_resp_conformers_from_reference", lambda *args, **kwargs: [])
+
+    atoms = Atoms("H", positions=[[0.0, 0.0, 0.0]])
+    config = parse_ncaa_abinitio_config(
+        {"target": "A1", "rn": "NSR"},
+        pdb_path=str(tmp_path / "protein.pdb"),
+        target="A1",
+        charge=0,
+        mult=1,
+    )
+
+    ncaa_workflow_module._prepare_ncaa_models(
+        output=str(tmp_path / "ncaa.out"),
+        source_atoms=atoms,
+        structure=structure,
+        target_residue=target,
+        config=config,
+    )
+
+    ace_residue, _target_residue, nme_residue = captured["model"]["residues"]
+    np.testing.assert_allclose(search_atom(ace_residue, "CAC")["xyz"], search_atom(previous, "C")["xyz"])
+    np.testing.assert_allclose(search_atom(ace_residue, "CMA")["xyz"], search_atom(previous, "CA")["xyz"])
+    np.testing.assert_allclose(search_atom(ace_residue, "OAC")["xyz"], search_atom(previous, "O")["xyz"])
+    np.testing.assert_allclose(search_atom(nme_residue, "NNM")["xyz"], search_atom(next_residue, "N")["xyz"])
+    np.testing.assert_allclose(search_atom(nme_residue, "CNM")["xyz"], search_atom(next_residue, "CA")["xyz"])
+    sidechain_relax_indices = set(build_ncaa_sidechain_relax_indices(captured["model"]))
+    atom_count = sum(len(residue["atoms"]) for residue in captured["model"]["residues"])
+    assert set(captured["frozen_indices"]) == {
+        index - 1 for index in range(1, atom_count + 1) if index not in sidechain_relax_indices
+    }
+
+
+def test_warn_capped_proton_transfer_flags_nme_hnm_shift(capsys) -> None:
+    model = build_capped_ncaa_model(_protein_residue(chirality="L"), "NSR")
+    nme = model["residues"][2]
+    target = model["residues"][1]
+    hnm = search_atom(nme, "HNM")
+    o_atom = search_atom(target, "O")
+    hnm["xyz"] = np.asarray(o_atom["xyz"], dtype=float) + np.array((0.0, 0.0, 0.95))
+
+    conformer = NCAAConformer(label="alpha", phi_deg=-60.0, psi_deg=-40.0, energy=0.0, model=model)
+    warn_capped_proton_transfer([conformer])
+    captured = capsys.readouterr()
+    assert "[WARNING] NCAA capped model alpha: possible cap proton transfer" in captured.out
+
+
+def test_minimize_conformer_uses_cap_only_prescan_then_optimizes_last_frame(monkeypatch, tmp_path) -> None:
     model = build_capped_ncaa_model(_protein_residue(chirality="L"), "NSR")
     source_atoms = Atoms("H", positions=[[0.0, 0.0, 0.0]])
     source_atoms.calc = ZeroCalculator()
     start_atoms = model_to_atoms(model)
     captured: dict[str, object] = {}
 
-    def fake_run_silent_scan(*, output, atoms, constraints, params=None, method="lbfgs", **kwargs):
-        del kwargs
-        captured["constraints"] = constraints
-        captured["params"] = params
-        captured["method"] = method
-        shifted = atoms.copy()
-        shifted.positions += np.array([0.1, -0.2, 0.3])
-        xyz_path = Path(str(Path(output).with_suffix("")) + "_scan_final.xyz")
-        with xyz_path.open("w", encoding="utf-8") as handle:
-            handle.write(f"{len(shifted)}\n")
-            handle.write("fake scan final\n")
-            for symbol, (x, y, z) in zip(shifted.get_chemical_symbols(), shifted.positions):
-                handle.write(f"{symbol:2s} {x: .10f} {y: .10f} {z: .10f}\n")
-        return SilentScanResult(output_path=output, xyz_path=str(xyz_path))
-
     def fake_optimize_atoms_geometry(atoms, *, output, max_iter, max_step, failure_message=None):
         del max_iter, max_step, failure_message
         captured["opt_output"] = output
         captured["constraints_after_scan"] = getattr(atoms, "constraints", None)
+        captured["positions_before_opt"] = atoms.positions.copy()
         atoms.positions += np.array([-0.05, 0.05, 0.02])
         return atoms
 
-    monkeypatch.setattr(ncaa_build_module, "run_silent_scan", fake_run_silent_scan)
     monkeypatch.setattr(ncaa_build_module, "optimize_atoms_geometry", fake_optimize_atoms_geometry)
 
     conformer = minimize_conformer(
@@ -293,21 +530,23 @@ def test_minimize_conformer_uses_2d_silent_scan_then_optimizes_last_frame(monkey
     current_psi = ncaa_build_module._measure_dihedral(start_atoms, index_map["psi"])
     expected_phi_delta = ((-60.0 - current_phi + 180.0) % 360.0) - 180.0
     expected_psi_delta = ((-40.0 - current_psi + 180.0) % 360.0) - 180.0
-    expected_phi_steps = max(1, math.ceil(abs(expected_phi_delta) / 15.0))
-    expected_psi_steps = max(1, math.ceil(abs(expected_psi_delta) / 15.0))
-    phi_constraint, psi_constraint = captured["constraints"]
+    guess_xyz = tmp_path / "alpha_guess.xyz"
+    assert guess_xyz.exists()
+    assert sum(1 for line in guess_xyz.read_text(encoding="utf-8").splitlines() if line.isdigit()) == 1
 
-    assert phi_constraint[:4] == [index + 1 for index in index_map["phi"]]
-    assert psi_constraint[:4] == [index + 1 for index in index_map["psi"]]
-    assert phi_constraint[4] == pytest.approx(expected_phi_delta / expected_phi_steps)
-    assert psi_constraint[4] == pytest.approx(expected_psi_delta / expected_psi_steps)
-    assert phi_constraint[5] == expected_phi_steps
-    assert psi_constraint[5] == expected_psi_steps
-    assert captured["params"] == {"mode": "rigid", "opt": {"max_iter": 24, "max_step": 0.08}}
-    assert captured["method"] == "lbfgs"
+    ace_count = model["segment_sizes"]["ace"]
+    target_count = model["segment_sizes"]["residue"]
+    target_slice = slice(ace_count, ace_count + target_count)
+    assert np.allclose(captured["positions_before_opt"][target_slice], start_atoms.positions[target_slice])
     assert str(captured["opt_output"]).endswith("alpha_opt.out")
     constraint = captured["constraints_after_scan"][0]
     assert constraint.__class__.__name__ == "FixInternals"
+    nme_residue = model["residues"][2]
+    index_by_serial = {atom["serial"]: index for index, (_residue, atom) in enumerate(ncaa_build_module.flatten_model_atoms(model))}
+    nnm_index = index_by_serial[search_atom(nme_residue, "NNM")["serial"]]
+    hnm_index = index_by_serial[search_atom(nme_residue, "HNM")["serial"]]
+    nme_nh_distance = np.linalg.norm(start_atoms.positions[nnm_index] - start_atoms.positions[hnm_index])
+    assert constraint.bonds == [[pytest.approx(nme_nh_distance), [nnm_index, hnm_index]]]
     dihedrals = _fixinternals_dihedrals_deg(constraint)
     assert dihedrals[0][0] == pytest.approx(current_phi + expected_phi_delta)
     assert dihedrals[0][1] == list(index_map["phi"])
@@ -315,7 +554,7 @@ def test_minimize_conformer_uses_2d_silent_scan_then_optimizes_last_frame(monkey
     assert dihedrals[1][1] == list(index_map["psi"])
 
     minimized_atoms = model_to_atoms(conformer.model)
-    assert np.allclose(minimized_atoms.positions, start_atoms.positions + np.array([0.05, -0.15, 0.32]))
+    assert np.allclose(minimized_atoms.positions[target_slice], start_atoms.positions[target_slice] + np.array([-0.05, 0.05, 0.02]))
     assert conformer.label == "alpha"
     assert conformer.phi_deg == -60.0
     assert conformer.psi_deg == -40.0
@@ -327,27 +566,15 @@ def test_minimize_conformer_resolves_scan_target_to_nearest_360_equivalent(monke
     source_atoms = Atoms("H", positions=[[0.0, 0.0, 0.0]])
     source_atoms.calc = ZeroCalculator()
     captured: dict[str, object] = {}
-    measured_angles = iter([300.0, 320.0])
-
-    def fake_run_silent_scan(*, output, atoms, constraints, params=None, method="lbfgs", **kwargs):
-        del params, method, kwargs
-        captured["constraints"] = constraints
-        xyz_path = Path(str(Path(output).with_suffix("")) + "_scan_final.xyz")
-        with xyz_path.open("w", encoding="utf-8") as handle:
-            handle.write(f"{len(atoms)}\n")
-            handle.write("fake scan final\n")
-            for symbol, (x, y, z) in zip(atoms.get_chemical_symbols(), atoms.positions):
-                handle.write(f"{symbol:2s} {x: .10f} {y: .10f} {z: .10f}\n")
-        return SilentScanResult(output_path=output, xyz_path=str(xyz_path))
+    measured_angles = [300.0, 320.0]
 
     def fake_optimize_atoms_geometry(atoms, *, output, max_iter, max_step, failure_message=None):
         del output, max_iter, max_step, failure_message
         captured["constraints_after_scan"] = getattr(atoms, "constraints", None)
         return atoms
 
-    monkeypatch.setattr(ncaa_build_module, "run_silent_scan", fake_run_silent_scan)
     monkeypatch.setattr(ncaa_build_module, "optimize_atoms_geometry", fake_optimize_atoms_geometry)
-    monkeypatch.setattr(ncaa_build_module, "_measure_dihedral", lambda atoms, indices: next(measured_angles))
+    monkeypatch.setattr(ncaa_build_module, "_measure_dihedral", lambda atoms, indices: measured_angles.pop(0) if measured_angles else 300.0)
 
     minimize_conformer(
         model=model,
@@ -360,11 +587,6 @@ def test_minimize_conformer_resolves_scan_target_to_nearest_360_equivalent(monke
         max_step=0.08,
     )
 
-    phi_constraint, psi_constraint = captured["constraints"]
-    assert phi_constraint[4] == pytest.approx(0.0)
-    assert phi_constraint[5] == 1
-    assert psi_constraint[4] == pytest.approx(0.0)
-    assert psi_constraint[5] == 1
     constraint = captured["constraints_after_scan"][0]
     assert constraint.__class__.__name__ == "FixInternals"
     dihedrals = _fixinternals_dihedrals_deg(constraint)
@@ -493,7 +715,6 @@ def test_build_ncaa_amber_artifacts_writes_expected_outputs(monkeypatch, tmp_pat
         charge=0,
         mult=1,
     )
-
     mol2_path = tmp_path / "capped.mol2"
     mol2_path.write_text("@<TRIPOS>MOLECULE\nNAA\n", encoding="utf-8")
     charge_path = tmp_path / "target.chg"
@@ -582,6 +803,60 @@ def test_build_ncaa_amber_artifacts_writes_expected_outputs(monkeypatch, tmp_pat
     assert "OMIT_NAME CA" not in mainchain_lines
     assert "OMIT_NAME C" not in mainchain_lines
 
+
+def test_export_ncaa_artifacts_writes_processed_tleap_pdb_and_loads_it(tmp_path: Path) -> None:
+    target = _translated_residue(_protein_residue(resname="VAL"), delta=(0.0, 0.0, 0.0), resseq=89)
+    decoy = _translated_residue(target, delta=(5.0, 0.0, 0.0), resseq=90, resname="GLY", serial_offset=20)
+    structure = {"residues": [target, decoy]}
+    representative_model = build_capped_ncaa_model(target, "NSR")
+    amber = ncaa_amber_module.NCAAAmberArtifacts(
+        capped_mol2=str(tmp_path / "NSR.mol2"),
+        gaff2_mol2=str(tmp_path / "NSR_gaff2.mol2"),
+        ac=str(tmp_path / "NSR.ac"),
+        mc=str(tmp_path / "NSR.mc"),
+        prepin=str(tmp_path / "NSR.prepin"),
+        refined_prepin=str(tmp_path / "NSR_maple.prepin"),
+        res=str(tmp_path / "NSR.res"),
+        newpdb=str(tmp_path / "NEWPDB.PDB"),
+        frcmod=str(tmp_path / "NSR.frcmod"),
+        refined_frcmod=str(tmp_path / "NSR_maple.frcmod"),
+    )
+    config = parse_ncaa_abinitio_config(
+        {"pdb": str(tmp_path / "protein.pdb"), "target": "A1", "rn": "NSR", "watm": "opc", "ionm": "hfe"},
+        pdb_path=str(tmp_path / "protein.pdb"),
+        target="A1",
+        charge=0,
+        mult=1,
+    )
+
+    artifacts = ncaa_amber_module.export_ncaa_artifacts(
+        str(tmp_path / "nacc.out"),
+        amber=amber,
+        representative_model=representative_model,
+        conformers=[],
+        config=config,
+        atom_type_rows=[],
+        structure=structure,
+        target_residue=target,
+    )
+
+    tleap_pdb = Path(artifacts.files["tleap_pdb"])
+    assert tleap_pdb.is_file()
+    pdb_text = tleap_pdb.read_text(encoding="utf-8")
+    assert " NSR A   1" in pdb_text
+    assert " GLY A   2" in pdb_text
+    assert " VAL A   1" not in pdb_text
+    assert "TER" in pdb_text
+    assert pdb_text.rstrip().endswith("END")
+
+    tleap_text = Path(artifacts.files["tleap_input"]).read_text(encoding="utf-8")
+    assert "source leaprc.water.opc" in tleap_text
+    assert "loadamberparams frcmod.ionslm_hfe_opc" in tleap_text
+    assert "solvatebox mol OPCBOX 10.0" in tleap_text
+    assert "mol = loadpdb nacc_ncaa_tleap.pdb" in tleap_text
+    assert "mol = loadpdb protein.pdb" not in tleap_text
+
+
 def test_ncaa_workflow_runs_current_stage_pipeline_and_delegates_torsion(monkeypatch, tmp_path: Path) -> None:
     residue = _protein_residue()
     decoy_residue = make_residue(
@@ -597,7 +872,7 @@ def test_ncaa_workflow_runs_current_stage_pipeline_and_delegates_torsion(monkeyp
         ],
         kind="protein",
     )
-    structure = {"residues": [decoy_residue, residue]}
+    structure = {"residues": [decoy_residue, residue], "explicit_pairs": set(), "_pair_cache": {}}
 
     atoms = Atoms("H", positions=[[0.0, 0.0, 0.0]])
     atoms.info["charge"] = 0
@@ -615,6 +890,7 @@ def test_ncaa_workflow_runs_current_stage_pipeline_and_delegates_torsion(monkeyp
         charge=0,
         mult=1,
     )
+    config.torsion.torsion_ensemble = False
 
     minimized_model = {
         "name": "ncaa_capped_model",
@@ -726,13 +1002,14 @@ def test_ncaa_workflow_runs_current_stage_pipeline_and_delegates_torsion(monkeyp
     torsion_calls = {"count": 0}
     fake_parameter_set = _minimal_parameter_set()
 
-    def fake_run_torsion_workflow(*, atoms, output, parameter_set, params, runtime, center_bond_filter=None):
+    def fake_run_torsion_workflow(*, atoms, output, parameter_set, params, runtime, center_bond_filter=None, mobile_atoms=None):
         del atoms, output
         torsion_calls["count"] += 1
         assert parameter_set is fake_parameter_set
         assert params is config.torsion
         assert runtime.backend == config.torsion.backend
         assert runtime.constraint_mode == config.torsion.constraint_mode
+        assert mobile_atoms == (11,)
         assert center_bond_filter is not None
         assert center_bond_filter((5, 8))
         assert not center_bond_filter((4, 5))
@@ -759,7 +1036,17 @@ def test_ncaa_workflow_runs_current_stage_pipeline_and_delegates_torsion(monkeyp
     monkeypatch.setattr(ncaa_workflow_module.amber_interface, "patch_frcmod_crossterms", lambda *args, **kwargs: None)
     logged_blocks: list[str] = []
 
-    def fake_build_ncaa_export_bundle(output, *, amber, representative_model, conformers, final_parameter_set, **kwargs):
+    def fake_build_ncaa_export_bundle(
+        output,
+        *,
+        amber,
+        representative_model,
+        conformers,
+        final_parameter_set,
+        structure,
+        target_residue,
+        **kwargs,
+    ):
         del final_parameter_set, kwargs
         Path(amber.refined_prepin).write_text("", encoding="utf-8")
         Path(amber.refined_frcmod).write_text("", encoding="utf-8")
@@ -774,6 +1061,8 @@ def test_ncaa_workflow_runs_current_stage_pipeline_and_delegates_torsion(monkeyp
             conformers=conformers,
             config=config,
             atom_type_rows=atom_type_rows,
+            structure=structure,
+            target_residue=target_residue,
         )
         return ncaa_mapping_module.NCAAExportBundle(
             amber=amber,
@@ -782,6 +1071,21 @@ def test_ncaa_workflow_runs_current_stage_pipeline_and_delegates_torsion(monkeyp
         )
 
     monkeypatch.setattr(ncaa_workflow_module, "build_ncaa_export_bundle", fake_build_ncaa_export_bundle)
+    tleap_calls: list[tuple[str, str | None]] = []
+
+    def fake_run_tleap(input_file, workdir=None, executable="tleap"):
+        del executable
+        tleap_calls.append((input_file, workdir))
+        output_path = Path(workdir or Path(input_file).parent) / (Path(input_file).stem + ".out")
+        output_path.write_text("Errors = 0; Warnings = 1; Notes = 2\n", encoding="utf-8")
+        return interface_module.TleapResult(
+            input_path=str(Path(input_file).resolve()),
+            output_path=str(output_path),
+            returncode=0,
+            command=f"tleap -s -f {Path(input_file).name}",
+        )
+
+    monkeypatch.setattr(ncaa_workflow_module.amber_interface, "run_tleap", fake_run_tleap)
 
     result = ncaa_workflow_module.run_ncaa_abinitio(
         output=str(tmp_path / "ncaa.out"),
@@ -827,16 +1131,21 @@ def test_ncaa_workflow_runs_current_stage_pipeline_and_delegates_torsion(monkeyp
     assert Path(result.files["gaff2_mol2"]).is_file()
     assert Path(result.files["target_capped_pdb"]).is_file()
     assert Path(result.files["tleap_input"]).is_file()
+    assert Path(result.files["tleap_pdb"]).is_file()
     tleap_text = Path(result.files["tleap_input"]).read_text(encoding="utf-8")
-    assert "source leaprc.water.opc" in tleap_text
+    assert "source leaprc.protein.ff14SB" in tleap_text
+    assert "source leaprc.water.tip3p" in tleap_text
     assert "loadamberprep NAA_maple.prepin" in tleap_text
     assert "loadamberparams NAA_maple.frcmod" in tleap_text
-    assert "loadamberparams frcmod.ionslm_hfe_opc" in tleap_text
-    assert "mol = loadpdb ncaa.pdb" in tleap_text
-    assert "solvatebox mol OPCBOX 10.0" in tleap_text
+    assert "loadamberparams frcmod.ions1lm_126_tip3p" in tleap_text
+    assert "mol = loadpdb ncaa_ncaa_tleap.pdb" in tleap_text
+    assert "mol = loadpdb ncaa.pdb" not in tleap_text
+    assert "solvatebox mol TIP3PBOX 10.0" in tleap_text
+    assert tleap_calls == [(result.files["tleap_input"], str(Path(result.files["tleap_input"]).parent))]
     joined_logs = "\n".join(logged_blocks)
     assert "[NCAA] model preparation + reference optimization ..." in joined_logs
     assert "[NCAA] multiconformer RESP ..." in joined_logs
+    assert "[NCAA] tleap validation ..." in joined_logs
     assert "[NCAA] route completed; final summary follows." in joined_logs
 
 
@@ -880,7 +1189,8 @@ def test_infer_mainchain_names_uses_internal_shortest_path() -> None:
 
 
 def test_write_ncaa_amber_files_generates_refined_prepin_and_residue_only_frcmod(tmp_path: Path) -> None:
-    representative_model = build_capped_ncaa_model(_protein_residue(chirality="L"), "NSR")
+    target_residue = _protein_residue(chirality="L")
+    representative_model = build_capped_ncaa_model(target_residue, "NSR")
     charged_residue = representative_model["residues"][1]
     residue_atoms = sorted(charged_residue["atoms"], key=lambda atom: atom["serial"])
     residue_start = representative_model["segment_sizes"]["ace"] + 1
@@ -981,6 +1291,8 @@ def test_write_ncaa_amber_files_generates_refined_prepin_and_residue_only_frcmod
         representative_model=representative_model,
         charged_residue=charged_residue,
         final_parameter_set=parameter_set,
+        structure=_boundary_structure(target_residue),
+        target_residue=target_residue,
     )
 
     prepin_text = Path(amber.refined_prepin).read_text(encoding="utf-8")
@@ -1001,7 +1313,7 @@ def test_write_ncaa_amber_files_generates_refined_prepin_and_residue_only_frcmod
     assert "MASS\nZ0" in frcmod_text
     assert "Z0-Z1" in frcmod_text
     assert "C -Z0" in frcmod_text
-    assert "ff14SB/gaff2 peptide bond" in frcmod_text
+    assert "ff14SB/gaff2 peptide boundary" in frcmod_text
     assert "Z2-N" in frcmod_text
     assert "O -C -Z0" in frcmod_text
     assert "Z3-Z2-N" in frcmod_text
@@ -1023,8 +1335,153 @@ def test_write_ncaa_amber_files_generates_refined_prepin_and_residue_only_frcmod
     ]
 
 
+def test_ncaa_boundary_crossterms_follow_actual_ff19sb_non_pro_neighbor() -> None:
+    target_residue = _protein_residue(chirality="L")
+    charged_residue = build_capped_ncaa_model(target_residue, "NSR")["residues"][1]
+    name_to_global_index, global_to_maple_type = _maple_type_context_for_residue(charged_residue)
+
+    sections = ncaa_export_module._generate_maple_crossterms(
+        residue=charged_residue,
+        name_to_global_index=name_to_global_index,
+        global_to_maple_type=global_to_maple_type,
+        structure=_boundary_structure(target_residue, next_resname="ALA"),
+        target_residue=target_residue,
+        prom="ff19SB",
+    )
+    angle_text = "".join(sections["ANGLE"])
+    dihe_text = "".join(sections["DIHE"])
+
+    assert "ZE-N -XC" in angle_text
+    assert "ZE-N -H " in angle_text
+    assert "ZE-N -CT" not in angle_text
+    assert "ZF-ZE-N -XC" in dihe_text
+    assert "Z2-ZE-N -XC" in dihe_text
+    assert "ZF-ZE-N -CT" not in dihe_text
+
+
+def test_ncaa_boundary_crossterms_use_cx_for_n_terminal_previous_residue() -> None:
+    target_residue = _translated_residue(_protein_residue(chirality="L"), delta=(0.0, 0.0, 0.0), resseq=2)
+    charged_residue = build_capped_ncaa_model(target_residue, "NSR")["residues"][1]
+    name_to_global_index, global_to_maple_type = _maple_type_context_for_residue(charged_residue)
+
+    sections = ncaa_export_module._generate_maple_crossterms(
+        residue=charged_residue,
+        name_to_global_index=name_to_global_index,
+        global_to_maple_type=global_to_maple_type,
+        structure=_boundary_structure(target_residue, next_resname="PRO"),
+        target_residue=target_residue,
+    )
+    angle_text = "".join(sections["ANGLE"])
+    dihe_text = "".join(sections["DIHE"])
+
+    assert "CX-C -Z0" in angle_text
+    assert "XC-C -Z0" not in angle_text
+    assert "CX-C -Z0-Z1" in dihe_text
+    assert "CX-C -Z0-Z2" in dihe_text
+
+
+def test_ncaa_boundary_crossterms_keep_xc_for_internal_previous_residue() -> None:
+    target_residue = _translated_residue(_protein_residue(chirality="L"), delta=(0.0, 0.0, 0.0), resseq=3)
+    charged_residue = build_capped_ncaa_model(target_residue, "NSR")["residues"][1]
+    name_to_global_index, global_to_maple_type = _maple_type_context_for_residue(charged_residue)
+
+    sections = ncaa_export_module._generate_maple_crossterms(
+        residue=charged_residue,
+        name_to_global_index=name_to_global_index,
+        global_to_maple_type=global_to_maple_type,
+        structure=_boundary_structure(target_residue, next_resname="PRO", include_leading=True),
+        target_residue=target_residue,
+        prom="ff19SB",
+    )
+    angle_text = "".join(sections["ANGLE"])
+    dihe_text = "".join(sections["DIHE"])
+
+    assert "XC-C -Z0" in angle_text
+    assert "CX-C -Z0" not in angle_text
+    assert "XC-C -Z0-Z1" in dihe_text
+    assert "XC-C -Z0-Z2" in dihe_text
+
+
+def test_ncaa_boundary_crossterms_default_ff14sb_uses_cx_for_internal_previous_residue() -> None:
+    target_residue = _translated_residue(_protein_residue(chirality="L"), delta=(0.0, 0.0, 0.0), resseq=3)
+    charged_residue = build_capped_ncaa_model(target_residue, "NSR")["residues"][1]
+    name_to_global_index, global_to_maple_type = _maple_type_context_for_residue(charged_residue)
+
+    sections = ncaa_export_module._generate_maple_crossterms(
+        residue=charged_residue,
+        name_to_global_index=name_to_global_index,
+        global_to_maple_type=global_to_maple_type,
+        structure=_boundary_structure(target_residue, next_resname="PRO", include_leading=True),
+        target_residue=target_residue,
+    )
+    angle_text = "".join(sections["ANGLE"])
+    dihe_text = "".join(sections["DIHE"])
+
+    assert "CX-C -Z0" in angle_text
+    assert "XC-C -Z0" not in angle_text
+    assert "CX-C -Z0-Z1" in dihe_text
+    assert "CX-C -Z0-Z2" in dihe_text
+
+
+def test_ncaa_boundary_crossterms_use_cx_for_c_terminal_next_residue() -> None:
+    target_residue = _protein_residue(chirality="L")
+    charged_residue = build_capped_ncaa_model(target_residue, "NSR")["residues"][1]
+    name_to_global_index, global_to_maple_type = _maple_type_context_for_residue(charged_residue)
+
+    sections = ncaa_export_module._generate_maple_crossterms(
+        residue=charged_residue,
+        name_to_global_index=name_to_global_index,
+        global_to_maple_type=global_to_maple_type,
+        structure=_boundary_structure(target_residue, next_resname="ALA", include_following=False),
+        target_residue=target_residue,
+    )
+    angle_text = "".join(sections["ANGLE"])
+    dihe_text = "".join(sections["DIHE"])
+
+    assert "ZE-N -CX" in angle_text
+    assert "ZE-N -XC" not in angle_text
+    assert "ZF-ZE-N -CX" in dihe_text
+    assert "Z2-ZE-N -CX" in dihe_text
+
+
+def test_ncaa_boundary_crossterms_follow_actual_ff19sb_pro_neighbor() -> None:
+    target_residue = _protein_residue(chirality="L")
+    charged_residue = build_capped_ncaa_model(target_residue, "NSR")["residues"][1]
+    name_to_global_index, global_to_maple_type = _maple_type_context_for_residue(charged_residue)
+
+    sections = ncaa_export_module._generate_maple_crossterms(
+        residue=charged_residue,
+        name_to_global_index=name_to_global_index,
+        global_to_maple_type=global_to_maple_type,
+        structure=_boundary_structure(target_residue, next_resname="PRO"),
+        target_residue=target_residue,
+        prom="ff19SB",
+    )
+    angle_text = "".join(sections["ANGLE"])
+    dihe_text = "".join(sections["DIHE"])
+
+    assert "ZE-N -XC" in angle_text
+    assert "ZE-N -CT" in angle_text
+    assert "ZE-N -H " not in angle_text
+    for term in (
+        "ZF-ZE-N -XC",
+        "ZF-ZE-N -CT",
+        "Z2-ZE-N -XC",
+        "Z2-ZE-N -CT",
+        "C -Z0-Z2-ZE",
+        "Z0-Z2-ZE-N",
+        "Z3-Z2-ZE-N",
+        "Z4-Z2-ZE-N",
+    ):
+        assert term in dihe_text
+    assert "C -Z0-Z2-ZE     6      0.0000" in dihe_text
+    assert "C -Z0-Z2-Z3     6      0.0000" in dihe_text
+    assert "C -Z0-Z2-Z4     6      0.0000" in dihe_text
+
+
 def test_write_ncaa_amber_files_rejects_invalid_prepgen_backbone(tmp_path: Path) -> None:
-    representative_model = build_capped_ncaa_model(_protein_residue(chirality="L"), "NSR")
+    target_residue = _protein_residue(chirality="L")
+    representative_model = build_capped_ncaa_model(target_residue, "NSR")
     charged_residue = representative_model["residues"][1]
     atom_names = [
         atom["name"]
@@ -1101,6 +1558,8 @@ def test_write_ncaa_amber_files_rejects_invalid_prepgen_backbone(tmp_path: Path)
             representative_model=representative_model,
             charged_residue=charged_residue,
             final_parameter_set=parameter_set,
+            structure=_boundary_structure(target_residue),
+            target_residue=target_residue,
         )
 
 

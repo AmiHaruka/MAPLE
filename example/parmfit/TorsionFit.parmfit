@@ -1,0 +1,25 @@
+method=correction
+mol2=ligand.mol2
+vib_scale=1.0
+
+# geometry optimization LBFGS
+memory=5
+curvature=70.0
+max_step=0.2
+max_iter=256
+write_traj=false
+traj_every=1
+verbose=1
+use_projection=false
+use_line_search=false
+
+# TorsionFit
+torsionfit=true
+torsion_bonds=
+torsion_steps=72
+backend=cgbs
+constraint_mode=projected
+torsion_refine_rounds=2
+torsion_refine_max_iter=10
+torsion_refine_tol=1.0e-6
+torsion_report_debug=false
