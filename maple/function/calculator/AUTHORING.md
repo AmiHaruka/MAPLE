@@ -149,6 +149,8 @@ class FooCalculator(CalcABC):
 - UMA `omol` charged/open-shell inputs are passed through to FAIR-Chem and
   emit a warning until MAPLE has accepted golden numerical tolerances for
   those states.
+- UMA non-`omol` tasks reject non-default `charge`/`mult` because FAIR-Chem's
+  current calculator contract only uses charge/spin for the `omol` head.
 
 ## Backend-specific kwargs
 
@@ -187,7 +189,7 @@ backend that switches tasks for periodic input.
 | MACE-OFF (`maceoff23s/m/l`, `egret`) | no; fail-fast | no | analytic + numerical | yes | no | no |
 | MACE-omol (`maceomol`) | no; fail-fast | no | analytic + numerical | yes | no | no |
 | MACE-POLAR (`macepols/m/l`) | no; fail-fast; no external field | yes (`spin = mult − 1`) | analytic + numerical | yes | no | no |
-| UMA (`uma`) | yes; non-PBC auto `omol`; PBC requires explicit non-`omol` task; stress rejected | yes (`spin = mult`); `omol` charge/open-shell warns pending golden tests | numerical only | yes | no | no |
+| UMA (`uma`) | yes; non-PBC auto `omol`; PBC requires explicit non-`omol` task; stress rejected | `omol` only (`spin = mult`); non-`omol` rejects non-default charge/mult | numerical only | yes | no | no |
 
 `spin` semantics differ on purpose: MACE-POLAR's traced interface takes the
 number of unpaired electrons (`mult − 1`), UMA's FAIR-Chem path takes the

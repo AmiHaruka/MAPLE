@@ -320,21 +320,32 @@ class UMACalculator(FAIRChemCalculator):
                 f"supported periodic tasks: {sorted(PERIODIC_UMA_TASKS)}."
             )
 
-    def _warn_unvalidated_charge_spin(self, atoms: Atoms) -> None:
+    def _validate_charge_spin_task_compatibility(self, atoms: Atoms) -> tuple[int, int]:
         charge = self._integer_info(atoms, "charge", 0)
         mult = self._integer_info(atoms, "mult", 1)
         has_charge = charge != 0
         has_open_shell = mult != 1
-        if self.task_name != "omol" or not (has_charge or has_open_shell):
-            return
 
-        message = (
-            "UMA omol charged/open-shell inputs are passed through to FAIR-Chem, "
-            "but MAPLE has not yet accepted golden numerical tolerances for these "
-            "states; compare against FAIR-Chem/reference calculations before "
-            "production use."
-        )
-        warnings.warn(message, RuntimeWarning, stacklevel=2)
+        if self.task_name == "omol":
+            if has_charge or has_open_shell:
+                message = (
+                    "UMA omol charged/open-shell inputs are passed through to FAIR-Chem, "
+                    "but MAPLE has not yet accepted golden numerical tolerances for these "
+                    "states; compare against FAIR-Chem/reference calculations before "
+                    "production use."
+                )
+                warnings.warn(message, RuntimeWarning, stacklevel=2)
+            return charge, mult
+
+        if has_charge or has_open_shell:
+            raise ValueError(
+                f"UMA task='{self.task_name}' does not use charge/spin according to "
+                "FAIR-Chem's current calculator contract. Remove atoms.info['charge']/"
+                "atoms.info['mult'] or use task='omol' for molecular charged/open-shell "
+                "calculations."
+            )
+
+        return charge, mult
 
     @staticmethod
     def _integer_info(atoms: Atoms, key: str, default: int) -> int:
@@ -352,12 +363,15 @@ class UMACalculator(FAIRChemCalculator):
         return numerical_hessian_from_atoms(self, atoms, delta)
 
     def calculate(self, atoms, properties=None, system_changes=None):
+        properties = ["energy"] if properties is None else properties
+        system_changes = all_changes if system_changes is None else system_changes
+
         if atoms is None:
             atoms = getattr(self, "atoms", None)
         if atoms is None:
             raise ValueError("UMACalculator.calculate requires an Atoms object.")
 
-        requested = {str(prop).lower() for prop in (properties or [])}
+        requested = {str(prop).lower() for prop in properties}
         if requested & {"stress", "stresses", "virial", "virials"}:
             raise NotImplementedError(
                 "UMA stress/virial output is not unit-converted by MAPLE yet; "
@@ -366,11 +380,11 @@ class UMACalculator(FAIRChemCalculator):
 
         self._set_task_from_atoms(atoms)
         self._validate_task_atoms_compatibility(atoms)
-        self._warn_unvalidated_charge_spin(atoms)
+        charge, mult = self._validate_charge_spin_task_compatibility(atoms)
 
         calc_atoms = atoms.copy()
-        calc_atoms.info["spin"] = self._integer_info(atoms, "mult", 1)
-        calc_atoms.info["charge"] = self._integer_info(atoms, "charge", 0)
+        calc_atoms.info["spin"] = mult
+        calc_atoms.info["charge"] = charge
 
         super().calculate(calc_atoms, properties, system_changes)
 

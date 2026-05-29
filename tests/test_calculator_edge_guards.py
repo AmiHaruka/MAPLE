@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import types
+import warnings
 
 import numpy as np
 import pytest
@@ -58,6 +59,126 @@ def test_uma_explicit_periodic_task_accepts_periodic_atoms():
 
     calc._set_task_from_atoms(atoms)
     calc._validate_task_atoms_compatibility(atoms)
+
+
+def test_uma_non_omol_rejects_nondefault_charge_or_mult():
+    pytest.importorskip("fairchem")
+    from maple.function.calculator.uma._uma_calculator import UMACalculator
+
+    calc = UMACalculator.__new__(UMACalculator)
+    calc._task_name = "oc20"
+
+    charged = Atoms("H", positions=[[0.0, 0.0, 0.0]])
+    charged.info["charge"] = -1
+    with pytest.raises(ValueError, match="does not use charge/spin"):
+        calc._validate_charge_spin_task_compatibility(charged)
+
+    open_shell = Atoms("H", positions=[[0.0, 0.0, 0.0]])
+    open_shell.info["mult"] = 3
+    with pytest.raises(ValueError, match="does not use charge/spin"):
+        calc._validate_charge_spin_task_compatibility(open_shell)
+
+
+@pytest.mark.parametrize("info", [{"charge": -1}, {"mult": 3}])
+def test_uma_calculate_rejects_non_omol_charge_spin_before_backend(monkeypatch, info):
+    pytest.importorskip("fairchem")
+    from maple.function.calculator.uma import _uma_calculator as uma_module
+
+    def fail_if_called(self, atoms, properties, system_changes):
+        raise AssertionError("FAIRChemCalculator.calculate should not be called")
+
+    monkeypatch.setattr(uma_module.FAIRChemCalculator, "calculate", fail_if_called)
+
+    atoms = Atoms("H", positions=[[0.0, 0.0, 0.0]])
+    atoms.info.update(info)
+    calc = uma_module.UMACalculator.__new__(uma_module.UMACalculator)
+    calc._auto_task = False
+    calc._task_name = "oc20"
+    calc.solvent_correction = None
+    calc.results = {}
+
+    with pytest.raises(ValueError, match="does not use charge/spin"):
+        calc.calculate(atoms, properties=["energy"], system_changes=[])
+
+
+def test_uma_non_omol_accepts_default_charge_spin():
+    pytest.importorskip("fairchem")
+    from maple.function.calculator.uma._uma_calculator import UMACalculator
+
+    calc = UMACalculator.__new__(UMACalculator)
+    calc._task_name = "oc20"
+
+    assert calc._validate_charge_spin_task_compatibility(
+        Atoms("H", positions=[[0.0, 0.0, 0.0]])
+    ) == (0, 1)
+
+
+def test_uma_omol_charge_spin_warns_without_blocking():
+    pytest.importorskip("fairchem")
+    from maple.function.calculator.uma._uma_calculator import UMACalculator
+
+    atoms = Atoms("H", positions=[[0.0, 0.0, 0.0]])
+    atoms.info["charge"] = 1
+    calc = UMACalculator.__new__(UMACalculator)
+    calc._task_name = "omol"
+
+    with pytest.warns(RuntimeWarning, match="charged/open-shell"):
+        assert calc._validate_charge_spin_task_compatibility(atoms) == (1, 1)
+
+
+def test_uma_calculate_omol_charge_spin_warns_and_reaches_backend(monkeypatch):
+    pytest.importorskip("fairchem")
+    from maple.function.calculator.uma import _uma_calculator as uma_module
+
+    calls = {}
+
+    def fake_fairchem_calculate(self, atoms, properties, system_changes):
+        calls["charge"] = atoms.info["charge"]
+        calls["spin"] = atoms.info["spin"]
+        self.results = {"energy": 0.0}
+
+    monkeypatch.setattr(uma_module.FAIRChemCalculator, "calculate", fake_fairchem_calculate)
+
+    atoms = Atoms("H", positions=[[0.0, 0.0, 0.0]])
+    atoms.info["charge"] = 1
+    atoms.info["mult"] = 3
+    calc = uma_module.UMACalculator.__new__(uma_module.UMACalculator)
+    calc._auto_task = False
+    calc._task_name = "omol"
+    calc.solvent_correction = None
+    calc.results = {}
+
+    with pytest.warns(RuntimeWarning, match="charged/open-shell"):
+        calc.calculate(atoms, properties=["energy"], system_changes=[])
+
+    assert calls == {"charge": 1, "spin": 3}
+
+
+def test_uma_calculate_normalizes_properties_none(monkeypatch):
+    pytest.importorskip("fairchem")
+    from maple.function.calculator.uma import _uma_calculator as uma_module
+
+    calls = {}
+
+    def fake_fairchem_calculate(self, atoms, properties, system_changes):
+        calls["properties"] = properties
+        calls["system_changes"] = system_changes
+        self.results = {"energy": 0.0}
+
+    monkeypatch.setattr(uma_module.FAIRChemCalculator, "calculate", fake_fairchem_calculate)
+
+    calc = uma_module.UMACalculator.__new__(uma_module.UMACalculator)
+    calc._auto_task = False
+    calc._task_name = "omol"
+    calc.solvent_correction = None
+    calc.results = {}
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        calc.calculate(Atoms("H", positions=[[0.0, 0.0, 0.0]]), properties=None, system_changes=None)
+
+    assert calls["properties"] == ["energy"]
+    assert calls["system_changes"] == uma_module.all_changes
 
 
 def test_ani_calculate_hessian_property_writes_result():
