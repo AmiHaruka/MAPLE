@@ -109,6 +109,10 @@ H    1.148  -0.912   0.457
 H    1.096   0.869   0.513
 H    0.802   0.842   1.742
 ```
+### External coordinates:
+```
+XYZ /path/to/molecule.xyz
+```
 
 ## Input Overview
 
@@ -189,6 +193,6 @@ https://github.com/ClickFF/MAPLE
 - [AIMNet2](https://github.com/isayevlab/AIMNet2)
 - [FAIR-Chem](https://github.com/FAIR-Chem/fairchem)
 
-**Version**: 0.1.4
-**Status**: Active Development
-**Updated**: May 2026
+**Version**: 0.1.4<br>
+**Status**: Active Development<br>
+**Updated**: May 2026<br>
