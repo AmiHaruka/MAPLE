@@ -70,6 +70,7 @@ class ANICalculator(CalcABC):
                   system_changes=ase.calculators.calculator.all_changes):
         import torch
 
+        properties = self._normalize_properties(properties)
         atoms = super().calculate(atoms, properties, system_changes)
 
         needs_forces = 'forces' in properties
@@ -88,7 +89,15 @@ class ANICalculator(CalcABC):
         else:
             forces_np = None
 
-        self._finalize_results(atoms, energy=energy.item(), forces=forces_np)
+        hessian = None
+        if 'hessian' in properties:
+            if self.solvent_correction is not None:
+                raise NotImplementedError(
+                    'Hessian calculation with implicit solvent is not implemented yet.'
+                )
+            hessian = self.get_hessian(atoms)
+
+        self._finalize_results(atoms, energy=energy.item(), forces=forces_np, hessian=hessian)
 
     def _forward_energy(self, atoms, coordinates):
         import torch
@@ -150,6 +159,11 @@ class ANICalculator(CalcABC):
 
         Returns (Hn, forces, energy) as torch tensors, consumed by Dimer-mode TS.
         """
+        if getattr(self, 'solvent_correction', None) is not None:
+            raise NotImplementedError(
+                'ANI HVP with implicit solvent is not supported; solvent HVP would be omitted.'
+            )
+
         import torch
 
         coords = torch.tensor(

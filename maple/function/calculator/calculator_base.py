@@ -154,6 +154,7 @@ def numerical_hessian_from_atoms(calc, atoms, delta=0.002):
     from ase.calculators.calculator import all_changes
 
     old_results = dict(getattr(calc, 'results', {}) or {})
+    old_atoms = getattr(calc, 'atoms', None)
     try:
         N = len(atoms)
         pos0 = atoms.get_positions().copy()
@@ -202,6 +203,7 @@ def numerical_hessian_from_atoms(calc, atoms, delta=0.002):
         return H
     finally:
         calc.results = old_results
+        calc.atoms = old_atoms
 
 
 def _property_list(properties):
@@ -230,6 +232,10 @@ class CalcABC(ase.calculators.calculator.Calculator):
         if not self.SUPPORTS_PBC:
             reject_periodic_atoms(atoms, type(self).__name__)
 
+    @staticmethod
+    def _normalize_properties(properties):
+        return _property_list(properties)
+
     def calculate(
         self,
         atoms=None,
@@ -238,7 +244,7 @@ class CalcABC(ase.calculators.calculator.Calculator):
     ):
         target_atoms = atoms if atoms is not None else getattr(self, 'atoms', None)
         self._reject_unsupported_pbc(target_atoms)
-        super().calculate(atoms, _property_list(properties), system_changes)
+        super().calculate(atoms, self._normalize_properties(properties), system_changes)
         return target_atoms
 
     @classmethod

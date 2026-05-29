@@ -134,6 +134,7 @@ class MACEModelCalculator(CalcABC):
 
     def calculate(self, atoms=None, properties=['energy', 'forces'], system_changes=all_changes):
         """Main ASE entry point."""
+        properties = self._normalize_properties(properties)
         atoms = super().calculate(atoms, properties, system_changes)
 
         inputs = build_inputs_from_atoms(atoms, self.model, device=self.device)

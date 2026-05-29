@@ -40,6 +40,7 @@ UMA_MODELS_MAP = {
 
 UMA_FALLBACK_HF_MODELS = {"uma-s-1p1", "uma-s-1p2", "uma-m-1p1"}
 SUPPORTED_UMA_TASKS = {"omol", "omat", "oc20", "odac", "omc", "oc22", "oc25"}
+PERIODIC_UMA_TASKS = SUPPORTED_UMA_TASKS - {"omol"}
 SUPPORTED_UMA_INFERENCE = {"default", "turbo"}
 
 # GPU default and CPU fallback for FAIR Chemistry's inference path. "default"
@@ -302,6 +303,23 @@ class UMACalculator(FAIRChemCalculator):
             target_dtype=self._predictor_unit.inference_settings.base_precision_dtype,
         )
 
+    def _validate_task_atoms_compatibility(self, atoms: Atoms) -> None:
+        if not any(atoms.pbc):
+            return
+
+        if self.task_name == "omol":
+            raise ValueError(
+                "UMA task='omol' is molecular and must not be used with periodic atoms. "
+                "Use an explicit periodic/domain task such as task=omat, oc20, oc22, "
+                "oc25, omc, or odac after confirming the system domain."
+            )
+
+        if self.task_name not in PERIODIC_UMA_TASKS:
+            raise ValueError(
+                f"UMA task='{self.task_name}' is not registered as a MAPLE periodic task; "
+                f"supported periodic tasks: {sorted(PERIODIC_UMA_TASKS)}."
+            )
+
     def _warn_unvalidated_charge_spin(self, atoms: Atoms) -> None:
         charge = self._integer_info(atoms, "charge", 0)
         mult = self._integer_info(atoms, "mult", 1)
@@ -347,6 +365,7 @@ class UMACalculator(FAIRChemCalculator):
             )
 
         self._set_task_from_atoms(atoms)
+        self._validate_task_atoms_compatibility(atoms)
         self._warn_unvalidated_charge_spin(atoms)
 
         calc_atoms = atoms.copy()

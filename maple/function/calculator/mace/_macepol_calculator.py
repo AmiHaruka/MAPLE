@@ -27,6 +27,17 @@ _MACEPOL_MODEL_FILES = {
 }
 
 
+def _integer_info(atoms, key: str, default: int) -> int:
+    value = atoms.info.get(key, default)
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"MACE-POLAR requires integer atoms.info['{key}']; got {value!r}.") from exc
+    if not numeric_value.is_integer():
+        raise ValueError(f"MACE-POLAR requires integer atoms.info['{key}']; got {value!r}.")
+    return int(numeric_value)
+
+
 def _one_hot_node_attrs(Z: torch.Tensor, atomic_number_table: list, dtype=torch.float32) -> torch.Tensor:
     """Convert atomic numbers into one-hot vectors aligned with atomic_number_table."""
     table = torch.tensor(atomic_number_table, dtype=torch.long, device=Z.device)
@@ -142,7 +153,7 @@ class MACEPolCalculator(CalcABC):
 
         # Charge and spin from atoms.info (default: 0, singlet)
         charge = float(atoms.info.get('charge', 0))
-        mult = int(atoms.info.get('mult', 1))
+        mult = _integer_info(atoms, 'mult', 1)
         spin = float(mult - 1)
         total_charge = torch.tensor([charge], dtype=dtype, device=device)
         total_spin = torch.tensor([spin], dtype=dtype, device=device)
@@ -157,6 +168,7 @@ class MACEPolCalculator(CalcABC):
 
     def calculate(self, atoms=None, properties=['energy', 'forces'], system_changes=all_changes):
         """Main ASE calculation entry point."""
+        properties = self._normalize_properties(properties)
         atoms = super().calculate(atoms, properties, system_changes)
 
         # Energy (no grad)

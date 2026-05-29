@@ -135,7 +135,7 @@ class FooCalculator(CalcABC):
   `stress`/`virial` requests until unit conversion is validated. Periodic UMA
   calculations must set an explicit FAIR-Chem `task=` (`omat`, `oc20`, `oc22`,
   `oc25`, `omc`, or `odac`); MAPLE no longer silently maps every periodic
-  system to `omat`.
+  system to `omat`, and rejects `task='omol'` with periodic atoms.
 
 ## Charge / multiplicity
 
@@ -144,6 +144,8 @@ class FooCalculator(CalcABC):
   than truncating them.
 - Set `SUPPORTS_CHARGE_MULT = True` if the backend honors them; otherwise
   `SetCalculator` warns the user that the values will be ignored.
+- MACE-POLAR rejects non-integer `mult` before converting multiplicity to the
+  model's unpaired-electron `spin = mult - 1` input.
 - UMA `omol` charged/open-shell inputs are passed through to FAIR-Chem and
   emit a warning until MAPLE has accepted golden numerical tolerances for
   those states.
@@ -168,6 +170,8 @@ class FooCalculator(CalcABC):
   TS will run on this model. `ANICalculator` is the only shipped backend
   with an implementation (autograd over the `(species, coords)` forward);
   the rest fail loudly rather than misread a differently-shaped forward.
+- ANI HVP rejects implicit-solvent runs because solvent HVP is not implemented;
+  returning gas-phase HVP in that mode would be a silent mixed-model result.
 
 ## Backend capability matrix
 
@@ -178,12 +182,12 @@ backend that switches tasks for periodic input.
 
 | Backend (names) | PBC | charge/mult | Hessian | Implicit solvent | D4 | HVP (Dimer) |
 |---|---|---|---|---|---|---|
-| ANI (`ani2x/1x/1ccx/1xnr`) | no; fail-fast | no | analytic + numerical | yes | yes | yes |
+| ANI (`ani2x/1x/1ccx/1xnr`) | no; fail-fast | no | analytic + numerical | yes | yes | yes; no implicit solvent |
 | AIMNet2 (`aimnet2`, `aimnet2nse`) | no; fail-fast; no Ewald | yes | analytic + numerical | yes | no | no |
 | MACE-OFF (`maceoff23s/m/l`, `egret`) | no; fail-fast | no | analytic + numerical | yes | no | no |
 | MACE-omol (`maceomol`) | no; fail-fast | no | analytic + numerical | yes | no | no |
 | MACE-POLAR (`macepols/m/l`) | no; fail-fast; no external field | yes (`spin = mult − 1`) | analytic + numerical | yes | no | no |
-| UMA (`uma`) | yes; non-PBC auto `omol`; PBC requires explicit task; stress rejected | yes (`spin = mult`); `omol` charge/open-shell warns pending golden tests | numerical only | yes | no | no |
+| UMA (`uma`) | yes; non-PBC auto `omol`; PBC requires explicit non-`omol` task; stress rejected | yes (`spin = mult`); `omol` charge/open-shell warns pending golden tests | numerical only | yes | no | no |
 
 `spin` semantics differ on purpose: MACE-POLAR's traced interface takes the
 number of unpaired electrons (`mult − 1`), UMA's FAIR-Chem path takes the

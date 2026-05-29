@@ -179,6 +179,7 @@ class MACECalculator(CalcABC):
 
     def calculate(self, atoms=None, properties=['energy', 'forces'], system_changes=all_changes):
         """Main ASE calculation entry point."""
+        properties = self._normalize_properties(properties)
         atoms = super().calculate(atoms, properties, system_changes)
 
         # Energy-only forward (no autograd) — cheap path when forces not requested.

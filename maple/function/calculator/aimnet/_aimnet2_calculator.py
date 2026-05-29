@@ -149,6 +149,7 @@ class AIMNet2Calculator(CalcABC):
         self._coulomb_method = method
 
     def calculate(self, atoms=None, properties=['energy', 'forces', 'free_energy', 'hessian'], system_changes=all_changes):
+        properties = self._normalize_properties(properties)
         atoms = super().calculate(atoms, properties, system_changes)
 
         needs_grad = ('forces' in properties or 'hessian' in properties)
