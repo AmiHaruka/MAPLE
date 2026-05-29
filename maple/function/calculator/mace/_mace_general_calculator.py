@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Literal
+from typing import Literal, Optional
 
 import numpy as np
 import torch
@@ -82,9 +82,17 @@ class MACEModelCalculator(CalcABC):
     CHECKPOINT_FILENAME = None
     REQUIRES_LOCAL_MODEL_FILE = True
 
+    @classmethod
+    def build_kwargs_from_options(cls, model, options, *, resolved_model_path=None):
+        kwargs = {}
+        if resolved_model_path is not None:
+            kwargs['model_path'] = resolved_model_path
+        return kwargs
+
     def __init__(self,
         device: torch.device,
         model: str = 'maceomol',
+        model_path: Optional[str] = None,
         overwrite: bool = False,
         implicit: Literal['gbsa', 'none'] = 'gbsa',
         solvent: str = 'none',
@@ -93,14 +101,17 @@ class MACEModelCalculator(CalcABC):
         Args:
             device (torch.device): compute device
             model (str): model name; expects model/<model>.pt
+            model_path (str, optional): explicit path to the scripted model file;
+                overrides the model-name lookup when provided.
             overwrite (bool): whether to overwrite existing models
             implicit (str): implicit-solvent model type
             solvent (str): solvent name
         """
         super().__init__()
-        model_dir = os.path.dirname(os.path.realpath(__file__))
-        model_dir = os.path.dirname(model_dir)
-        model_path = os.path.join(model_dir, 'model', f'{model}.pt')
+        if model_path is None:
+            model_dir = os.path.dirname(os.path.realpath(__file__))
+            model_dir = os.path.dirname(model_dir)
+            model_path = os.path.join(model_dir, 'model', f'{model}.pt')
 
         self.model = torch.jit.load(model_path, map_location=device)
         self.model.eval()

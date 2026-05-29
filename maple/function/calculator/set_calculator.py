@@ -172,12 +172,32 @@ class SetCalculator:
         return inference
 
     def _ensure_model_file(self, filename: str, model_name: str) -> Path:
-        """Ensure a HF-hosted checkpoint is on disk; download if missing."""
+        """Ensure a HF-hosted checkpoint is on disk; download if missing.
+
+        Production safeguards: an offline switch (MAPLE_OFFLINE), a socket
+        timeout (MAPLE_DOWNLOAD_TIMEOUT, default 60s), a process-unique temp
+        file so concurrent runs never clobber each other's partial download,
+        and a byte-count check against Content-Length before the atomic
+        replace so a truncated stream cannot land as the final model file.
+        Checksum pinning is intentionally omitted: it needs an upstream
+        hash manifest, which this repo does not publish — do not fake one.
+        """
+        import os
+
         model_dir = self._model_dir()
         model_dir.mkdir(parents=True, exist_ok=True)
         model_path = model_dir / filename
         if model_path.exists():
             return model_path
+
+        if os.environ.get('MAPLE_OFFLINE', '').strip().lower() in ('1', 'true', 'yes', 'on'):
+            message = (
+                f"Model file '{filename}' for '{model_name}' is missing and MAPLE_OFFLINE "
+                'is set, so auto-download is disabled.\n'
+                f'       MAPLE model directory searched: {self._model_dir_description()}'
+            )
+            self._log_model_error(message)
+            raise FileNotFoundError(message)
 
         url = _model_download_url(filename)
         self.log_info(
@@ -187,15 +207,26 @@ class SetCalculator:
             ]
         )
 
-        temp_path = model_path.with_suffix('.tmp')
+        timeout = float(os.environ.get('MAPLE_DOWNLOAD_TIMEOUT', '60'))
+        temp_path = model_path.with_suffix(f'.{os.getpid()}.tmp')
         try:
-            with urllib.request.urlopen(url) as response:
+            with urllib.request.urlopen(url, timeout=timeout) as response:
                 size = response.headers.get('Content-Length')
-                if size:
-                    self.log_info([f' [INFO] File size: {int(size) / 1024 / 1024:.1f} MB\n'])
+                expected = int(size) if size else None
+                if expected is not None:
+                    self.log_info([f' [INFO] File size: {expected / 1024 / 1024:.1f} MB\n'])
                 with open(temp_path, 'wb') as handle:
                     shutil.copyfileobj(response, handle)
-            temp_path.rename(model_path)
+            downloaded = temp_path.stat().st_size
+            if expected is not None and downloaded != expected:
+                temp_path.unlink(missing_ok=True)
+                message = (
+                    f"Incomplete download for model '{model_name}': received {downloaded} bytes, "
+                    f'expected {expected} (Content-Length).'
+                )
+                self._log_model_error(message)
+                raise RuntimeError(message)
+            temp_path.replace(model_path)
             self.log_info([f' [INFO] Download complete: {model_path}\n'])
         except urllib.error.HTTPError as exc:
             temp_path.unlink(missing_ok=True)
@@ -204,13 +235,14 @@ class SetCalculator:
                 f'       MAPLE model directory: {self._model_dir_description()}'
             )
             raise RuntimeError(f"Failed to download model '{model_name}': HTTP {exc.code}") from exc
-        except urllib.error.URLError as exc:
+        except (urllib.error.URLError, TimeoutError) as exc:
             temp_path.unlink(missing_ok=True)
+            reason = getattr(exc, 'reason', exc)
             self._log_model_error(
-                f"Network error while downloading model '{model_name}': {exc.reason}\n"
+                f"Network error while downloading model '{model_name}': {reason}\n"
                 f'       MAPLE model directory: {self._model_dir_description()}'
             )
-            raise RuntimeError(f"Failed to download model '{model_name}': {exc.reason}") from exc
+            raise RuntimeError(f"Failed to download model '{model_name}': {reason}") from exc
 
         return model_path
 

@@ -115,7 +115,10 @@ class AIMNet2Calculator(CalcABC):
         cutoff: cutoff distance for long-range interactions
         dsf_alpha: DSF damping parameter (if used)
         """
-        assert method in ('simple', 'dsf', 'ewald'), f"Invalid method: {method}"
+        if method not in ('simple', 'dsf', 'ewald'):
+            raise ValueError(
+                f"Invalid coulomb_method: {method!r}; expected one of 'simple', 'dsf', 'ewald'."
+            )
 
         def _iter_lrcoulomb_mods(model):
             for name, mod in model.named_modules():
@@ -168,8 +171,8 @@ class AIMNet2Calculator(CalcABC):
         Z = torch.tensor(atoms.get_atomic_numbers(), dtype=torch.int32, device=self.device)
         mol_idx = torch.zeros(coord.shape[0], dtype=torch.int32, device=self.device)
         N = coord.shape[0]
-        charge_val = float(self.atoms.info.get('charge', 0.0))
-        mult_val = float(self.atoms.info.get('mult', 1.0))
+        charge_val = float(atoms.info.get('charge', 0.0))
+        mult_val = float(atoms.info.get('mult', 1.0))
 
         nbmat = nblist_dense_padded(coord, self.cutoff)
         data: Dict[str, torch.Tensor] = {

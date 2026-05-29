@@ -301,15 +301,19 @@ class UMACalculator(FAIRChemCalculator):
         if "forces" in self.results:
             self.results["forces"] *= EV2HARTREE
 
-        # Implicit-solvent correction in Hartree (mirrors _finalize_results).
+        # Implicit-solvent correction in Hartree (mirrors _finalize_results,
+        # including its energy-only branch: skip the force correction when no
+        # forces were produced so an energy-only single point stays cheap).
         if self.solvent_correction is not None:
             atoms.atomic_charges = self.chargecalc(atoms)
-            solvent_energy, solvent_force = self.solvent_correction.get_energy_and_force(atoms)
+            if "forces" in self.results:
+                solvent_energy, solvent_force = self.solvent_correction.get_energy_and_force(atoms)
+                self.results["forces"] += solvent_force.detach().cpu().numpy()
+            else:
+                solvent_energy, _ = self.solvent_correction.get_energy(atoms)
             if "energy" in self.results:
                 self.results["energy"] += solvent_energy.item()
             if "free_energy" in self.results:
                 self.results["free_energy"] += solvent_energy.item()
-            if "forces" in self.results:
-                self.results["forces"] += solvent_force.detach().cpu().numpy()
 
         return self.results

@@ -16,8 +16,11 @@ have to inherit `CalcABC`. UMA, for example, extends third-party
   in Hartree / Å². `CalcABC` provides a default that dispatches on
   `self.hessian`.
 - `get_hvp(self, atoms, n)` — optional; only required if Dimer-mode TS will
-  run on the backend. `CalcABC` ships a default matching ANI's simple
-  `self.model(species, coords)` shape.
+  run on the backend. `CalcABC.get_hvp` raises `NotImplementedError` by
+  default — there is **no** shared autograd default, because the forward
+  shape differs per backend. `ANICalculator` implements it for ANI's
+  `self.model(species, coords)` shape; other backends must override it
+  before Dimer-mode TS can run on them.
 
 **Class attributes** (read by `SetCalculator` before the class is
 instantiated):
@@ -120,9 +123,39 @@ class FooCalculator(CalcABC):
 
 ## HVP override
 
-- Override `get_hvp(self, atoms, n)` only if Dimer-mode TS will run on
-  this model and the forward isn't ANI-shaped (single `(species, coords)`
-  tensor pair). `CalcABC.get_hvp` is the default.
+- `CalcABC.get_hvp` raises `NotImplementedError`. Override it if Dimer-mode
+  TS will run on this model. `ANICalculator` is the only shipped backend
+  with an implementation (autograd over the `(species, coords)` forward);
+  the rest fail loudly rather than misread a differently-shaped forward.
+
+## Backend capability matrix
+
+What the shipped backends actually support today. The hand-wrapped MACE
+backends build a **no-PBC** radius graph (zero `cell`/`shifts`), so they are
+molecule-only regardless of any periodic claim elsewhere. UMA is the only
+backend that switches tasks for periodic input.
+
+| Backend (names) | PBC | charge/mult | Hessian | Implicit solvent | D4 | HVP (Dimer) |
+|---|---|---|---|---|---|---|
+| ANI (`ani2x/1x/1ccx/1xnr`) | no | no | analytic + numerical | yes | yes | yes |
+| AIMNet2 (`aimnet2`, `aimnet2nse`) | no | yes | analytic + numerical | yes | no | no |
+| MACE-OFF (`maceoff23s/m/l`, `egret`) | no | no | analytic + numerical | yes | no | no |
+| MACE-omol (`maceomol`) | no | no | analytic + numerical | yes | no | no |
+| MACE-POLAR (`macepols/m/l`) | no, no external field | yes (`spin = mult − 1`) | analytic + numerical | yes | no | no |
+| UMA (`uma`) | yes (auto `omol`/`omat`) | yes (`spin = mult`) | numerical only | yes | no | no |
+
+`spin` semantics differ on purpose: MACE-POLAR's traced interface takes the
+number of unpaired electrons (`mult − 1`), UMA's FAIR-Chem path takes the
+spin multiplicity (`mult`). Confirm against the specific checkpoint before
+trusting open-shell results — neither encoding is verified here.
+
+Open question (observed, unresolved): on H₂O a `q=0 → +1` change moves the
+energy by ~0.5 Ha for AIMNet2 and MACE-POLAR but only ~5e-5 Ha for UMA
+(uma-s-1p1, omol). Charge *is* reaching the FAIR-Chem model (the response is
+nonzero, and the default `a2g` carries `r_data_keys=['spin','charge']`), so
+this is a charge/spin-handling question for the UMA checkpoint, not a missing
+wire-up in MAPLE. Verify UMA charged/open-shell energetics before relying on
+them.
 
 ## Plug-in discovery — three layers
 

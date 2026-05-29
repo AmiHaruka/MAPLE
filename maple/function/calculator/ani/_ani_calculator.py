@@ -5,7 +5,7 @@ import os
 import ase
 import numpy as np
 
-from ..calculator_base import CalcABC, register_calculator
+from ..calculator_base import CalcABC, parse_bool_option, register_calculator
 
 
 @register_calculator
@@ -27,7 +27,7 @@ class ANICalculator(CalcABC):
 
     @classmethod
     def build_kwargs_from_options(cls, model, options, *, resolved_model_path=None):
-        return {'d4': bool(options.get('d4', False))}
+        return {'d4': parse_bool_option(options.get('d4', False), name='d4')}
 
     def __init__(self, device,
         model: str = 'ani2x',
@@ -136,3 +136,37 @@ class ANICalculator(CalcABC):
         }
         bohr_coords = coordinates[0] * 1.8897261245864
         return torch.sum(d4.dftd4(species[0], bohr_coords, charge, param))
+
+    def get_hvp(self, atoms, n: np.ndarray):
+        """Hessian-vector product Hn via autograd for ANI's (species, coords) forward.
+
+        Returns (Hn, forces, energy) as torch tensors, consumed by Dimer-mode TS.
+        """
+        import torch
+
+        coords = torch.tensor(
+            atoms.get_positions(),
+            dtype=self.dtype,
+            device=self.device,
+            requires_grad=True,
+        ).unsqueeze(0)
+        species = torch.tensor(
+            atoms.get_atomic_numbers(),
+            dtype=torch.long,
+            device=self.device,
+        ).unsqueeze(0)
+
+        energy = self.model(species, coords)[0]
+        if self.d4:
+            energy = energy + self.dftd4(species, coords)
+
+        grad = torch.autograd.grad(energy, coords, create_graph=True)[0].squeeze(0)
+        grad_vec = grad.view(-1)
+
+        n_tensor = torch.tensor(n, dtype=self.dtype, device=self.device)
+        hvp = torch.autograd.grad(
+            grad_vec @ n_tensor, coords, retain_graph=True
+        )[0].squeeze(0).view(-1)
+
+        forces = -grad_vec
+        return hvp, forces, energy
