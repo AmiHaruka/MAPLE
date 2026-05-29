@@ -217,6 +217,11 @@ class CalcABC(ase.calculators.calculator.Calculator):
     SUPPORTS_PBC: bool = False
     CHECKPOINT_FILENAME: dict | None = None
     REQUIRES_LOCAL_MODEL_FILE: bool = False
+    # None keeps legacy/plugins permissive. Shipped backends set an explicit
+    # tuple so input typos fail before a model is loaded.
+    OPTION_KEYS: tuple | None = None
+    # Constructor kwarg that accepts an explicit user model_path, if any.
+    MODEL_PATH_OPTION: str | None = None
 
     def __init__(self):
         super().__init__()
@@ -234,6 +239,7 @@ class CalcABC(ase.calculators.calculator.Calculator):
         target_atoms = atoms if atoms is not None else getattr(self, 'atoms', None)
         self._reject_unsupported_pbc(target_atoms)
         super().calculate(atoms, _property_list(properties), system_changes)
+        return target_atoms
 
     @classmethod
     def build_kwargs_from_options(cls, model, model_options, *, resolved_model_path=None):

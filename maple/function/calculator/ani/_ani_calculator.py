@@ -10,7 +10,7 @@ from ..calculator_base import CalcABC, parse_bool_option, register_calculator
 
 @register_calculator
 class ANICalculator(CalcABC):
-    implemented_properties = ['energy', 'forces', 'free_energy']
+    implemented_properties = ['energy', 'forces', 'free_energy', 'hessian']
 
     MODEL_NAMES = ('ani2x', 'ani1x', 'ani1ccx', 'ani1xnr')
     # ANI's TorchScript checkpoints already return Hartree; no eV→Ha conversion.
@@ -25,13 +25,19 @@ class ANICalculator(CalcABC):
         'ani1xnr': 'ani1xnr.pt',
     }
     REQUIRES_LOCAL_MODEL_FILE = False
+    OPTION_KEYS = ('d4',)
+    MODEL_PATH_OPTION = 'model_path'
 
     @classmethod
     def build_kwargs_from_options(cls, model, options, *, resolved_model_path=None):
-        return {'d4': parse_bool_option(options.get('d4', False), name='d4')}
+        kwargs = {'d4': parse_bool_option(options.get('d4', False), name='d4')}
+        if resolved_model_path is not None:
+            kwargs['model_path'] = resolved_model_path
+        return kwargs
 
     def __init__(self, device,
         model: str = 'ani2x',
+        model_path: str = None,
         overwrite=False,
         d4=False,
         implicit: str = 'none',
@@ -41,9 +47,10 @@ class ANICalculator(CalcABC):
 
         super().__init__()
 
-        model_dir = os.path.dirname(os.path.realpath(__file__))
-        model_dir = os.path.dirname(model_dir)
-        model_path = os.path.join(model_dir, 'model', f'{model}.pt')
+        if model_path is None:
+            model_dir = os.path.dirname(os.path.realpath(__file__))
+            model_dir = os.path.dirname(model_dir)
+            model_path = os.path.join(model_dir, 'model', f'{model}.pt')
 
         self.model = torch.jit.load(model_path, map_location=device)
         self.model.eval()
@@ -63,7 +70,7 @@ class ANICalculator(CalcABC):
                   system_changes=ase.calculators.calculator.all_changes):
         import torch
 
-        super().calculate(atoms, properties, system_changes)
+        atoms = super().calculate(atoms, properties, system_changes)
 
         needs_forces = 'forces' in properties
         coordinates = torch.tensor(

@@ -82,6 +82,8 @@ class MACEModelCalculator(CalcABC):
     SUPPORTS_PBC = False
     CHECKPOINT_FILENAME = None
     REQUIRES_LOCAL_MODEL_FILE = True
+    OPTION_KEYS = ()
+    MODEL_PATH_OPTION = 'model_path'
 
     @classmethod
     def build_kwargs_from_options(cls, model, options, *, resolved_model_path=None):
@@ -132,7 +134,7 @@ class MACEModelCalculator(CalcABC):
 
     def calculate(self, atoms=None, properties=['energy', 'forces'], system_changes=all_changes):
         """Main ASE entry point."""
-        super().calculate(atoms, properties, system_changes)
+        atoms = super().calculate(atoms, properties, system_changes)
 
         inputs = build_inputs_from_atoms(atoms, self.model, device=self.device)
         with torch.no_grad():

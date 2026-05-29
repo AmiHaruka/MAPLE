@@ -34,6 +34,8 @@ instantiated):
 | `SUPPORTS_PBC` | `bool` | True only when the backend constructs a validated periodic graph / neighbor list. `SetCalculator` and `CalcABC.calculate()` reject periodic atoms for false values. |
 | `CHECKPOINT_FILENAME` | `dict[str, str] \| None` | Per-name filename for HuggingFace auto-download. `None` if no auto-download. |
 | `REQUIRES_LOCAL_MODEL_FILE` | `bool` | Fallback when `CHECKPOINT_FILENAME` does not cover the requested name. |
+| `OPTION_KEYS` | `tuple[str, ...] \| None` | Supported backend-specific `model_options`. Shipped backends set this so typos fail loudly; `None` keeps legacy plug-ins permissive. |
+| `MODEL_PATH_OPTION` | `str \| None` | Constructor kwarg that consumes an explicit user `model_path` (`'model_path'` or `'checkpoint_path'`). `None` means `model_path` is rejected. |
 
 ## Minimum runnable subclass
 
@@ -51,6 +53,8 @@ class FooCalculator(CalcABC):
     SUPPORTS_PBC = False               # fail fast on periodic atoms unless validated
     CHECKPOINT_FILENAME = {'foo2x': 'foo2x.pt', 'foo1ccx': 'foo1ccx.pt'}
     REQUIRES_LOCAL_MODEL_FILE = False
+    OPTION_KEYS = ('foo_mode',)
+    MODEL_PATH_OPTION = 'model_path'
 
     implemented_properties = ['energy', 'free_energy', 'forces']
 
@@ -67,7 +71,7 @@ class FooCalculator(CalcABC):
         # ...load self.model, etc...
 
     def calculate(self, atoms=None, properties=['energy'], system_changes=None):
-        super().calculate(atoms, properties, system_changes)
+        atoms = super().calculate(atoms, properties, system_changes)
         energy, forces = self._forward(atoms)      # private, backend-internal
         self._finalize_results(atoms, energy=energy, forces=forces)
 
@@ -128,13 +132,21 @@ class FooCalculator(CalcABC):
   periodic stress/NPT workflows.
 - UMA delegates PBC graph construction to FAIR-Chem and is the only shipped
   backend with `SUPPORTS_PBC = True`; MAPLE currently rejects UMA
-  `stress`/`virial` requests until unit conversion is validated.
+  `stress`/`virial` requests until unit conversion is validated. Periodic UMA
+  calculations must set an explicit FAIR-Chem `task=` (`omat`, `oc20`, `oc22`,
+  `oc25`, `omc`, or `odac`); MAPLE no longer silently maps every periodic
+  system to `omat`.
 
 ## Charge / multiplicity
 
-- `atoms.info['charge']` and `atoms.info['mult']` carry the values.
+- `atoms.info['charge']` and `atoms.info['mult']` carry the values. Backends
+  that require integer charge/spin inputs must reject non-integer values rather
+  than truncating them.
 - Set `SUPPORTS_CHARGE_MULT = True` if the backend honors them; otherwise
   `SetCalculator` warns the user that the values will be ignored.
+- UMA `omol` charged/open-shell inputs are passed through to FAIR-Chem and
+  emit a warning until MAPLE has accepted golden numerical tolerances for
+  those states.
 
 ## Backend-specific kwargs
 
@@ -143,6 +155,12 @@ class FooCalculator(CalcABC):
   plus the factory-resolved checkpoint path into ctor kwargs. **Do not
   call back into `SetCalculator` from a backend method.** The factory
   passes `resolved_model_path` for backends that need a local file.
+- Set `OPTION_KEYS` for every shipped backend-specific option. Unknown keys
+  are rejected before model construction so a misspelled production config
+  cannot be silently ignored.
+- If explicit `model_path` is supported, set `MODEL_PATH_OPTION`. If a user
+  passes `model_path` to a backend that does not support it, MAPLE raises a
+  configuration error instead of silently falling back to a default checkpoint.
 
 ## HVP override
 
@@ -165,20 +183,19 @@ backend that switches tasks for periodic input.
 | MACE-OFF (`maceoff23s/m/l`, `egret`) | no; fail-fast | no | analytic + numerical | yes | no | no |
 | MACE-omol (`maceomol`) | no; fail-fast | no | analytic + numerical | yes | no | no |
 | MACE-POLAR (`macepols/m/l`) | no; fail-fast; no external field | yes (`spin = mult − 1`) | analytic + numerical | yes | no | no |
-| UMA (`uma`) | yes (auto `omol`/`omat`); stress rejected | yes (`spin = mult`) | numerical only | yes | no | no |
+| UMA (`uma`) | yes; non-PBC auto `omol`; PBC requires explicit task; stress rejected | yes (`spin = mult`); `omol` charge/open-shell warns pending golden tests | numerical only | yes | no | no |
 
 `spin` semantics differ on purpose: MACE-POLAR's traced interface takes the
 number of unpaired electrons (`mult − 1`), UMA's FAIR-Chem path takes the
 spin multiplicity (`mult`). Confirm against the specific checkpoint before
 trusting open-shell results — neither encoding is verified here.
 
-Open question (observed, unresolved): on H₂O a `q=0 → +1` change moves the
-energy by ~0.5 Ha for AIMNet2 and MACE-POLAR but only ~5e-5 Ha for UMA
-(uma-s-1p1, omol). Charge *is* reaching the FAIR-Chem model (the response is
-nonzero, and the default `a2g` carries `r_data_keys=['spin','charge']`), so
-this is a charge/spin-handling question for the UMA checkpoint, not a missing
-wire-up in MAPLE. Verify UMA charged/open-shell energetics before relying on
-them.
+Observed on a local uma-s-1p1 checkpoint: direct FAIR-Chem and the MAPLE UMA
+wrapper agree for H₂O `q=0/+1/-1` and `mult=3`, so charge/spin reaches
+FAIR-Chem through MAPLE. The `q=0 → +1` same-geometry energy change is small
+(~4.6e-5 Ha) for that checkpoint, so keep a warning and verify charged/open-
+shell energetics against FAIR-Chem/reference calculations before relying on
+them for production chemistry.
 
 ## Plug-in discovery — three layers
 
@@ -198,7 +215,7 @@ my_lab = "my_lab.maple_plugin"
 
 ## Public vs private API
 
-- **Public**: `calculate`, `get_hessian`, `get_hvp`, the seven class
+- **Public**: `calculate`, `get_hessian`, `get_hvp`, the protocol class
   attributes above.
 - **Private** (do not depend on from outside the calculator): `_forward_energy`,
   `_build_inputs`, `_analytic_hessian`, `self.model`.

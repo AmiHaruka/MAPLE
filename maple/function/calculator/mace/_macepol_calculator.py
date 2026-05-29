@@ -65,7 +65,7 @@ class MACEPolCalculator(CalcABC):
     Supports total_charge and total_spin via atoms.info['charge'] and atoms.info['mult'].
     """
 
-    implemented_properties = ['energy', 'forces', 'free_energy']
+    implemented_properties = ['energy', 'forces', 'free_energy', 'hessian']
 
     MODEL_NAMES = ('macepols', 'macepolm', 'macepoll')
     MODEL_ENERGY_UNIT = 'eV'
@@ -74,6 +74,8 @@ class MACEPolCalculator(CalcABC):
     SUPPORTS_PBC = False
     CHECKPOINT_FILENAME = None
     REQUIRES_LOCAL_MODEL_FILE = True
+    OPTION_KEYS = ()
+    MODEL_PATH_OPTION = 'model_path'
 
     @classmethod
     def build_kwargs_from_options(cls, model, options, *, resolved_model_path=None):
@@ -155,7 +157,7 @@ class MACEPolCalculator(CalcABC):
 
     def calculate(self, atoms=None, properties=['energy', 'forces'], system_changes=all_changes):
         """Main ASE calculation entry point."""
-        super().calculate(atoms, properties, system_changes)
+        atoms = super().calculate(atoms, properties, system_changes)
 
         # Energy (no grad)
         inputs = self._build_inputs(atoms, requires_grad=False)

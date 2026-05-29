@@ -56,12 +56,12 @@ class UMACalculator(FAIRChemCalculator):
     """UMA calculator with MAPLE-specific unit conversion and Hessian support.
 
     Does NOT inherit CalcABC — UMA already extends third-party FAIRChemCalculator.
-    Satisfies the MAPLE calculator protocol via attribute presence (the six
-    MODEL_* class attrs + calculate + get_hessian + get_hvp where required).
+    Satisfies the MAPLE calculator protocol via attribute presence (class
+    capability attrs + calculate + get_hessian + get_hvp where required).
 
-    Explicit `task=` is respected. When `task` is omitted, MAPLE keeps the
-    historical convenience behavior of inferring `omol` for non-periodic
-    systems and `omat` for periodic systems.
+    Explicit `task=` is respected. When `task` is omitted, MAPLE only infers
+    `omol` for non-periodic systems; periodic UMA requires an explicit FAIR-Chem
+    task because `pbc -> omat` is too broad for production use.
     """
 
     MODEL_NAMES = ("uma",)
@@ -71,13 +71,21 @@ class UMACalculator(FAIRChemCalculator):
     SUPPORTS_PBC = True
     CHECKPOINT_FILENAME = None
     REQUIRES_LOCAL_MODEL_FILE = False
+    OPTION_KEYS = (
+        'task',
+        'size',
+        'checkpoint_path',
+        'inference',
+        'overrides',
+    )
+    MODEL_PATH_OPTION = 'checkpoint_path'
 
     @classmethod
     def build_kwargs_from_options(cls, model, options, *, resolved_model_path=None):
         return {
             'task': options.get('task'),
             'size': options.get('size'),
-            'checkpoint_path': options.get('checkpoint_path'),
+            'checkpoint_path': options.get('checkpoint_path') or resolved_model_path,
             'inference_settings': options.get('inference'),
             'overrides': options.get('overrides'),
         }
@@ -260,11 +268,25 @@ class UMACalculator(FAIRChemCalculator):
         if not self._auto_task:
             return
 
-        task = "omat" if any(atoms.pbc) else "omol"
+        if any(atoms.pbc):
+            raise ValueError(
+                "UMA periodic calculations require an explicit FAIR-Chem task "
+                "(for example task=omat, oc20, oc22, oc25, omc, or odac). "
+                "MAPLE no longer silently maps every periodic system to task='omat'."
+            )
+
+        task = "omol"
         if task == self.task_name:
             return
 
         self._task = UMATask(task)
+        self._task_name = task
+        self.implemented_properties = [
+            task_obj.property for task_obj in self.predictor.dataset_to_tasks[self.task_name]
+        ]
+        if "energy" in self.implemented_properties:
+            self.implemented_properties.append("free_energy")
+
         if self._predictor_unit.inference_settings.external_graph_gen:
             r_edges, max_neigh = True, 300
         else:
@@ -277,8 +299,35 @@ class UMACalculator(FAIRChemCalculator):
             r_data_keys=["spin", "charge"],
             max_neigh=max_neigh,
             radius=6.0,
+            target_dtype=self._predictor_unit.inference_settings.base_precision_dtype,
         )
-        self.task_name = task
+
+    def _warn_unvalidated_charge_spin(self, atoms: Atoms) -> None:
+        charge = self._integer_info(atoms, "charge", 0)
+        mult = self._integer_info(atoms, "mult", 1)
+        has_charge = charge != 0
+        has_open_shell = mult != 1
+        if self.task_name != "omol" or not (has_charge or has_open_shell):
+            return
+
+        message = (
+            "UMA omol charged/open-shell inputs are passed through to FAIR-Chem, "
+            "but MAPLE has not yet accepted golden numerical tolerances for these "
+            "states; compare against FAIR-Chem/reference calculations before "
+            "production use."
+        )
+        warnings.warn(message, RuntimeWarning, stacklevel=2)
+
+    @staticmethod
+    def _integer_info(atoms: Atoms, key: str, default: int) -> int:
+        value = atoms.info.get(key, default)
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"UMA requires integer atoms.info['{key}']; got {value!r}.") from exc
+        if not numeric_value.is_integer():
+            raise ValueError(f"UMA requires integer atoms.info['{key}']; got {value!r}.")
+        return int(numeric_value)
 
     def get_hessian(self, atoms: Atoms, delta: float = 0.002) -> np.ndarray:
         """Numerical-only Hessian via shared finite-difference helper."""
@@ -298,10 +347,11 @@ class UMACalculator(FAIRChemCalculator):
             )
 
         self._set_task_from_atoms(atoms)
+        self._warn_unvalidated_charge_spin(atoms)
 
         calc_atoms = atoms.copy()
-        calc_atoms.info["spin"] = int(atoms.info.get("mult", 1))
-        calc_atoms.info["charge"] = int(atoms.info.get("charge", 0))
+        calc_atoms.info["spin"] = self._integer_info(atoms, "mult", 1)
+        calc_atoms.info["charge"] = self._integer_info(atoms, "charge", 0)
 
         super().calculate(calc_atoms, properties, system_changes)
 

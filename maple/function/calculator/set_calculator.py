@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import inspect
 import shutil
 import urllib.error
 import urllib.request
@@ -22,6 +23,7 @@ from .calculator_base import (
 
 HF_REPO_ID = 'Wayne7815/MAPLE_models'
 HF_MODEL_REVISION = 'd5d8eb902246fb3f0e3b24e0d4bbcdc12f12e816'
+_COMMON_MODEL_OPTION_KEYS = {'module', 'model_path', 'hessian'}
 
 
 # Static seed map: builtin name → module that registers the calculator class.
@@ -197,6 +199,65 @@ class SetCalculator:
                     [f"\n [WARNING] D4 is not supported for model '{self.model}'. D4 will be ignored.\n"]
                 )
 
+    def _validate_model_options(self, cls) -> None:
+        """Fail loudly on misspelled/unsupported model_options for shipped backends."""
+        option_keys = getattr(cls, 'OPTION_KEYS', None)
+        if option_keys is None:
+            return
+        allowed = set(_COMMON_MODEL_OPTION_KEYS)
+        allowed.update(option_keys)
+        unknown = sorted(key for key in self.model_options if key not in allowed)
+        if unknown:
+            allowed_text = ', '.join(sorted(allowed)) or '(none)'
+            raise ValueError(
+                f"Unsupported model option(s) for '{self.model}': {', '.join(unknown)}. "
+                f"Supported options: {allowed_text}"
+            )
+
+    def _explicit_model_path_option(self, cls) -> Optional[str]:
+        """Return the ctor kwarg that consumes model_path, or None if unsupported."""
+        option = getattr(cls, 'MODEL_PATH_OPTION', None)
+        if option:
+            return str(option)
+
+        # Compatibility for external plugins that have not adopted the class
+        # attribute yet but expose the conventional constructor kwarg.
+        try:
+            ctor_params = inspect.signature(cls.__init__).parameters
+        except (TypeError, ValueError):
+            return None
+        if 'model_path' in ctor_params:
+            return 'model_path'
+        if 'checkpoint_path' in ctor_params:
+            return 'checkpoint_path'
+        return None
+
+    def _resolve_explicit_model_path(self, cls, options: dict) -> Path:
+        """Validate an explicit user model_path and prevent silent ignore."""
+        path_option = self._explicit_model_path_option(cls)
+        if path_option is None:
+            raise ValueError(
+                f"Model '{self.model}' does not support model_path; remove the option "
+                "or use a backend with an explicit model_path/checkpoint_path input."
+            )
+
+        if path_option == 'checkpoint_path' and options.get('checkpoint_path'):
+            explicit_model_path = Path(str(options['model_path'])).expanduser().resolve()
+            explicit_checkpoint_path = Path(str(options['checkpoint_path'])).expanduser().resolve()
+            if explicit_model_path != explicit_checkpoint_path:
+                raise ValueError(
+                    "Specify only one of model_path or checkpoint_path for this backend; "
+                    "the two paths differ."
+                )
+
+        resolved_model_path = Path(str(options['model_path'])).expanduser()
+        if not resolved_model_path.is_file():
+            raise FileNotFoundError(
+                f"Explicit model_path for '{self.model}' does not exist or is not a file: "
+                f"{resolved_model_path}"
+            )
+        return resolved_model_path
+
     def _resolve_model_path(self, cls, name: str) -> Optional[Path]:
         """Resolve checkpoint path per class attrs.
 
@@ -324,12 +385,13 @@ class SetCalculator:
         self._validate_solvent_config()
 
         cls = self._discover_calculator_class(name)
+        self._validate_model_options(cls)
         self._validate_against_class(cls)
         options = dict(self.model_options)
         options.setdefault('d4', self.d4)
         # Allow input header to override the auto-resolved model path.
-        if cls.REQUIRES_LOCAL_MODEL_FILE and options.get('model_path'):
-            resolved_model_path = Path(str(options['model_path']))
+        if options.get('model_path'):
+            resolved_model_path = self._resolve_explicit_model_path(cls, options)
         else:
             resolved_model_path = self._resolve_model_path(cls, name)
 
@@ -344,7 +406,17 @@ class SetCalculator:
             effective_device = UMACalculator._normalize_device(self.device)
             options['inference'] = self._coerce_uma_inference_for_device(inference, effective_device)
 
-            checkpoint_path = options.get('checkpoint_path') or options.get('model_path')
+            checkpoint_path = options.get('checkpoint_path')
+            if checkpoint_path:
+                checkpoint_path = Path(str(checkpoint_path)).expanduser()
+                if not checkpoint_path.is_file():
+                    raise FileNotFoundError(
+                        f"Explicit checkpoint_path for '{self.model}' does not exist or is not a file: "
+                        f"{checkpoint_path}"
+                    )
+                checkpoint_path = str(checkpoint_path)
+            elif resolved_model_path is not None:
+                checkpoint_path = str(resolved_model_path)
             effective_size = str(options.get('size')).lower() if options.get('size') else UMA_DEFAULT_SIZE
             if checkpoint_path is None and effective_size in UMA_FALLBACK_HF_MODELS:
                 local_checkpoint = self._local_model_file(f'{effective_size}.pt')

@@ -118,7 +118,7 @@ def build_data_from_atoms(atoms, model, device='cpu', positions: Optional[torch.
 class MACECalculator(CalcABC):
     """ASE-style calculator wrapping a scripted Wrapper MACE model."""
 
-    implemented_properties = ['energy', 'forces', 'free_energy']
+    implemented_properties = ['energy', 'forces', 'free_energy', 'hessian']
 
     MODEL_NAMES = ('maceoff23s', 'maceoff23m', 'maceoff23l', 'egret')
     MODEL_ENERGY_UNIT = 'eV'
@@ -130,6 +130,8 @@ class MACECalculator(CalcABC):
     # _require_local_model_file when CHECKPOINT_FILENAME has no entry.
     CHECKPOINT_FILENAME = {'maceoff23m': 'maceoff23m.pt', 'egret': 'egret1s.pt'}
     REQUIRES_LOCAL_MODEL_FILE = True
+    OPTION_KEYS = ()
+    MODEL_PATH_OPTION = 'model_path'
 
     @classmethod
     def build_kwargs_from_options(cls, model, options, *, resolved_model_path=None):
@@ -177,7 +179,7 @@ class MACECalculator(CalcABC):
 
     def calculate(self, atoms=None, properties=['energy', 'forces'], system_changes=all_changes):
         """Main ASE calculation entry point."""
-        super().calculate(atoms, properties, system_changes)
+        atoms = super().calculate(atoms, properties, system_changes)
 
         # Energy-only forward (no autograd) — cheap path when forces not requested.
         data_dict, local_or_ghost = build_data_from_atoms(atoms, self.model, device=self.device)

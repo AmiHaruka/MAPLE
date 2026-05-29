@@ -75,6 +75,8 @@ class AIMNet2Calculator(CalcABC):
     SUPPORTED_COULOMB_METHODS = ('simple', 'dsf')
     CHECKPOINT_FILENAME = {'aimnet2': 'aimnet2.pt', 'aimnet2nse': 'aimnet2nse.pt'}
     REQUIRES_LOCAL_MODEL_FILE = False
+    OPTION_KEYS = ('coulomb_method',)
+    MODEL_PATH_OPTION = 'model_path'
 
     @classmethod
     def build_kwargs_from_options(cls, model, options, *, resolved_model_path=None):
@@ -82,10 +84,13 @@ class AIMNet2Calculator(CalcABC):
         coulomb_method = options.get('coulomb_method')
         if coulomb_method is not None:
             kwargs['coulomb_method'] = str(coulomb_method).lower()
+        if resolved_model_path is not None:
+            kwargs['model_path'] = resolved_model_path
         return kwargs
 
     def __init__(self, device: torch.device,
                 model: str = 'aimnet2',
+                model_path: str = None,
                 coulomb_method: str = 'simple',
                 implicit: Literal['gbsa', 'none'] = 'none',
                 solvent: str = 'none',
@@ -94,9 +99,10 @@ class AIMNet2Calculator(CalcABC):
         self.device = device
 
         # Load model
-        model_dir = os.path.dirname(os.path.realpath(__file__))
-        model_dir = os.path.dirname(model_dir)
-        model_path = os.path.join(model_dir, 'model', f'{model}.pt')
+        if model_path is None:
+            model_dir = os.path.dirname(os.path.realpath(__file__))
+            model_dir = os.path.dirname(model_dir)
+            model_path = os.path.join(model_dir, 'model', f'{model}.pt')
         self.model = torch.jit.load(model_path, map_location=device).eval()
 
         self.cutoff = float(getattr(self.model, 'cutoff'))
@@ -143,7 +149,7 @@ class AIMNet2Calculator(CalcABC):
         self._coulomb_method = method
 
     def calculate(self, atoms=None, properties=['energy', 'forces', 'free_energy', 'hessian'], system_changes=all_changes):
-        super().calculate(atoms, properties, system_changes)
+        atoms = super().calculate(atoms, properties, system_changes)
 
         needs_grad = ('forces' in properties or 'hessian' in properties)
         coord = torch.tensor(
