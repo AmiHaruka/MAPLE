@@ -95,7 +95,7 @@ maple md nve
 ### Minimal Example
 
 ```text
-#model=uma(size=uma-s-1p2)
+#model=uma(size=uma-s-1p1)
 #opt(method=lbfgs)
 #device=gpu0
 
@@ -111,7 +111,11 @@ H    0.802   0.842   1.742
 ```
 ### External coordinates:
 ```
-XYZ /path/to/molecule.xyz
+#model=uma(size=uma-s-1p1)
+#opt(method=lbfgs)
+#device=gpu0
+
+XYZ 0 1 /path/to/molecule.xyz
 ```
 
 ## Input Overview
