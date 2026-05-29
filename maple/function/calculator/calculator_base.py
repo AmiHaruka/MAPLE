@@ -47,6 +47,29 @@ def load_calculator_plugins_from_env() -> None:
         import_calculator_plugin(entry)
 
 
+_NONE_OPTIONS = {'', 'none', 'null', 'false', '0'}
+
+
+def normalize_none_option(value):
+    """Normalize user-facing none-like option values to the literal 'none'."""
+    if value is None:
+        return 'none'
+    text = str(value).strip().lower()
+    return 'none' if text in _NONE_OPTIONS else text
+
+
+def validate_implicit_solvent_choice(implicit, solvent):
+    """Normalize and validate implicit-solvent selector pair."""
+    implicit_norm = normalize_none_option(implicit)
+    solvent_norm = normalize_none_option(solvent)
+    if implicit_norm == 'gbsa' and solvent_norm == 'none':
+        raise ValueError(
+            "implicit='gbsa' requires an explicit solvent name such as solvent='water'; "
+            "use implicit='none' to disable implicit solvent."
+        )
+    return implicit_norm, solvent_norm
+
+
 def parse_bool_option(value, *, name='option'):
     """Parse a model-option flag into a real bool.
 
@@ -95,13 +118,28 @@ def init_implicit_solvent(calc, implicit, solvent, device):
     Usable by CalcABC subclasses and duck-typed calculators (UMA) so the
     GBSA/QEq construction lives in one place.
     """
-    if implicit == 'gbsa' and solvent != 'none':
+    implicit, solvent = validate_implicit_solvent_choice(implicit, solvent)
+    if implicit == 'gbsa':
         from .extra_correction import GBSA, QEqTorch
 
         calc.solvent_correction = GBSA(solvent=solvent, device=device)
         calc.chargecalc = QEqTorch(device=device)
     else:
         calc.solvent_correction = None
+
+
+def atoms_has_pbc(atoms) -> bool:
+    """Return True when an Atoms-like object carries any periodic boundary."""
+    return atoms is not None and bool(np.any(getattr(atoms, 'pbc', False)))
+
+
+def reject_periodic_atoms(atoms, backend_name: str) -> None:
+    """Fail loudly for molecular wrappers that do not implement PBC graphs."""
+    if atoms_has_pbc(atoms):
+        raise NotImplementedError(
+            f"{backend_name} is a no-PBC molecular wrapper. "
+            "Use UMA or a backend-native PBC calculator for periodic systems."
+        )
 
 
 def numerical_hessian_from_atoms(calc, atoms, delta=0.002):
@@ -115,51 +153,59 @@ def numerical_hessian_from_atoms(calc, atoms, delta=0.002):
     from ase.constraints import FixAtoms
     from ase.calculators.calculator import all_changes
 
-    N = len(atoms)
-    pos0 = atoms.get_positions().copy()
-    fixed = {
-        i
-        for c in getattr(atoms, 'constraints', []) or []
-        if isinstance(c, FixAtoms)
-        for i in c.get_indices()
-    }
-    movable = [i for i in range(N) if i not in fixed]
+    old_results = dict(getattr(calc, 'results', {}) or {})
+    try:
+        N = len(atoms)
+        pos0 = atoms.get_positions().copy()
+        fixed = {
+            i
+            for c in getattr(atoms, 'constraints', []) or []
+            if isinstance(c, FixAtoms)
+            for i in c.get_indices()
+        }
+        movable = [i for i in range(N) if i not in fixed]
 
-    H = np.zeros((3 * N, 3 * N), dtype=np.float64)
-    if not movable:
+        H = np.zeros((3 * N, 3 * N), dtype=np.float64)
+        if not movable:
+            return H
+
+        def force_at(positions):
+            at = atoms.copy()
+            at.set_positions(positions)
+            if getattr(atoms, 'constraints', None):
+                at.set_constraint(atoms.constraints)
+            calc.calculate(at, properties=['forces'], system_changes=all_changes)
+            return np.asarray(calc.results['forces'], dtype=np.float64)
+
+        for a in movable:
+            for k in range(3):
+                # Displacing DOF j and measuring all forces yields -dF_i/dx_j = H[i, j],
+                # i.e. column j of the Hessian. Fill the column, then symmetrize to
+                # absorb finite-difference noise (the exact Hessian is symmetric).
+                col = 3 * a + k
+                pos_p = pos0.copy(); pos_p[a, k] += delta
+                Fp = force_at(pos_p)
+                pos_m = pos0.copy(); pos_m[a, k] -= delta
+                Fm = force_at(pos_m)
+                H[:, col] = (-(Fp - Fm) / (2.0 * delta)).reshape(-1)
+
+        H = 0.5 * (H + H.T)
+        if fixed:
+            # PHVA embedding: a frozen atom contributes no Hessian row/column.
+            # Symmetrization would otherwise smear the movable->fixed force
+            # couplings (read from the raw, unconstrained results['forces']) into
+            # the fixed DOFs; zero them so fixed atoms decouple cleanly. No-op when
+            # there are no constraints, so the common path is unchanged.
+            fixed_dofs = [3 * i + k for i in sorted(fixed) for k in range(3)]
+            H[fixed_dofs, :] = 0.0
+            H[:, fixed_dofs] = 0.0
         return H
+    finally:
+        calc.results = old_results
 
-    def force_at(positions):
-        at = atoms.copy()
-        at.set_positions(positions)
-        if getattr(atoms, 'constraints', None):
-            at.set_constraint(atoms.constraints)
-        calc.calculate(at, properties=['forces'], system_changes=all_changes)
-        return np.asarray(calc.results['forces'], dtype=np.float64)
 
-    for a in movable:
-        for k in range(3):
-            # Displacing DOF j and measuring all forces yields -dF_i/dx_j = H[i, j],
-            # i.e. column j of the Hessian. Fill the column, then symmetrize to
-            # absorb finite-difference noise (the exact Hessian is symmetric).
-            col = 3 * a + k
-            pos_p = pos0.copy(); pos_p[a, k] += delta
-            Fp = force_at(pos_p)
-            pos_m = pos0.copy(); pos_m[a, k] -= delta
-            Fm = force_at(pos_m)
-            H[:, col] = (-(Fp - Fm) / (2.0 * delta)).reshape(-1)
-
-    H = 0.5 * (H + H.T)
-    if fixed:
-        # PHVA embedding: a frozen atom contributes no Hessian row/column.
-        # Symmetrization would otherwise smear the movable->fixed force
-        # couplings (read from the raw, unconstrained results['forces']) into
-        # the fixed DOFs; zero them so fixed atoms decouple cleanly. No-op when
-        # there are no constraints, so the common path is unchanged.
-        fixed_dofs = [3 * i + k for i in sorted(fixed) for k in range(3)]
-        H[fixed_dofs, :] = 0.0
-        H[:, fixed_dofs] = 0.0
-    return H
+def _property_list(properties):
+    return ['energy'] if properties is None else properties
 
 
 class CalcABC(ase.calculators.calculator.Calculator):
@@ -168,11 +214,26 @@ class CalcABC(ase.calculators.calculator.Calculator):
     MODEL_ENERGY_UNIT: str = 'eV'
     SUPPORTED_HESSIAN_MODES: tuple = ('numerical',)
     SUPPORTS_CHARGE_MULT: bool = False
+    SUPPORTS_PBC: bool = False
     CHECKPOINT_FILENAME: dict | None = None
     REQUIRES_LOCAL_MODEL_FILE: bool = False
 
     def __init__(self):
         super().__init__()
+
+    def _reject_unsupported_pbc(self, atoms) -> None:
+        if not self.SUPPORTS_PBC:
+            reject_periodic_atoms(atoms, type(self).__name__)
+
+    def calculate(
+        self,
+        atoms=None,
+        properties=None,
+        system_changes=ase.calculators.calculator.all_changes,
+    ):
+        target_atoms = atoms if atoms is not None else getattr(self, 'atoms', None)
+        self._reject_unsupported_pbc(target_atoms)
+        super().calculate(atoms, _property_list(properties), system_changes)
 
     @classmethod
     def build_kwargs_from_options(cls, model, model_options, *, resolved_model_path=None):
@@ -222,6 +283,7 @@ class CalcABC(ase.calculators.calculator.Calculator):
 
     def get_hessian(self, atoms, delta: float = 0.002):
         """Dispatch on self.hessian. Subclasses may override for backend autograd."""
+        self._reject_unsupported_pbc(atoms)
         mode = getattr(self, 'hessian', self.SUPPORTED_HESSIAN_MODES[0])
         if mode == 'analytic':
             if getattr(self, 'solvent_correction', None) is not None:
@@ -277,18 +339,7 @@ class CalcABC(ase.calculators.calculator.Calculator):
         )
 
     def implicit_solv_init(self, implicit: str, solvent: str):
-
-        if implicit == "gbsa" and solvent != 'none':
-
-            # GBSA solvent correction and QEq charge calculator
-            from .extra_correction import GBSA
-            from .extra_correction import QEqTorch
-
-            self.solvent_correction = GBSA(solvent=solvent, device=self.device)
-        
-            self.chargecalc = QEqTorch(device=self.device)
-        else:
-            self.solvent_correction = None
+        init_implicit_solvent(self, implicit, solvent, self.device)
     
     def implicit_solv_energy(self, atoms: ase.Atoms) -> torch.Tensor:
         """

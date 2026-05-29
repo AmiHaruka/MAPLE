@@ -11,13 +11,17 @@ import ase
 from ase import Atoms
 
 from .calculator_base import (
+    atoms_has_pbc,
     get_registered_calculator,
     import_calculator_plugin,
     load_calculator_plugins_from_env,
+    normalize_none_option,
+    validate_implicit_solvent_choice,
 )
 
 
 HF_REPO_ID = 'Wayne7815/MAPLE_models'
+HF_MODEL_REVISION = 'd5d8eb902246fb3f0e3b24e0d4bbcdc12f12e816'
 
 
 # Static seed map: builtin name → module that registers the calculator class.
@@ -46,7 +50,29 @@ _plugins_loaded_from_env = False
 
 
 def _model_download_url(filename: str) -> str:
-    return f'https://huggingface.co/{HF_REPO_ID}/resolve/main/{filename}'
+    import os
+
+    revision = os.environ.get('MAPLE_MODEL_REVISION', HF_MODEL_REVISION).strip() or HF_MODEL_REVISION
+    return f'https://huggingface.co/{HF_REPO_ID}/resolve/{revision}/{filename}'
+
+
+def _normalize_model_options(model_options: Optional[dict]) -> dict:
+    """Normalize option keys and enum-like values without touching path values."""
+    options = {}
+    for raw_key, raw_value in (model_options or {}).items():
+        key = str(raw_key).strip().lower()
+        if raw_value is None:
+            value = None
+        elif key in {'hessian', 'coulomb_method', 'inference', 'task', 'size'}:
+            value = str(raw_value).strip().lower()
+        elif key in {'module', 'model_path', 'checkpoint_path'}:
+            value = str(raw_value).strip()
+        elif isinstance(raw_value, str):
+            value = raw_value.strip()
+        else:
+            value = raw_value
+        options[key] = value
+    return options
 
 
 class SetCalculator:
@@ -66,9 +92,9 @@ class SetCalculator:
         self.d4 = d4
         self.device = device
         self.atoms = atoms
-        self.implicit = implicit
-        self.solvent = solvent
-        self.model_options = model_options or {}
+        self.implicit = normalize_none_option(implicit)
+        self.solvent = normalize_none_option(solvent)
+        self.model_options = _normalize_model_options(model_options)
         self._model_error_logged = False
 
     def _model_dir(self) -> Path:
@@ -84,6 +110,11 @@ class SetCalculator:
     def _log_model_error(self, message: str) -> None:
         self._model_error_logged = True
         self.log_error(message)
+
+    def _validate_solvent_config(self) -> None:
+        self.implicit, self.solvent = validate_implicit_solvent_choice(
+            self.implicit, self.solvent
+        )
 
     def _discover_calculator_class(self, name: str):
         """Resolve `name` to a registered calculator class.
@@ -113,15 +144,35 @@ class SetCalculator:
             raise ValueError(f"Unsupported model: '{name}'.")
 
     def _validate_against_class(self, cls) -> None:
-        """Pre-instantiation gates: hessian mode, charge/mult, d4."""
+        """Pre-instantiation gates: pbc, hessian mode, charge/mult, d4."""
+        if self.atoms is not None and atoms_has_pbc(self.atoms) and not getattr(cls, 'SUPPORTS_PBC', False):
+            raise NotImplementedError(
+                f"Model '{self.model}' is a no-PBC molecular wrapper. "
+                "Use UMA or a backend-native PBC calculator for periodic systems."
+            )
+
         mode = self.model_options.get('hessian')
         if mode is not None:
-            mode = str(mode).lower()
             if mode not in cls.SUPPORTED_HESSIAN_MODES:
                 supported_text = ', '.join(sorted(cls.SUPPORTED_HESSIAN_MODES))
                 raise ValueError(
                     f"Model '{self.model}' does not support hessian='{mode}'. "
                     f'Supported modes: {supported_text}'
+                )
+
+        coulomb_method = self.model_options.get('coulomb_method')
+        supported_coulomb = getattr(cls, 'SUPPORTED_COULOMB_METHODS', None)
+        if coulomb_method is not None and supported_coulomb is not None:
+            if coulomb_method not in supported_coulomb:
+                supported_text = ', '.join(sorted(supported_coulomb))
+                if coulomb_method == 'ewald':
+                    raise NotImplementedError(
+                        "AIMNet2 coulomb_method='ewald' requires validated PBC/cell/MIC support; "
+                        f"use one of: {supported_text}."
+                    )
+                raise ValueError(
+                    f"Model '{self.model}' does not support coulomb_method='{coulomb_method}'. "
+                    f'Supported methods: {supported_text}'
                 )
 
         if self.atoms is not None:
@@ -174,11 +225,13 @@ class SetCalculator:
     def _ensure_model_file(self, filename: str, model_name: str) -> Path:
         """Ensure a HF-hosted checkpoint is on disk; download if missing.
 
-        Production safeguards: an offline switch (MAPLE_OFFLINE), a socket
-        timeout (MAPLE_DOWNLOAD_TIMEOUT, default 60s), a process-unique temp
-        file so concurrent runs never clobber each other's partial download,
-        and a byte-count check against Content-Length before the atomic
-        replace so a truncated stream cannot land as the final model file.
+        Production safeguards: a pinned HuggingFace revision (override with
+        MAPLE_MODEL_REVISION only when intentionally refreshing model assets),
+        an offline switch (MAPLE_OFFLINE), a socket timeout
+        (MAPLE_DOWNLOAD_TIMEOUT, default 60s), a process-unique temp file so
+        concurrent runs never clobber each other's partial download, and a
+        byte-count check against Content-Length before the atomic replace so a
+        truncated stream cannot land as the final model file.
         Checksum pinning is intentionally omitted: it needs an upstream
         hash manifest, which this repo does not publish — do not fake one.
         """
@@ -268,11 +321,11 @@ class SetCalculator:
 
     def _build_calculator(self) -> ase.calculators.calculator.Calculator:
         name = self.model
+        self._validate_solvent_config()
 
         cls = self._discover_calculator_class(name)
         self._validate_against_class(cls)
-        # Lowercase keys for case-insensitive lookup inside build_kwargs_from_options.
-        options = {str(k).lower(): v for k, v in self.model_options.items()}
+        options = dict(self.model_options)
         options.setdefault('d4', self.d4)
         # Allow input header to override the auto-resolved model path.
         if cls.REQUIRES_LOCAL_MODEL_FILE and options.get('model_path'):
@@ -318,7 +371,6 @@ class SetCalculator:
         if mode is None:
             return
 
-        mode = str(mode).lower()
         supported = type(calculator).SUPPORTED_HESSIAN_MODES
         if mode not in supported:
             supported_text = ', '.join(sorted(supported))

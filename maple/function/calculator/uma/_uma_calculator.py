@@ -68,6 +68,7 @@ class UMACalculator(FAIRChemCalculator):
     MODEL_ENERGY_UNIT = "eV"
     SUPPORTED_HESSIAN_MODES = ("numerical",)
     SUPPORTS_CHARGE_MULT = True
+    SUPPORTS_PBC = True
     CHECKPOINT_FILENAME = None
     REQUIRES_LOCAL_MODEL_FILE = False
 
@@ -208,7 +209,7 @@ class UMACalculator(FAIRChemCalculator):
         device,
         model: str = "uma",
         overrides=None,
-        implicit: Literal["gbsa", "none"] = "gbsa",
+        implicit: Literal["gbsa", "none"] = "none",
         solvent: str = "none",
         task=None,
         size=None,
@@ -284,12 +285,25 @@ class UMACalculator(FAIRChemCalculator):
         return numerical_hessian_from_atoms(self, atoms, delta)
 
     def calculate(self, atoms, properties=None, system_changes=None):
+        if atoms is None:
+            atoms = getattr(self, "atoms", None)
+        if atoms is None:
+            raise ValueError("UMACalculator.calculate requires an Atoms object.")
+
+        requested = {str(prop).lower() for prop in (properties or [])}
+        if requested & {"stress", "stresses", "virial", "virials"}:
+            raise NotImplementedError(
+                "UMA stress/virial output is not unit-converted by MAPLE yet; "
+                "request energy/forces only until stress units are validated."
+            )
+
         self._set_task_from_atoms(atoms)
 
-        atoms.info["spin"] = int(atoms.info.get("mult", 1))
-        atoms.info["charge"] = int(atoms.info.get("charge", 0))
+        calc_atoms = atoms.copy()
+        calc_atoms.info["spin"] = int(atoms.info.get("mult", 1))
+        calc_atoms.info["charge"] = int(atoms.info.get("charge", 0))
 
-        super().calculate(atoms, properties, system_changes)
+        super().calculate(calc_atoms, properties, system_changes)
 
         # eV → Hartree: UMA's MODEL_ENERGY_UNIT is 'eV'; equivalent to the
         # _finalize_results unit step but inlined because UMA does not inherit
@@ -305,12 +319,12 @@ class UMACalculator(FAIRChemCalculator):
         # including its energy-only branch: skip the force correction when no
         # forces were produced so an energy-only single point stays cheap).
         if self.solvent_correction is not None:
-            atoms.atomic_charges = self.chargecalc(atoms)
+            calc_atoms.atomic_charges = self.chargecalc(calc_atoms)
             if "forces" in self.results:
-                solvent_energy, solvent_force = self.solvent_correction.get_energy_and_force(atoms)
+                solvent_energy, solvent_force = self.solvent_correction.get_energy_and_force(calc_atoms)
                 self.results["forces"] += solvent_force.detach().cpu().numpy()
             else:
-                solvent_energy, _ = self.solvent_correction.get_energy(atoms)
+                solvent_energy, _ = self.solvent_correction.get_energy(calc_atoms)
             if "energy" in self.results:
                 self.results["energy"] += solvent_energy.item()
             if "free_energy" in self.results:

@@ -71,6 +71,8 @@ class AIMNet2Calculator(CalcABC):
     MODEL_ENERGY_UNIT = 'eV'
     SUPPORTED_HESSIAN_MODES = ('analytic', 'numerical')
     SUPPORTS_CHARGE_MULT = True
+    SUPPORTS_PBC = False
+    SUPPORTED_COULOMB_METHODS = ('simple', 'dsf')
     CHECKPOINT_FILENAME = {'aimnet2': 'aimnet2.pt', 'aimnet2nse': 'aimnet2nse.pt'}
     REQUIRES_LOCAL_MODEL_FILE = False
 
@@ -85,7 +87,7 @@ class AIMNet2Calculator(CalcABC):
     def __init__(self, device: torch.device,
                 model: str = 'aimnet2',
                 coulomb_method: str = 'simple',
-                implicit: Literal['gbsa', 'none'] = 'gbsa',
+                implicit: Literal['gbsa', 'none'] = 'none',
                 solvent: str = 'none',
                 ):
         super().__init__()
@@ -111,13 +113,20 @@ class AIMNet2Calculator(CalcABC):
     def _set_lrcoulomb_method(self, method: str, cutoff: float = 15.0, dsf_alpha: float = 0.2):
         """
         Configure the long-range Coulomb interaction method if the model contains a 'lrcoulomb' submodule.
-        method: 'simple', 'dsf', or 'ewald'
+        method: 'simple' or 'dsf'. The historical 'ewald' selector is rejected
+        until this wrapper carries validated cell/PBC/MIC inputs.
         cutoff: cutoff distance for long-range interactions
         dsf_alpha: DSF damping parameter (if used)
         """
-        if method not in ('simple', 'dsf', 'ewald'):
+        method = str(method).lower()
+        if method == 'ewald':
+            raise NotImplementedError(
+                "AIMNet2 coulomb_method='ewald' requires validated PBC/cell/MIC support; "
+                "use 'simple' or 'dsf'."
+            )
+        if method not in self.SUPPORTED_COULOMB_METHODS:
             raise ValueError(
-                f"Invalid coulomb_method: {method!r}; expected one of 'simple', 'dsf', 'ewald'."
+                f"Invalid coulomb_method: {method!r}; expected one of 'simple', 'dsf'."
             )
 
         def _iter_lrcoulomb_mods(model):

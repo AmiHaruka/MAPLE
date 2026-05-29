@@ -71,6 +71,7 @@ class MACEPolCalculator(CalcABC):
     MODEL_ENERGY_UNIT = 'eV'
     SUPPORTED_HESSIAN_MODES = ('analytic', 'numerical')
     SUPPORTS_CHARGE_MULT = True
+    SUPPORTS_PBC = False
     CHECKPOINT_FILENAME = None
     REQUIRES_LOCAL_MODEL_FILE = True
 
@@ -85,7 +86,7 @@ class MACEPolCalculator(CalcABC):
         device: torch.device,
         model: str = 'macepols',
         model_path: str = None,
-        implicit: Literal['gbsa', 'none'] = 'gbsa',
+        implicit: Literal['gbsa', 'none'] = 'none',
         solvent: str = 'none',
         ):
         """

@@ -124,6 +124,7 @@ class MACECalculator(CalcABC):
     MODEL_ENERGY_UNIT = 'eV'
     SUPPORTED_HESSIAN_MODES = ('analytic', 'numerical')
     SUPPORTS_CHARGE_MULT = False
+    SUPPORTS_PBC = False
     # Only the auto-downloaded variants. maceoff23s and maceoff23l are
     # local-only (REQUIRES_LOCAL_MODEL_FILE) — the factory falls back to
     # _require_local_model_file when CHECKPOINT_FILENAME has no entry.
@@ -142,7 +143,7 @@ class MACECalculator(CalcABC):
         model: str = 'maceoff23s',
         model_path: Optional[str] = None,
         overwrite: bool = False,
-        implicit: Literal['gbsa', 'none'] = 'gbsa',
+        implicit: Literal['gbsa', 'none'] = 'none',
         solvent: str = 'none',
         ):
         """

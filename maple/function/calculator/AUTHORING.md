@@ -31,6 +31,7 @@ instantiated):
 | `MODEL_ENERGY_UNIT` | `'eV'` or `'hartree'` | Declares the backend's `calculate()` energy unit. `_finalize_results` converts to Hartree based on this — **do not multiply by `EV2HARTREE` yourself**. |
 | `SUPPORTED_HESSIAN_MODES` | `tuple[str, ...]` | Subset of `('analytic', 'numerical')`. |
 | `SUPPORTS_CHARGE_MULT` | `bool` | True if the backend honors `atoms.info['charge']` / `atoms.info['mult']`. |
+| `SUPPORTS_PBC` | `bool` | True only when the backend constructs a validated periodic graph / neighbor list. `SetCalculator` and `CalcABC.calculate()` reject periodic atoms for false values. |
 | `CHECKPOINT_FILENAME` | `dict[str, str] \| None` | Per-name filename for HuggingFace auto-download. `None` if no auto-download. |
 | `REQUIRES_LOCAL_MODEL_FILE` | `bool` | Fallback when `CHECKPOINT_FILENAME` does not cover the requested name. |
 
@@ -47,6 +48,7 @@ class FooCalculator(CalcABC):
     MODEL_ENERGY_UNIT = 'eV'           # or 'hartree' — declare honestly per backend
     SUPPORTED_HESSIAN_MODES = ('analytic', 'numerical')
     SUPPORTS_CHARGE_MULT = False
+    SUPPORTS_PBC = False               # fail fast on periodic atoms unless validated
     CHECKPOINT_FILENAME = {'foo2x': 'foo2x.pt', 'foo1ccx': 'foo1ccx.pt'}
     REQUIRES_LOCAL_MODEL_FILE = False
 
@@ -98,14 +100,35 @@ class FooCalculator(CalcABC):
   solvent, device)`. `CalcABC.__init__` does not call this for you in the
   current release; subclasses still invoke `self.implicit_solv_init(...)`
   inside their own `__init__`.
+- `None`, `none`, `null`, `false`, `0`, and empty strings normalize to
+  `none`. `implicit='gbsa'` requires a real solvent name such as
+  `solvent='water'`; MAPLE fails early instead of looking for `None.dat`.
 
 ## Hessian
 
 - `self.hessian` selects `'analytic'` or `'numerical'`. Numerical falls
   through to the shared `numerical_hessian_from_atoms` helper for free.
+- `numerical_hessian_from_atoms` restores the calculator's pre-call
+  `results` before returning, so standalone `calc.get_hessian(atoms)` does
+  not leave `results` pointing at the final displaced geometry.
 - Analytic Hessian with implicit solvent is unsupported and raises
   `NotImplementedError` from `CalcABC.get_hessian`. Document the
   limitation in any backend-specific notes.
+
+## Periodic boundary conditions and stress
+
+- `SUPPORTS_PBC = False` is the default. If any `atoms.pbc` component is
+  true, `SetCalculator` rejects the model before construction and
+  `CalcABC.calculate()` rejects direct backend use. This prevents molecular
+  wrappers from silently treating periodic systems as isolated clusters.
+- AIMNet2's hand wrapper is no-PBC. `coulomb_method='ewald'` is disabled
+  until cell/PBC/MIC inputs and reference tests exist; use `simple` or `dsf`.
+- The hand-wrapped MACE backends are no-PBC and do not provide validated
+  stress/virial output. Use UMA or a backend-native periodic calculator for
+  periodic stress/NPT workflows.
+- UMA delegates PBC graph construction to FAIR-Chem and is the only shipped
+  backend with `SUPPORTS_PBC = True`; MAPLE currently rejects UMA
+  `stress`/`virial` requests until unit conversion is validated.
 
 ## Charge / multiplicity
 
@@ -137,12 +160,12 @@ backend that switches tasks for periodic input.
 
 | Backend (names) | PBC | charge/mult | Hessian | Implicit solvent | D4 | HVP (Dimer) |
 |---|---|---|---|---|---|---|
-| ANI (`ani2x/1x/1ccx/1xnr`) | no | no | analytic + numerical | yes | yes | yes |
-| AIMNet2 (`aimnet2`, `aimnet2nse`) | no | yes | analytic + numerical | yes | no | no |
-| MACE-OFF (`maceoff23s/m/l`, `egret`) | no | no | analytic + numerical | yes | no | no |
-| MACE-omol (`maceomol`) | no | no | analytic + numerical | yes | no | no |
-| MACE-POLAR (`macepols/m/l`) | no, no external field | yes (`spin = mult − 1`) | analytic + numerical | yes | no | no |
-| UMA (`uma`) | yes (auto `omol`/`omat`) | yes (`spin = mult`) | numerical only | yes | no | no |
+| ANI (`ani2x/1x/1ccx/1xnr`) | no; fail-fast | no | analytic + numerical | yes | yes | yes |
+| AIMNet2 (`aimnet2`, `aimnet2nse`) | no; fail-fast; no Ewald | yes | analytic + numerical | yes | no | no |
+| MACE-OFF (`maceoff23s/m/l`, `egret`) | no; fail-fast | no | analytic + numerical | yes | no | no |
+| MACE-omol (`maceomol`) | no; fail-fast | no | analytic + numerical | yes | no | no |
+| MACE-POLAR (`macepols/m/l`) | no; fail-fast; no external field | yes (`spin = mult − 1`) | analytic + numerical | yes | no | no |
+| UMA (`uma`) | yes (auto `omol`/`omat`); stress rejected | yes (`spin = mult`) | numerical only | yes | no | no |
 
 `spin` semantics differ on purpose: MACE-POLAR's traced interface takes the
 number of unpaired electrons (`mult − 1`), UMA's FAIR-Chem path takes the
@@ -175,7 +198,7 @@ my_lab = "my_lab.maple_plugin"
 
 ## Public vs private API
 
-- **Public**: `calculate`, `get_hessian`, `get_hvp`, the six class
+- **Public**: `calculate`, `get_hessian`, `get_hvp`, the seven class
   attributes above.
 - **Private** (do not depend on from outside the calculator): `_forward_energy`,
   `_build_inputs`, `_analytic_hessian`, `self.model`.

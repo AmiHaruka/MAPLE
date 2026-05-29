@@ -79,6 +79,7 @@ class MACEModelCalculator(CalcABC):
     MODEL_ENERGY_UNIT = 'eV'
     SUPPORTED_HESSIAN_MODES = ('analytic', 'numerical')
     SUPPORTS_CHARGE_MULT = False
+    SUPPORTS_PBC = False
     CHECKPOINT_FILENAME = None
     REQUIRES_LOCAL_MODEL_FILE = True
 
@@ -94,7 +95,7 @@ class MACEModelCalculator(CalcABC):
         model: str = 'maceomol',
         model_path: Optional[str] = None,
         overwrite: bool = False,
-        implicit: Literal['gbsa', 'none'] = 'gbsa',
+        implicit: Literal['gbsa', 'none'] = 'none',
         solvent: str = 'none',
         ):
         """
