@@ -182,9 +182,15 @@ class GBSA(nn.Module):
     def get_energy_and_force(self, atoms: Atoms):
         """Public solvent forces are intentionally unavailable."""
         raise NotImplementedError(
-            "Experimental GB-polar/QEq solvation is energy-only; forces are "
-            "disabled because QEq charges are geometry-dependent and are not "
-            "coupled variationally to the solvent energy."
+            "Experimental GB-polar/QEq solvation is energy-only. Forces are "
+            "disabled because MAPLE currently obtains implicit-solvent charges "
+            "from geometry-dependent QEq, but this heuristic GB-polar correction "
+            "does not include the variational charge response dQ/dR. Returning "
+            "a fixed-charge gradient would be inconsistent with the reported "
+            "energy and could produce invalid optimization, MD, transition-state, "
+            "or frequency results. Use energy-only implicit solvation, or switch "
+            "to a production solvent backend that provides energy-consistent "
+            "forces."
         )
 
     def _debug_energy_gradient_fixed_charges(self, atoms: Atoms):
