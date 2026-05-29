@@ -10,7 +10,7 @@ except Exception:
         from importlib.metadata import version as _pkg_version
         _VERSION = _pkg_version('maple')
     except Exception:
-        _VERSION = '0.1.2'
+        _VERSION = '0.1.4'
 
 
 def _default_output_path(input_file: str) -> str:
@@ -91,17 +91,17 @@ Examples:
         
         test_cases = {
             1: ('opt/lbfgs', 'inp1.inp', 'LBFGS Optimization'),
-            2: ('ts/neb', 'inp3.inp', 'NEB Transition State'),
+            2: ('ts/neb', 'inp1.inp', 'NEB Transition State'),
             3: ('ts/string', 'inp1.inp', 'String Method'),
             4: ('ts/dimer', 'inp1.inp', 'Dimer Method'),
             5: ('opt/rfo', 'inp1.inp', 'RFO Optimization'),
             6: ('irc/gs', 'inp1.inp', 'IRC GS'),
             7: ('freq/mw', 'inp1.inp', 'Frequency MW'),
-            8: ('scan', 'exo.inp', 'Scan'),
+            8: ('scan', 'C18.inp', 'Scan'),
         }
         
         subdir, filename, description = test_cases[args.test]
-        input_file = os.path.join(package_dir, 'example', subdir, filename)
+        input_file = os.path.join(package_dir, 'examples', subdir, filename)
         print(f"Running test case {args.test}: {description}")
         print(f"Input file: {input_file}")
     else:
