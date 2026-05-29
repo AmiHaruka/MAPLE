@@ -54,7 +54,9 @@ class GBSA(nn.Module):
     a MAPLE heuristic.  It is gated by CommandControl/SetClaculator as an
     experimental, energy-only correction.
 
-    Input coords in Å, output energy in Hartree, forces in Hartree/Å.
+    Input coords in Å, output energy in Hartree. Public forces are disabled
+    because MAPLE's QEq charges are geometry-dependent and are not
+    variationally coupled to this heuristic GB-polar expression.
     """
 
     def __init__(self, solvent="water", device="cpu"):
@@ -178,7 +180,22 @@ class GBSA(nn.Module):
         return E_polar, coords_A
 
     def get_energy_and_force(self, atoms: Atoms):
-        """Return energy (Hartree) and forces (Hartree/Å)."""
+        """Public solvent forces are intentionally unavailable."""
+        raise NotImplementedError(
+            "Experimental GB-polar/QEq solvation is energy-only; forces are "
+            "disabled because QEq charges are geometry-dependent and are not "
+            "coupled variationally to the solvent energy."
+        )
+
+    def _debug_energy_gradient_fixed_charges(self, atoms: Atoms):
+        """
+        Debug-only fixed-charge gradient of the heuristic GB-polar expression.
+
+        This is not a MAPLE implicit-solvent force: it treats
+        ``atoms.atomic_charges`` as externally fixed constants and omits the
+        QEq charge response dQ/dR. Do not use it for optimization, MD, TS, or
+        frequency workflows.
+        """
         energy, coords_A = self.get_energy(atoms)
         force = -torch.autograd.grad(energy, coords_A, create_graph=False)[0]  # Eh/Å
         return energy, force
