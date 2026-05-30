@@ -151,7 +151,8 @@ class engine():
 
                 from .read import ExplicitSolv
                 self.atoms = ExplicitSolv(self.atoms, params=self.commandcontrol.get('solv'), 
-                        device=self.device, output=self.output)
+                        device=self.device, output=self.output,
+                        base_dir=os.path.dirname(reader.input))
 
     def _mlp_initiator(self, model:str, device: torch.device):
         """

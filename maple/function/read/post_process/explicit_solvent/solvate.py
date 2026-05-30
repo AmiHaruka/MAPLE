@@ -1,13 +1,13 @@
 import math
 import os
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional, Sequence
 
 import numpy as np
 from ase import Atoms
-from ase.data import atomic_masses, atomic_numbers, vdw_radii
+from ase.data import atomic_masses, atomic_numbers, covalent_radii, vdw_radii
 from scipy.spatial import cKDTree
 
 
@@ -18,6 +18,9 @@ WATER_MOLAR_MASS_G_MOL = 18.01528
 DEFAULT_VDW_SCALE = 0.57
 DEFAULT_VDW_FALLBACK_RADIUS = 1.05
 DEFAULT_TEMPLATE_DENSITY_TOLERANCE = 0.20
+CUSTOM_TEMPLATE_DENSITY_TOLERANCE = 0.05
+CUSTOM_TEMPLATE_BOND_SCALE = 1.25
+CUSTOM_TEMPLATE_BOND_TOLERANCE = 0.10
 MIN_FINAL_TARGET_RATIO = 0.80
 
 # Standard liquid densities (g/mL) near 298 K for the bundled solvent boxes.
@@ -128,6 +131,19 @@ def _parse_cryst1(line: str) -> Optional[tuple[float, float, float, float, float
     return (a, b, c, alpha, beta, gamma)
 
 
+def _orthorhombic_period_from_cryst1(
+    cellpar: Optional[tuple[float, float, float, float, float, float]],
+) -> Optional[np.ndarray]:
+    if cellpar is None:
+        return None
+    a, b, c, alpha, beta, gamma = cellpar
+    if not (a > 0 and b > 0 and c > 0):
+        return None
+    if not all(abs(angle - 90.0) < 1.0 for angle in (alpha, beta, gamma)):
+        return None
+    return np.asarray([a, b, c], dtype=np.float64)
+
+
 def parse_pdb_template(pdbfile: str | os.PathLike[str]) -> SolventTemplate:
     """Parse a pure-solvent PDB template, grouping one molecule per residue.
 
@@ -183,6 +199,39 @@ def parse_pdb_template(pdbfile: str | os.PathLike[str]) -> SolventTemplate:
     )
 
 
+def _unwrap_template_molecules(template: SolventTemplate) -> SolventTemplate:
+    """Unwrap each residue/molecule through the CRYST1 minimum image.
+
+    GROMACS/OpenMM-style PDB boxes may keep a single solvent molecule split
+    across the visual box boundary.  MAPLE's cluster builder is coordinate-only,
+    so normalize each molecule to a contiguous representation before molecule
+    radius, connectivity, clash, and tiling calculations.
+    """
+    period = _orthorhombic_period_from_cryst1(template.cryst1_cellpar)
+    if period is None:
+        return template
+
+    coords = template.coords.copy()
+    for group in template.groups:
+        if len(group) < 2:
+            continue
+        anchor = coords[group[0]].copy()
+        for idx in group[1:]:
+            delta = coords[idx] - anchor
+            delta -= period * np.round(delta / period)
+            coords[idx] = anchor + delta
+
+    return SolventTemplate(
+        coords=coords,
+        symbols=template.symbols,
+        atom_names=template.atom_names,
+        residue_names=template.residue_names,
+        residue_ids=template.residue_ids,
+        groups=template.groups,
+        cryst1_cellpar=template.cryst1_cellpar,
+    )
+
+
 def parse_pdb_residue_groups(pdbfile):
     """Backward-compatible parser returning coords, symbols, and molecule groups."""
     template = parse_pdb_template(pdbfile)
@@ -228,6 +277,61 @@ def _molecular_weight(symbols: Sequence[str]) -> float:
             raise ValueError(f"Unknown element symbol in solvent template: {symbol!r}")
         mass += float(atomic_masses[atomic_number])
     return mass
+
+
+def _formula(symbols: Sequence[str]) -> tuple[tuple[str, int], ...]:
+    return tuple(sorted(Counter(str(symbol) for symbol in symbols).items()))
+
+
+def _format_formula(formula: Sequence[tuple[str, int]]) -> str:
+    return "".join(f"{symbol}{count if count != 1 else ''}" for symbol, count in formula)
+
+
+def _element_covalent_radius(symbol: str) -> float:
+    atomic_number = atomic_numbers.get(str(symbol), 0)
+    if atomic_number <= 0:
+        raise ValueError(f"Unknown element symbol in solvent template: {symbol!r}")
+    radius = float(covalent_radii[atomic_number])
+    if not math.isfinite(radius) or radius <= 0:
+        raise ValueError(f"No covalent radius for solvent template element: {symbol!r}")
+    return radius
+
+
+def _is_single_covalent_component(coords: np.ndarray, symbols: Sequence[str]) -> bool:
+    """Heuristic guard that one PDB residue represents one molecule.
+
+    PDB solvent templates do not carry reliable bond records.  For custom
+    templates, reject residue groups that split into disconnected covalent
+    components under a conservative covalent-radius cutoff; this catches the
+    common bad-template case where multiple solvent molecules share one residue.
+    """
+    natoms = len(symbols)
+    if natoms <= 1:
+        return True
+
+    radii = np.asarray([_element_covalent_radius(symbol) for symbol in symbols])
+    adjacency: list[list[int]] = [[] for _ in range(natoms)]
+    for i in range(natoms - 1):
+        deltas = coords[i + 1:] - coords[i]
+        distances = np.linalg.norm(deltas, axis=1)
+        cutoffs = (
+            (radii[i] + radii[i + 1:]) * CUSTOM_TEMPLATE_BOND_SCALE
+            + CUSTOM_TEMPLATE_BOND_TOLERANCE
+        )
+        bonded = np.where(distances <= cutoffs)[0] + i + 1
+        for j in bonded.tolist():
+            adjacency[i].append(j)
+            adjacency[j].append(i)
+
+    seen = {0}
+    stack = [0]
+    while stack:
+        current = stack.pop()
+        for neighbor in adjacency[current]:
+            if neighbor not in seen:
+                seen.add(neighbor)
+                stack.append(neighbor)
+    return len(seen) == natoms
 
 
 def _molecule_number_density(density_g_ml: float, molar_mass_g_mol: float) -> float:
@@ -380,7 +484,14 @@ def _write_pdb(path: Path, atoms: Atoms) -> None:
 
 
 class ExplicitSolv():
-    def __new__(cls, atoms: Atoms, params: dict, device, output: str):
+    def __new__(
+        cls,
+        atoms: Atoms,
+        params: dict,
+        device,
+        output: str,
+        base_dir: str | os.PathLike[str] | None = None,
+    ):
         # ``device`` is accepted for call-site compatibility with the engine; the
         # cluster build is pure NumPy/SciPy on CPU and does not use it.
         if not isinstance(atoms, Atoms):
@@ -398,6 +509,7 @@ class ExplicitSolv():
         obj.output = output
         obj.atoms = atoms.copy()
         obj.params = dict(params or {})
+        obj.base_dir = Path(base_dir).expanduser() if base_dir is not None else None
         obj.solute_count = len(atoms)
 
         obj.solv_name = str(obj.params.get("explicit", "water")).lower()
@@ -423,12 +535,17 @@ class ExplicitSolv():
 
         obj._validate_options()
 
-        obj.data_path = DATA_DIR / f"{obj.solv_name}.pdb"
+        obj.data_path, obj.uses_custom_template = obj._resolve_template_path()
         if not obj.data_path.is_file():
-            obj.log_error(f"Solvent {obj.solv_name} is not found")
-            raise FileNotFoundError(f"Solvent {obj.solv_name} is not found")
+            if obj.uses_custom_template:
+                msg = f"Explicit solvent solvent_pdb file is not found: {obj.data_path}"
+            else:
+                msg = f"Solvent {obj.solv_name} is not found"
+            obj.log_error(msg)
+            raise FileNotFoundError(msg)
 
-        obj.template = parse_pdb_template(obj.data_path)
+        obj.template = _unwrap_template_molecules(parse_pdb_template(obj.data_path))
+        obj._validate_custom_template_molecules()
         obj.template_metrics = obj._template_metrics()
         obj._validate_template_density()
         obj.target_count = obj._target_solvent_count()
@@ -447,6 +564,22 @@ class ExplicitSolv():
         if "density" in self.params:
             return float(self.params["density"])
         return SOLVENT_DENSITY_G_ML.get(self.solv_name)
+
+    def _resolve_template_path(self) -> tuple[Path, bool]:
+        custom_template = self.params.get("solvent_pdb")
+        if custom_template is None:
+            return DATA_DIR / f"{self.solv_name}.pdb", False
+
+        path = Path(str(custom_template).strip()).expanduser()
+        if not path.is_absolute():
+            root = self.base_dir if self.base_dir is not None else Path.cwd()
+            path = root / path
+        return path.resolve(), True
+
+    def _template_label(self) -> str:
+        if self.uses_custom_template:
+            return f"'{self.solv_name}' at {self.data_path}"
+        return f"'{self.solv_name}'"
 
     def _validate_options(self) -> None:
         if self.solute_count == 0:
@@ -585,24 +718,70 @@ class ExplicitSolv():
             return WATER_MOLAR_MASS_G_MOL
         return _molecular_weight(first_group_symbols)
 
+    def _validate_custom_template_molecules(self) -> None:
+        if not self.uses_custom_template:
+            return
+
+        first_group = self.template.groups[0]
+        first_formula = _formula(self.template.symbols[i] for i in first_group)
+        if self.solv_name == "water":
+            expected = (("H", 2), ("O", 1))
+            if first_formula != expected:
+                msg = (
+                    f"Custom solvent_pdb template {self.data_path} is not grouped as "
+                    "one water molecule per residue: first residue formula is "
+                    f"{_format_formula(first_formula)}, expected H2O. Ensure the PDB is "
+                    "a pure solvent box with one residue per water molecule."
+                )
+                self.log_error(msg)
+                raise ValueError(msg)
+
+        for group_index, group in enumerate(self.template.groups, start=1):
+            group_coords = self.template.coords[group]
+            group_symbols = [self.template.symbols[i] for i in group]
+            if not _is_single_covalent_component(group_coords, group_symbols):
+                msg = (
+                    f"Custom solvent_pdb template {self.data_path} residue group "
+                    f"{group_index} is split into multiple covalent components. "
+                    "Ensure the PDB contains one residue per solvent molecule; "
+                    "do not merge multiple disconnected molecules into one residue."
+                )
+                self.log_error(msg)
+                raise ValueError(msg)
+
+        for group_index, group in enumerate(self.template.groups[1:], start=2):
+            formula = _formula(self.template.symbols[i] for i in group)
+            if formula != first_formula:
+                msg = (
+                    f"Custom solvent_pdb template {self.data_path} is not a homogeneous "
+                    "pure-solvent template: residue group "
+                    f"{group_index} formula {_format_formula(formula)} differs from "
+                    f"the first residue formula {_format_formula(first_formula)}. "
+                    "Ensure one residue per solvent molecule and do not mix solvent "
+                    "species in one template."
+                )
+                self.log_error(msg)
+                raise ValueError(msg)
+
     def _template_period(self) -> np.ndarray:
         """Orthorhombic CRYST1 period for stack-style bulk-solvent tiling."""
+        template_label = self._template_label()
         cellpar = self.template.cryst1_cellpar
         if cellpar is None:
             msg = (
-                f"Solvent template '{self.solv_name}' has no CRYST1 cell. "
+                f"Solvent template {template_label} has no CRYST1 cell. "
                 "Stack-based explicit solvation requires a periodic bulk template."
             )
             self.log_error(msg)
             raise ValueError(msg)
         a, b, c, alpha, beta, gamma = cellpar
         if not (a > 0 and b > 0 and c > 0):
-            msg = f"Solvent template '{self.solv_name}' has invalid CRYST1 lengths."
+            msg = f"Solvent template {template_label} has invalid CRYST1 lengths."
             self.log_error(msg)
             raise ValueError(msg)
         if not all(abs(angle - 90.0) < 1.0 for angle in (alpha, beta, gamma)):
             msg = (
-                f"Solvent template '{self.solv_name}' uses a non-orthogonal CRYST1 cell. "
+                f"Solvent template {template_label} uses a non-orthogonal CRYST1 cell. "
                 "Only orthorhombic stack templates are currently supported."
             )
             self.log_error(msg)
@@ -610,7 +789,7 @@ class ExplicitSolv():
         cell = np.array([a, b, c], dtype=np.float64)
         if np.any(cell < 2.0 * self._template_molecule_radius()):
             msg = (
-                f"Solvent template '{self.solv_name}' CRYST1 cell is smaller than "
+                f"Solvent template {template_label} CRYST1 cell is smaller than "
                 "the solvent molecule diameter; refusing unsafe tiling."
             )
             self.log_error(msg)
@@ -632,10 +811,26 @@ class ExplicitSolv():
         if self.number is not None or self.density is None:
             return
         rel_error = abs(self.template_metrics.density_g_ml - self.density) / self.density
+        if self.uses_custom_template and "density" not in self.params:
+            if rel_error <= CUSTOM_TEMPLATE_DENSITY_TOLERANCE:
+                return
+            msg = (
+                f"Custom solvent_pdb template {self.data_path} density "
+                f"({self.template_metrics.density_g_ml:.4f} g/mL from CRYST1) differs "
+                f"from the default density for explicit='{self.solv_name}' "
+                f"({self.density:.4f} g/mL) by {rel_error:.1%}. "
+                "Refusing to infer the target density from the solvent name for a "
+                "user-provided template. Use a validated bulk template closer to the "
+                f"default density, or add density={self.template_metrics.density_g_ml:.4f} "
+                "to #solv(...) to continue knowingly with this template density, "
+                "or provide number=<int> for an explicit non-density-targeted count."
+            )
+            self.log_error(msg)
+            raise ValueError(msg)
         if rel_error <= DEFAULT_TEMPLATE_DENSITY_TOLERANCE:
             return
         msg = (
-            f"Solvent template '{self.solv_name}' density "
+            f"Solvent template {self._template_label()} density "
             f"({self.template_metrics.density_g_ml:.4f} g/mL from CRYST1) differs "
             f"from requested density ({self.density:.4f} g/mL) by "
             f"{rel_error:.1%}; refusing to generate a false-density solvent cluster. "
@@ -1036,16 +1231,19 @@ class ExplicitSolv():
             geometry = f"radius={self.radius:.3f} Å"
         else:
             geometry = f"box_size={float(self.box_size):.3f} Å"
-        if self.density is not None:
+        if self.number is not None:
+            target_line = f"• Target source: explicit molecule count (number={self.number})\n"
+        elif self.density is not None:
             target_line = (
                 f"• Density target: {self.density:.4f} g/mL × {self.density_scale:.4f}\n"
             )
         else:
-            target_line = f"• Target source: explicit molecule count (number={self.number})\n"
+            target_line = "• Target source: unavailable density (requires number=<int>)\n"
         lines = [
             "\n\n" + "-" * 70 + "\n",
             f"{'Explicit Solvent Cluster Setup'.center(70)}\n\n",
             f"• Solvent type: {self.solv_name}\n",
+            f"• Solvent template PDB: {self.data_path}\n",
             f"• Shape: {self.shape} ({geometry})\n",
             "• Model: non-periodic coordinate-only cluster (no PBC/cell metadata)\n",
             target_line,

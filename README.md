@@ -163,6 +163,10 @@ XYZ /path/to/molecule.xyz
 
 Multi-structure jobs such as NEB accept multiple `XYZ` records.
 
+MAPLE supports custom explicit-water PDB templates; see the
+[solvent documentation](https://www.maplechem.org/functions/solvent.html)
+for usage guidance.
+
 ## Documentation
 
 - Website: https://www.maplechem.org/

@@ -168,6 +168,7 @@ class CommandControl:
         "experimental",
         "write_shell",
         "shell_cutoff",
+        "solvent_pdb",
         # Compatibility aliases / explicit rejections.
         "clash_cutoff",
         "write_cell",
@@ -602,6 +603,7 @@ class CommandControl:
                 "randomize",
                 "write_shell",
                 "shell_cutoff",
+                "solvent_pdb",
                 "clash_cutoff",
                 "write_cell",
             }
@@ -689,6 +691,15 @@ class CommandControl:
                 or not isinstance(solv_params[key], (int, float))
             ):
                 msg = f"Explicit solvent {key} must be numeric."
+                cls._log_error(output_path, msg)
+                raise ValueError(msg)
+
+        if "solvent_pdb" in solv_params:
+            if (
+                not isinstance(solv_params["solvent_pdb"], str)
+                or not solv_params["solvent_pdb"].strip()
+            ):
+                msg = "Explicit solvent solvent_pdb must be a non-empty path string."
                 cls._log_error(output_path, msg)
                 raise ValueError(msg)
 
