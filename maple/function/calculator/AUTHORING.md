@@ -15,12 +15,17 @@ have to inherit `CalcABC`. UMA, for example, extends third-party
 - `get_hessian(self, atoms, delta=0.002)` — returns a `(3N, 3N) np.ndarray`
   in Hartree / Å². `CalcABC` provides a default that dispatches on
   `self.hessian`.
-- `get_hvp(self, atoms, n)` — optional; only required if Dimer-mode TS will
-  run on the backend. `CalcABC.get_hvp` raises `NotImplementedError` by
-  default — there is **no** shared autograd default, because the forward
-  shape differs per backend. `ANICalculator` implements it for ANI's
-  `self.model(species, coords)` shape; other backends must override it
-  before Dimer-mode TS can run on them.
+- `get_hvp(self, atoms, n)` — optional; required only for the HVP-enabled
+  Dimer path (`use_hvp=True`). Returns the 3-tuple `(Hn, forces, energy)` as
+  torch tensors: `Hn` is the Hessian–vector product `H·n` flattened to `(3N,)`,
+  `forces` is the `(3N,)` force vector, and `energy` is a scalar — all in
+  Hartree units (energy in Hartree, forces in Hartree/Å, `H` in Hartree/Å²).
+  The HVP-enabled Dimer path unpacks all three; the regular Dimer path can use
+  finite-difference forces instead. `CalcABC.get_hvp` raises
+  `NotImplementedError` by default — there is **no** shared autograd default,
+  because the forward shape differs per backend. `ANICalculator` implements it
+  for ANI's `self.model(species, coords)` shape; other backends must override
+  it before they can use the HVP-enabled Dimer path.
 
 **Class attributes** (read by `SetCalculator` before the class is
 instantiated):
@@ -35,7 +40,13 @@ instantiated):
 | `CHECKPOINT_FILENAME` | `dict[str, str] \| None` | Per-name filename for HuggingFace auto-download. `None` if no auto-download. |
 | `REQUIRES_LOCAL_MODEL_FILE` | `bool` | Fallback when `CHECKPOINT_FILENAME` does not cover the requested name. |
 | `OPTION_KEYS` | `tuple[str, ...] \| None` | Supported backend-specific `model_options`. Shipped backends set this so typos fail loudly; `None` keeps legacy plug-ins permissive. |
-| `MODEL_PATH_OPTION` | `str \| None` | Constructor kwarg that consumes an explicit user `model_path` (`'model_path'` or `'checkpoint_path'`). `None` means `model_path` is rejected. |
+| `MODEL_PATH_OPTION` | `str \| None` | Constructor kwarg that consumes an explicit user `model_path` (`'model_path'` or `'checkpoint_path'`). `None` rejects an explicit `model_path` **only when** the constructor also exposes no `model_path`/`checkpoint_path` parameter — `SetCalculator` falls back to inspecting the ctor signature for support detection. The resolved path is still delivered through `build_kwargs_from_options(..., resolved_model_path=...)`, so legacy plug-ins that omit `MODEL_PATH_OPTION` must route that value into their constructor kwargs explicitly. |
+
+`SUPPORTED_COULOMB_METHODS` (`tuple[str, ...]`) is an additional, backend-specific
+gate that `SetCalculator` reads before instantiation: AIMNet2 declares it so an
+unsupported `coulomb_method` option is rejected before the model is built. It is
+not part of the core protocol — `SetCalculator` consults it only for the
+`coulomb_method` key — and is noted here so the capability surface is complete.
 
 ## Minimum runnable subclass
 
@@ -168,10 +179,16 @@ class FooCalculator(CalcABC):
 
 ## HVP override
 
-- `CalcABC.get_hvp` raises `NotImplementedError`. Override it if Dimer-mode
-  TS will run on this model. `ANICalculator` is the only shipped backend
-  with an implementation (autograd over the `(species, coords)` forward);
-  the rest fail loudly rather than misread a differently-shaped forward.
+- `CalcABC.get_hvp` raises `NotImplementedError`. Override it only if this
+  model will use the HVP-enabled Dimer path (`use_hvp=True`); regular Dimer can
+  fall back to finite-difference forces. `ANICalculator` is the only shipped
+  backend with an implementation (autograd over the `(species, coords)`
+  forward); the rest fail loudly rather than misread a differently-shaped
+  forward.
+- Unlike the `calculate()` path, `get_hvp` does **not** route through
+  `_finalize_results`, so the backend converts units itself: an eV-native
+  backend must apply `EV2HARTREE` inside `get_hvp` and return Hartree-unit
+  tensors. ANI is Hartree-native, so its implementation needs no conversion.
 - ANI HVP rejects implicit-solvent runs because solvent HVP is not implemented;
   returning gas-phase HVP in that mode would be a silent mixed-model result.
 
