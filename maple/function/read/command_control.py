@@ -328,15 +328,7 @@ class CommandControl:
             params["remove_com"] = True
 
         if "model" in params and params["model"] is not None:
-            params["model"] = (
-                str(params["model"])
-                .lower()
-                .replace("_", "")
-                .replace("-", "")
-                .replace(" ", "")
-                .replace("(", "")
-                .replace(")", "")
-            )
+            params["model"] = str(params["model"]).strip().lower()
 
         model_options = params.get("model_options")
         if isinstance(model_options, dict):
@@ -435,9 +427,9 @@ class CommandControl:
     @classmethod
     def _validate(cls, params: Dict[str, Any], task: str, output_path: Optional[str]) -> None:
         model = params.get("model")
-        # Calculator names and backend-specific model_options are registry-owned:
+        # Calculator names and class-declared model_options are registry-owned:
         # SetCalculator imports builtins, honors module= / MAPLE_CALCULATOR_PLUGINS,
-        # and validates class-declared OPTION_KEYS before construction.
+        # and validates class OPTION_KEYS before construction.
         cls._validate_unknown_params(params, task, output_path)
 
         if "gpuid" in params and params["gpuid"] is not None and not isinstance(params["gpuid"], int):

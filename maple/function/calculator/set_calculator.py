@@ -51,6 +51,28 @@ _BUILTIN_NAME_TO_MODULE = {
 _plugins_loaded_from_env = False
 
 
+def _compact_model_name(name: str) -> str:
+    return (
+        str(name)
+        .strip()
+        .lower()
+        .replace('_', '')
+        .replace('-', '')
+        .replace(' ', '')
+        .replace('(', '')
+        .replace(')', '')
+    )
+
+
+_BUILTIN_ALIAS_TO_NAME = {
+    _compact_model_name(name): name for name in _BUILTIN_NAME_TO_MODULE
+}
+
+
+def _builtin_canonical_name(name: str) -> Optional[str]:
+    return _BUILTIN_ALIAS_TO_NAME.get(_compact_model_name(name))
+
+
 def _model_download_url(filename: str) -> str:
     import os
 
@@ -90,7 +112,7 @@ class SetCalculator:
         model_options: Optional[dict] = None,
     ) -> None:
         self.output = output
-        self.model = str(model).lower()
+        self.model = str(model).strip().lower()
         self.d4 = d4
         self.device = device
         self.atoms = atoms
@@ -136,14 +158,33 @@ class SetCalculator:
         if module_override:
             import_calculator_plugin(str(module_override))
         else:
+            builtin_name = _builtin_canonical_name(normalized)
             builtin_module = _BUILTIN_NAME_TO_MODULE.get(normalized)
+            if builtin_module is None and builtin_name is not None:
+                builtin_module = _BUILTIN_NAME_TO_MODULE.get(builtin_name)
             if builtin_module is not None:
                 importlib.import_module(builtin_module)
 
         try:
-            return get_registered_calculator(normalized)
+            cls = get_registered_calculator(normalized)
+            self.model = normalized
+            return cls
         except KeyError:
-            raise ValueError(f"Unsupported model: '{name}'.")
+            pass
+
+        builtin_name = _builtin_canonical_name(normalized)
+        if builtin_name is not None and builtin_name != normalized:
+            builtin_module = _BUILTIN_NAME_TO_MODULE.get(builtin_name)
+            if builtin_module is not None:
+                importlib.import_module(builtin_module)
+            try:
+                cls = get_registered_calculator(builtin_name)
+                self.model = builtin_name
+                return cls
+            except KeyError:
+                pass
+
+        raise ValueError(f"Unsupported model: '{name}'.")
 
     def _validate_against_class(self, cls) -> None:
         """Pre-instantiation gates: pbc, hessian mode, charge/mult, d4."""
@@ -381,10 +422,11 @@ class SetCalculator:
         raise FileNotFoundError(message)
 
     def _build_calculator(self) -> ase.calculators.calculator.Calculator:
-        name = self.model
+        requested_name = self.model
         self._validate_solvent_config()
 
-        cls = self._discover_calculator_class(name)
+        cls = self._discover_calculator_class(requested_name)
+        name = self.model
         self._validate_model_options(cls)
         self._validate_against_class(cls)
         options = dict(self.model_options)
