@@ -10,24 +10,6 @@ class CommandControl:
     All other settings are global parameters.
     """
 
-    SUPPORTED_MODELS = {
-        "ani2x",
-        "ani1x",
-        "ani1ccx",
-        "ani1xnr",
-        "maceoff23s",
-        "maceoff23m",
-        "maceoff23l",
-        "egret",
-        "aimnet2",
-        "aimnet2nse",
-        "uma",
-        "maceomol",
-        "macepols",
-        "macepolm",
-        "macepoll",
-    }
-
     SUPPORTED_TASKS = {"sp", "opt", "ts", "scan", "freq", "irc", "md"}
 
     SUPPORTED_UMA_TASKS = {"omol", "omat", "oc20", "odac", "omc", "oc22", "oc25"}
@@ -181,12 +163,7 @@ class CommandControl:
             "shell instead."
         ),
     }
-    MODEL_OPTION_PARAMS = {
-        "uma": {"task", "size", "hessian", "inference"},
-        "macepols": {"model_path", "hessian"},
-        "macepolm": {"model_path", "hessian"},
-        "macepoll": {"model_path", "hessian"},
-    }
+
     VALIDATED_TASK_PARAMS = {"opt", "scan", "md"}
 
     TS_REFINE_MAP = {
@@ -383,15 +360,7 @@ class CommandControl:
             params["remove_com"] = True
 
         if "model" in params and params["model"] is not None:
-            params["model"] = (
-                str(params["model"])
-                .lower()
-                .replace("_", "")
-                .replace("-", "")
-                .replace(" ", "")
-                .replace("(", "")
-                .replace(")", "")
-            )
+            params["model"] = str(params["model"]).strip().lower()
 
         model_options = params.get("model_options")
         if isinstance(model_options, dict):
@@ -483,17 +452,6 @@ class CommandControl:
                 if key not in allowed:
                     cls._raise_unknown_param(output_path, context, key, allowed)
 
-        model = params.get("model")
-        model_options = params.get("model_options")
-        if isinstance(model_options, dict):
-            allowed_model_options = cls.MODEL_OPTION_PARAMS.get(model, {"hessian"})
-            context = f"{model or 'model'} option"
-            for key in model_options:
-                if key not in allowed_model_options:
-                    cls._raise_unknown_param(
-                        output_path, context, key, allowed_model_options
-                    )
-
         if "solv" in params:
             solv_params = params["solv"]
             if not isinstance(solv_params, dict):
@@ -580,6 +538,13 @@ class CommandControl:
                 msg = (
                     "Implicit GB-polar/QEq solvation is currently energy-only "
                     "and may be used only with task 'sp'."
+                )
+                cls._log_error(output_path, msg)
+                raise ValueError(msg)
+            if params.get("verbose", 0) >= 1:
+                msg = (
+                    "Implicit GB-polar/QEq solvation is energy-only and supports "
+                    "only #sp(verbose=0); verbose=1 requests gradients/forces."
                 )
                 cls._log_error(output_path, msg)
                 raise ValueError(msg)
@@ -805,10 +770,9 @@ class CommandControl:
     @classmethod
     def _validate(cls, params: Dict[str, Any], task: str, output_path: Optional[str]) -> None:
         model = params.get("model")
-        if model is not None and model not in cls.SUPPORTED_MODELS:
-            cls._log_error(output_path, f"Unsupported model: {model}")
-            raise ValueError(f"Unsupported model: '{model}'.")
-
+        # Calculator names and class-declared model_options are registry-owned:
+        # SetCalculator imports builtins, honors module= / MAPLE_CALCULATOR_PLUGINS,
+        # and validates class OPTION_KEYS before construction.
         cls._validate_unknown_params(params, task, output_path)
         cls._validate_solvation(params, task, output_path)
 
