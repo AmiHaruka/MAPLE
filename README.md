@@ -16,7 +16,7 @@ dynamics, and related post-processing workflows.
 | **Dynamics** | NVE, NVT, NPT |
 | **Analysis** | Frequency, PES Scan, Single Point |
 | **ML Potentials** | ANI, AIMNet2, MACE, MACEPol, UMA |
-| **Extras** | D4 dispersion, explicit solvent cluster builder, experimental GB-polar SP energy correction, PBC, restart files, DCD output |
+| **Extras** | D4 dispersion, explicit solvent cluster builder, experimental GB-polar SP energy correction, UMA/FAIR-Chem-backed PBC, restart files, DCD output |
 
 ## Installation
 
@@ -69,7 +69,7 @@ pip install torch --index-url https://download.pytorch.org/whl/cu118
 pip install torch --index-url https://download.pytorch.org/whl/cpu
 ```
 
-Install FAIR-Chem only if you need UMA or FAIR-Chem-backed/PBC models:
+Install FAIR-Chem only if you need UMA or FAIR-Chem-backed/PBC workflows:
 
 ```bash
 pip install fairchem-core
@@ -78,8 +78,16 @@ pip install fairchem-core
 Model checkpoint boundary:
 
 - MAPLE auto-downloads only the model files hosted at https://huggingface.co/Wayne7815/MAPLE_models.
+- Auto-downloads use a pinned HuggingFace revision by default; set `MAPLE_MODEL_REVISION` only when intentionally refreshing model assets.
 - Backend-specific or local checkpoints, such as MACE-Polar `.pt` files, must be present in `maple/function/calculator/model/` or supplied through an explicit model path.
 - UMA checkpoints are resolved through an explicit path, a local `maple/function/calculator/model/uma-*.pt` file, or FAIR-Chem's official model-loading path.
+
+PBC boundary:
+
+- PBC support is currently available through UMA/FAIR-Chem-backed workflows only.
+- ANI, AIMNet2, MACE-OFF, MACE-O-MOL, and MACE-Polar are molecular no-PBC wrappers in MAPLE and fail fast when periodic atoms are supplied.
+- AIMNet2 `coulomb_method=ewald` is disabled until validated cell/PBC/MIC inputs and reference tests exist; use `simple` or `dsf`.
+- UMA stress/virial requests are rejected until MAPLE validates stress-unit conversion.
 
 ## Quick Start
 
@@ -139,7 +147,7 @@ H    0.802   0.842   1.742
 | Key | Values | Default | Notes |
 |-----|--------|---------|-------|
 | `size` | `uma-s-1p1`, `uma-s-1p2`, `uma-m-1p1` | `uma-s-1p1` | Checkpoint variant |
-| `task` | `omol`, `omat`, `oc20`, `odac`, `omc`, `oc22`, `oc25` | inferred from PBC | `omol` for molecules, `omat` for periodic |
+| `task` | `omol`, `omat`, `oc20`, `odac`, `omc`, `oc22`, `oc25` | `omol` for non-periodic systems | Periodic UMA requires an explicit periodic task such as `omat`, `oc20`, `oc22`, `oc25`, `omc`, or `odac` |
 | `inference` | `default`, `turbo` | `default` | `turbo` accelerates fixed-composition GPU workloads (NEB / TS / freq); ignored on CPU |
 
 ### Coordinates
@@ -163,7 +171,7 @@ XYZ /path/to/molecule.xyz
 
 Multi-structure jobs such as NEB accept multiple `XYZ` records.
 
-MAPLE supports custom explicit-water PDB templates; see the
+MAPLE supports custom explicit-solvent PDB templates; see the
 [solvent documentation](https://www.maplechem.org/functions/solvent.html)
 for usage guidance.
 
@@ -172,6 +180,7 @@ for usage guidance.
 - Website: https://www.maplechem.org/
 - Release history: https://github.com/ClickFF/MAPLE/releases
 - Architecture notes: [ARCHITECTURE.md](ARCHITECTURE.md)
+- Authoring a calculator backend: [maple/function/calculator/AUTHORING.md](maple/function/calculator/AUTHORING.md)
 
 ## Citation
 
