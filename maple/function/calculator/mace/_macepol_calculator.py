@@ -1,12 +1,14 @@
-import os
-import torch
-import numpy as np
-from typing import Sequence, Union
-from ase.calculators.calculator import all_changes
-from ..calculator_base import CalcABC
-from typing import Literal
+from __future__ import annotations
 
-EV2HARTREE = 1.0 / 27.211386245988
+import os
+from typing import Literal, Sequence, Union
+
+import numpy as np
+import torch
+from ase.calculators.calculator import all_changes
+
+from ..calculator_base import CalcABC, register_calculator
+
 
 # ------------------------ Basic helpers ------------------------
 
@@ -23,6 +25,17 @@ _MACEPOL_MODEL_FILES = {
     'macepolm': 'macepolm.pt',
     'macepoll': 'macepoll.pt',
 }
+
+
+def _integer_info(atoms, key: str, default: int) -> int:
+    value = atoms.info.get(key, default)
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"MACE-POLAR requires integer atoms.info['{key}']; got {value!r}.") from exc
+    if not numeric_value.is_integer():
+        raise ValueError(f"MACE-POLAR requires integer atoms.info['{key}']; got {value!r}.")
+    return int(numeric_value)
 
 
 def _one_hot_node_attrs(Z: torch.Tensor, atomic_number_table: list, dtype=torch.float32) -> torch.Tensor:
@@ -53,6 +66,7 @@ def _radius_graph_no_pbc(positions: torch.Tensor, r_max: float):
 
 # ------------------------ Calculator ------------------------
 
+@register_calculator
 class MACEPolCalculator(CalcABC):
     """ASE calculator for MACE-POLAR models (pure MLIP, f32).
 
@@ -62,14 +76,30 @@ class MACEPolCalculator(CalcABC):
     Supports total_charge and total_spin via atoms.info['charge'] and atoms.info['mult'].
     """
 
-    implemented_properties = ['energy', 'forces', 'free_energy']
-    supported_hessian_modes = ("analytic", "numerical")
+    implemented_properties = ['energy', 'forces', 'free_energy', 'hessian']
+
+    MODEL_NAMES = ('macepols', 'macepolm', 'macepoll')
+    MODEL_ENERGY_UNIT = 'eV'
+    SUPPORTED_HESSIAN_MODES = ('analytic', 'numerical')
+    SUPPORTS_CHARGE_MULT = True
+    SUPPORTS_PBC = False
+    CHECKPOINT_FILENAME = None
+    REQUIRES_LOCAL_MODEL_FILE = True
+    OPTION_KEYS = ()
+    MODEL_PATH_OPTION = 'model_path'
+
+    @classmethod
+    def build_kwargs_from_options(cls, model, options, *, resolved_model_path=None):
+        kwargs = {}
+        if resolved_model_path is not None:
+            kwargs['model_path'] = resolved_model_path
+        return kwargs
 
     def __init__(self,
         device: torch.device,
         model: str = 'macepols',
         model_path: str = None,
-        implicit: Literal["gbsa", "none"] = "gbsa",
+        implicit: Literal['gbsa', 'none'] = 'none',
         solvent: str = 'none',
         ):
         """
@@ -98,7 +128,7 @@ class MACEPolCalculator(CalcABC):
         self.dtype = torch.float32  # MACE-POLAR traced models are f32
         self.r_max = float(self.model.r_max)
         self.atomic_numbers = [int(z) for z in self.model.atomic_numbers]
-        self.hessian = "analytic"
+        self.hessian = 'analytic'
 
         self.implicit_solv_init(implicit=implicit, solvent=solvent)
 
@@ -109,7 +139,7 @@ class MACEPolCalculator(CalcABC):
 
         positions = torch.tensor(
             atoms.get_positions(), dtype=dtype, device=device,
-            requires_grad=requires_grad
+            requires_grad=requires_grad,
         )
         Z = torch.tensor(atoms.get_atomic_numbers(), dtype=torch.long, device=device)
         node_attrs = _one_hot_node_attrs(Z, self.atomic_numbers, dtype=dtype)
@@ -123,7 +153,7 @@ class MACEPolCalculator(CalcABC):
 
         # Charge and spin from atoms.info (default: 0, singlet)
         charge = float(atoms.info.get('charge', 0))
-        mult = int(atoms.info.get('mult', 1))
+        mult = _integer_info(atoms, 'mult', 1)
         spin = float(mult - 1)
         total_charge = torch.tensor([charge], dtype=dtype, device=device)
         total_spin = torch.tensor([spin], dtype=dtype, device=device)
@@ -138,120 +168,49 @@ class MACEPolCalculator(CalcABC):
 
     def calculate(self, atoms=None, properties=['energy', 'forces'], system_changes=all_changes):
         """Main ASE calculation entry point."""
-        super().calculate(atoms, properties, system_changes)
+        properties = self._normalize_properties(properties)
+        atoms = super().calculate(atoms, properties, system_changes)
 
-        # Energy (no grad needed)
+        # Energy (no grad)
         inputs = self._build_inputs(atoms, requires_grad=False)
         with torch.no_grad():
-            total_energy, node_energy, density_coef = self.model(*inputs)
+            total_energy, _, _ = self.model(*inputs)
 
-        energy = total_energy.sum().double() * EV2HARTREE
+        energy_eV = total_energy.sum().double()
 
-        if self.solvent_correction:
-            solvent_energy = self.implicit_solv_energy(atoms)
-            energy += solvent_energy
-
-        self.results['energy'] = energy.item()
-        self.results['free_energy'] = energy.item()
-
-        # Forces via autograd
+        forces_np = None
         if 'forces' in properties:
             inputs_grad = self._build_inputs(atoms, requires_grad=True)
             total_energy_grad, _, _ = self.model(*inputs_grad)
 
             forces = -torch.autograd.grad(
-                total_energy_grad.sum(),
-                inputs_grad[0],  # positions
-                create_graph=False,
-                retain_graph=False
+                total_energy_grad.sum(), inputs_grad[0],
+                create_graph=False, retain_graph=False,
             )[0]
-            forces = forces.double() * EV2HARTREE
+            forces_np = forces.double().detach().cpu().numpy()
 
-            if self.solvent_correction:
-                _, solvent_force = self.implicit_solv_energy_and_force(atoms)
-                forces = forces + solvent_force
-
-            self.results['forces'] = forces.detach().cpu().numpy()
-
+        hessian = None
         if 'hessian' in properties:
-            if self.solvent_correction:
-                raise NotImplementedError("Hessian calculation with implicit solvent is not implemented yet.")
-            self.results['hessian'] = self.get_hessian(atoms)
+            if self.solvent_correction is not None:
+                raise NotImplementedError('Hessian calculation with implicit solvent is not implemented yet.')
+            hessian = self.get_hessian(atoms)
 
-    def get_energy(self, atoms) -> torch.Tensor:
-        """Compute total energy as a torch scalar (eV)."""
-        inputs = self._build_inputs(atoms, requires_grad=False)
-        with torch.no_grad():
-            total_energy, _, _ = self.model(*inputs)
-        return total_energy.sum()
+        self._finalize_results(atoms, energy=energy_eV.item(), forces=forces_np, hessian=hessian)
 
-    @staticmethod
-    def compute_hessian(coords: torch.Tensor, energy: torch.Tensor) -> torch.Tensor:
-        """Compute the Cartesian Hessian matrix (3N x 3N)."""
-        num_atoms = coords.shape[0]
-        hessian = torch.zeros((3 * num_atoms, 3 * num_atoms), dtype=coords.dtype, device=coords.device)
-        grad = torch.autograd.grad(energy, coords, create_graph=True)[0].view(-1)
-        for i in range(3 * num_atoms):
-            grad2 = torch.autograd.grad(grad[i], coords, retain_graph=True)[0].view(-1)
-            hessian[i, :] = grad2
-        return hessian
-
-    def _get_hessian_analytic(self, atoms) -> np.ndarray:
-        if atoms is None:
-            atoms = self.atoms
+    def _analytic_hessian(self, atoms) -> np.ndarray:
+        """Analytic Hessian via autograd. Returns (3N, 3N) np.ndarray in Hartree/Å²."""
+        from ..calculator_base import EV2HARTREE
 
         inputs = self._build_inputs(atoms, requires_grad=True)
         total_energy, _, _ = self.model(*inputs)
         energy = total_energy.sum() * EV2HARTREE
 
-        hessian = self.compute_hessian(inputs[0], energy)
+        positions = inputs[0]
+        num_atoms = positions.shape[0]
+        hessian = torch.zeros((3 * num_atoms, 3 * num_atoms), dtype=positions.dtype, device=positions.device)
+        grad = torch.autograd.grad(energy, positions, create_graph=True)[0].view(-1)
+        for i in range(3 * num_atoms):
+            grad2 = torch.autograd.grad(grad[i], positions, retain_graph=True)[0].view(-1)
+            hessian[i, :] = grad2
+
         return hessian.detach().cpu().numpy()
-
-    def _get_hessian_numerical(self, atoms, delta: float = 0.002) -> np.ndarray:
-        from ase.constraints import FixAtoms
-
-        N = len(atoms)
-        pos0 = atoms.get_positions().copy()
-        fixed = {
-            i for c in getattr(atoms, "constraints", [])
-            if isinstance(c, FixAtoms)
-            for i in c.get_indices()
-        }
-        movable = [i for i in range(N) if i not in fixed]
-        H = np.zeros((3 * N, 3 * N), dtype=np.float64)
-
-        if len(movable) == 0:
-            return H
-
-        def force_at(positions: np.ndarray) -> np.ndarray:
-            atoms_tmp = atoms.copy()
-            atoms_tmp.set_positions(positions)
-            if getattr(atoms, "constraints", None):
-                atoms_tmp.set_constraint(atoms.constraints)
-            self.calculate(atoms_tmp, properties=["forces"], system_changes=all_changes)
-            return np.asarray(self.results["forces"], dtype=np.float64)
-
-        for a in movable:
-            for k in range(3):
-                row = 3 * a + k
-                pos_p = pos0.copy()
-                pos_p[a, k] += delta
-                Fp = force_at(pos_p)
-
-                pos_m = pos0.copy()
-                pos_m[a, k] -= delta
-                Fm = force_at(pos_m)
-
-                H[row, :] = (-(Fp - Fm) / (2.0 * delta)).reshape(-1)
-
-        return H
-
-    def get_hessian(self, atoms=None, delta: float = 0.002) -> np.ndarray:
-        """Compute the Cartesian Hessian matrix for an ASE Atoms object."""
-        if self.hessian == "analytic":
-            return self._get_hessian_analytic(atoms)
-        if self.hessian == "numerical":
-            return self._get_hessian_numerical(atoms, delta)
-        raise ValueError(
-            f"Unknown hessian method: {self.hessian}. Must be 'analytic' or 'numerical'"
-        )
