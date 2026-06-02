@@ -307,22 +307,14 @@ class CalcABC(ase.calculators.calculator.Calculator):
         )
 
         if getattr(self, 'solvent_correction', None) is not None:
-            if forces_ha is None:
-                # Energy-only request: take the cheaper energy-only solvent path
-                # so a single point never pays for a force correction it discards.
-                solvent_energy = self.implicit_solv_energy(atoms)
-                solvent_force = None
-            else:
-                solvent_energy, solvent_force = self.implicit_solv_energy_and_force(atoms)
+            # GB-polar solvation is energy-only. Reaching here with forces under
+            # active solvent means the calculate()/get_hessian() guards were
+            # bypassed; fail loudly rather than emit a solvent-inconsistent force.
+            if forces_ha is not None:
+                raise NotImplementedError(IMPLICIT_SOLVENT_FORCE_ERROR)
+            solvent_energy = self.implicit_solv_energy(atoms)
             se = solvent_energy.item() if hasattr(solvent_energy, 'item') else float(solvent_energy)
             energy_ha = energy_ha + se
-            if forces_ha is not None and solvent_force is not None:
-                sf = (
-                    solvent_force.detach().cpu().numpy()
-                    if hasattr(solvent_force, 'detach')
-                    else np.asarray(solvent_force)
-                )
-                forces_ha = forces_ha + sf
 
         # Sole results-writing chokepoint for every CalcABC backend: clear first
         # so an energy-only call cannot inherit stale forces/hessian from a
