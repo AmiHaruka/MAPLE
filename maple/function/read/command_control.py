@@ -25,6 +25,7 @@ class CommandControl:
         "sp": {},
         "opt": {},
         "ts": {},
+        "irc": {"method": "gs"},
         "scan": {},
         "freq": {
             "method": "mw",

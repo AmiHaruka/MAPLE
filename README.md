@@ -103,10 +103,11 @@ maple md nve
 ### Minimal Example
 
 ```text
-#model=uma(size=uma-s-1p2)
+#model=uma(size=uma-s-1p1)
 #opt(method=lbfgs)
 #device=gpu0
 
+0 1
 C   -0.748   0.014   0.025
 C    0.748  -0.014  -0.025
 O    1.170   0.016   1.330
@@ -117,7 +118,15 @@ H    1.148  -0.912   0.457
 H    1.096   0.869   0.513
 H    0.802   0.842   1.742
 ```
+### External coordinates:
+```
+#model=uma(size=uma-s-1p1)
+#opt(method=lbfgs)
+#device=gpu0
 
+XYZ 0 1 /path/to/molecule.xyz
+```
+TIPS:  Charge and spin multiplicity are supported only in the **OMOL task** mode of the **UMA** model and in the **AIMNet2 / AIMNet2-NSE** models.
 ## Input Overview
 
 ### Header Keywords
@@ -155,9 +164,11 @@ H    0.802   0.842   1.742
 Inline coordinates:
 
 ```text
-#model=uma
+#model=uma(size=uma-s-1p1,task=omol,inference=default)
 #sp
+#device=gpu0
 
+0 1
 C   0.000   0.000   0.000
 H   1.089   0.000   0.000
 ...
@@ -166,10 +177,15 @@ H   1.089   0.000   0.000
 External coordinates:
 
 ```text
-XYZ /path/to/molecule.xyz
+#model=uma(size=uma-s-1p1,task=omol,inference=default)
+#sp
+#device=gpu0
+
+XYZ 0 1 /path/to/molecule.xyz
 ```
 
-Multi-structure jobs such as NEB accept multiple `XYZ` records.
+Multi-structure jobs such as NEB accept multiple `XYZ` records.<br>
+TIPS:  Charge and spin multiplicity are supported only in the **OMOL task** mode of the **UMA** model
 
 MAPLE supports custom explicit-solvent PDB templates; see the
 [solvent documentation](https://www.maplechem.org/functions/solvent.html)
@@ -202,6 +218,6 @@ https://github.com/ClickFF/MAPLE
 - [AIMNet2](https://github.com/isayevlab/AIMNet2)
 - [FAIR-Chem](https://github.com/FAIR-Chem/fairchem)
 
-**Version**: 0.1.4
-**Status**: Active Development
-**Updated**: May 2026
+**Version**: 0.1.4<br>
+**Status**: Active Development<br>
+**Updated**: May 2026<br>
