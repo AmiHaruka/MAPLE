@@ -137,6 +137,7 @@ class CommandControl:
         "explicit",
         "solvent",
         "radius",
+        "padding",
         "shape",
         "box_size",
         "density",
@@ -556,6 +557,7 @@ class CommandControl:
 
             explicit_only = {
                 "radius",
+                "padding",
                 "shape",
                 "box_size",
                 "density",
@@ -642,6 +644,7 @@ class CommandControl:
 
         numeric_keys = (
             "radius",
+            "padding",
             "box_size",
             "density",
             "density_scale",
@@ -680,28 +683,48 @@ class CommandControl:
             cls._log_error(output_path, msg)
             raise ValueError(msg)
 
+        if "padding" in solv_params and solv_params["padding"] <= 0:
+            msg = "Explicit solvent padding must be > 0."
+            cls._log_error(output_path, msg)
+            raise ValueError(msg)
+
         if shape == "sphere":
+            if "padding" in solv_params and "radius" in solv_params:
+                msg = (
+                    "Explicit solvent padding derives the sphere radius from the "
+                    "solute envelope; do not combine padding with radius."
+                )
+                cls._log_error(output_path, msg)
+                raise ValueError(msg)
             radius = solv_params.get("radius", 10.0)
             if radius <= 0:
                 msg = "Explicit solvent radius must be > 0 for shape=sphere."
                 cls._log_error(output_path, msg)
                 raise ValueError(msg)
-            solv_params.setdefault("radius", radius)
+            if "padding" not in solv_params:
+                solv_params.setdefault("radius", radius)
             if "box_size" in solv_params:
                 msg = "Explicit solvent box_size is only valid for shape=cube."
                 cls._log_error(output_path, msg)
                 raise ValueError(msg)
         else:
-            if "box_size" not in solv_params:
+            if "radius" in solv_params:
+                msg = "Explicit solvent radius is only valid for shape=sphere."
+                cls._log_error(output_path, msg)
+                raise ValueError(msg)
+            if "padding" in solv_params and "box_size" in solv_params:
+                msg = (
+                    "Explicit solvent padding derives the cube box_size from the "
+                    "solute envelope; do not combine padding with box_size."
+                )
+                cls._log_error(output_path, msg)
+                raise ValueError(msg)
+            if "padding" not in solv_params and "box_size" not in solv_params:
                 msg = "Explicit solvent shape=cube requires box_size."
                 cls._log_error(output_path, msg)
                 raise ValueError(msg)
-            if solv_params["box_size"] <= 0:
+            if "box_size" in solv_params and solv_params["box_size"] <= 0:
                 msg = "Explicit solvent box_size must be > 0."
-                cls._log_error(output_path, msg)
-                raise ValueError(msg)
-            if "radius" in solv_params:
-                msg = "Explicit solvent radius is only valid for shape=sphere."
                 cls._log_error(output_path, msg)
                 raise ValueError(msg)
 

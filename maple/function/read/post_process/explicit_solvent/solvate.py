@@ -517,6 +517,9 @@ class ExplicitSolv():
         if obj.shape == "box":
             obj.shape = "cube"
         obj.radius = float(obj.params.get("radius", 10.0))
+        obj.padding = (
+            None if "padding" not in obj.params else float(obj.params["padding"])
+        )
         obj.box_size = obj.params.get("box_size")
         obj.density = obj._resolve_density()
         obj.density_scale = float(obj.params.get("density_scale", 1.0))
@@ -534,6 +537,7 @@ class ExplicitSolv():
         obj.rng = np.random.default_rng(None if obj.seed == -1 else obj.seed)
 
         obj._validate_options()
+        obj._resolve_geometry_from_solute()
 
         obj.data_path, obj.uses_custom_template = obj._resolve_template_path()
         if not obj.data_path.is_file():
@@ -593,14 +597,33 @@ class ExplicitSolv():
             )
         if self.shape not in {"sphere", "cube"}:
             raise ValueError("Explicit solvent shape must be 'sphere' or 'cube'.")
+        if self.padding is not None and self.padding <= 0:
+            raise ValueError("Explicit solvent padding must be > 0.")
         if self.shape == "sphere" and self.radius <= 0:
             raise ValueError("Explicit solvent radius must be > 0 for shape=sphere.")
         if self.shape == "cube":
-            if self.box_size is None:
+            if "radius" in self.params:
+                raise ValueError(
+                    "Explicit solvent radius is only valid for shape=sphere."
+                )
+            if self.padding is not None and self.box_size is not None:
+                raise ValueError(
+                    "Explicit solvent padding derives the cube box_size from the "
+                    "solute envelope; do not combine padding with box_size."
+                )
+            if self.padding is None and self.box_size is None:
                 raise ValueError("Explicit solvent shape=cube requires box_size.")
-            self.box_size = float(self.box_size)
-            if self.box_size <= 0:
+            if self.box_size is not None:
+                self.box_size = float(self.box_size)
+            if self.box_size is not None and self.box_size <= 0:
                 raise ValueError("Explicit solvent box_size must be > 0.")
+        elif self.padding is not None and "radius" in self.params:
+            raise ValueError(
+                "Explicit solvent padding derives the sphere radius from the "
+                "solute envelope; do not combine padding with radius."
+            )
+        elif "box_size" in self.params:
+            raise ValueError("Explicit solvent box_size is only valid for shape=cube.")
         if self.density is not None and self.density <= 0:
             raise ValueError("Explicit solvent density must be > 0.")
         if self.density_scale <= 0:
@@ -643,6 +666,25 @@ class ExplicitSolv():
                 f"fallback_radius={self.vdw_fallback_radius:.3f} Å)"
             )
         return f"distance (tolerance={self.tolerance:.3f} Å)"
+
+    def _resolve_geometry_from_solute(self) -> None:
+        """Set the solute centering point and any padding-derived geometry."""
+        positions = self.atoms.get_positions()
+        if self.padding is None:
+            self.solute_center = positions.mean(axis=0)
+            return
+
+        if self.shape == "sphere":
+            self.solute_center = positions.mean(axis=0)
+            centered = positions - self.solute_center
+            self.radius = float(np.linalg.norm(centered, axis=1).max() + self.padding)
+            return
+
+        lower = positions.min(axis=0)
+        upper = positions.max(axis=0)
+        self.solute_center = lower + 0.5 * (upper - lower)
+        span = upper - lower
+        self.box_size = float(span.max() + 2.0 * self.padding)
 
     def log_error(self, error_message: str) -> None:
         with open(self.output, "a", encoding="utf-8") as file:
@@ -1231,6 +1273,13 @@ class ExplicitSolv():
             geometry = f"radius={self.radius:.3f} Å"
         else:
             geometry = f"box_size={float(self.box_size):.3f} Å"
+        if self.padding is not None:
+            envelope = (
+                "radial solute envelope"
+                if self.shape == "sphere"
+                else "axis-aligned solute envelope"
+            )
+            geometry += f", padding={self.padding:.3f} Å from {envelope}"
         if self.number is not None:
             target_line = f"• Target source: explicit molecule count (number={self.number})\n"
         elif self.density is not None:
@@ -1264,8 +1313,7 @@ class ExplicitSolv():
         self.log_info(lines)
 
     def _process(self):
-        solute_center = self.atoms.get_positions().mean(axis=0)
-        self.atoms.positions -= solute_center
+        self.atoms.positions -= self.solute_center
 
         coords, symbols, atom_names, residue_names, tags = self._tile_template_network()
         candidate_count = len(set(tags.tolist()))
