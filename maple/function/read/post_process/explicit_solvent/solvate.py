@@ -672,19 +672,51 @@ class ExplicitSolv():
         positions = self.atoms.get_positions()
         if self.padding is None:
             self.solute_center = positions.mean(axis=0)
+            self._set_solute_extent_metrics(positions)
             return
 
         if self.shape == "sphere":
             self.solute_center = positions.mean(axis=0)
-            centered = positions - self.solute_center
-            self.radius = float(np.linalg.norm(centered, axis=1).max() + self.padding)
+            self._set_solute_extent_metrics(positions)
+            self.radius = float(self.solute_radial_extent + self.padding)
             return
 
         lower = positions.min(axis=0)
         upper = positions.max(axis=0)
         self.solute_center = lower + 0.5 * (upper - lower)
         span = upper - lower
+        self._set_solute_extent_metrics(positions)
         self.box_size = float(span.max() + 2.0 * self.padding)
+
+    def _set_solute_extent_metrics(self, positions: np.ndarray) -> None:
+        centered = positions - self.solute_center
+        self.solute_radial_extent = float(np.linalg.norm(centered, axis=1).max())
+        self.solute_axis_extent = float(np.abs(centered).max())
+
+    def _geometry_warning_lines(self) -> list[str]:
+        if self.padding is not None:
+            return []
+        if self.shape == "sphere":
+            if self.radius >= self.solute_radial_extent:
+                return []
+            return [
+                "WARNING: explicit solvent radius is smaller than the solute "
+                "radial extent from the cluster center: "
+                f"radius={self.radius:.3f} Å < R_solute={self.solute_radial_extent:.3f} Å. "
+                "The requested sphere does not enclose the solute; increase "
+                "radius or use padding=<Å> for envelope-based sizing.\n"
+            ]
+
+        half_box = float(self.box_size) / 2.0
+        if half_box >= self.solute_axis_extent:
+            return []
+        return [
+            "WARNING: explicit solvent cube half-size is smaller than the solute "
+            "axis-aligned extent from the cluster center: "
+            f"box_size/2={half_box:.3f} Å < R_solute_axis={self.solute_axis_extent:.3f} Å. "
+            "The requested cube does not enclose the solute; increase box_size "
+            "or use padding=<Å> for envelope-based sizing.\n"
+        ]
 
     def log_error(self, error_message: str) -> None:
         with open(self.output, "a", encoding="utf-8") as file:
@@ -1309,6 +1341,7 @@ class ExplicitSolv():
             )
         if self.write_shell:
             lines.append(f"• Shell sidecar cutoff: {float(self.shell_cutoff):.3f} Å\n")
+        lines.extend(self._geometry_warning_lines())
         lines.append("\n")
         self.log_info(lines)
 
