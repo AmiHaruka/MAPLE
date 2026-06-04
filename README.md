@@ -16,7 +16,7 @@ dynamics, and related post-processing workflows.
 | **Dynamics** | NVE, NVT, NPT |
 | **Analysis** | Frequency, PES Scan, Single Point |
 | **ML Potentials** | ANI, AIMNet2, MACE, MACEPol, UMA |
-| **Extras** | D4 dispersion, GBSA solvation, UMA/FAIR-Chem-backed PBC, restart files, DCD output |
+| **Extras** | D4 dispersion, explicit solvent cluster builder, experimental GB-polar SP energy correction, UMA/FAIR-Chem-backed PBC, restart files, DCD output |
 
 ## Installation
 
@@ -156,7 +156,7 @@ TIPS:  Charge and spin multiplicity are supported only in the **OMOL task** mode
 | Key | Values | Default | Notes |
 |-----|--------|---------|-------|
 | `size` | `uma-s-1p1`, `uma-s-1p2`, `uma-m-1p1` | `uma-s-1p1` | Checkpoint variant |
-| `task` | `omol`, `omat`, `oc20`, `odac`, `omc`, `oc22`, `oc25` | inferred from PBC | `omol` for molecules, `omat` for periodic |
+| `task` | `omol`, `omat`, `oc20`, `odac`, `omc`, `oc22`, `oc25` | `omol` for non-periodic systems | Periodic UMA requires an explicit periodic task such as `omat`, `oc20`, `oc22`, `oc25`, `omc`, or `odac` |
 | `inference` | `default`, `turbo` | `default` | `turbo` accelerates fixed-composition GPU workloads (NEB / TS / freq); ignored on CPU |
 
 ### Coordinates
@@ -186,6 +186,11 @@ XYZ 0 1 /path/to/molecule.xyz
 
 Multi-structure jobs such as NEB accept multiple `XYZ` records.<br>
 TIPS:  Charge and spin multiplicity are supported only in the **OMOL task** mode of the **UMA** model
+
+MAPLE supports custom explicit-solvent PDB templates; see the
+[solvent documentation](https://www.maplechem.org/functions/solvent.html)
+for usage guidance.
+
 ## Documentation
 
 - Website: https://www.maplechem.org/

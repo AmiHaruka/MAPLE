@@ -50,6 +50,34 @@ def load_calculator_plugins_from_env() -> None:
 _NONE_OPTIONS = {'', 'none', 'null', 'false', '0'}
 
 
+IMPLICIT_SOLVENT_FORCE_ERROR = (
+    "Experimental implicit GB-polar solvation is energy-only. Forces, stress, "
+    "Hessians, and HVPs are disabled because QEq charges are "
+    "geometry-dependent and are not coupled variationally to the solvent "
+    "energy."
+)
+IMPLICIT_SOLVENT_DERIVATIVE_PROPERTIES = {
+    "forces",
+    "force",
+    "stress",
+    "stresses",
+    "virial",
+    "virials",
+    "hessian",
+}
+
+
+def reject_implicit_solvent_derivatives(calculator, properties):
+    """Fail fast when experimental implicit solvation is asked for derivatives."""
+    if not getattr(calculator, "solvent_correction", None):
+        return _property_list(properties)
+    normalized = _property_list(properties)
+    requested = {str(prop).lower() for prop in normalized}
+    if requested.intersection(IMPLICIT_SOLVENT_DERIVATIVE_PROPERTIES):
+        raise NotImplementedError(IMPLICIT_SOLVENT_FORCE_ERROR)
+    return normalized
+
+
 def normalize_none_option(value):
     """Normalize user-facing none-like option values to the literal 'none'."""
     if value is None:
@@ -236,6 +264,19 @@ class CalcABC(ase.calculators.calculator.Calculator):
     def _normalize_properties(properties):
         return _property_list(properties)
 
+    @staticmethod
+    def _total_charge_from_atoms(atoms) -> float:
+        charge = getattr(atoms, "info", {}).get("charge", None)
+        if charge is not None:
+            return float(charge)
+
+        if hasattr(atoms, "get_initial_charges"):
+            initial_charges = np.asarray(atoms.get_initial_charges(), dtype=float)
+            if initial_charges.size and np.all(np.isfinite(initial_charges)):
+                return float(initial_charges.sum())
+
+        return 0.0
+
     def calculate(
         self,
         atoms=None,
@@ -244,7 +285,8 @@ class CalcABC(ase.calculators.calculator.Calculator):
     ):
         target_atoms = atoms if atoms is not None else getattr(self, 'atoms', None)
         self._reject_unsupported_pbc(target_atoms)
-        super().calculate(atoms, self._normalize_properties(properties), system_changes)
+        properties = reject_implicit_solvent_derivatives(self, properties)
+        super().calculate(atoms, properties, system_changes)
         return target_atoms
 
     @classmethod
@@ -265,22 +307,14 @@ class CalcABC(ase.calculators.calculator.Calculator):
         )
 
         if getattr(self, 'solvent_correction', None) is not None:
-            if forces_ha is None:
-                # Energy-only request: take the cheaper energy-only solvent path
-                # so a single point never pays for a force correction it discards.
-                solvent_energy = self.implicit_solv_energy(atoms)
-                solvent_force = None
-            else:
-                solvent_energy, solvent_force = self.implicit_solv_energy_and_force(atoms)
+            # GB-polar solvation is energy-only. Reaching here with forces under
+            # active solvent means the calculate()/get_hessian() guards were
+            # bypassed; fail loudly rather than emit a solvent-inconsistent force.
+            if forces_ha is not None:
+                raise NotImplementedError(IMPLICIT_SOLVENT_FORCE_ERROR)
+            solvent_energy = self.implicit_solv_energy(atoms)
             se = solvent_energy.item() if hasattr(solvent_energy, 'item') else float(solvent_energy)
             energy_ha = energy_ha + se
-            if forces_ha is not None and solvent_force is not None:
-                sf = (
-                    solvent_force.detach().cpu().numpy()
-                    if hasattr(solvent_force, 'detach')
-                    else np.asarray(solvent_force)
-                )
-                forces_ha = forces_ha + sf
 
         # Sole results-writing chokepoint for every CalcABC backend: clear first
         # so an energy-only call cannot inherit stale forces/hessian from a
@@ -299,12 +333,11 @@ class CalcABC(ase.calculators.calculator.Calculator):
         mode = getattr(self, 'hessian', self.SUPPORTED_HESSIAN_MODES[0])
         if mode == 'analytic':
             if getattr(self, 'solvent_correction', None) is not None:
-                raise NotImplementedError(
-                    'Analytic Hessian with implicit solvent is not supported. '
-                    "Set hessian='numerical'."
-                )
+                raise NotImplementedError(IMPLICIT_SOLVENT_FORCE_ERROR)
             return np.asarray(self._analytic_hessian(atoms))
         if mode == 'numerical':
+            if getattr(self, 'solvent_correction', None) is not None:
+                raise NotImplementedError(IMPLICIT_SOLVENT_FORCE_ERROR)
             return numerical_hessian_from_atoms(self, atoms, delta)
         raise ValueError(f"Unknown hessian mode: {mode!r}")
 
@@ -345,6 +378,8 @@ class CalcABC(ase.calculators.calculator.Calculator):
         non-matching models. Backends that can autodiff their forward override
         this; everyone else fails loudly here instead of returning garbage.
         """
+        if getattr(self, 'solvent_correction', None) is not None:
+            raise NotImplementedError(IMPLICIT_SOLVENT_FORCE_ERROR)
         raise NotImplementedError(
             f"{type(self).__name__} does not implement get_hvp; Dimer-mode TS "
             "requires a backend-specific Hessian-vector product."
@@ -363,7 +398,9 @@ class CalcABC(ase.calculators.calculator.Calculator):
         Returns:
             torch.Tensor: Implicit solvent correction energy in Hartree.
         """
-        atoms.atomic_charges = self.chargecalc(atoms)
+        atoms.atomic_charges = self.chargecalc(
+            atoms, total_charge=self._total_charge_from_atoms(atoms)
+        )
         solvent_energy,_ = self.solvent_correction.get_energy(atoms)
         return solvent_energy
 
@@ -377,6 +414,4 @@ class CalcABC(ase.calculators.calculator.Calculator):
         Returns:
             tuple[torch.Tensor, torch.Tensor]: Implicit solvent correction energy in Hartree and forces in Hartree/Å.
         """
-        atoms.atomic_charges = self.chargecalc(atoms)
-        solvent_energy, solvent_forces = self.solvent_correction.get_energy_and_force(atoms)
-        return solvent_energy, solvent_forces
+        raise NotImplementedError(IMPLICIT_SOLVENT_FORCE_ERROR)

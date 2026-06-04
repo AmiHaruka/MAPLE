@@ -130,10 +130,29 @@ class engine():
             
             # Explicit Solvation Treatment
             if self.commandcontrol.get('solv', {}).get('explicit', None) is not None:
+                if not isinstance(self.atoms, Atoms):
+                    msg = (
+                        "Explicit solvation currently supports exactly one structure. "
+                        "Split multi-structure/trajectory input before using "
+                        "#solv(explicit=...)."
+                    )
+                    with open(self.output, "a") as handle:
+                        handle.write(f"ERROR: {msg}\n")
+                    raise ValueError(msg)
+
+                if any(bool(flag) for flag in self.atoms.get_pbc()):
+                    msg = (
+                        "Explicit solvation is non-periodic; #pbc is not supported "
+                        "with #solv(explicit=...)."
+                    )
+                    with open(self.output, "a") as handle:
+                        handle.write(f"ERROR: {msg}\n")
+                    raise ValueError(msg)
 
                 from .read import ExplicitSolv
                 self.atoms = ExplicitSolv(self.atoms, params=self.commandcontrol.get('solv'), 
-                        device=self.device, output=self.output)
+                        device=self.device, output=self.output,
+                        base_dir=os.path.dirname(reader.input))
 
     def _mlp_initiator(self, model:str, device: torch.device):
         """
@@ -161,7 +180,8 @@ class engine():
 
             setcalculator = SetClaculator(device, model, self.output, atoms=atoms_for_check,
                             d4=self.d4, implicit=implicit_method, solvent=solvent,
-                            model_options=self.model_options)
+                            model_options=self.model_options,
+                            solvation_options=self.commandcontrol.get('solv', {}))
             self.calulator = setcalculator.set_calculator()
     
     def _jobtype_dispatcher(self, commandcontrol, jobtype:int, atoms:Union[Atoms, Molecules, List[Atoms]], output:str, extra:dict=None) -> None:
@@ -181,4 +201,3 @@ class engine():
             dispatcher = Dispatcher()
             dispatcher(commandcontrol, jobtype, atoms, output, extra)
     
-

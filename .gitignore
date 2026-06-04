@@ -178,3 +178,7 @@ examples/md/**/*.xyz
 # Local automation/session artifacts
 /.omc/
 /docs/
+
+# Generated explicit-solvent example outputs
+examples/opt/exp-solv/*.out
+examples/opt/exp-solv/*.xyz

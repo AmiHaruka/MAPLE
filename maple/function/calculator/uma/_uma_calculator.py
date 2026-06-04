@@ -26,6 +26,7 @@ from ..calculator_base import (
     EV2HARTREE,
     init_implicit_solvent,
     numerical_hessian_from_atoms,
+    reject_implicit_solvent_derivatives,
     register_calculator,
 )
 
@@ -363,7 +364,7 @@ class UMACalculator(FAIRChemCalculator):
         return numerical_hessian_from_atoms(self, atoms, delta)
 
     def calculate(self, atoms, properties=None, system_changes=None):
-        properties = ["energy"] if properties is None else properties
+        properties = reject_implicit_solvent_derivatives(self, properties)
         system_changes = all_changes if system_changes is None else system_changes
 
         if atoms is None:
@@ -398,16 +399,11 @@ class UMACalculator(FAIRChemCalculator):
         if "forces" in self.results:
             self.results["forces"] *= EV2HARTREE
 
-        # Implicit-solvent correction in Hartree (mirrors _finalize_results,
-        # including its energy-only branch: skip the force correction when no
-        # forces were produced so an energy-only single point stays cheap).
+        # Experimental implicit solvation is energy-only. Derivative requests
+        # have already failed via reject_implicit_solvent_derivatives().
         if self.solvent_correction is not None:
-            calc_atoms.atomic_charges = self.chargecalc(calc_atoms)
-            if "forces" in self.results:
-                solvent_energy, solvent_force = self.solvent_correction.get_energy_and_force(calc_atoms)
-                self.results["forces"] += solvent_force.detach().cpu().numpy()
-            else:
-                solvent_energy, _ = self.solvent_correction.get_energy(calc_atoms)
+            calc_atoms.atomic_charges = self.chargecalc(calc_atoms, total_charge=float(charge))
+            solvent_energy, _ = self.solvent_correction.get_energy(calc_atoms)
             if "energy" in self.results:
                 self.results["energy"] += solvent_energy.item()
             if "free_energy" in self.results:

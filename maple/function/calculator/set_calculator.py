@@ -110,6 +110,7 @@ class SetCalculator:
         implicit: str = 'None',
         solvent: str = 'None',
         model_options: Optional[dict] = None,
+        solvation_options: Optional[dict] = None,
     ) -> None:
         self.output = output
         self.model = str(model).strip().lower()
@@ -119,6 +120,7 @@ class SetCalculator:
         self.implicit = normalize_none_option(implicit)
         self.solvent = normalize_none_option(solvent)
         self.model_options = _normalize_model_options(model_options)
+        self.solvation_options = solvation_options or {}
         self._model_error_logged = False
 
     def _model_dir(self) -> Path:
@@ -139,6 +141,33 @@ class SetCalculator:
         self.implicit, self.solvent = validate_implicit_solvent_choice(
             self.implicit, self.solvent
         )
+        if self.implicit == 'none':
+            return
+
+        if self.implicit != 'gbsa':
+            raise ValueError(
+                "Unsupported implicit solvation method: "
+                f"'{self.implicit}'. Supported experimental method: gbsa."
+            )
+
+        if self.solvation_options.get('experimental') is not True:
+            raise ValueError(
+                "Implicit GB-polar/QEq solvation is experimental and disabled "
+                "by default. Add experimental=true in #solv(...) to request "
+                "energy-only use."
+            )
+
+        if self.model_options.get('hessian') is not None:
+            raise ValueError(
+                "Experimental implicit GB-polar solvation does not support "
+                "Hessian/HVP workflows."
+            )
+
+        if self.atoms is not None and atoms_has_pbc(self.atoms):
+            raise ValueError(
+                "Experimental implicit GB-polar solvation is non-periodic only; "
+                "remove #pbc or use a periodic solvent backend."
+            )
 
     def _discover_calculator_class(self, name: str):
         """Resolve `name` to a registered calculator class.
