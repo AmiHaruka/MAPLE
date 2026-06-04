@@ -5,7 +5,12 @@ import os
 import ase
 import numpy as np
 
-from ..calculator_base import CalcABC, parse_bool_option, register_calculator
+from ..calculator_base import (
+    CalcABC,
+    hessian_via_double_autograd,
+    parse_bool_option,
+    register_calculator,
+)
 
 
 @register_calculator
@@ -124,20 +129,11 @@ class ANICalculator(CalcABC):
             requires_grad=True,
         ).unsqueeze(0)
 
-        energy = self._forward_energy(atoms, coordinates)
-
-        num_atoms = coordinates.shape[1]
-        hessian = torch.zeros(
-            (3 * num_atoms, 3 * num_atoms),
-            dtype=coordinates.dtype,
-            device=coordinates.device,
+        # ANI's TorchScript model is Hartree-native, so energy_fn returns Hartree
+        # directly (no EV2HARTREE) and the shared helper yields Hartree/Å².
+        return hessian_via_double_autograd(
+            lambda: self._forward_energy(atoms, coordinates), coordinates
         )
-        grad = torch.autograd.grad(energy, coordinates, create_graph=True)[0].view(-1)
-        for i in range(3 * num_atoms):
-            grad2 = torch.autograd.grad(grad[i], coordinates, retain_graph=True)[0].view(-1)
-            hessian[i, :] = grad2
-
-        return hessian.detach().cpu().numpy()
 
     def dftd4(self, species, coordinates):
         import torch

@@ -65,7 +65,7 @@ def maybe_pad_dim0(a: torch.Tensor, N: int, value=0.0) -> torch.Tensor:
 # ==========================================================
 @register_calculator
 class AIMNet2Calculator(CalcABC):
-    implemented_properties = ['energy', 'forces', 'hessian', 'free_energy']
+    implemented_properties = ['energy', 'forces', 'free_energy', 'hessian']
 
     MODEL_NAMES = ('aimnet2', 'aimnet2nse')
     MODEL_ENERGY_UNIT = 'eV'
@@ -148,7 +148,7 @@ class AIMNet2Calculator(CalcABC):
         self.cutoff_lr = float('inf') if method == 'simple' else float(cutoff)
         self._coulomb_method = method
 
-    def calculate(self, atoms=None, properties=['energy', 'forces', 'free_energy', 'hessian'], system_changes=all_changes):
+    def calculate(self, atoms=None, properties=['energy'], system_changes=all_changes):
         properties = self._normalize_properties(properties)
         atoms = super().calculate(atoms, properties, system_changes)
 

@@ -234,6 +234,31 @@ def numerical_hessian_from_atoms(calc, atoms, delta=0.002):
         calc.atoms = old_atoms
 
 
+def hessian_via_double_autograd(energy_fn, leaf):
+    """Row-by-row analytic Hessian via double autograd.
+
+    Shared by every CalcABC backend whose ``_analytic_hessian`` builds the
+    Hessian one column at a time. ``leaf`` is the position tensor created with
+    ``requires_grad=True``; ``energy_fn()`` must return a scalar energy tensor
+    that depends on ``leaf`` **already in the target unit** (eV-native backends
+    multiply by ``EV2HARTREE`` inside ``energy_fn``; ANI is Hartree-native).
+
+    Returns a ``(3N, 3N)`` float ndarray. Polymorphic over ``leaf`` shape —
+    ``(N, 3)`` for MACE-style backends and ``(1, N, 3)`` for ANI both flatten to
+    ``3N`` — because it only ever reshapes gradients to 1-D.
+    """
+    import torch
+
+    energy = energy_fn()
+    n = leaf.numel()
+    hessian = torch.zeros((n, n), dtype=leaf.dtype, device=leaf.device)
+    grad = torch.autograd.grad(energy, leaf, create_graph=True)[0].reshape(-1)
+    for i in range(n):
+        grad2 = torch.autograd.grad(grad[i], leaf, retain_graph=True)[0].reshape(-1)
+        hessian[i, :] = grad2
+    return hessian.detach().cpu().numpy()
+
+
 def _property_list(properties):
     return ['energy'] if properties is None else properties
 

@@ -1,67 +1,21 @@
 from __future__ import annotations
 
 import os
-from typing import Literal, Optional, Sequence, Union
+from typing import Literal, Optional
 
 import numpy as np
 import torch
 from ase.calculators.calculator import all_changes
 
-from ..calculator_base import CalcABC, register_calculator
+from ..calculator_base import CalcABC, hessian_via_double_autograd, register_calculator
+from ._common import (
+    model_float_dtype,
+    one_hot_node_attrs,
+    radius_graph_no_pbc,
+)
 
 
-# ------------------------ Basic helpers ------------------------
-
-_SYMBOL2Z = {
-    "H":1, "He":2, "Li":3, "Be":4, "B":5, "C":6, "N":7, "O":8, "F":9, "Ne":10,
-    "Na":11, "Mg":12, "Al":13, "Si":14, "P":15, "S":16, "Cl":17, "Ar":18,
-    "K":19, "Ca":20, "Sc":21, "Ti":22, "V":23, "Cr":24, "Mn":25, "Fe":26, "Co":27, "Ni":28, "Cu":29, "Zn":30
-}
-
-def _symbols_to_Z(symbols: Sequence[Union[str,int]]) -> list:
-    """Convert element symbols to atomic numbers."""
-    out = []
-    for s in symbols:
-        if isinstance(s, int):
-            out.append(int(s))
-        else:
-            z = _SYMBOL2Z.get(str(s))
-            if z is None:
-                raise ValueError(f"Unknown element symbol: {s}")
-            out.append(z)
-    return out
-
-def _one_hot_node_attrs(Z: torch.Tensor, atomic_number_table: list, dtype=torch.float64) -> torch.Tensor:
-    """Convert atomic numbers into one-hot vectors aligned with atomic_number_table."""
-    table = torch.tensor(atomic_number_table, dtype=torch.long, device=Z.device)
-    eq = (Z[:, None] == table[None, :])
-    if not torch.all(eq.any(dim=1)):
-        miss = Z[~eq.any(dim=1)].unique().tolist()
-        raise ValueError(f"Atomic number(s) {miss} not in AtomicNumberTable {atomic_number_table}")
-    return eq.to(dtype)
-
-def _radius_graph_no_pbc(positions: torch.Tensor, r_max: float):
-    """Construct a simple O(N^2) radius graph without periodic boundaries."""
-    N = positions.size(0)
-    rij = positions[:, None, :] - positions[None, :, :]
-    d2 = (rij * rij).sum(dim=-1)
-    mask = torch.ones((N, N), dtype=torch.bool, device=positions.device)
-    mask.fill_diagonal_(False)
-    mask &= (d2 <= (r_max + 1e-12) ** 2)
-    iu, ju = torch.nonzero(torch.triu(mask), as_tuple=True)
-    src = torch.cat([iu, ju], dim=0)
-    dst = torch.cat([ju, iu], dim=0)
-    edge_index = torch.stack([src, dst], dim=0).to(torch.long)
-    shifts = torch.zeros((edge_index.size(1), 3), dtype=positions.dtype, device=positions.device)
-    return edge_index, shifts
-
-def _model_float_dtype(model, default=torch.float64):
-    """Infer the scripted model's floating dtype for tensor inputs."""
-    for tensor in list(model.parameters()) + list(model.buffers()):
-        if tensor.is_floating_point():
-            return tensor.dtype
-    return default
-
+# ------------------------ Data builder ------------------------
 
 def build_data_from_atoms(
     atoms,
@@ -70,9 +24,14 @@ def build_data_from_atoms(
     positions: Optional[torch.Tensor] = None,
     dtype: Optional[torch.dtype] = None,
 ):
-    """Build a data_dict for Wrapper.forward() from an ASE Atoms object."""
+    """Build a data_dict for Wrapper.forward() from an ASE Atoms object.
+
+    Pass an explicit ``positions`` tensor (e.g. with ``requires_grad=True``) to
+    reuse the graph for autograd forces/Hessian; otherwise positions are read
+    from ``atoms``.
+    """
     device = torch.device(device)
-    dtype = dtype or _model_float_dtype(model)
+    dtype = dtype or model_float_dtype(model)
     if positions is None:
         pos = torch.tensor(atoms.get_positions(), dtype=dtype, device=device)
     else:
@@ -82,8 +41,8 @@ def build_data_from_atoms(
     atomic_number_table = [int(z) for z in model.atomic_numbers]
 
     dtype = pos.dtype
-    node_attrs = _one_hot_node_attrs(Z, atomic_number_table, dtype=dtype)
-    edge_index, shifts = _radius_graph_no_pbc(pos, r_max)
+    node_attrs = one_hot_node_attrs(Z, atomic_number_table, dtype=dtype)
+    edge_index, shifts = radius_graph_no_pbc(pos, r_max)
 
     N = pos.size(0)
     batch = torch.zeros(N, dtype=torch.int64, device=device)
@@ -184,7 +143,7 @@ class MACECalculator(CalcABC):
             p.requires_grad_(False)
 
         self.device = device
-        self.dtype = _model_float_dtype(self.model)
+        self.dtype = model_float_dtype(self.model)
         self.overwrite = overwrite
 
         self.r_max = float(self.model.r_max)
@@ -193,14 +152,19 @@ class MACECalculator(CalcABC):
 
         self.implicit_solv_init(implicit=implicit, solvent=solvent)
 
-    def calculate(self, atoms=None, properties=['energy', 'forces'], system_changes=all_changes):
+    def calculate(self, atoms=None, properties=['energy'], system_changes=all_changes):
         """Main ASE calculation entry point."""
         properties = self._normalize_properties(properties)
         atoms = super().calculate(atoms, properties, system_changes)
 
-        # Energy-only forward (no autograd) — cheap path when forces not requested.
+        # Single forward; positions carry grad only when forces are requested.
+        needs_forces = 'forces' in properties
+        positions = torch.tensor(
+            atoms.get_positions(), dtype=self.dtype, device=self.device,
+            requires_grad=needs_forces,
+        )
         data_dict, local_or_ghost = build_data_from_atoms(
-            atoms, self.model, device=self.device, dtype=self.dtype
+            atoms, self.model, device=self.device, positions=positions, dtype=self.dtype
         )
         total_energy_local = self.model.forward(
             data=data_dict, local_or_ghost=local_or_ghost, compute_virials=False
@@ -208,15 +172,8 @@ class MACECalculator(CalcABC):
         energy_eV = total_energy_local.sum()
 
         forces_np = None
-        if 'forces' in properties:
-            data_dict['positions'].requires_grad_(True)
-            total_energy_local = self.model.forward(
-                data=data_dict, local_or_ghost=local_or_ghost, compute_virials=False
-            )
-            forces = -torch.autograd.grad(
-                total_energy_local.sum(), data_dict['positions'],
-                create_graph=False, retain_graph=False,
-            )[0]
+        if needs_forces:
+            forces = -torch.autograd.grad(energy_eV, positions)[0]
             forces_np = forces.detach().cpu().numpy()
 
         hessian = None
@@ -227,53 +184,6 @@ class MACECalculator(CalcABC):
 
         self._finalize_results(atoms, energy=energy_eV.item(), forces=forces_np, hessian=hessian)
 
-    def _build_graph_inputs(self, atoms, positions: Optional[torch.Tensor] = None):
-        if positions is None:
-            positions = torch.tensor(atoms.get_positions(), dtype=self.dtype, device=self.device)
-        Z = torch.tensor(atoms.get_atomic_numbers(), dtype=torch.long, device=self.device)
-        node_attrs = _one_hot_node_attrs(Z, self.atomic_numbers, dtype=self.dtype)
-        edge_index, shifts = _radius_graph_no_pbc(positions, self.r_max)
-        N = positions.size(0)
-        batch = torch.zeros(N, dtype=torch.int64, device=self.device)
-        cell = torch.zeros(3, 3, dtype=self.dtype, device=self.device)
-        charge = torch.zeros(N, dtype=self.dtype, device=self.device)
-        dipole = torch.zeros(1, 3, dtype=self.dtype, device=self.device)
-        energy = torch.tensor([0.0], dtype=self.dtype, device=self.device)
-        energy_weight = torch.tensor([0.0], dtype=self.dtype, device=self.device)
-        force = torch.zeros(N, 3, dtype=self.dtype, device=self.device)
-        forces_weight = torch.tensor([0.0], dtype=self.dtype, device=self.device)
-        ptr = torch.tensor([0, N], dtype=torch.int64, device=self.device)
-        stress = torch.zeros(1, 3, 3, dtype=self.dtype, device=self.device)
-        stress_weight = torch.tensor([0.0], dtype=self.dtype, device=self.device)
-        unit_shifts = torch.zeros(edge_index.size(1), 3, dtype=self.dtype, device=self.device)
-        virials = torch.zeros(1, 3, 3, dtype=self.dtype, device=self.device)
-        virials_weight = torch.tensor([0.0], dtype=self.dtype, device=self.device)
-        weight = torch.tensor([1.0], dtype=self.dtype, device=self.device)
-
-        data_dict = {
-            'batch': batch,
-            'cell': cell,
-            'charges': charge,
-            'dipole': dipole,
-            'edge_index': edge_index,
-            'energy': energy,
-            'energy_weight': energy_weight,
-            'forces': force,
-            'forces_weight': forces_weight,
-            'node_attrs': node_attrs,
-            'positions': positions,
-            'ptr': ptr,
-            'shifts': shifts,
-            'stress': stress,
-            'stress_weight': stress_weight,
-            'unit_shifts': unit_shifts,
-            'virials': virials,
-            'virials_weight': virials_weight,
-            'weight': weight
-        }
-        local_or_ghost = torch.ones(N, dtype=self.dtype, device=self.device)
-        return data_dict, local_or_ghost
-
     def _analytic_hessian(self, atoms) -> np.ndarray:
         """Analytic Hessian via autograd. Returns (3N, 3N) np.ndarray in Hartree/Å²."""
         from ..calculator_base import EV2HARTREE
@@ -281,17 +191,14 @@ class MACECalculator(CalcABC):
         positions = torch.tensor(
             atoms.get_positions(), dtype=self.dtype, device=self.device, requires_grad=True
         )
-        data_dict, local_or_ghost = self._build_graph_inputs(atoms, positions=positions)
-        total_energy_local = self.model.forward(
-            data=data_dict, local_or_ghost=local_or_ghost, compute_virials=False
+        data_dict, local_or_ghost = build_data_from_atoms(
+            atoms, self.model, device=self.device, positions=positions, dtype=self.dtype
         )
-        energy = total_energy_local.sum() * EV2HARTREE
 
-        num_atoms = positions.shape[0]
-        hessian = torch.zeros((3 * num_atoms, 3 * num_atoms), dtype=positions.dtype, device=positions.device)
-        grad = torch.autograd.grad(energy, positions, create_graph=True)[0].view(-1)
-        for i in range(3 * num_atoms):
-            grad2 = torch.autograd.grad(grad[i], positions, retain_graph=True)[0].view(-1)
-            hessian[i, :] = grad2
+        def energy_fn():
+            total_energy_local = self.model.forward(
+                data=data_dict, local_or_ghost=local_or_ghost, compute_virials=False
+            )
+            return total_energy_local.sum() * EV2HARTREE
 
-        return hessian.detach().cpu().numpy()
+        return hessian_via_double_autograd(energy_fn, positions)
