@@ -10,7 +10,7 @@ import os
 import re
 import shutil
 
-from .. import interface as amber_interface
+from .. import interface
 from ..ionparams import infer_ion_frcmod_name
 from ..model import write_model_pdb
 from ..outputparm import allocate_maple_atom_types, format_tleap_add_atom_types_lines
@@ -127,7 +127,7 @@ def _run_ambertools_build(
     }
     source_mol2 = os.path.basename(resp_result.files["mol2"])
     target_chg = os.path.basename(resp_result.resp_files["target_chg"])
-    typed_mol2_result = amber_interface.run_antechamber(
+    typed_mol2_result = interface.run_antechamber(
         source_mol2,
         interface_cfg,
         workdir,
@@ -136,7 +136,7 @@ def _run_ambertools_build(
         charge_mode="rc",
         charge_file=target_chg,
     )
-    antechamber_result = amber_interface.run_antechamber(
+    antechamber_result = interface.run_antechamber(
         source_mol2,
         interface_cfg,
         workdir,
@@ -146,14 +146,14 @@ def _run_ambertools_build(
     )
 
     segment_sizes = representative_model["segment_sizes"]
-    ac_names = amber_interface.read_ac_names(antechamber_result.ac_path)
+    ac_names = interface.read_ac_names(antechamber_result.ac_path)
     n_ace = segment_sizes["ace"]
     n_res = segment_sizes["residue"]
     ace_names = ac_names[:n_ace]
     nme_names = ac_names[n_ace + n_res :]
 
     mainchain_path = os.path.join(workdir, f"{config.rn}.mc")
-    amber_interface.write_mainchain_mc(
+    interface.write_mainchain_mc(
         mainchain_path,
         ace_names,
         nme_names,
@@ -164,13 +164,13 @@ def _run_ambertools_build(
         extra_omit_names=infer_terminal_omit_names(charged_residue),
     )
 
-    prepgen_result = amber_interface.run_prepgen(
+    prepgen_result = interface.run_prepgen(
         os.path.basename(antechamber_result.ac_path),
         os.path.basename(mainchain_path),
         interface_cfg,
         workdir,
     )
-    parmchk_result = amber_interface.run_parmchk2(
+    parmchk_result = interface.run_parmchk2(
         os.path.basename(prepgen_result.prepin_path),
         interface_cfg,
         False,
@@ -559,7 +559,7 @@ def write_ncaa_amber_files(
         handle.writelines(mapping.prepin_lines)
 
     residue_parameter_set = _build_residue_parameter_set(final_parameter_set, mapping)
-    amber_interface.write_refined_frcmod(
+    interface.write_refined_frcmod(
         residue_parameter_set,
         amber.refined_frcmod,
         mass_params=mapping.maple_mass_params,

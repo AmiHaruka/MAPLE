@@ -13,17 +13,18 @@ from .topology import (
     _validate_fit_targets,
     canonical_torsion_atom_types,
     center_bond_dihedrals,
-    shared_group_label,
+    normalize_center_bond,
 )
 from .records import TorsionGlobalProblem, TorsionLocalProblem, TorsionScanData, TorsionSharedGroupSpec
-from .config import TorsionFitParams, normalize_center_bond
+from .config import TorsionFitParams
 
-_SLOT_PERIODS = (1, 2, 3, 4, 6)
+_SLOT_PERIODS = (1, 2, 3, 4)
 _SLOT_PHASES = {
     1: 0.0,
     2: np.pi,
     3: 0.0,
     4: np.pi,
+    5: 0.0,
     6: np.pi,
 }
 _LOCAL_EXISTING_TERM_PRIOR_WEIGHT = 6.0
@@ -32,6 +33,54 @@ _LOCAL_NEW_TERM_PRIOR_WEIGHT = _LOCAL_EXISTING_TERM_PRIOR_WEIGHT * _LOCAL_NEW_TE
 _GLOBAL_EXISTING_TERM_PRIOR_WEIGHT = _LOCAL_EXISTING_TERM_PRIOR_WEIGHT * 0.25
 _GLOBAL_NEW_TERM_PRIOR_WEIGHT = _LOCAL_NEW_TERM_PRIOR_WEIGHT
 _GLOBAL_INACTIVE_TERM_PRIOR_WEIGHT = _GLOBAL_NEW_TERM_PRIOR_WEIGHT * 2.0
+_PROFILE_WEIGHT_FLOOR = 0.10
+_PROFILE_WEIGHT_E0 = 2.0
+_PROFILE_SCALE_FLOOR = 0.50
+
+
+def _robust_profile_range(values: np.ndarray) -> float:
+    data = np.asarray(values, dtype=float).reshape(-1)
+    if data.size == 0:
+        return 0.0
+    if data.size < 8:
+        return float(np.max(data) - np.min(data))
+    return float(np.percentile(data, 95.0) - np.percentile(data, 5.0))
+
+
+def _profile_fit_scale(qm_rel: np.ndarray, target_like: np.ndarray | None = None) -> float:
+    qm_scale = _robust_profile_range(np.asarray(qm_rel, dtype=float))
+    target_scale = _robust_profile_range(np.asarray(target_like, dtype=float)) if target_like is not None else 0.0
+    return max(qm_scale, target_scale, _PROFILE_SCALE_FLOOR)
+
+
+def _profile_loss_metrics(
+    qm_rel: np.ndarray,
+    mm_rel: np.ndarray,
+    *,
+    profile_scale: float | None = None,
+    weights: np.ndarray | None = None,
+) -> dict[str, float]:
+    qm_values = np.asarray(qm_rel, dtype=float)
+    mm_values = np.asarray(mm_rel, dtype=float)
+    residual = mm_values - qm_values
+    scale = float(profile_scale) if profile_scale is not None else _profile_fit_scale(qm_values)
+    weight_values = np.asarray(weights, dtype=float) if weights is not None else _scan_energy_weights(qm_values)
+    if weight_values.shape != qm_values.shape:
+        weight_values = _scan_energy_weights(qm_values)
+    weight_sum = float(np.sum(weight_values))
+    normalized_residual = residual / max(scale, 1.0e-12)
+    data_loss = float(np.sum(weight_values * (normalized_residual**2)) / weight_sum) if weight_sum > 0.0 else 0.0
+    weighted_rmse = float(np.sqrt(data_loss)) if data_loss > 0.0 else 0.0
+    return {
+        "data_loss": float(data_loss),
+        "weighted_rmse": float(weighted_rmse),
+        "scale": float(scale),
+    }
+
+
+def _scan_energy_weights(qm_rel: np.ndarray) -> np.ndarray:
+    qm_values = np.maximum(np.asarray(qm_rel, dtype=float), 0.0)
+    return _PROFILE_WEIGHT_FLOOR + ((1.0 - _PROFILE_WEIGHT_FLOOR) / (1.0 + qm_values / _PROFILE_WEIGHT_E0))
 
 
 def _normalize_phase_signed(phase: float) -> float:
@@ -101,7 +150,7 @@ def _member_template_periods(members: list[tuple[int, object]]) -> tuple[int, ..
     for _local_index, dihedral in members:
         for term in dihedral.terms:
             period = _integer_period(term.period)
-            if period is not None:
+            if period in _SLOT_PERIODS:
                 periods.add(period)
     return tuple(sorted(periods))
 
@@ -120,8 +169,12 @@ def _build_group_spec(
     existing_slot_mask: list[bool] = []
     slot_sources: list[str] = []
     slot_coherences: list[float] = []
-    spectral_by_period = {int(slot.period): slot for slot in spectral_slots}
-    candidate_periods = sorted(set(_member_template_periods(members)) | set(spectral_by_period))
+    spectral_by_period = {
+        int(slot.period): slot
+        for slot in spectral_slots
+        if int(slot.period) in _SLOT_PERIODS
+    }
+    candidate_periods = sorted(set(_SLOT_PERIODS) | set(_member_template_periods(members)) | set(spectral_by_period))
     for slot_period in candidate_periods:
         member_dihedrals = [dihedral for _, dihedral in members]
         coefficients = _aggregate_period_coefficients(member_dihedrals, slot_period)
@@ -144,7 +197,7 @@ def _build_group_spec(
 
     return (
         TorsionSharedGroupSpec(
-            label=shared_group_label(atom_types) if label is None else label,
+            label="-".join(atom_types) if label is None else label,
             atom_types=atom_types,
             improper=False,
             dihedral_indices=tuple(local_index for local_index, _ in members),
@@ -239,14 +292,14 @@ def _group_center_bond_dihedrals(
 
     base_label_counts: dict[str, int] = defaultdict(int)
     for key in grouped:
-        base_label_counts[shared_group_label(key[0])] += 1
+        base_label_counts["-".join(key[0])] += 1
 
     base_label_seen: dict[str, int] = defaultdict(int)
     slot_offset = 0
     group_specs: list[TorsionSharedGroupSpec] = []
     for key, members in grouped.items():
         atom_types = key[0]
-        base_label = shared_group_label(atom_types)
+        base_label = "-".join(atom_types)
         base_label_seen[base_label] += 1
         label = base_label
         if base_label_counts[base_label] > 1:
@@ -526,10 +579,7 @@ def build_local_torsion_problem(
     fit_target_rel = qm_rel - mm_base_rel
 
     k_orig, scales, prior_weights = _group_slot_initial_values(target_dihedrals, shared_groups)
-    active_mask = np.asarray(
-        [existing for group in shared_groups for existing in group.existing_slot_mask],
-        dtype=bool,
-    )
+    active_mask = np.ones(sum(len(group.slot_indices) for group in shared_groups), dtype=bool)
     return TorsionLocalProblem(
         center_bond=center,
         scan_data=scan_data,

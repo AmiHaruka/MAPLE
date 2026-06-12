@@ -8,7 +8,7 @@ import os
 from time import perf_counter
 from typing import Callable
 
-from .. import interface as amber_interface
+from .. import interface
 from ..context import find_prev_next_peptide_residues, find_residue_by_key
 from ..Seminario import apply_seminario
 from ..mSeminario import apply_mseminario
@@ -139,7 +139,7 @@ def _refine_ncaa_parameters(
     bonded_label = "Seminario" if config.bonded == "seminario" else "mSeminario"
     apply_bonded = apply_seminario if config.bonded == "seminario" else apply_mseminario
     with _timed_stage(stage_timings, f"{bonded_label} setup/Hessian"):
-        amber_interface.patch_frcmod_crossterms(frcmod_path)
+        interface.patch_frcmod_crossterms(frcmod_path)
         stage0_result = build_correction_parameter_set(representative_atoms, typed_mol2_path, frcmod_path)
 
         hessian = get_cartesian_hessian(representative_atoms)
@@ -256,7 +256,7 @@ def run_ncaa_abinitio(
 
     log_info(["  [NCAA] tleap validation ...\n"])
     with _timed_stage(stage_timings, "tleap validation"):
-        amber_interface.run_tleap(
+        interface.run_tleap(
             export_bundle.artifacts.tleap_input,
             workdir=os.path.dirname(export_bundle.artifacts.tleap_input) or ".",
         )

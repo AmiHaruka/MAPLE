@@ -52,7 +52,7 @@ def summary_lines(
         f"Torsion constraint:{torsion.constraint_mode}\n",
         _torsion_ensemble_setup_line(torsion),
         f"Scan grid:         {torsion.torsion_step_deg:.4f} deg x {torsion.torsion_steps} steps\n",
-        f"Stage2 refine:     cycles={torsion.refine_rounds}, block_max_iter={torsion.refine_max_iter}, tol={torsion.refine_tol:.6g}\n",
+        f"Stage2 refine:     max_cycles={torsion.refine_rounds}, max_iter_per_cycle={torsion.refine_max_iter}, tol={torsion.refine_tol:.6g}\n",
         (
             "Center bonds:      auto-select non-ring center bonds with proper torsions\n"
             if torsion.center_bonds is None
@@ -203,32 +203,23 @@ def _torsion_refine_round_lines(config: CorrectionConfig, result: CorrectionWork
         ]
 
     diagnostics = result.torsion.stage2_diagnostics if isinstance(result.torsion.stage2_diagnostics, dict) else {}
-    accepted_rounds = int(diagnostics.get("accepted_cycles", _accepted_refine_rounds(result)))
-    rejected_rounds = int(diagnostics.get("rejected_cycles", _rejected_refine_rounds(result)))
+    best_round = int(diagnostics.get("best_round", 0))
     lines = [
         "  stage1: completed\n",
-        f"  stage2: enabled, requested_rounds={requested_rounds}\n",
-        f"  refine rounds: accepted={accepted_rounds}, rejected={rejected_rounds}\n",
+        f"  stage2: enabled, max_cycles={requested_rounds}\n",
+        (
+            f"  fast cycles: executed={int(diagnostics.get('cycles', len(result.torsion.refine_cycles)))}, "
+            f"accepted={int(diagnostics.get('accepted_cycles', 0))}, "
+            f"rejected={int(diagnostics.get('rejected_cycles', 0))}\n"
+        ),
     ]
-    if accepted_rounds > 0 and rejected_rounds > 0:
-        lines.append(
-            f"  final parameters: round {accepted_rounds} accepted; round {accepted_rounds + 1} rejected, keeping round {accepted_rounds}\n"
-        )
-    elif accepted_rounds > 0:
-        lines.append(f"  final parameters: round {accepted_rounds} accepted\n")
+    if best_round > 0:
+        lines.append(f"  final parameters: Stage2 cycle {best_round}\n")
     elif result.torsion.refine_cycles:
-        lines.append("  final parameters: Stage1 result; round 1 rejected\n")
+        lines.append("  final parameters: Stage1 result; Stage2 fast cycle did not improve loss\n")
     else:
-        lines.append("  final parameters: Stage1 result; Stage2 produced no accepted round\n")
+        lines.append("  final parameters: Stage1 result; Stage2 produced no accepted cycle\n")
     return lines
-
-
-def _accepted_refine_rounds(result: CorrectionWorkflowResult) -> int:
-    return sum(1 for cycle in result.torsion.refine_cycles if int(cycle.accepted_blocks) > 0)
-
-
-def _rejected_refine_rounds(result: CorrectionWorkflowResult) -> int:
-    return sum(1 for cycle in result.torsion.refine_cycles if int(cycle.rejected_blocks) > 0)
 
 
 def _stage2_debug_lines(config: CorrectionConfig, result: CorrectionWorkflowResult) -> list[str]:
@@ -236,26 +227,39 @@ def _stage2_debug_lines(config: CorrectionConfig, result: CorrectionWorkflowResu
         return []
     if not result.torsion.refine_cycles:
         return []
-    diagnostics = result.torsion.refine_cycles[-1].diagnostics
-    if not isinstance(diagnostics, dict):
-        return []
-    required = ("initial_total_loss", "final_total_loss")
-    if not all(key in diagnostics for key in required):
-        return []
+    diagnostics = result.torsion.stage2_diagnostics if isinstance(result.torsion.stage2_diagnostics, dict) else {}
     lines = ["  Stage2 loss:\n"]
-    lines.append(
-        f"    scan:      {float(diagnostics.get('initial_scan_loss', 0.0)):.6f} -> {float(diagnostics.get('final_scan_loss', 0.0)):.6f}\n"
-    )
-    lines.append(
-        f"    ensemble:  {float(diagnostics.get('initial_ensemble_loss', 0.0)):.6f} -> {float(diagnostics.get('final_ensemble_loss', 0.0)):.6f}\n"
-    )
-    lines.append(
-        f"    prior:     {float(diagnostics.get('initial_prior_loss', 0.0)):.6f} -> {float(diagnostics.get('final_prior_loss', 0.0)):.6f}\n"
-    )
-    lines.append(
-        f"    total:     {float(diagnostics.get('initial_total_loss', 0.0)):.6f} -> {float(diagnostics.get('final_total_loss', 0.0)):.6f}\n"
-    )
-    lines.append(f"    status:    {diagnostics.get('status', 'unknown')}\n")
+    if diagnostics:
+        lines.append(f"    solver:    {diagnostics.get('solver', 'unknown')}\n")
+        if "selected_optimizer" in diagnostics:
+            lines.append(f"    selected:  {diagnostics.get('selected_optimizer')}\n")
+        if "k_phase_loss" in diagnostics and "coeff_ab_loss" in diagnostics:
+            lines.append(
+                f"    candidates:k_phase={float(diagnostics.get('k_phase_loss', 0.0)):.6f}, "
+                f"coeff_ab={float(diagnostics.get('coeff_ab_loss', 0.0)):.6f}\n"
+            )
+        lines.append(
+            f"    total:     {float(diagnostics.get('initial_total_loss', 0.0)):.6f} -> {float(diagnostics.get('final_total_loss', 0.0)):.6f}\n"
+        )
+        lines.append(
+            f"    data:      {float(diagnostics.get('initial_data_loss', 0.0)):.6f} -> {float(diagnostics.get('final_data_loss', 0.0)):.6f}\n"
+        )
+        lines.append(
+            f"    prior:     {float(diagnostics.get('initial_prior_loss', 0.0)):.6f} -> {float(diagnostics.get('final_prior_loss', 0.0)):.6f}\n"
+        )
+        lines.append(f"    status:    {'accepted' if int(diagnostics.get('best_round', 0)) > 0 else 'kept_stage1'}\n")
+    lines.append("    cycles:\n")
+    for cycle in result.torsion.refine_cycles:
+        info = cycle.diagnostics if isinstance(cycle.diagnostics, dict) else {}
+        lines.append(
+            f"      {cycle.cycle}: "
+            f"total={float(cycle.total_loss_before):.6f}->{float(cycle.total_loss_after):.6f}  "
+            f"scan={float(info.get('scan_loss_after', 0.0)):.6f}  "
+            f"ensemble={float(info.get('ensemble_loss_after', 0.0)):.6f}  "
+            f"prior={float(info.get('prior_loss_after', 0.0)):.6f}  "
+            f"selected={info.get('selected_optimizer', 'NA')}  "
+            f"status={info.get('status', 'unknown')}\n"
+        )
     return lines
 
 

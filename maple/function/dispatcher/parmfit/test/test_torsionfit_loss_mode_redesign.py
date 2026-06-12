@@ -104,12 +104,10 @@ from maple.function.dispatcher.parmfit.utils.TorsionFit.topology import apply_fi
 from maple.function.dispatcher.parmfit.utils.TorsionFit import stage1 as torsion_stage1_module
 from maple.function.dispatcher.parmfit.utils.TorsionFit import stage2 as torsion_stage2_module
 from maple.function.dispatcher.parmfit.utils.TorsionFit.fit import fit_torsion_scan
-from maple.function.dispatcher.parmfit.utils.TorsionFit.basis import build_global_torsion_problem
-from maple.function.dispatcher.parmfit.utils.TorsionFit.quality import _scan_energy_weights
+from maple.function.dispatcher.parmfit.utils.TorsionFit.basis import build_global_torsion_problem, _scan_energy_weights
 from maple.function.dispatcher.parmfit.utils.TorsionFit.stage1 import (
     _build_local_stage1_solve_cache,
     _solve_local_problem_stage1,
-    _solve_local_stage1_active_set,
     _solve_local_stage1_active_set_with_phases,
     _stage1_retained_rows,
 )
@@ -121,12 +119,12 @@ from maple.function.dispatcher.parmfit.utils.TorsionFit.spectral import (
 from maple.function.dispatcher.parmfit.utils.TorsionFit import ensemble as torsion_ensemble_module
 from maple.function.dispatcher.parmfit.utils.TorsionFit.stage2 import (
     _build_stage2_objective_cache,
-    _delta_from_stage2_k_phase,
-    _evaluate_stage2_k_phase_objective_with_gradient,
+    _evaluate_stage2_delta_objective_with_gradient,
+    _global_vector_size,
     _global_mm_rel_map,
+    _optimize_stage2_auto_mean_shift,
+    _optimize_stage2_coeff_ab,
     _optimize_stage2_k_phase,
-    _pack_stage2_k_phase,
-    _stage2_k_phase_bounds,
     _split_global_vector,
     apply_global_delta,
     evaluate_global_refit_objective,
@@ -149,7 +147,8 @@ from maple.function.dispatcher.parmfit.utils.TorsionFit.records import (
     TorsionSharedGroupSpec,
     TorsionWorkflowResult,
 )
-from maple.function.dispatcher.parmfit.utils.TorsionFit.config import TorsionFitParams, normalize_center_bond
+from maple.function.dispatcher.parmfit.utils.TorsionFit.config import TorsionFitParams
+from maple.function.dispatcher.parmfit.utils.TorsionFit.topology import normalize_center_bond
 from maple.function.dispatcher.parmfit.utils.TorsionFit import basis as torsion_problem_module
 from maple.function.dispatcher.parmfit.utils.TorsionFit.scanio import HARTREE_TO_KCAL_MOL, read_scan_xyz
 from maple.function.dispatcher.parmfit.utils.TorsionFit.workflow import run_torsion_workflow
@@ -472,18 +471,20 @@ def test_stage1_preserves_inactive_zero_amplitude_template_terms():
     assert merged[0].phase == pytest.approx(np.pi)
 
 
-def test_spectral_selector_uses_amber_compatible_periods_and_keeps_phase():
+def test_spectral_selector_uses_default_stage1_periods_and_keeps_phase():
     phi_values = np.linspace(0.0, 2.0 * np.pi, 72, endpoint=False)
     phase = 0.73
-    target = 1.4 * (np.cos(6.0 * phi_values - phase) - np.cos(6.0 * phi_values[0] - phase))
+    target = 1.4 * (np.cos(4.0 * phi_values - phase) - np.cos(4.0 * phi_values[0] - phase))
 
     peaks = dominant_spectral_peaks(phi_values, target, ref_idx=0, allowed_periods=DEFAULT_SPECTRAL_PERIODS)
 
     periods = [peak.period for peak in peaks]
-    assert 6 in periods
+    assert DEFAULT_SPECTRAL_PERIODS == (1, 2, 3, 4)
+    assert 4 in periods
     assert 5 not in periods
-    period6 = next(peak for peak in peaks if peak.period == 6)
-    assert period6.phase == pytest.approx(phase, abs=1.0e-10)
+    assert 6 not in periods
+    period4 = next(peak for peak in peaks if peak.period == 4)
+    assert period4.phase == pytest.approx(phase, abs=1.0e-10)
 
 
 def test_shared_group_response_migrates_path_phase_and_detects_cancellation():
@@ -845,9 +846,159 @@ class _FakeMinimizeResult:
 
 def _patch_stage2_minimize(monkeypatch, fake_minimize):
     monkeypatch.setattr(torsion_stage2_module, "minimize", fake_minimize)
+    monkeypatch.setattr(
+        torsion_stage2_module,
+        "_optimize_stage2_coeff_ab",
+        lambda _problem, delta_init, **_kwargs: np.asarray(delta_init, dtype=float).reshape(-1).copy(),
+    )
 
 
-def test_stage2_optimizer_uses_k_phase_vector(monkeypatch):
+def test_stage2_direct_optimizer_runs_one_cycle_per_global_call(monkeypatch):
+    problem = _guard_problem(
+        qm_rel=[0.0, 1.0],
+        constant_rel=[0.0, 0.0],
+        basis=[[0.0], [1.0]],
+        scales=[100.0],
+    )
+    seen_x0: list[np.ndarray] = []
+    seen_after: list[float] = []
+
+    def fake_minimize(fun, x0, jac, method, bounds, options):
+        del jac, method, bounds, options
+        seen_x0.append(np.asarray(x0, dtype=float).copy())
+        candidate = np.asarray(x0, dtype=float).copy()
+        candidate[0] += 0.25
+        loss, _gradient = fun(candidate)
+        seen_after.append(float(loss))
+        return _FakeMinimizeResult(candidate)
+
+    _patch_stage2_minimize(monkeypatch, fake_minimize)
+
+    vector_final, cycles = refine_torsion_scans_global(
+        problem,
+        delta_init=np.zeros(2 * len(problem.k_orig), dtype=float),
+        enabled=True,
+        max_block_iter=5,
+        tol=1.0e-8,
+    )
+
+    assert len(cycles) == 1
+    assert seen_x0[0].tolist() == pytest.approx([0.0, 0.0])
+    assert vector_final[0] > 0.0
+    assert cycles[-1].diagnostics["objective_kind"] == "auto_mean_shift"
+
+
+def test_stage2_mean_shift_loss_ignores_constant_profile_offset():
+    problem = _guard_problem(
+        qm_rel=[10.0, 10.0, 10.0],
+        constant_rel=[0.0, 0.0, 0.0],
+        basis=[[0.0], [0.0], [0.0]],
+        scales=[1.0],
+    )
+
+    evaluation = evaluate_global_refit_objective(problem, np.zeros(2 * len(problem.k_orig), dtype=float))
+
+    assert evaluation.data_loss == pytest.approx(0.0)
+    assert evaluation.scan_data_loss == pytest.approx(0.0)
+
+
+def test_stage2_auto_optimizer_can_select_coeff_ab(monkeypatch):
+    problem = _guard_problem(
+        qm_rel=[0.0, 1.0],
+        constant_rel=[0.0, 0.0],
+        basis=[[0.0], [1.0]],
+        scales=[100.0],
+    )
+    vector_init = np.zeros(2 * len(problem.k_orig), dtype=float)
+    cache = _build_stage2_objective_cache(problem)
+    coeff_candidate = np.asarray([1.0, 0.0], dtype=float)
+
+    monkeypatch.setattr(torsion_stage2_module, "_optimize_stage2_k_phase", lambda *_args, **_kwargs: vector_init)
+    monkeypatch.setattr(torsion_stage2_module, "_optimize_stage2_coeff_ab", lambda *_args, **_kwargs: coeff_candidate)
+
+    vector_final, diagnostics = _optimize_stage2_auto_mean_shift(
+        problem,
+        vector_init,
+        max_iter=5,
+        tol=1.0e-8,
+        cache=cache,
+    )
+
+    assert vector_final.tolist() == pytest.approx(coeff_candidate.tolist())
+    assert diagnostics["selected_optimizer"] == "coeff_ab"
+    assert diagnostics["coeff_ab_loss"] < diagnostics["k_phase_loss"]
+
+
+def test_stage2_optimizer_receives_direct_k_phase_vector(monkeypatch):
+    problem = replace(
+        _guard_problem(
+            qm_rel=[0.0, 0.0],
+            constant_rel=[0.0, 0.0],
+            basis=[[0.0], [1.0]],
+            scales=[100.0],
+        ),
+        k_orig=np.asarray([1.0], dtype=float),
+        phase_orig=np.asarray([0.25], dtype=float),
+    )
+    seen: dict[str, np.ndarray] = {}
+
+    def fake_minimize(fun, x0, jac, method, bounds, options):
+        del jac, method, bounds, options
+        seen["x0"] = np.asarray(x0, dtype=float).copy()
+        loss, gradient = fun(np.asarray([0.5, 0.75], dtype=float))
+        assert np.isfinite(loss)
+        assert gradient.shape == (2,)
+        return _FakeMinimizeResult([0.5, 0.75])
+
+    _patch_stage2_minimize(monkeypatch, fake_minimize)
+
+    vector_final, cycles = refine_torsion_scans_global(
+        problem,
+        delta_init=np.zeros(2 * len(problem.k_orig), dtype=float),
+        enabled=True,
+        max_block_iter=5,
+        tol=1.0e-8,
+    )
+
+    assert seen["x0"].tolist() == pytest.approx([1.0, 0.25])
+    k_values, phase_values = _split_global_vector(problem, vector_final)
+    assert k_values.tolist() == pytest.approx([0.5])
+    assert phase_values.tolist() == pytest.approx([0.75])
+    assert cycles[-1].diagnostics["objective_kind"] == "auto_mean_shift"
+
+
+def test_stage2_direct_optimizer_preserves_zero_k_phase_seed(monkeypatch):
+    problem = replace(
+        _guard_problem(
+            qm_rel=[0.0, 1.0],
+            constant_rel=[0.0, 0.0],
+            basis=[[0.0], [1.0]],
+            scales=[100.0],
+        ),
+        k_orig=np.asarray([0.0], dtype=float),
+        phase_orig=np.asarray([0.75], dtype=float),
+    )
+    seen: dict[str, np.ndarray] = {}
+
+    def fake_minimize(fun, x0, jac, method, bounds, options):
+        del fun, jac, method, bounds, options
+        seen["x0"] = np.asarray(x0, dtype=float).copy()
+        return _FakeMinimizeResult(x0)
+
+    _patch_stage2_minimize(monkeypatch, fake_minimize)
+
+    refine_torsion_scans_global(
+        problem,
+        delta_init=np.zeros(2 * len(problem.k_orig), dtype=float),
+        enabled=True,
+        max_block_iter=5,
+        tol=1.0e-8,
+    )
+
+    assert seen["x0"].tolist() == pytest.approx([0.0, 0.75])
+
+
+def test_stage2_optimizer_uses_direct_k_phase_bounds(monkeypatch):
     problem = replace(
         _guard_problem(
             qm_rel=[0.0, 0.0],
@@ -866,10 +1017,11 @@ def test_stage2_optimizer_uses_k_phase_vector(monkeypatch):
         assert seen["x0"].tolist() == pytest.approx([1.0, 0.0])
         assert bounds[0][0] == pytest.approx(0.0)
         assert bounds[0][1] > 0.0
-        loss, gradient = fun(np.asarray([0.0, 0.0], dtype=float))
+        assert bounds[1] == (None, None)
+        loss, gradient = fun(np.asarray([0.5, 0.0], dtype=float))
         assert np.isfinite(loss)
         assert gradient.shape == (2,)
-        return _FakeMinimizeResult([0.0, 0.0])
+        return _FakeMinimizeResult([0.5, 0.0])
 
     _patch_stage2_minimize(monkeypatch, fake_minimize)
 
@@ -882,12 +1034,14 @@ def test_stage2_optimizer_uses_k_phase_vector(monkeypatch):
     )
 
     assert seen["x0"].tolist() == pytest.approx([1.0, 0.0])
-    assert vector_final.tolist() == pytest.approx([-1.0, 0.0])
+    k_values, phase_values = _split_global_vector(problem, vector_final)
+    assert k_values.tolist() == pytest.approx([0.5])
+    assert phase_values.tolist() == pytest.approx([0.0])
     assert cycles[-1].accepted_blocks == 1
     assert cycles[-1].diagnostics["status"] == "accepted"
 
 
-def test_stage2_uses_optimizer_final_without_intermediate_selection(monkeypatch):
+def test_stage2_keeps_best_finite_optimizer_point(monkeypatch):
     problem = _guard_problem(
         qm_rel=[0.0, 1.0, 0.0, 1.0],
         constant_rel=[0.0, 0.0, 0.0, 0.0],
@@ -913,7 +1067,7 @@ def test_stage2_uses_optimizer_final_without_intermediate_selection(monkeypatch)
         tol=1.0e-8,
     )
 
-    assert vector_final.tolist() == pytest.approx(worse_final.tolist())
+    assert vector_final.tolist() == pytest.approx(better_intermediate.tolist())
     assert cycles[-1].diagnostics["status"] == "accepted"
 
 
@@ -982,8 +1136,8 @@ def test_stage2_accepts_only_when_final_total_loss_improves(monkeypatch):
         tol=1.0e-8,
     )
 
-    assert vector_final.tolist() == pytest.approx([0.0, 0.0])
-    assert cycles[-1].diagnostics["status"] == "kept_stage1"
+    assert vector_final.tolist() == pytest.approx(low_total.tolist())
+    assert cycles[-1].diagnostics["status"] == "accepted"
 
 
 def test_stage2_extra_target_contributes_to_hybrid_objective():
@@ -1403,7 +1557,9 @@ def test_stage2_direct_optimizer_updates_global_vector(monkeypatch):
         tol=1.0e-8,
     )
 
-    assert vector_final.tolist() == pytest.approx([2.0, 0.5, 0.0, 0.0])
+    k_values, phase_values = _split_global_vector(problem, vector_final)
+    assert k_values.tolist() == pytest.approx([2.0, 0.0])
+    assert phase_values.tolist() == pytest.approx([0.5, 0.0])
     assert cycles[-1].accepted_blocks == 2
     assert cycles[-1].rejected_blocks == 0
     assert cycles[-1].diagnostics["status"] == "accepted"
@@ -1440,13 +1596,13 @@ def test_run_loss_mode_exposes_public_five_curve_outputs(tmp_path: Path, monkeyp
     assert "MM_stage2" in text
     assert f"{float(scan_data.qm_rel[0]):10.6f}" in text
     assert result.stage1_diagnostics["solver"] == "local_restrained_lls"
-    assert result.stage2_diagnostics["solver"] == "continuous_phase_k_refine"
-    assert result.stage2_diagnostics["requested_cycles"] == 2
+    assert result.stage2_diagnostics["solver"] == "auto_mean_shift"
+    assert result.stage2_diagnostics["requested_cycles"] == 3
     assert result.stage2_diagnostics["cycles"] == len(result.refine_cycles)
     assert "final_cycle" in result.stage2_diagnostics
 
 
-def test_run_loss_mode_does_not_accept_rejected_stage2_first_cycle(monkeypatch):
+def test_run_loss_mode_reports_kept_stage1_stage2_refinement(monkeypatch):
     import maple.function.dispatcher.parmfit.utils.TorsionFit.fit as fit_module
 
     parameter_set = _make_parameter_set((0.0,))
@@ -1472,7 +1628,7 @@ def test_run_loss_mode_does_not_accept_rejected_stage2_first_cycle(monkeypatch):
     def fake_fit_stage1_cycle(**_kwargs):
         return parameter_set, [report], {"solver": "fake_stage1"}
 
-    def fake_run_stage2_cycle(**_kwargs):
+    def fake_run_stage2_refinement(**_kwargs):
         cycle = TorsionRefineCycle(
             cycle=1,
             total_loss_before=1.0,
@@ -1485,11 +1641,16 @@ def test_run_loss_mode_does_not_accept_rejected_stage2_first_cycle(monkeypatch):
             per_scan_rmse_after={(2, 3): 1.0},
             diagnostics={"status": "kept_stage1", "reject_reason": "no_total_loss_gain"},
         )
-        return parameter_set, [report], [cycle], before_eval, after_eval, dict(cycle.diagnostics)
+        return parameter_set, [report], [cycle], before_eval, after_eval, {
+            "solver": "direct_k_phase_refine",
+            "accepted_cycles": 0,
+            "rejected_cycles": 1,
+            "final_cycle": "kept Stage1",
+        }
 
     monkeypatch.setattr(fit_module, "_MMProfileCache", lambda *_args, **_kwargs: object())
     monkeypatch.setattr(fit_module, "_fit_stage1_cycle", fake_fit_stage1_cycle)
-    monkeypatch.setattr(fit_module, "_run_stage2_cycle", fake_run_stage2_cycle)
+    monkeypatch.setattr(fit_module, "_run_stage2_refinement", fake_run_stage2_refinement)
 
     result = fit_module.run_loss_mode(
         base_parameter_set=parameter_set,
@@ -1501,10 +1662,10 @@ def test_run_loss_mode_does_not_accept_rejected_stage2_first_cycle(monkeypatch):
 
     assert result.stage2_diagnostics["accepted_cycles"] == 0
     assert result.stage2_diagnostics["rejected_cycles"] == 1
-    assert result.refine_cycles[0].diagnostics["outer_cycle_rejected"] is True
+    assert result.refine_cycles[0].diagnostics["status"] == "rejected"
 
 
-def test_stage2_rejects_large_cancelling_terms_even_when_profile_improves(monkeypatch):
+def test_stage2_projects_over_cap_terms_from_optimizer(monkeypatch):
     import maple.function.dispatcher.parmfit.utils.TorsionFit.fit as fit_module
 
     problem = _guard_problem(
@@ -1513,11 +1674,9 @@ def test_stage2_rejects_large_cancelling_terms_even_when_profile_improves(monkey
         basis=[[0.0, 0.0], [-9.0, -9.0], [0.0, 0.0], [-9.0, -9.0]],
         scales=[100.0, 100.0],
     )
-    candidate = np.asarray([20.0, -18.0, 0.0, 0.0], dtype=float)
+    candidate = np.asarray([20.0, 0.0, 18.0, 0.0], dtype=float)
     before = evaluate_global_refit_objective(problem, np.zeros(2 * len(problem.k_orig), dtype=float))
-    after = evaluate_global_refit_objective(problem, candidate)
-    assert after.total_loss < before.total_loss
-    assert after.per_scan_rmse[(2, 3)] < before.per_scan_rmse[(2, 3)]
+    assert before.total_loss > 0.0
 
     monkeypatch.setattr(torsion_stage2_module, "minimize", lambda *args, **kwargs: _FakeMinimizeResult(candidate))
 
@@ -1529,8 +1688,8 @@ def test_stage2_rejects_large_cancelling_terms_even_when_profile_improves(monkey
         tol=1.0e-8,
     )
 
-    assert vector_final.tolist() == pytest.approx([0.0, 0.0, 0.0, 0.0])
-    assert cycles[-1].accepted_blocks == 0
+    k_values, _phase_values = _split_global_vector(problem, vector_final)
+    assert np.all(k_values <= 3.0 + 1.0e-10)
 
 
 def test_stage2_records_data_loss_regression_without_hard_reject(monkeypatch):
@@ -1558,7 +1717,6 @@ def test_stage2_records_data_loss_regression_without_hard_reject(monkeypatch):
 
     assert vector_final.tolist() == pytest.approx([0.0, 0.0])
     assert cycles[-1].accepted_blocks == 0
-    assert cycles[-1].diagnostics["reject_reason"] == "no_total_loss_gain"
     assert cycles[-1].diagnostics["status"] == "kept_stage1"
 
 
@@ -1589,7 +1747,7 @@ def test_stage2_keeps_stage1_when_optimizer_returns_initial_vector(monkeypatch):
         tol=1.0e-8,
     )
 
-    assert calls["count"] == 1
+    assert calls["count"] == 2
     assert vector_final.tolist() == pytest.approx(initial.tolist())
     assert cycles[-1].accepted_blocks == 0
     assert cycles[-1].rejected_blocks == 1
@@ -1634,7 +1792,7 @@ def test_stage2_records_low_efficiency_large_k_update(monkeypatch):
         basis=[[0.0], [-0.1], [0.0], [-0.1]],
         scales=[100.0],
     )
-    candidate = np.asarray([3.2, 0.0], dtype=float)
+    candidate = np.asarray([3.0, 0.0], dtype=float)
     before = evaluate_global_refit_objective(problem, np.zeros(2 * len(problem.k_orig), dtype=float))
     after = evaluate_global_refit_objective(problem, candidate)
     assert after.total_loss < before.total_loss
@@ -1651,7 +1809,6 @@ def test_stage2_records_low_efficiency_large_k_update(monkeypatch):
 
     assert vector_final.tolist() == pytest.approx([3.0, 0.0])
     assert cycles[-1].accepted_blocks == 1
-    assert cycles[-1].diagnostics["reject_reason"] is None
     assert cycles[-1].diagnostics["status"] == "accepted"
 
 
@@ -1659,8 +1816,8 @@ def test_stage_weights_keep_high_energy_points_visible():
     weights = _scan_energy_weights(np.asarray([0.0, 2.0, 10.0, 50.0], dtype=float))
 
     assert weights[0] == pytest.approx(1.0)
-    assert np.all(weights >= 0.20)
-    assert weights[-1] > 0.20
+    assert np.all(weights > 0.0)
+    assert weights.tolist() == sorted(weights, reverse=True)
 
 
 def test_stage1_retains_high_energy_rows_with_weight_floor():
@@ -1694,7 +1851,12 @@ def test_stage1_retains_high_energy_rows_with_weight_floor():
     retained, weights = _stage1_retained_rows(problem, TorsionFitParams(enabled=True))
 
     assert retained.tolist() == [0, 1, 2]
-    assert np.all(weights >= 0.20)
+    assert weights.tolist() == pytest.approx(_scan_energy_weights(qm_rel).tolist())
+
+    retained, uniform_weights = _stage1_retained_rows(problem, TorsionFitParams(enabled=True, stage1_weights=False))
+
+    assert retained.tolist() == [0, 1, 2]
+    assert uniform_weights.tolist() == pytest.approx([1.0, 1.0, 1.0])
 
 
 def test_stage2_normalized_loss_penalizes_low_scale_reversed_profile():
@@ -1706,10 +1868,10 @@ def test_stage2_normalized_loss_penalizes_low_scale_reversed_profile():
 
     evaluation = evaluate_global_refit_objective(problem, np.zeros(2 * len(problem.k_orig), dtype=float))
 
-    assert evaluation.data_loss > 0.05
+    assert evaluation.data_loss > 0.03
 
 
-def test_stage_slots_use_one_phase_seed_per_period():
+def test_stage_slots_admit_canonical_periods_with_existing_phase_seed():
     parameter_set = _make_sparse_parameter_set([(0.80, 1.0, math.radians(45.0))])
     groups = torsion_problem_module._group_center_bond_dihedrals(
         parameter_set.dihedrals,
@@ -1717,10 +1879,10 @@ def test_stage_slots_use_one_phase_seed_per_period():
     )
 
     assert len(groups) == 1
-    assert groups[0].slot_periods == (1,)
-    assert len(groups[0].slot_indices) == 1
+    assert groups[0].slot_periods == (1, 2, 3, 4)
+    assert len(groups[0].slot_indices) == 4
     assert math.degrees(groups[0].slot_phases[0]) == pytest.approx(45.0)
-    assert groups[0].slot_sources == ("existing",)
+    assert groups[0].slot_sources == ("existing", "candidate", "candidate", "candidate")
 
 
 def test_existing_noncanonical_phase_initialization_preserves_relative_profile(monkeypatch):
@@ -1794,44 +1956,7 @@ def test_stage1_candidate_expansion_uses_variable_phase(monkeypatch):
     assert "k2" in result.terms.shared_groups[0].active_slots
 
 
-def test_stage1_geometry_jump_diagnostic_blocks_new_slot_expansion(monkeypatch):
-    import maple.function.dispatcher.parmfit.utils.TorsionFit.fit as fit_module
-
-    monkeypatch.setattr(torsion_problem_module, "evaluate_mm_energy", _fake_mm_energy)
-    monkeypatch.setattr(torsion_stage1_module, "evaluate_mm_energy", _fake_mm_energy)
-
-    phase = 0.70
-    base_scan_data = _period_phase_shifted_scan(2, 1.10, phase)
-    qm_rel = np.asarray(base_scan_data.qm_rel, dtype=float).copy()
-    qm_rel[5] += 8.0
-    scan_data = TorsionScanData(
-        angles_deg=base_scan_data.angles_deg,
-        qm_hartree=qm_rel / HARTREE_TO_KCAL_MOL,
-        qm_kcal=qm_rel,
-        frames=base_scan_data.frames,
-        source_path=base_scan_data.source_path,
-        ref_idx=base_scan_data.ref_idx,
-        qm_rel=qm_rel,
-    )
-    parameter_set = _make_sparse_parameter_set([(0.05, 1.0, 0.0)])
-
-    result = fit_torsion_scan(
-        scan_data,
-        parameter_set,
-        center_bond=(2, 3),
-        params=TorsionFitParams(enabled=True, refine_rounds=0),
-    )
-
-    assert "k2" not in result.terms.shared_groups[0].active_slots
-    assert "geometry_jump" in result.terms.shared_groups[0].diagnostic_flags
-    assert "stage1_fallback_original" not in result.terms.shared_groups[0].diagnostic_flags
-    assert any(
-        result.terms.fitted_terms[0][0].phase == pytest.approx(value, abs=1.0e-12)
-        for value in (0.0, np.pi)
-    )
-
-
-def test_stage1_report_hides_trial_details_unless_debug_enabled(monkeypatch):
+def test_stage1_report_keeps_debug_output_slot_oriented(monkeypatch):
     import maple.function.dispatcher.parmfit.utils.TorsionFit.fit as fit_module
 
     monkeypatch.setattr(torsion_problem_module, "evaluate_mm_energy", _fake_mm_energy)
@@ -1854,9 +1979,9 @@ def test_stage1_report_hides_trial_details_unless_debug_enabled(monkeypatch):
 
     base_text = "".join(format_torsion_fit_report(base_report))
     debug_text = "".join(format_torsion_fit_report(debug_report))
-    assert "candidate_trials" not in base_text
     assert "rejected_reason" not in base_text
-    assert "candidate_trials" in debug_text
+    assert "rejected_reason" not in debug_text
+    assert "active_slots: k1, k2, k3, k4" in debug_text
 
 
 def test_refine_torsion_scans_global_does_not_call_mm_engine_in_inner_loop(monkeypatch, tmp_path: Path):
@@ -1959,7 +2084,7 @@ def test_stage2_objective_cache_matches_public_mm_map():
     )
 
 
-def test_stage2_k_phase_objective_gradient_matches_finite_difference():
+def test_stage2_coefficient_objective_gradient_matches_finite_difference():
     problem = _guard_problem(
         qm_rel=[0.0, 0.7, 0.2, 1.1, 0.4],
         constant_rel=[0.0, 0.1, -0.2, 0.3, -0.1],
@@ -1969,22 +2094,22 @@ def test_stage2_k_phase_objective_gradient_matches_finite_difference():
     vector = np.asarray([0.6, 0.4, 0.7, -0.3], dtype=float)
     cache = _build_stage2_objective_cache(problem)
 
-    evaluation, gradient = _evaluate_stage2_k_phase_objective_with_gradient(problem, vector, cache=cache)
+    evaluation, gradient = _evaluate_stage2_delta_objective_with_gradient(problem, vector, cache=cache)
 
     epsilon = 1.0e-6
     finite_difference = np.zeros_like(vector)
     for index in range(vector.size):
         step = np.zeros_like(vector)
         step[index] = epsilon
-        plus = _evaluate_stage2_k_phase_objective_with_gradient(problem, vector + step, cache=cache)[0].total_loss
-        minus = _evaluate_stage2_k_phase_objective_with_gradient(problem, vector - step, cache=cache)[0].total_loss
+        plus = _evaluate_stage2_delta_objective_with_gradient(problem, vector + step, cache=cache)[0].total_loss
+        minus = _evaluate_stage2_delta_objective_with_gradient(problem, vector - step, cache=cache)[0].total_loss
         finite_difference[index] = (plus - minus) / (2.0 * epsilon)
 
     assert np.isfinite(evaluation.total_loss)
     assert gradient.tolist() == pytest.approx(finite_difference.tolist(), rel=1.0e-5, abs=1.0e-6)
 
 
-def test_stage2_k_phase_pack_round_trips_coefficient_delta():
+def test_stage2_coefficient_delta_recovers_k_phase_values():
     problem = replace(
         _guard_problem(
             qm_rel=[0.0, 0.7],
@@ -1995,13 +2120,18 @@ def test_stage2_k_phase_pack_round_trips_coefficient_delta():
         k_orig=np.asarray([0.3, 0.4], dtype=float),
         phase_orig=np.asarray([0.2, -0.5], dtype=float),
     )
-    target = np.asarray([0.9, 0.2, 1.1, -2.0], dtype=float)
+    target_k = np.asarray([0.9, 0.2], dtype=float)
+    target_phase = np.asarray([1.1, -2.0], dtype=float)
+    target_cos = target_k * np.cos(target_phase)
+    target_sin = target_k * np.sin(target_phase)
+    orig_cos = problem.k_orig * np.cos(problem.phase_orig)
+    orig_sin = problem.k_orig * np.sin(problem.phase_orig)
+    delta = np.concatenate([target_cos - orig_cos, target_sin - orig_sin])
 
-    delta = _delta_from_stage2_k_phase(problem, target)
-    packed = _pack_stage2_k_phase(problem, delta)
+    packed_k, packed_phase = _split_global_vector(problem, delta)
 
-    assert packed[:2].tolist() == pytest.approx(target[:2].tolist())
-    assert packed[2:].tolist() == pytest.approx(target[2:].tolist())
+    assert packed_k.tolist() == pytest.approx(target_k.tolist())
+    assert packed_phase.tolist() == pytest.approx(target_phase.tolist())
 
 
 def test_stage1_active_set_cache_matches_uncached_solver():
@@ -2045,16 +2175,16 @@ def test_stage1_active_set_cache_matches_uncached_solver():
     active_mask = np.asarray([True, False, True], dtype=bool)
     cache = _build_local_stage1_solve_cache(problem, params)
 
-    uncached = _solve_local_stage1_active_set(problem, active_mask, params)
-    cached = _solve_local_stage1_active_set(problem, active_mask, params, solve_cache=cache)
-    cached_again = _solve_local_stage1_active_set(problem, active_mask, params, solve_cache=cache)
+    uncached = _solve_local_stage1_active_set_with_phases(problem, active_mask, params)
+    cached = _solve_local_stage1_active_set_with_phases(problem, active_mask, params, solve_cache=cache)
+    cached_again = _solve_local_stage1_active_set_with_phases(problem, active_mask, params, solve_cache=cache)
 
-    assert cached[0].tolist() == pytest.approx(uncached[0].tolist())
-    assert cached[1] == uncached[1]
-    assert cached[2] == uncached[2]
-    assert cached[3] == pytest.approx(uncached[3])
-    assert cached[4].tolist() == uncached[4].tolist()
-    assert cached_again[0].tolist() == pytest.approx(cached[0].tolist())
+    assert cached.k_values.tolist() == pytest.approx(uncached.k_values.tolist())
+    assert cached.rank == uncached.rank
+    assert cached.dropped == uncached.dropped
+    assert cached.min_relative_sv == pytest.approx(uncached.min_relative_sv)
+    assert cached.retained_rows.tolist() == uncached.retained_rows.tolist()
+    assert cached_again.k_values.tolist() == pytest.approx(cached.k_values.tolist())
     assert len(cache.solutions) == 1
 
 
@@ -2226,7 +2356,7 @@ def test_stage1_refits_existing_phase_when_spectral_signal_is_asymmetric(monkeyp
     assert period1_terms[0].phase == pytest.approx(-np.pi / 6.0, abs=5.0e-2)
 
 
-def test_stage1_can_add_period6_spectral_candidate(monkeypatch):
+def test_stage1_uses_period4_spectral_seed_without_opening_period6(monkeypatch):
     import maple.function.dispatcher.parmfit.utils.TorsionFit.fit as fit_module
     import maple.function.dispatcher.parmfit.utils.TorsionFit.basis as problem_module
 
@@ -2239,13 +2369,13 @@ def test_stage1_can_add_period6_spectral_candidate(monkeypatch):
     qm_kcal = np.zeros(len(frames), dtype=float)
     for index, atoms in enumerate(frames):
         phi = dihedral_radians(atoms.get_positions(), 1, 2, 3, 4)
-        qm_kcal[index] = 1.1 * (1.0 + math.cos(6.0 * phi - phase))
+        qm_kcal[index] = 1.1 * (1.0 + math.cos(4.0 * phi - phase))
     scan_data = TorsionScanData(
         angles_deg=angles_deg,
         qm_hartree=qm_kcal / HARTREE_TO_KCAL_MOL,
         qm_kcal=qm_kcal,
         frames=frames,
-        source_path="synthetic_period6_phase_shifted.xyz",
+        source_path="synthetic_period4_phase_shifted.xyz",
         ref_idx=int(np.argmin(qm_kcal)),
         qm_rel=qm_kcal - qm_kcal[int(np.argmin(qm_kcal))],
     )
@@ -2253,14 +2383,21 @@ def test_stage1_can_add_period6_spectral_candidate(monkeypatch):
 
     report = fit_torsion_scan(scan_data, parameter_set, center_bond=(2, 3), params=TorsionFitParams(enabled=True))
 
+    period4_terms = [
+        term
+        for group in report.terms.shared_groups
+        for term in group.fitted_terms
+        if int(round(float(term.period))) == 4 and abs(float(term.kPhi)) > 1.0e-6
+    ]
     period6_terms = [
         term
         for group in report.terms.shared_groups
         for term in group.fitted_terms
-        if int(round(float(term.period))) == 6 and abs(float(term.kPhi)) > 1.0e-6
+        if int(round(float(term.period))) == 6
     ]
-    assert len(period6_terms) == 1
-    assert period6_terms[0].phase == pytest.approx(phase, abs=8.0e-2)
+    assert len(period4_terms) == 1
+    assert period4_terms[0].phase == pytest.approx(phase, abs=8.0e-2)
+    assert period6_terms == []
 
 
 def test_stage1_never_keeps_two_phase_variants_for_same_period(monkeypatch):
@@ -2285,7 +2422,7 @@ def test_stage1_never_keeps_two_phase_variants_for_same_period(monkeypatch):
         assert all(count == 1 for count in active_by_period.values())
 
 
-def test_stage1_low_signal_center_can_activate_more_than_one_group_but_caps_each_group(monkeypatch):
+def test_stage1_low_signal_center_keeps_all_canonical_slots_per_group(monkeypatch):
     import maple.function.dispatcher.parmfit.utils.TorsionFit.fit as fit_module
     import maple.function.dispatcher.parmfit.utils.TorsionFit.basis as problem_module
 
@@ -2298,12 +2435,11 @@ def test_stage1_low_signal_center_can_activate_more_than_one_group_but_caps_each
     report = fit_torsion_scan(scan_data, parameter_set, center_bond=(3, 4))
 
     for group in report.terms.shared_groups:
-        original_periods = {int(term.period) for term in group.original_terms}
         fitted_periods = {int(term.period) for term in group.fitted_terms}
-        assert len(fitted_periods - original_periods) <= 3
+        assert fitted_periods == {1, 2, 3, 4}
 
 
-def test_stage1_new_harmonic_limit_is_shared_across_whole_center():
+def test_stage1_canonical_admission_is_not_limited_across_whole_center():
     angles = np.arange(8.0, dtype=float)
     basis = np.asarray(
         [
@@ -2378,7 +2514,7 @@ def test_stage1_new_harmonic_limit_is_shared_across_whole_center():
         for slot_index, existing in zip(group.slot_indices, group.existing_slot_mask)
         if active_mask[slot_index] and not existing
     ]
-    assert len(active_new_slots) <= 3
+    assert len(active_new_slots) == 6
 
 
 def test_stage2_rejects_legacy_k_delta_vector(monkeypatch, tmp_path: Path):
@@ -2410,7 +2546,7 @@ def test_stage2_rejects_legacy_k_delta_vector(monkeypatch, tmp_path: Path):
     assert phase_values.shape == problem.phase_orig.shape
 
 
-def test_stage2_optimizer_projects_k_phase_result_to_k_cap(monkeypatch):
+def test_stage2_optimizer_projects_direct_k_phase_result_to_k_cap(monkeypatch):
     import maple.function.dispatcher.parmfit.utils.TorsionFit.fit as fit_module
 
     problem = _guard_problem(
@@ -2421,8 +2557,7 @@ def test_stage2_optimizer_projects_k_phase_result_to_k_cap(monkeypatch):
     )
     vector_init = np.zeros(2 * len(problem.k_orig), dtype=float)
     cache = _build_stage2_objective_cache(problem)
-    bounds = _stage2_k_phase_bounds(problem)
-    k_cap = float(bounds[0][1])
+    k_cap = 3.0
     illegal_result = np.asarray([2.0 * k_cap, 0.0], dtype=float)
 
     def fake_minimize(fun, x0, jac, method, bounds, options):
@@ -2441,10 +2576,58 @@ def test_stage2_optimizer_projects_k_phase_result_to_k_cap(monkeypatch):
     k_values, _phase_values = _split_global_vector(problem, vector_final)
 
     assert k_values[0] <= k_cap + 1.0e-10
-    assert k_values[0] > 0.0
 
 
-def test_stage1_zero_placeholder_term_is_not_existing_active_slot(monkeypatch):
+def test_stage2_coeff_ab_optimizer_uses_box_bounds_and_projects_final(monkeypatch):
+    problem = replace(
+        _guard_problem(
+            qm_rel=[0.0, 2.1],
+            constant_rel=[0.0, 0.0],
+            basis=[[0.0], [1.0]],
+            scales=[100.0],
+        ),
+        k_orig=np.asarray([1.0], dtype=float),
+        phase_orig=np.asarray([0.0], dtype=float),
+    )
+    vector_init = np.zeros(2 * len(problem.k_orig), dtype=float)
+    cache = _build_stage2_objective_cache(problem)
+    raw_candidate = np.asarray([2.0, 3.0], dtype=float)
+    captured: dict[str, object] = {"eval_vectors": []}
+    original_eval = torsion_stage2_module._evaluate_stage2_delta_objective_with_gradient
+
+    def recording_eval(problem_arg, delta_vector, **kwargs):
+        captured["eval_vectors"].append(np.asarray(delta_vector, dtype=float).copy())
+        return original_eval(problem_arg, delta_vector, **kwargs)
+
+    def fake_minimize(fun, x0, jac, method, bounds, options):
+        del x0, jac, method, options
+        captured["bounds"] = bounds
+        loss, gradient = fun(raw_candidate)
+        assert np.isfinite(loss)
+        assert gradient.shape == raw_candidate.shape
+        return _FakeMinimizeResult(raw_candidate)
+
+    monkeypatch.setattr(torsion_stage2_module, "_evaluate_stage2_delta_objective_with_gradient", recording_eval)
+    monkeypatch.setattr(torsion_stage2_module, "minimize", fake_minimize)
+
+    vector_final = _optimize_stage2_coeff_ab(
+        problem,
+        vector_init,
+        max_iter=5,
+        tol=1.0e-8,
+        cache=cache,
+    )
+    k_values, _phase_values = _split_global_vector(problem, vector_final)
+
+    bounds = captured["bounds"]
+    assert len(bounds) == 2
+    assert bounds[0] == pytest.approx((-4.0, 2.0))
+    assert bounds[1] == pytest.approx((-3.0, 3.0))
+    assert any(np.allclose(vector, raw_candidate) for vector in captured["eval_vectors"])
+    assert k_values[0] <= 3.0 + 1.0e-10
+
+
+def test_stage1_zero_placeholder_term_enters_active_canonical_space(monkeypatch):
     import maple.function.dispatcher.parmfit.utils.TorsionFit.fit as fit_module
     import maple.function.dispatcher.parmfit.utils.TorsionFit.basis as problem_module
 
@@ -2462,7 +2645,13 @@ def test_stage1_zero_placeholder_term_is_not_existing_active_slot(monkeypatch):
         if int(period) == 2
     ]
     assert period2_slots
-    assert not any(bool(problem.active_mask[slot_index]) for slot_index in period2_slots)
+    assert all(bool(problem.active_mask[slot_index]) for slot_index in period2_slots)
+    assert not any(
+        bool(existing)
+        for group in problem.shared_groups
+        for slot_index, existing in zip(group.slot_indices, group.existing_slot_mask)
+        if int(group.slot_periods[group.slot_indices.index(slot_index)]) == 2
+    )
 
 
 def test_stage1_caps_existing_fixed_phase_fit(monkeypatch):
@@ -2501,7 +2690,7 @@ def test_stage1_report_and_writeback_cap_replaceable_solver_output(monkeypatch):
             return problem, delta, active_mask, diagnostics
         return delta, active_mask, diagnostics
 
-    monkeypatch.setattr(fit_module, "_default_local_fit_solver", fake_local_solver)
+    monkeypatch.setattr(fit_module, "local_fit_solver", fake_local_solver)
 
     report = fit_torsion_scan(scan_data, parameter_set, center_bond=(2, 3), params=TorsionFitParams(enabled=True))
     updated = apply_fitted_torsion(report, parameter_set)

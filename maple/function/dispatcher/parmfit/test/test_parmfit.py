@@ -214,6 +214,20 @@ def test_parmfit_reader_reads_key_value_config_relative_paths(tmp_path: Path):
     assert params["nproc"] == 8
 
 
+def test_parmfit_reader_accepts_plain_text_config_without_parmfit_suffix(tmp_path: Path):
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    mol2_path = config_dir / "lig.mol2"
+    mol2_path.write_text("@<TRIPOS>MOLECULE\nLIG\n", encoding="utf-8")
+    config_path = config_dir / "recipe.txt"
+    config_path.write_text("method=correction\nmol2=lig.mol2\n", encoding="utf-8")
+
+    params = ParmfitReader(str(config_path))
+
+    assert params["method"] == "correction"
+    assert params["mol2"] == str(mol2_path.resolve())
+
+
 def test_parmfit_reader_rejects_frcmod_key(tmp_path: Path):
     config_path = tmp_path / "bad.parmfit"
     config_path.write_text("method=correction\nfrcmod=lig.frcmod\n", encoding="utf-8")
@@ -698,7 +712,7 @@ def _patch_parmchk2_from_fixture(monkeypatch, frcmod_path: Path) -> None:
         return SimpleNamespace(frcmod_path=str(output_path))
 
     monkeypatch.setattr(
-        "maple.function.dispatcher.parmfit.correction.parameters.amber_interface.run_parmchk2",
+        "maple.function.dispatcher.parmfit.correction.parameters.interface.run_parmchk2",
         fake_run_parmchk2,
     )
 

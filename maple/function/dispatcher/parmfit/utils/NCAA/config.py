@@ -67,6 +67,10 @@ def parse_ncaa_abinitio_config(
         raise ValueError(
             f"Unsupported bonded method {bonded!r}; expected one of {', '.join(SUPPORTED_BONDED_METHODS)}."
         )
+    
+    torsion = build_torsion_fit_params(raw)
+    torsion.torsion_ensemble = False
+    torsion._refresh_derived()
 
     return NCAAAbinitioConfig(
         pdb_path=pdb_path,
@@ -89,7 +93,7 @@ def parse_ncaa_abinitio_config(
         ),
         rn=raw.get("rn", "MOL").strip().upper(),
         vib_scale=float(raw.get("vib_scale", 1.0)),
-        torsion=build_torsion_fit_params(raw),
+        torsion=torsion,
         watm=watm,
         ionm=ionm,
         prom=prom,

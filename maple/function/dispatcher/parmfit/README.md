@@ -136,23 +136,23 @@ min ||B k - y||^2 + lambda sum_j w_j (k_j - k0_j)^2
 当前 Stage1 特点：
 
 - existing term 进入弱 prior refit，可被压到接近 0。
-- zero-amplitude 原始 term 不进入 active fitting，但会保留，避免 Amber 缺项。
-- spectral helper 从 `n = 1, 2, 3, 4, 6` 中选择候选 period。
+- 每个 shared group 默认开放 canonical period `n = 1, 2, 3, 4`。
+- zero-amplitude canonical term 也进入 active fitting 空间，但可被 prior/Stage2 压回接近 0。
+- spectral helper 只提供 phase seed，不再用局部 gain gate 决定 term 生死。
 - shared group 内通过 phase migration 把 representative path 的 spectral phase 迁移到实际 torsion paths。
-- 单个 center bond 默认最多新增 3 个 spectral slots。
+- `n=5/6` 当前不作为默认拟合 slot；若原始参数已有，会作为 frozen non-template term 保留。
 
-Stage2 是 global direct `kPhi/phase` refinement：
+Stage2 是 global loss refinement：
 
 ```text
-x = [k_1, gamma_1, k_2, gamma_2, ...]
+delta = [delta_a, delta_b]
+a_j = a0_j + delta_a_j
+b_j = b0_j + delta_b_j
 
-a_j = k_j cos(gamma_j)
-b_j = k_j sin(gamma_j)
-
-MM_s(x) = constant_s + cos_basis_s @ a + sin_basis_s @ b
+MM_s(delta) = constant_s + cos_basis_s @ a + sin_basis_s @ b
 ```
 
-Stage2 不新增 slot；它用 L-BFGS-B 直接优化 AMBER torsion 的 `kPhi/phase`，并用 coefficient-space prior 约束参数不要无意义偏离 Stage1。`torsion_refine_rounds > 1` 时执行 fast MM cycle：不重新 scan、不重新跑 MLIP，只在已有 frames 上用 cached phi 和 torsion basis 快速重算 MM profiles。每轮只有在 finite total loss 改善时才接受，否则保留 Stage1 或上一轮 best result。
+Stage2 不新增 slot。每个 fast cycle 内，它从 Stage1 参数出发分别运行 direct `kPhi/phase` 和 coefficient `a/b` 两条 L-BFGS-B optimizer path，二者都复用 cached cos/sin basis 计算 scan/ensemble loss 和 coefficient-space prior，最终写回 loss 更低且满足 `kPhi <= k_cap` 的参数。`torsion_refine_rounds=N` 表示最多执行 N 个外层 fast MM cycle；每轮从当前 accepted parameter set 刷新 scan frames 上的 MM reference，重跑 Stage1+Stage2，若 data loss 改善则接受，否则回退并停止。
 
 可选 `torsion_ensemble` 只进入 Stage2：从优化后结构做 15 degree rigid random rotor sampling，经 CPU MM filter 选出少量构象，再对 selected frames 做 MLIP single point。ensemble target 与 scan reference 对齐，作为 `w_ensemble L_ensemble` 加入 Stage2 loss；`corr.out` 仍只展开 scan torsion energy trace。
 

@@ -501,10 +501,6 @@ def build_ncaa_sidechain_relax_indices(representative_model: dict) -> tuple[int,
     return tuple(sorted(sidechain_relax_indices))
 
 
-def build_ncaa_mobile_atom_indices(representative_model: dict) -> tuple[int, ...]:
-    return build_ncaa_sidechain_relax_indices(representative_model)
-
-
 def warn_capped_proton_transfer(conformers: list[NCAAConformer]) -> None:
     for conformer in conformers:
         nme_residue = next((residue for residue in conformer.model["residues"] if residue["resname"].upper() == "NME"), None)

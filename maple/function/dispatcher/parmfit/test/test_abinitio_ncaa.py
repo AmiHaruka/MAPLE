@@ -775,9 +775,9 @@ def test_build_ncaa_amber_artifacts_writes_expected_outputs(monkeypatch, tmp_pat
             residue_name=cfg["residue_name"],
         )
 
-    monkeypatch.setattr(ncaa_amber_module.amber_interface, "run_antechamber", fake_run_antechamber)
-    monkeypatch.setattr(ncaa_amber_module.amber_interface, "run_prepgen", fake_run_prepgen)
-    monkeypatch.setattr(ncaa_amber_module.amber_interface, "run_parmchk2", fake_run_parmchk2)
+    monkeypatch.setattr(ncaa_amber_module.interface, "run_antechamber", fake_run_antechamber)
+    monkeypatch.setattr(ncaa_amber_module.interface, "run_prepgen", fake_run_prepgen)
+    monkeypatch.setattr(ncaa_amber_module.interface, "run_parmchk2", fake_run_parmchk2)
 
     artifacts = ncaa_amber_module.build_ncaa_amber_artifacts(
         output=str(tmp_path / "ncaa.out"),
@@ -1030,10 +1030,10 @@ def test_ncaa_workflow_runs_current_stage_pipeline_and_delegates_torsion(monkeyp
     monkeypatch.setattr(ncaa_workflow_module, "run_torsion_workflow", fake_run_torsion_workflow)
     monkeypatch.setattr(ncaa_workflow_module, "build_correction_parameter_set", lambda *args, **kwargs: fake_parameter_set)
     monkeypatch.setattr(ncaa_workflow_module, "apply_mseminario", lambda *args, **kwargs: None)
-    monkeypatch.setattr(ncaa_amber_module.amber_interface, "run_antechamber", fake_run_antechamber)
-    monkeypatch.setattr(ncaa_amber_module.amber_interface, "run_prepgen", fake_run_prepgen)
-    monkeypatch.setattr(ncaa_amber_module.amber_interface, "run_parmchk2", fake_run_parmchk2)
-    monkeypatch.setattr(ncaa_workflow_module.amber_interface, "patch_frcmod_crossterms", lambda *args, **kwargs: None)
+    monkeypatch.setattr(ncaa_amber_module.interface, "run_antechamber", fake_run_antechamber)
+    monkeypatch.setattr(ncaa_amber_module.interface, "run_prepgen", fake_run_prepgen)
+    monkeypatch.setattr(ncaa_amber_module.interface, "run_parmchk2", fake_run_parmchk2)
+    monkeypatch.setattr(ncaa_workflow_module.interface, "patch_frcmod_crossterms", lambda *args, **kwargs: None)
     logged_blocks: list[str] = []
 
     def fake_build_ncaa_export_bundle(
@@ -1085,7 +1085,7 @@ def test_ncaa_workflow_runs_current_stage_pipeline_and_delegates_torsion(monkeyp
             command=f"tleap -s -f {Path(input_file).name}",
         )
 
-    monkeypatch.setattr(ncaa_workflow_module.amber_interface, "run_tleap", fake_run_tleap)
+    monkeypatch.setattr(ncaa_workflow_module.interface, "run_tleap", fake_run_tleap)
 
     result = ncaa_workflow_module.run_ncaa_abinitio(
         output=str(tmp_path / "ncaa.out"),

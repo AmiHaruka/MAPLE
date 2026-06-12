@@ -10,7 +10,7 @@ from ase import Atoms
 from ase.constraints import FixInternals
 from ase.neighborlist import NeighborList, natural_cutoffs
 
-from . import optimizer as scan_optimizer
+from .optimizer import CGBS, CGWS, LBFGS
 
 class SilentScanEngine:
     def __init__(
@@ -185,21 +185,21 @@ class SilentScanEngine:
             return atoms
         params = self._build_optimizer_params()
         if self.backend == "lbfgs":
-            optimizer = scan_optimizer.LBFGS(atoms, output=self.output, paras=params)
+            optimizer = LBFGS(atoms, output=self.output, paras=params)
         elif self.backend == "cgws":
-            optimizer = scan_optimizer.CGWS(atoms, output=self.output, paras=params)
+            optimizer = CGWS(atoms, output=self.output, paras=params)
         else:
-            optimizer = scan_optimizer.CGBS(atoms, output=self.output, paras=params)
+            optimizer = CGBS(atoms, output=self.output, paras=params)
         return optimizer.run()
 
     def _run_projected_optimizer(self, atoms: Atoms) -> Atoms:
         params = self._build_optimizer_params(use_projection=True)
         if self.backend == "lbfgs":
-            optimizer = scan_optimizer.LBFGS(atoms, output=self.output, paras=params)
+            optimizer = LBFGS(atoms, output=self.output, paras=params)
         elif self.backend == "cgws":
-            optimizer = scan_optimizer.CGWS(atoms, output=self.output, paras=params)
+            optimizer = CGWS(atoms, output=self.output, paras=params)
         else:
-            optimizer = scan_optimizer.CGBS(atoms, output=self.output, paras=params)
+            optimizer = CGBS(atoms, output=self.output, paras=params)
         return optimizer.run()
 
     def _record_result(self, atoms: Atoms, coord: list[float], coords_list: list, energies: list) -> None:

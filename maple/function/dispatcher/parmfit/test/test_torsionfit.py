@@ -184,6 +184,7 @@ from maple.function.dispatcher.parmfit.utils.TorsionFit.topology import (
     resolve_torsion_center_bonds,
 )
 from maple.function.dispatcher.parmfit.utils.TorsionFit.fit import fit_torsion_scan
+from maple.function.dispatcher.parmfit.utils.TorsionFit import ensemble as torsion_ensemble_module
 from maple.function.dispatcher.parmfit.utils.TorsionFit.basis import _group_center_bond_dihedrals, build_global_torsion_problem
 from maple.function.dispatcher.parmfit.utils.TorsionFit.stage2 import (
     evaluate_global_refit_objective,
@@ -299,6 +300,72 @@ def _five_atom_frame(phi_deg: float) -> Atoms:
         (0.0, 1.0, 0.0),
     ]
     return _make_atoms(["C", "C", "C", "C", "C"], positions)
+
+
+def test_ensemble_masked_rotor_keeps_complete_mobile_r_group_side():
+    parameter_set = _make_parameter_set(
+        atom_types=["c", "c", "c", "c"],
+        bond_graph=[(1, 2), (2, 3), (3, 4)],
+    )
+
+    rotor = torsion_ensemble_module._center_bond_rotor(
+        parameter_set,
+        (2, 3),
+        mobile_atoms={3, 4},
+    )
+
+    assert rotor == (3, 3, 2, 3)
+
+    atoms = _make_atoms(
+        ["C", "C", "C", "C"],
+        [
+            (-1.0, 0.0, 0.0),
+            (0.0, 0.0, 0.0),
+            (1.0, 0.0, 0.0),
+            (1.0, 1.0, 0.0),
+        ],
+    )
+    candidate = torsion_ensemble_module._apply_trial_offsets(
+        atoms,
+        parameter_set,
+        {rotor: 90.0},
+        mobile_atoms={3, 4},
+    )
+
+    before = np.asarray(atoms.get_positions(), dtype=float)
+    after = np.asarray(candidate.get_positions(), dtype=float)
+    assert np.allclose(after[[0, 1]], before[[0, 1]])
+    assert np.allclose(after[2], before[2])
+    assert not np.allclose(after[3], before[3])
+
+
+def test_ensemble_masked_rotor_rejects_partial_mobile_fragment():
+    parameter_set = _make_parameter_set(
+        atom_types=["c", "c", "c", "c"],
+        bond_graph=[(1, 2), (2, 3), (3, 4)],
+    )
+
+    rotor = torsion_ensemble_module._center_bond_rotor(
+        parameter_set,
+        (2, 3),
+        mobile_atoms={3},
+    )
+
+    assert rotor is None
+
+
+def test_ensemble_rotor_skips_terminal_h_but_keeps_terminal_chlorine():
+    h_parameter_set = _make_parameter_set(
+        atom_types=["c", "h"],
+        bond_graph=[(1, 2)],
+    )
+    cl_parameter_set = _make_parameter_set(
+        atom_types=["c", "cl"],
+        bond_graph=[(1, 2)],
+    )
+
+    assert torsion_ensemble_module._center_bond_rotor(h_parameter_set, (1, 2), mobile_atoms=None) is None
+    assert torsion_ensemble_module._center_bond_rotor(cl_parameter_set, (1, 2), mobile_atoms=None) is not None
 
 
 def _shift_positions(atoms: Atoms, dx: float) -> np.ndarray:
@@ -449,7 +516,8 @@ def test_torsionfit_params_use_dataclass_defaults_when_keys_are_missing():
     assert params.torsion_step_deg == pytest.approx(10.0)
     assert params.backend == "cgbs"
     assert params.constraint_mode == "projected"
-    assert params.torsion_ensemble is True
+    assert params.stage1_weights is True
+    assert params.torsion_ensemble is False
     assert params.torsion_ensemble_ratio == pytest.approx(0.3)
     assert params.torsion_ensemble_weight == pytest.approx(0.5)
 
@@ -460,11 +528,13 @@ def test_torsionfit_params_accept_backend_and_constraint_mode():
             "torsionfit": True,
             "backend": "cgws",
             "constraint_mode": "projected",
+            "stage1_weights": "false",
         }
     )
 
     assert params.backend == "cgws"
     assert params.constraint_mode == "projected"
+    assert params.stage1_weights is False
 
 
 def test_torsionfit_params_accept_optional_ensemble_target_options():
@@ -708,7 +778,7 @@ def test_torsion_shared_groups_use_one_hop_environment_without_splitting_hydroge
     assert any({instance[0] for instance in group.instances} == {5, 7} for group in groups)
 
 
-def test_fit_torsion_scan_expands_at_most_two_missing_slots_per_group(tmp_path: Path):
+def test_fit_torsion_scan_admits_all_canonical_periods_per_group(tmp_path: Path):
     k1 = 1.25
     k2 = 0.75
     k_orig = 0.10
@@ -757,25 +827,21 @@ def test_fit_torsion_scan_expands_at_most_two_missing_slots_per_group(tmp_path: 
     assert len(result.terms.shared_groups) == 1
     assert result.terms.shared_groups[0].active_slots[0] == "k1"
     existing_slots = {f"k{int(term.period)}" for term in result.terms.shared_groups[0].original_terms}
-    new_slots = [slot for slot in result.terms.shared_groups[0].active_slots if slot not in existing_slots]
-    assert len(new_slots) <= 3
+    new_slots = {slot for slot in result.terms.shared_groups[0].active_slots if slot not in existing_slots}
+    assert new_slots == {"k3", "k4"}
     assert result.terms.shared_groups[0].frozen_non_template_slots == ()
-    periods_first = [int(term.period) for term in result.terms.fitted_terms[0]]
-    periods_second = [int(term.period) for term in result.terms.fitted_terms[1]]
-    assert 1 in periods_first
-    assert 2 in periods_second
+    periods_first = sorted(int(term.period) for term in result.terms.fitted_terms[0])
+    periods_second = sorted(int(term.period) for term in result.terms.fitted_terms[1])
+    assert periods_first == [1, 2, 3, 4]
+    assert periods_second == [1, 2, 3, 4]
     shared_template_periods = [int(term.period) for term in result.terms.shared_groups[0].fitted_terms]
-    assert shared_template_periods[0] == 1
+    assert shared_template_periods == [1, 2, 3, 4]
     shared_existing_periods = {int(term.period) for term in result.terms.shared_groups[0].original_terms}
-    shared_new_periods = [period for period in shared_template_periods if period not in shared_existing_periods]
-    assert len(shared_new_periods) <= 3
+    shared_new_periods = {period for period in shared_template_periods if period not in shared_existing_periods}
+    assert shared_new_periods == {3, 4}
     fitted_k1 = next(term.kPhi for term in result.terms.fitted_terms[0] if int(term.period) == 1)
     assert result.metrics.rmse < before_rmse
     assert k_orig < fitted_k1 < k1
-    if len(shared_template_periods) == 2:
-        new_period = next(period for period in shared_template_periods if period != 1)
-        fitted_k_new = next(term.kPhi for term in result.terms.fitted_terms[0] if int(term.period) == new_period)
-        assert fitted_k_new > max(k_orig, 0.2)
     after_rmse, _, _ = _fitted_mm_profile_rmse_for_test(
         scan_data,
         parameter_set,
@@ -785,7 +851,7 @@ def test_fit_torsion_scan_expands_at_most_two_missing_slots_per_group(tmp_path: 
     assert after_rmse == pytest.approx(result.metrics.rmse)
 
 
-def test_fit_torsion_scan_does_not_activate_unneeded_missing_slots(tmp_path: Path):
+def test_fit_torsion_scan_keeps_low_gain_canonical_slots_active(tmp_path: Path):
     k_true = 1.35
     phis = [0.0, 60.0, 120.0, 180.0, -120.0, -60.0]
     frames = []
@@ -812,11 +878,13 @@ def test_fit_torsion_scan_does_not_activate_unneeded_missing_slots(tmp_path: Pat
 
     result = fit_torsion_scan(scan_data, parameter_set, center_bond=(2, 3))
 
-    assert int(result.terms.fitted_terms[0][0].period) == 1
-    assert result.terms.fitted_terms[0][0].kPhi > 0.3
+    periods = [int(term.period) for term in result.terms.fitted_terms[0]]
+    assert periods == [1, 2, 3, 4]
+    fitted_k1 = next(term.kPhi for term in result.terms.fitted_terms[0] if int(term.period) == 1)
+    assert fitted_k1 > 0.3
 
 
-def test_fit_torsion_scan_refits_existing_period6_terms(tmp_path: Path):
+def test_fit_torsion_scan_preserves_period6_as_frozen_noncanonical_term(tmp_path: Path):
     k_true = 1.10
     phis = [0.0, 60.0, 120.0, 180.0, -120.0, -60.0]
     frames = []
@@ -851,9 +919,9 @@ def test_fit_torsion_scan_refits_existing_period6_terms(tmp_path: Path):
     assert 6 in periods
     assert next(term.kPhi for term in result.terms.fitted_terms[0] if int(term.period) == 6) == pytest.approx(0.35)
     assert len(result.terms.shared_groups) == 1
-    assert result.terms.shared_groups[0].frozen_non_template_slots == ()
+    assert "k6 phase=0" in result.terms.shared_groups[0].frozen_non_template_slots
     report = "".join(format_torsion_fit_report(result))
-    assert "frozen_non_template: k6 phase=0" not in report
+    assert "frozen_non_template: k6 phase=0" in report
 
     updated = apply_fitted_torsion(result, parameter_set)
     updated_periods = [int(term.period) for term in updated.dihedrals[0].terms]
@@ -1631,7 +1699,7 @@ def test_silent_scan_projected_passes_all_active_constraints_to_optimizer(tmp_pa
         def run(self):
             return self.atoms
 
-    monkeypatch.setattr("maple.function.dispatcher.parmfit.utils.Scan.optimizer.CGWS", FakeCGWS)
+    monkeypatch.setattr("maple.function.dispatcher.parmfit.utils.Scan.engine.CGWS", FakeCGWS)
     monkeypatch.setattr(SilentScanEngine, "_generate_scan_values", lambda self: [[0.0], [10.0], [20.0]])
     monkeypatch.setattr(SilentScanEngine, "_apply_rigid_geometry", lambda self, atoms, coord: atoms)
 

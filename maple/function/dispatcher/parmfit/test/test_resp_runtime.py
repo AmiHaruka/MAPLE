@@ -313,11 +313,11 @@ def test_run_resp_pipeline_orchestrates_gaussian_and_resp(monkeypatch, tmp_path:
         charges = " ".join(f"{0.1 * (index + 1):.6f}" for index in range(n_atoms))
         Path(charge_path).write_text(charges + "\n", encoding="utf-8")
 
-    monkeypatch.setattr(runtime_module.qm_interface, "run_gaussian", fake_run_gaussian)
+    monkeypatch.setattr(runtime_module.interface, "run_gaussian", fake_run_gaussian)
     monkeypatch.setattr(runtime_module, "run_espgen", fake_run_espgen)
     monkeypatch.setattr(runtime_module, "run_resp_stage", fake_run_resp_stage)
     monkeypatch.setattr(
-        runtime_module.qm_interface,
+        runtime_module.interface,
         "set_method",
         lambda *args, **kwargs: pytest.fail("run_resp_pipeline should consume the supplied QMMethod directly."),
     )
@@ -415,11 +415,11 @@ def test_run_multiconformer_resp_orchestrates_all_esp_and_two_stage_resp(monkeyp
         Path(punch_path).write_text("RESP PCH\n", encoding="utf-8")
         Path(charge_path).write_text(" ".join(["0.0"] * n_atoms) + "\n", encoding="utf-8")
 
-    monkeypatch.setattr(runtime_module.qm_interface, "run_gaussian", fake_run_gaussian)
+    monkeypatch.setattr(runtime_module.interface, "run_gaussian", fake_run_gaussian)
     monkeypatch.setattr(runtime_module, "run_espgen", fake_run_espgen)
     monkeypatch.setattr(runtime_module, "run_resp_stage", fake_run_resp_stage)
     monkeypatch.setattr(
-        runtime_module.qm_interface,
+        runtime_module.interface,
         "set_method",
         lambda *args, **kwargs: pytest.fail("run_multiconformer_resp should consume the supplied QMMethod directly."),
     )

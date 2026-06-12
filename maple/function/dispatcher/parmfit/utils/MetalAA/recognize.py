@@ -9,7 +9,7 @@ from typing import Optional
 
 import numpy as np
 
-from .. import interface as amber_interface
+from .. import interface
 from ..context import collect_environment_residues, find_prev_next_peptide_residues, find_unique_residue
 from ..readparm import Mol2Topology, parse_mol2
 from ..runtime import parmfit_output_dir
@@ -150,7 +150,7 @@ def build_cofactor_orig_frcmods(output: str, templates: list[CofactorMol2Templat
         input_path = os.path.abspath(template.path)
         workdir = os.path.dirname(input_path)
         residue_name = f"{base}_{template.resname}_{index}_orig"
-        result = amber_interface.run_parmchk2(
+        result = interface.run_parmchk2(
             os.path.basename(input_path),
             {"residue_name": residue_name},
             True,

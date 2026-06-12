@@ -9,7 +9,9 @@ import numpy as np
 
 from ..mechanics import build_mm_topology_cache, dihedral_radians, evaluate_mm_energy
 from ..readparm import CorrectionParameterSet, FourierTerm
-from .topology import _clone_terms, shared_group_label
+from .config import TorsionFitParams
+from .spectral import DEFAULT_SPECTRAL_PERIODS, dominant_spectral_peaks, rank_shared_group_spectral_slots
+from .topology import _clone_terms
 from .records import (
     TorsionFitCurves,
     TorsionFitMetrics,
@@ -19,33 +21,22 @@ from .records import (
     TorsionScanData,
     TorsionSharedGroupReport,
 )
-from .config import TorsionFitParams
 from .basis import (
     _build_group_spec,
     _group_slot_coefficient_basis,
     _group_slot_initial_values,
     _normalize_phase_signed,
-)
-from .quality import (
-    _PROFILE_SCALE_FLOOR,
     _profile_fit_scale,
     _scan_energy_weights,
     _profile_loss_metrics,
-    _profile_scale_from_arrays,
-    _robust_profile_range,
-    _scan_profile_quality,
-    ScanProfileQuality,
 )
-from .spectral import DEFAULT_SPECTRAL_PERIODS, dominant_spectral_peaks, rank_shared_group_spectral_slots
 
-_NEW_SLOT_MAX_MAGNITUDE_SCALE = 1.5
-_STAGE1_CENTER_NEW_SLOT_LIMIT = 3
-_STAGE1_ABS_RMSE_GAIN_FLOOR = 0.05
+
 _STAGE1_LLS_PRIOR_WEIGHT = 0.01
-_STAGE1_CANCELLATION_RATIO_CAP = 8.0
 _FITTED_TERM_MAX_K = 3.0
 _METHYL_LIKE_H_TYPES = {"hc", "h1", "h2", "h3"}
 _STAGE1_SPECTRAL_COHERENCE_FLOOR = 0.15
+_STAGE1_CANONICAL_PERIODS = (1, 2, 3, 4)
 
 
 def _project_coefficients_to_k_caps(
@@ -129,7 +120,7 @@ def _cap_local_fitted_k_values(k_values: np.ndarray, active_mask: np.ndarray) ->
 def _template_slot_key(period: float, phase: float) -> int | None:
     del phase
     rounded = int(round(float(period)))
-    if 1 <= rounded <= 6 and abs(float(period) - float(rounded)) <= 1.0e-8:
+    if rounded in _STAGE1_CANONICAL_PERIODS and abs(float(period) - float(rounded)) <= 1.0e-8:
         return int(rounded)
     return None
 
@@ -137,10 +128,6 @@ def _format_slot_label(period: float, phase: float) -> str:
     phase_deg = float(np.degrees(_normalize_phase_signed(float(phase))))
     phase_text = f"{phase_deg:.0f}" if np.isclose(phase_deg, round(phase_deg), atol=1.0e-6) else f"{phase_deg:.1f}"
     return f"k{int(round(float(period)))} phase={phase_text}"
-
-def _group_slot_label(group, slot_index: int) -> str:
-    local_index = group.slot_indices.index(slot_index)
-    return _format_slot_label(group.slot_periods[local_index], group.slot_phases[local_index])
 
 def _group_active_slot_labels(group, active_mask: np.ndarray) -> list[str]:
     return [
@@ -187,9 +174,6 @@ def _group_frozen_non_template_slot_labels(problem: TorsionLocalProblem, group) 
             seen.add(label)
             labels.append(label)
     return tuple(labels)
-
-def _local_profile_scale(problem: TorsionLocalProblem) -> tuple[float, str]:
-    return _profile_scale_from_arrays(problem.qm_rel, problem.fit_target_rel)
 
 def _local_phase_orig(problem: TorsionLocalProblem) -> np.ndarray:
     if problem.phase_orig is not None:
@@ -248,16 +232,6 @@ def _local_solution_profile(
 ) -> np.ndarray:
     return np.asarray(problem.mm_base_rel, dtype=float) + _local_torsion_profile(problem, slot_values, phase_values)
 
-def _group_slots_by_period(group) -> dict[int, list[int]]:
-    slots_by_period: dict[int, list[int]] = {}
-    for slot_index, slot_period in zip(group.slot_indices, group.slot_periods):
-        slots_by_period.setdefault(int(slot_period), []).append(int(slot_index))
-    return slots_by_period
-
-def _slot_has_existing_source(group, slot_index: int) -> bool:
-    slot_source = str(group.slot_sources[group.slot_indices.index(int(slot_index))])
-    return "existing" in slot_source
-
 def _slot_has_spectral_source(group, slot_index: int) -> bool:
     slot_source = str(group.slot_sources[group.slot_indices.index(int(slot_index))])
     return "spectral" in slot_source
@@ -269,134 +243,6 @@ def _stage1_spectral_variable_mask(problem: TorsionLocalProblem, active_mask: np
             if bool(active_mask[slot_index]) and _slot_has_spectral_source(group, int(slot_index)):
                 variable_mask[slot_index] = True
     return variable_mask
-
-def _center_active_new_slot_count(shared_groups, active_mask: np.ndarray) -> int:
-    count = 0
-    for group in shared_groups:
-        count += sum(
-            1
-            for slot_index, existing in zip(group.slot_indices, group.existing_slot_mask)
-            if bool(active_mask[slot_index]) and not _slot_has_existing_source(group, int(slot_index))
-        )
-    return count
-
-def _group_missing_canonical_slot_options(group, active_mask: np.ndarray) -> tuple[int, ...]:
-    options: list[int] = []
-    for period, period_slots in _group_slots_by_period(group).items():
-        active_slot = next((slot_index for slot_index in period_slots if bool(active_mask[slot_index])), None)
-        if active_slot is not None:
-            continue
-        canonical_slot = next(
-            (
-                slot_index
-                for slot_index in group.slot_indices
-                if slot_index in period_slots
-                and _slot_has_spectral_source(group, int(slot_index))
-            ),
-            None,
-        )
-        if canonical_slot is not None:
-            options.append(int(canonical_slot))
-    return tuple(options)
-
-def _apply_group_period_changes(active_mask: np.ndarray, group, selected_slots: tuple[int, ...]) -> np.ndarray:
-    trial_active_mask = np.asarray(active_mask, dtype=bool).copy()
-    slots_by_period = _group_slots_by_period(group)
-    for selected_slot in selected_slots:
-        selected_period = int(group.slot_periods[group.slot_indices.index(selected_slot)])
-        for slot_index in slots_by_period[selected_period]:
-            trial_active_mask[slot_index] = False
-        trial_active_mask[selected_slot] = True
-    return trial_active_mask
-
-def _local_group_cancellation_ratio(
-    problem: TorsionLocalProblem,
-    group,
-    slot_values: np.ndarray,
-    active_mask: np.ndarray,
-    phase_values: np.ndarray | None = None,
-) -> float:
-    active_group_slots = [
-        slot_index
-        for slot_index in group.slot_indices
-        if bool(active_mask[slot_index]) and abs(float(slot_values[slot_index])) > 1.0e-12
-    ]
-    if len(active_group_slots) <= 1:
-        return 1.0
-    if phase_values is None:
-        contributions = np.asarray(problem.basis[:, active_group_slots], dtype=float) * np.asarray(slot_values[active_group_slots], dtype=float)
-    else:
-        cos_basis, sin_basis = _local_coefficient_basis(problem)
-        phase_array = np.asarray(phase_values, dtype=float)
-        slot_array = np.asarray(slot_values, dtype=float)
-        cos_coeff = slot_array[active_group_slots] * np.cos(phase_array[active_group_slots])
-        sin_coeff = slot_array[active_group_slots] * np.sin(phase_array[active_group_slots])
-        contributions = (
-            np.asarray(cos_basis[:, active_group_slots], dtype=float) * cos_coeff[np.newaxis, :]
-            + np.asarray(sin_basis[:, active_group_slots], dtype=float) * sin_coeff[np.newaxis, :]
-        )
-    individual_span = float(sum(_robust_profile_range(contributions[:, index]) for index in range(contributions.shape[1])))
-    net_span = _robust_profile_range(np.sum(contributions, axis=1))
-    return individual_span / max(net_span, _PROFILE_SCALE_FLOOR)
-
-def _stage1_scan_quality(problem: TorsionLocalProblem) -> ScanProfileQuality:
-    return _scan_profile_quality(problem.qm_rel)
-
-def _stage1_new_slot_trial(
-    problem: TorsionLocalProblem,
-    group,
-    slot_index: int,
-    current_solution: np.ndarray,
-    trial_solution: np.ndarray,
-    trial_active_mask: np.ndarray,
-    *,
-    profile_scale: float,
-    current_phase: np.ndarray | None = None,
-    trial_phase: np.ndarray | None = None,
-) -> tuple[bool, str | None, float, dict[str, float], dict[str, float]]:
-    current_profile = _local_solution_profile(problem, current_solution, current_phase)
-    trial_profile = _local_solution_profile(problem, trial_solution, trial_phase)
-    weights = _scan_energy_weights(problem.qm_rel)
-    current_metrics = _profile_loss_metrics(problem.qm_rel, current_profile, profile_scale=profile_scale, weights=weights)
-    trial_metrics = _profile_loss_metrics(problem.qm_rel, trial_profile, profile_scale=profile_scale, weights=weights)
-    current_abs_rmse = current_metrics["weighted_rmse"] * float(profile_scale)
-    if current_abs_rmse < _STAGE1_ABS_RMSE_GAIN_FLOOR:
-        return False, "existing-fit-good", 0.0, current_metrics, trial_metrics
-    score_gain = current_metrics["data_loss"] - trial_metrics["data_loss"]
-    rmse_gain = current_metrics["weighted_rmse"] - trial_metrics["weighted_rmse"]
-    min_score_gain = max(1.0e-4, 0.02 * max(current_metrics["data_loss"], 1.0e-6))
-
-    if score_gain < min_score_gain and rmse_gain < np.sqrt(min_score_gain):
-        return False, "data-gain-too-small", score_gain, current_metrics, trial_metrics
-
-    new_k = abs(float(trial_solution[slot_index]))
-    max_new_k = max(1.50, _NEW_SLOT_MAX_MAGNITUDE_SCALE * profile_scale)
-    if new_k > max_new_k:
-        return False, "k-too-large", score_gain, current_metrics, trial_metrics
-
-    abs_rmse_gain = max(0.0, rmse_gain) * float(profile_scale)
-    if abs_rmse_gain < _STAGE1_ABS_RMSE_GAIN_FLOOR:
-        return False, "abs-gain-too-small", score_gain, current_metrics, trial_metrics
-
-    if trial_phase is None:
-        slot_profile = np.asarray(problem.basis[:, slot_index], dtype=float) * float(trial_solution[slot_index])
-    else:
-        cos_basis, sin_basis = _local_coefficient_basis(problem)
-        phase_value = float(trial_phase[slot_index])
-        slot_profile = float(trial_solution[slot_index]) * (
-            np.asarray(cos_basis[:, slot_index], dtype=float) * np.cos(phase_value)
-            + np.asarray(sin_basis[:, slot_index], dtype=float) * np.sin(phase_value)
-        )
-    contribution_span = _robust_profile_range(slot_profile)
-    if contribution_span < max(0.02, 0.005 * profile_scale):
-        return False, "new-slot-below-prune-threshold", score_gain, current_metrics, trial_metrics
-
-    cancellation_ratio = _local_group_cancellation_ratio(problem, group, trial_solution, trial_active_mask, trial_phase)
-    if cancellation_ratio > _STAGE1_CANCELLATION_RATIO_CAP:
-        return False, "cancellation", score_gain, current_metrics, trial_metrics
-
-    ranking_gain = score_gain + (0.25 * max(rmse_gain, 0.0))
-    return True, None, ranking_gain, current_metrics, trial_metrics
 
 def _relative_profile(scan_data: TorsionScanData, total_values: np.ndarray) -> np.ndarray:
     totals = np.asarray(total_values, dtype=float)
@@ -416,9 +262,11 @@ def _parameter_set_relative_profile(
     return _relative_profile(scan_data, totals)
 
 def _stage1_retained_rows(problem: TorsionLocalProblem, params: TorsionFitParams | None) -> tuple[np.ndarray, np.ndarray]:
-    del params
     retained = np.arange(len(problem.qm_rel), dtype=int)
-    weights = _scan_energy_weights(np.asarray(problem.qm_rel, dtype=float))
+    if params is not None and params.stage1_weights:
+        weights = _scan_energy_weights(np.asarray(problem.qm_rel, dtype=float))
+    else:
+        weights = np.ones(len(problem.qm_rel), dtype=float)
     return retained, np.asarray(weights, dtype=float)
 
 def _build_local_stage1_solve_cache(
@@ -562,30 +410,6 @@ def _solve_local_stage1_active_set_with_phases(
         solve_cache.solutions[active_key] = solution
     return solution
 
-def _solve_local_stage1_active_set(
-    problem: TorsionLocalProblem,
-    active_mask: np.ndarray,
-    params: TorsionFitParams | None,
-    *,
-    solve_cache: _LocalStage1SolveCache | None = None,
-    variable_phase_mask: np.ndarray | None = None,
-) -> tuple[np.ndarray, int, int, float, np.ndarray]:
-    solution = _solve_local_stage1_active_set_with_phases(
-        problem,
-        active_mask,
-        params,
-        solve_cache=solve_cache,
-        variable_phase_mask=variable_phase_mask,
-    )
-    return (
-        solution.k_values.copy(),
-        int(solution.rank),
-        int(solution.dropped),
-        float(solution.min_relative_sv),
-        solution.retained_rows.copy(),
-    )
-
-
 # -----------------------------------------------------------------------------
 # Stage1 problem least-squares fit
 # -----------------------------------------------------------------------------
@@ -648,10 +472,7 @@ def _rebuild_local_problem(problem: TorsionLocalProblem, shared_groups) -> Torsi
     phase_orig = np.asarray([phase for group in shared_groups for phase in group.slot_phases], dtype=float)
     basis = (cos_basis * np.cos(phase_orig)[np.newaxis, :]) + (sin_basis * np.sin(phase_orig)[np.newaxis, :])
     k_orig, scales, prior_weights = _group_slot_initial_values(problem.target_dihedrals, tuple(shared_groups))
-    active_mask = np.asarray(
-        [existing for group in shared_groups for existing in group.existing_slot_mask],
-        dtype=bool,
-    )
+    active_mask = np.ones(sum(len(group.slot_indices) for group in shared_groups), dtype=bool)
     return TorsionLocalProblem(
         center_bond=problem.center_bond,
         scan_data=problem.scan_data,
@@ -718,7 +539,6 @@ def _spectral_slots_for_groups(
         return {}
 
     selected_by_label: dict[str, list[object]] = {group.label: [] for group in groups}
-    new_candidates: list[tuple[float, object, object]] = []
     for group in groups:
         path_phi = _dihedral_phi_matrix(problem.scan_data, problem.target_dihedrals, tuple(group.dihedral_indices))
         ranked_slots = rank_shared_group_spectral_slots(
@@ -728,15 +548,10 @@ def _spectral_slots_for_groups(
             peaks=peaks,
             min_coherence=_STAGE1_SPECTRAL_COHERENCE_FLOOR,
         )
-        existing_periods = {int(round(float(period))) for period in group.slot_periods}
-        for slot in ranked_slots:
-            if int(slot.period) in existing_periods:
-                selected_by_label[group.label].append(slot)
-            else:
-                new_candidates.append((float(slot.score), group, slot))
-
-    for _score, group, slot in sorted(new_candidates, key=lambda item: item[0], reverse=True)[:_STAGE1_CENTER_NEW_SLOT_LIMIT]:
-        selected_by_label[group.label].append(slot)
+        group_periods = {int(round(float(period))) for period in group.slot_periods}
+        selected_by_label[group.label].extend(
+            slot for slot in ranked_slots if int(slot.period) in group_periods
+        )
 
     return {
         label: tuple(slots)
@@ -745,8 +560,6 @@ def _spectral_slots_for_groups(
     }
 
 def _rebuild_groups_with_spectral_slots(problem: TorsionLocalProblem, groups) -> tuple[tuple[object, ...], bool]:
-    if _stage1_scan_quality(problem).has_geometry_jump:
-        return tuple(groups), False
     spectral_by_label = _spectral_slots_for_groups(problem, groups)
     if not spectral_by_label:
         return tuple(groups), False
@@ -768,7 +581,8 @@ def _rebuild_groups_with_spectral_slots(problem: TorsionLocalProblem, groups) ->
     return tuple(rebuilt_groups), True
 
 def _solve_local_problem_stage1(problem: TorsionLocalProblem, params: TorsionFitParams | None = None):
-    initial_active_mask = np.asarray(problem.active_mask, dtype=bool).copy()
+    initial_active_mask = np.ones_like(np.asarray(problem.active_mask, dtype=bool), dtype=bool)
+    final_active_mask = initial_active_mask.copy()
     solve_cache = _build_local_stage1_solve_cache(problem, params)
     initial_solution = _solve_local_stage1_active_set_with_phases(
         problem,
@@ -777,96 +591,6 @@ def _solve_local_problem_stage1(problem: TorsionLocalProblem, params: TorsionFit
         solve_cache=solve_cache,
         variable_phase_mask=_stage1_spectral_variable_mask(problem, initial_active_mask),
     )
-    final_active_mask = initial_active_mask.copy()
-    diagnostics: dict[str, dict[str, object]] = {}
-    profile_scale, scale_class = _local_profile_scale(problem)
-    profile_weights = _scan_energy_weights(problem.qm_rel)
-    scan_quality = _stage1_scan_quality(problem)
-    accepted_labels_by_group: dict[str, list[str]] = {group.label: [] for group in problem.shared_groups}
-    accepted_metrics_by_group: dict[str, tuple[dict[str, float], dict[str, float]]] = {}
-    candidate_trials_by_group: dict[str, list[str]] = {group.label: [] for group in problem.shared_groups}
-    geometry_jump = scan_quality.has_geometry_jump
-    report_debug = bool(getattr(params, "report_debug", False))
-
-    while (
-        not geometry_jump
-        and _center_active_new_slot_count(problem.shared_groups, final_active_mask) < _STAGE1_CENTER_NEW_SLOT_LIMIT
-    ):
-        best_trial: tuple[
-            float,
-            object,
-            int,
-            str,
-            np.ndarray,
-            _LocalStage1Solution,
-            dict[str, float],
-            dict[str, float],
-        ] | None = None
-        found_candidate = False
-        current_solution = _solve_local_stage1_active_set_with_phases(
-            problem,
-            final_active_mask,
-            params,
-            solve_cache=solve_cache,
-            variable_phase_mask=_stage1_spectral_variable_mask(problem, final_active_mask),
-        )
-        for group in problem.shared_groups:
-            candidate_slots = _group_missing_canonical_slot_options(group, final_active_mask)
-            if not candidate_slots:
-                continue
-            found_candidate = True
-            for slot_index in candidate_slots:
-                trial_active_mask = _apply_group_period_changes(final_active_mask, group, (int(slot_index),))
-                trial_solution = _solve_local_stage1_active_set_with_phases(
-                    problem,
-                    trial_active_mask,
-                    params,
-                    solve_cache=solve_cache,
-                    variable_phase_mask=_stage1_spectral_variable_mask(problem, trial_active_mask),
-                )
-                passes_gate, gate_reason, ranking_gain, before_metrics, after_metrics = _stage1_new_slot_trial(
-                    problem,
-                    group,
-                    int(slot_index),
-                    current_solution.k_values,
-                    trial_solution.k_values,
-                    trial_active_mask,
-                    profile_scale=float(profile_scale),
-                    current_phase=current_solution.phase_values,
-                    trial_phase=trial_solution.phase_values,
-                )
-                slot_label = _group_slot_label(group, int(slot_index))
-                if report_debug:
-                    status = "accepted-candidate" if passes_gate else f"rejected:{gate_reason}"
-                    candidate_trials_by_group[group.label].append(
-                        f"{slot_label} {status} gain={float(ranking_gain):.6g} "
-                        f"k={float(trial_solution.k_values[slot_index]):.6g} "
-                        f"phase_deg={np.degrees(float(trial_solution.phase_values[slot_index])):.3f}"
-                    )
-                if not passes_gate:
-                    continue
-                if best_trial is None or ranking_gain > best_trial[0]:
-                    best_trial = (
-                        float(ranking_gain),
-                        group,
-                        int(slot_index),
-                        slot_label,
-                        trial_active_mask,
-                        trial_solution,
-                        before_metrics,
-                        after_metrics,
-                    )
-
-        if best_trial is None:
-            if not found_candidate:
-                break
-            break
-
-        _gain, accepted_group, _accepted_slot_index, accepted_label, accepted_active_mask, _accepted_solution, before_metrics, after_metrics = best_trial
-        final_active_mask = accepted_active_mask.copy()
-        accepted_labels_by_group[accepted_group.label].append(str(accepted_label))
-        accepted_metrics_by_group[accepted_group.label] = (before_metrics, after_metrics)
-
     final_solution = _solve_local_stage1_active_set_with_phases(
         problem,
         final_active_mask,
@@ -879,6 +603,9 @@ def _solve_local_problem_stage1(problem: TorsionLocalProblem, params: TorsionFit
     final_dropped = final_solution.dropped
     final_sv = final_solution.min_relative_sv
     retained_rows = final_solution.retained_rows
+    diagnostics: dict[str, dict[str, object]] = {}
+    profile_scale = _profile_fit_scale(problem.qm_rel, problem.fit_target_rel)
+    profile_weights = _scan_energy_weights(problem.qm_rel)
     initial_metrics = _profile_loss_metrics(
         problem.qm_rel,
         _local_solution_profile(problem, initial_solution.k_values, initial_solution.phase_values),
@@ -891,26 +618,23 @@ def _solve_local_problem_stage1(problem: TorsionLocalProblem, params: TorsionFit
         profile_scale=profile_scale,
         weights=profile_weights,
     )
-    stage1_diagnostic_flags: list[str] = ["geometry_jump"] if geometry_jump else []
 
     for group in problem.shared_groups:
-        accepted_labels = accepted_labels_by_group.get(group.label, [])
         group_active_slots = _group_active_slot_labels(group, final_active_mask)
-        before_metrics, after_metrics = accepted_metrics_by_group.get(group.label, (initial_metrics, final_metrics))
-        cancellation_ratio = _local_group_cancellation_ratio(problem, group, final_fitted_k, final_active_mask, final_solution.phase_values)
+        spectral_seed_count = sum(1 for source in group.slot_sources if "spectral" in str(source))
+        existing_seed_count = sum(1 for source in group.slot_sources if "existing" in str(source))
         diagnostics[group.label] = {
             "rank": int(final_rank),
             "dropped": max(len(group.slot_indices) - len(group_active_slots), 0),
             "active_slots": group_active_slots,
-            "accepted_slots": tuple(accepted_labels),
-            "scale_class": scale_class,
             "scale": float(profile_scale),
-            "new_slot_limit": int(_STAGE1_CENTER_NEW_SLOT_LIMIT),
-            "cancellation_ratio": float(cancellation_ratio),
-            "residual_score_before": float(before_metrics["data_loss"]),
-            "residual_score_after": float(after_metrics["data_loss"]),
-            "diagnostic_flags": tuple(stage1_diagnostic_flags),
-            "candidate_trials": tuple(candidate_trials_by_group.get(group.label, ())) if report_debug else (),
+            "slot_universe": tuple(group_active_slots),
+            "existing_seed_count": int(existing_seed_count),
+            "spectral_seed_count": int(spectral_seed_count),
+            "default_seed_count": int(len(group.slot_indices) - existing_seed_count - spectral_seed_count),
+            "residual_score_before": float(initial_metrics["data_loss"]),
+            "residual_score_after": float(final_metrics["data_loss"]),
+            "diagnostic_flags": (),
         }
 
     diagnostics["_stage1"] = {
@@ -921,20 +645,15 @@ def _solve_local_problem_stage1(problem: TorsionLocalProblem, params: TorsionFit
         "final_rank": int(final_rank),
         "final_dropped": int(final_dropped),
         "final_min_relative_sv": float(final_sv),
-        "scale_class": scale_class,
         "scale": float(profile_scale),
-        "profile_issue": "geometry_jump" if geometry_jump else None,
-        "scan_quality": "geometry_jump" if geometry_jump else "smooth",
-        "max_jump": float(scan_quality.max_jump),
-        "jump_threshold": float(scan_quality.jump_threshold),
         "phase_values": [float(value) for value in final_solution.phase_values],
-        "diagnostic_flags": tuple(stage1_diagnostic_flags),
-        "report_debug": report_debug,
+        "diagnostic_flags": (),
+        "report_debug": bool(getattr(params, "report_debug", False)),
     }
     delta = final_fitted_k - problem.k_orig
     return delta, final_active_mask, diagnostics
 
-def _default_local_fit_solver(
+def local_fit_solver(
     problem: TorsionLocalProblem,
     params: TorsionFitParams | None = None,
     *,
@@ -959,7 +678,7 @@ def _default_local_fit_solver(
             replacement_groups.append(rebuilt_group)
             continue
         applied_split = True
-        base_label = shared_group_label(group.atom_types)
+        base_label = "-".join(group.atom_types)
         for outer_atom, member_indices in family_splits:
             members = [
                 (local_index, problem.target_dihedrals[local_index])
@@ -1072,7 +791,6 @@ def _build_fit_report(
     )
     shared_groups = []
     original_phase_values = _local_phase_orig(problem)
-    report_debug = bool(stage1_diagnostics.get("report_debug", False)) if isinstance(stage1_diagnostics, dict) else False
     for group in problem.shared_groups:
         original_terms = [
             FourierTerm(
@@ -1096,14 +814,12 @@ def _build_fit_report(
         if isinstance(group_diagnostics, tuple):
             rank, dropped = group_diagnostics
             diagnostic_flags = ()
-            candidate_trials = ()
         else:
             rank = int(group_diagnostics.get("rank", len(fitted_group_terms)))
             dropped = int(group_diagnostics.get("dropped", 0))
             diagnostic_flags = tuple(group_diagnostics.get("diagnostic_flags", ()))
             if capped_count > 0 and "k_capped" not in diagnostic_flags:
                 diagnostic_flags = diagnostic_flags + ("k_capped",)
-            candidate_trials = tuple(group_diagnostics.get("candidate_trials", ())) if report_debug else ()
         frozen_non_template_slots = _group_frozen_non_template_slot_labels(problem, group)
         activated_new_slot = any(
             active_mask[slot_index] and not is_existing
@@ -1123,7 +839,6 @@ def _build_fit_report(
                 dropped_singular_directions=dropped,
                 activated_new_slot=activated_new_slot,
                 diagnostic_flags=diagnostic_flags,
-                candidate_trials=candidate_trials,
             )
         )
     return TorsionFitReport(

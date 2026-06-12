@@ -179,14 +179,9 @@ def test_correction_result_shows_stage2_debug_reasons_only_when_requested(tmp_pa
         per_scan_rmse_after={},
         diagnostics={
             "status": "accepted",
-            "initial_scan_loss": 1.2,
-            "final_scan_loss": 1.0,
-            "initial_ensemble_loss": 0.3,
-            "final_ensemble_loss": 0.2,
-            "initial_prior_loss": 0.1,
-            "final_prior_loss": 0.15,
-            "initial_total_loss": 1.6,
-            "final_total_loss": 1.35,
+            "scan_loss_after": 1.0,
+            "ensemble_loss_after": 0.2,
+            "prior_loss_after": 0.15,
         },
     )
     torsion = TorsionWorkflowResult(
@@ -194,7 +189,16 @@ def test_correction_result_shows_stage2_debug_reasons_only_when_requested(tmp_pa
         final_parameter_set=parameter_set,
         refine_cycles=[cycle],
         center_bonds=[(1, 2), (2, 3), (3, 4)],
-        stage2_diagnostics={"final_cycle": "cycle 1 accepted"},
+        stage2_diagnostics={
+            "final_cycle": "best round 1",
+            "best_round": 1,
+            "initial_total_loss": 1.6,
+            "final_total_loss": 1.35,
+            "initial_data_loss": 1.5,
+            "final_data_loss": 1.2,
+            "initial_prior_loss": 0.1,
+            "final_prior_loss": 0.15,
+        },
     )
     result = CorrectionWorkflowResult(
         initial_parameter_set=parameter_set,
@@ -211,10 +215,11 @@ def test_correction_result_shows_stage2_debug_reasons_only_when_requested(tmp_pa
     text = "".join(correction_result_lines(config, result))
 
     assert "Stage2 loss:" in text
-    assert "scan:      1.200000 -> 1.000000" in text
-    assert "ensemble:  0.300000 -> 0.200000" in text
+    assert "data:      1.500000 -> 1.200000" in text
     assert "prior:     0.100000 -> 0.150000" in text
     assert "total:     1.600000 -> 1.350000" in text
+    assert "cycles:" in text
+    assert "ensemble=0.200000" in text
     assert "status:    accepted" in text
 
     config.torsion = TorsionFitParams(report_debug=False)
@@ -326,7 +331,7 @@ def _patch_auto_parmchk2(monkeypatch, mol2_path: Path, frcmod_path: Path) -> Non
             residue_name="TEST",
         )
 
-    monkeypatch.setattr(correction_parameters_module.amber_interface, "run_parmchk2", fake_run_parmchk2)
+    monkeypatch.setattr(correction_parameters_module.interface, "run_parmchk2", fake_run_parmchk2)
 
 
 def _summary_stub_parameter_set():
@@ -415,8 +420,8 @@ def test_correction_integrates_torsion_stage1_initializer_into_main_output(tmp_p
     assert "Torsion constraint:projected" in text
     assert "Scan grid:         72.0000 deg x 5 steps" in text
     assert "Stage2 refine:" in text
-    assert "cycles=0" in text
-    assert "block_max_iter=10" in text
+    assert "max_cycles=0" in text
+    assert f"max_iter_per_cycle={TorsionFitParams().refine_max_iter}" in text
     assert "tol=1e-06" in text
     assert "mSeminario bond/angle changes" in text
     assert "TorsionFit dihedral changes" in text
@@ -605,8 +610,8 @@ def test_correction_stage2_global_refine_cycles_are_reported(tmp_path: Path, mon
     text = output_path.read_text(encoding="utf-8")
     assert "PARMFIT CORRECTION RESULT" in text
     assert "stage1: completed" in text
-    assert "stage2: enabled, requested_rounds=2" in text
-    assert "refine rounds:" in text
+    assert "stage2: enabled, max_cycles=2" in text
+    assert "fast cycles:" in text
     assert "final parameters:" in text
     assert "accepted_blocks=" not in text
     assert "rejected_blocks=" not in text

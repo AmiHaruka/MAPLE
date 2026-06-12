@@ -17,7 +17,7 @@ HARTREE_TO_KCAL_MOL = 627.509474
 __all__ = ["HARTREE_TO_KCAL_MOL", "run_conformer_benchmark"]
 
 
-def _pair(i: int, j: int) -> tuple[int, int]:
+def _bond_key(i: int, j: int) -> tuple[int, int]:
     return (i, j) if i < j else (j, i)
 
 
@@ -40,7 +40,7 @@ def _bond_type_map(parameter_set: CorrectionParameterSet) -> dict[tuple[int, int
     for bond in parameter_set.mol2.bonds:
         i = id_to_index[bond.atom1]
         j = id_to_index[bond.atom2]
-        mapping[_pair(i, j)] = bond.bond_type
+        mapping[_bond_key(i, j)] = bond.bond_type
     return mapping
 
 
@@ -50,7 +50,7 @@ def _is_single_bond(bond_type: str) -> bool:
 
 
 def _is_ring_bond(adjacency: dict[int, set[int]], center_bond: tuple[int, int]) -> bool:
-    start, end = _pair(*center_bond)
+    start, end = _bond_key(*center_bond)
     if end not in adjacency.get(start, set()):
         return False
 
@@ -77,7 +77,7 @@ def _enumerate_rotatable_bonds(
     cache = build_mm_topology_cache(parameter_set)
     adjacency = parameter_set.mol2.adjacency
     bond_types = _bond_type_map(parameter_set)
-    excluded = {_pair(*bond) for bond in (exclude_bonds or [])}
+    excluded = {_bond_key(*bond) for bond in (exclude_bonds or [])}
 
     rotatable: list[tuple[int, int]] = []
     for center_bond in sorted(cache.proper_by_center_bond):
@@ -111,7 +111,7 @@ def _representative_quartet(
     parameter_set: CorrectionParameterSet,
     center_bond: tuple[int, int],
 ) -> tuple[int, int, int, int] | None:
-    left, right = _pair(*center_bond)
+    left, right = _bond_key(*center_bond)
     symbols = atoms.get_chemical_symbols()
     adjacency = parameter_set.mol2.adjacency
     first = _choose_neighbor(left, right, adjacency, symbols)
@@ -122,7 +122,7 @@ def _representative_quartet(
 
 
 def _fragment(adjacency: dict[int, set[int]], start: int, blocked_edge: tuple[int, int]) -> set[int]:
-    blocked = {_pair(*blocked_edge)}
+    blocked = {_bond_key(*blocked_edge)}
     fragment: set[int] = set()
     queue: deque[int] = deque([start])
     while queue:
@@ -131,7 +131,7 @@ def _fragment(adjacency: dict[int, set[int]], start: int, blocked_edge: tuple[in
             continue
         fragment.add(node)
         for neighbor in adjacency.get(node, set()):
-            if _pair(node, neighbor) in blocked or neighbor in fragment:
+            if _bond_key(node, neighbor) in blocked or neighbor in fragment:
                 continue
             queue.append(neighbor)
     return fragment
@@ -170,7 +170,7 @@ def _apply_torsion_rotation(
     if abs(delta_deg) <= 1.0e-10:
         return
 
-    left, right = _pair(*center_bond)
+    left, right = _bond_key(*center_bond)
     fragment = _fragment(parameter_set.mol2.adjacency, quartet[3], (left, right))
     positions = np.asarray(atoms.get_positions(), dtype=float).copy()
     origin = positions[left - 1]

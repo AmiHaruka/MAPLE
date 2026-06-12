@@ -205,7 +205,7 @@ def test_optimize_atoms_geometry_calls_scan_lbfgs(monkeypatch, tmp_path: Path):
     assert calls["params"].use_line_search is False
 
 
-def test_fixinternals_scan_lbfgs_uses_scan_optimizer(monkeypatch, tmp_path: Path):
+def test_fixinternals_scan_lbfgs_uses_engine_lbfgs(monkeypatch, tmp_path: Path):
     calls = {}
 
     class FakeLBFGS:
@@ -219,7 +219,7 @@ def test_fixinternals_scan_lbfgs_uses_scan_optimizer(monkeypatch, tmp_path: Path
             calls["ran"] = True
             return self.atoms
 
-    monkeypatch.setattr(projected_lbfgs_module, "LBFGS", FakeLBFGS)
+    monkeypatch.setattr(scan_engine_module, "LBFGS", FakeLBFGS)
     atoms = _make_atoms([(1.0, 0.0, 0.0)])
     engine = scan_engine_module.SilentScanEngine(
         output=str(tmp_path / "scan.out"),

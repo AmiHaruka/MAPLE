@@ -12,8 +12,8 @@ from typing import Optional
 import numpy as np
 from ase import Atoms
 
-from . import interface as qm_interface
-from . import resp as resp_utils
+from . import interface
+from . import resp
 from .interface import QMMethod
 from .Scan.optimizer import LBFGS, LBFGSParams
 
@@ -302,7 +302,7 @@ def run_resp_pipeline(
     paths = _resp_paths(output, label=label)
     os.makedirs(paths["workdir"], exist_ok=True)
 
-    qm_interface.prepare_gaussian_esp_input(
+    interface.prepare_gaussian_esp_input(
         paths["gaussian_input"],
         model,
         total_charge=total_charge,
@@ -310,11 +310,11 @@ def run_resp_pipeline(
         decision=qm,
         watm=watm,
     )
-    gaussian_log = qm_interface.run_gaussian(paths["gaussian_input"], qm)
+    gaussian_log = interface.run_gaussian(paths["gaussian_input"], qm)
     paths["gaussian_log"] = gaussian_log
 
     run_espgen(paths["gaussian_log"], paths["esp"])
-    resp_inputs = resp_utils.write_resp_input_files(
+    resp_inputs = resp.write_resp_input_files(
         paths["workdir"],
         model,
         total_charge=total_charge,
@@ -346,9 +346,9 @@ def run_resp_pipeline(
         qin_path=paths["resp1_chg"],
     )
 
-    charges = resp_utils.read_resp_charges(paths["resp2_chg"])
-    charged_model = resp_utils.apply_resp_charges(model, charges)
-    resp_utils.write_resp_mol2(paths["mol2"], charged_model, bond_pairs, prom=prom)
+    charges = resp.read_resp_charges(paths["resp2_chg"])
+    charged_model = resp.apply_resp_charges(model, charges)
+    resp.write_resp_mol2(paths["mol2"], charged_model, bond_pairs, prom=prom)
 
     return RespPipelineResult(
         model=charged_model,
@@ -425,7 +425,7 @@ def run_multiconformer_resp(
     models = [model for _, model in conformers]
     for label, model in conformers:
         gaussian_input = paths[f"{label}_gaussian_input"]
-        qm_interface.prepare_gaussian_esp_input(
+        interface.prepare_gaussian_esp_input(
             gaussian_input,
             model,
             total_charge=total_charge,
@@ -433,7 +433,7 @@ def run_multiconformer_resp(
             decision=qm,
             title=f"MAPLE NCAA {label} RESP",
         )
-        gaussian_log = qm_interface.run_gaussian(gaussian_input, qm)
+        gaussian_log = interface.run_gaussian(gaussian_input, qm)
         esp_path = paths[f"{label}_esp"]
         run_espgen(gaussian_log, esp_path)
         conformer_outputs[label] = {
@@ -443,8 +443,8 @@ def run_multiconformer_resp(
         }
         esp_files.append(esp_path)
 
-    resp_utils.merge_esp_files(esp_files, paths["all_esp"])
-    resp_inputs = resp_utils.write_multiconformer_resp_input_files(
+    resp.merge_esp_files(esp_files, paths["all_esp"])
+    resp_inputs = resp.write_multiconformer_resp_input_files(
         paths["workdir"],
         models,
         labels=labels,
@@ -474,7 +474,7 @@ def run_multiconformer_resp(
         qin_path=paths["resp1_chg"],
     )
 
-    charges = resp_utils.read_resp_charges(paths["resp2_chg"])
+    charges = resp.read_resp_charges(paths["resp2_chg"])
     n_atoms = sum(len(residue["atoms"]) for residue in representative_model["residues"])
     if len(charges) == n_atoms:
         reference_charges = charges
@@ -487,8 +487,8 @@ def run_multiconformer_resp(
     with open(paths["target_chg"], "w", encoding="utf-8") as handle:
         handle.write(" ".join(f"{charge:.10f}" for charge in reference_charges))
         handle.write("\n")
-    charged_model = resp_utils.apply_resp_charges(representative_model, reference_charges)
-    resp_utils.write_resp_mol2(paths["mol2"], charged_model, bond_pairs, prom=prom)
+    charged_model = resp.apply_resp_charges(representative_model, reference_charges)
+    resp.write_resp_mol2(paths["mol2"], charged_model, bond_pairs, prom=prom)
 
     return MultiRespPipelineResult(
         model=charged_model,

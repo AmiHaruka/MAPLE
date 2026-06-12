@@ -122,7 +122,7 @@ parmfit/
 | `utils/TorsionFit/workflow.py` | scan/cache/filter 与 fitting 调用 |
 | `utils/TorsionFit/basis.py` | local/global problem 与 fast MM profile cache |
 | `utils/TorsionFit/stage1.py` | spectral shared-group restrained LLS |
-| `utils/TorsionFit/stage2.py` | global direct k/phase loss refinement |
+| `utils/TorsionFit/stage2.py` | global Stage2 loss refinement with k/phase and coeff_ab optimizer paths |
 | `utils/TorsionFit/ensemble.py` | optional rigid rotor ensemble target for Stage2 |
 | `utils/TorsionFit/fit.py` | Stage1/Stage2/cycle 组合入口 |
 | `utils/Scan/optimizer.py` | parmfit 内部 LBFGS、projected optimizer、CGWS/CGBS |

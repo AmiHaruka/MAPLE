@@ -117,8 +117,7 @@ class TorsionObjectiveEvaluation:
     global_rmse: float
     per_scan_rmse: dict[tuple[int, int], float]
     per_scan_data_loss: dict[tuple[int, int], float] = field(default_factory=dict)
-    bucket_by_scan: dict[tuple[int, int], str] = field(default_factory=dict)
-    objective_kind: str = "continuous_phase_k"
+    objective_kind: str = "direct_k_phase"
     scan_data_loss: float = 0.0
     ensemble_data_loss: float = 0.0
 
@@ -182,7 +181,6 @@ class TorsionSharedGroupReport:
     dropped_singular_directions: int = 0
     activated_new_slot: bool = False
     diagnostic_flags: tuple[str, ...] = ()
-    candidate_trials: tuple[str, ...] = ()
 
 
 @dataclass
@@ -327,7 +325,6 @@ class TorsionRefineCycle:
     per_scan_rmse_after: dict[tuple[int, int], float]
     data_loss_before: float = 0.0
     data_loss_after: float = 0.0
-    bucket_by_scan: dict[tuple[int, int], str] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
 

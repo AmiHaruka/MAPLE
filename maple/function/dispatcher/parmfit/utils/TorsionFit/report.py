@@ -59,11 +59,6 @@ def format_torsion_fit_report(report: TorsionFitReport) -> list[str]:
             diagnostic_flags = getattr(group, "diagnostic_flags", ())
             if diagnostic_flags:
                 lines.append(f"      diagnostics: {', '.join(diagnostic_flags)}\n")
-            candidate_trials = getattr(group, "candidate_trials", ())
-            if candidate_trials:
-                lines.append("      candidate_trials:\n")
-                for trial in candidate_trials:
-                    lines.append(f"        {trial}\n")
             for term_index, (old_term, new_term) in enumerate(zip(group.original_terms, group.fitted_terms), start=1):
                 lines.append(
                     "      "
@@ -254,19 +249,25 @@ def format_torsion_stage2_lines(
     else:
         selected_cycles: list[TorsionRefineCycle] = []
         for cycle in refine_reports:
-            if cycle.cycle == 1 or (cycle.cycle - 1) % 20 == 0:
+            if cycle.cycle == 1 or cycle.cycle == len(refine_reports) or (cycle.cycle - 1) % 20 == 0:
                 selected_cycles.append(cycle)
-        if refine_reports and refine_reports[-1] not in selected_cycles:
-            selected_cycles.append(refine_reports[-1])
+        best_round = max(int(cycle.diagnostics.get("best_round", 0)) for cycle in refine_reports)
+        if best_round > 0:
+            for cycle in refine_reports:
+                if cycle.cycle == best_round and cycle not in selected_cycles:
+                    selected_cycles.append(cycle)
+        selected_cycles.sort(key=lambda cycle: cycle.cycle)
         for cycle in selected_cycles:
             lines.extend(format_torsion_refine_cycle(cycle))
     return lines
 
 
 def format_torsion_refine_cycle(report: TorsionRefineCycle) -> list[str]:
+    diagnostics = report.diagnostics if isinstance(report.diagnostics, dict) else {}
+    status = str(diagnostics.get("status", "cycle"))
     headline = (
-        f"\ncycle {report.cycle}: accepted={report.accepted_blocks} rejected={report.rejected_blocks}  "
-        f"objective {report.total_loss_before:.6f} -> {report.total_loss_after:.6f}  "
+        f"\ncycle {report.cycle}: status={status}  "
+        f"total_loss {report.total_loss_before:.6f} -> {report.total_loss_after:.6f}  "
         f"data_loss {report.data_loss_before:.6f} -> {report.data_loss_after:.6f}  "
         f"global weighted energy RMSE {report.global_rmse_before:.6f} -> {report.global_rmse_after:.6f}"
     )
@@ -277,24 +278,11 @@ def format_torsion_refine_cycle(report: TorsionRefineCycle) -> list[str]:
             f"    {center_bond}: {report.per_scan_rmse_before[center_bond]:.6f} -> "
             f"{report.per_scan_rmse_after[center_bond]:.6f}\n"
         )
-    per_scan_diagnostics = report.diagnostics.get("per_scan", {}) if isinstance(report.diagnostics, dict) else {}
-    if per_scan_diagnostics:
-        lines.append("  per-scan diagnostics:\n")
-        for center_bond in report.per_scan_rmse_before:
-            info = per_scan_diagnostics.get(str(center_bond))
-            if not isinstance(info, dict):
-                continue
-            lines.append(
-                f"    {center_bond}: "
-                f"status={info.get('stage2_status') or 'unknown'}  "
-                f"profile_issue={info.get('profile_issue') or info.get('scan_quality_note') or 'none'}  "
-                f"max_adjacent_qm_jump={float(info.get('max_adjacent_qm_jump', 0.0)):.6f}  "
-                f"diagnostics={','.join(info.get('diagnostic_flags', ())) or 'none'}  "
-                f"max_k={float(info.get('max_abs_k', 0.0)):.6f}  "
-                f"max_k_cap={float(info.get('max_k_cap', 0.0)):.6f}  "
-                f"capped_terms={int(info.get('capped_terms', 0))}  "
-                f"at_cap_terms={int(info.get('at_cap_terms', 0))}  "
-                f"max_delta_k={float(info.get('max_delta_k', 0.0)):.6f}  "
-                f"rmse_gain={float(info.get('rmse_gain', 0.0)):.6f}\n"
-            )
+    if diagnostics:
+        lines.append(
+            "  loss parts: "
+            f"scan={float(diagnostics.get('scan_loss_after', 0.0)):.6f}  "
+            f"ensemble={float(diagnostics.get('ensemble_loss_after', 0.0)):.6f}  "
+            f"prior={float(diagnostics.get('prior_loss_after', 0.0)):.6f}\n"
+        )
     return lines

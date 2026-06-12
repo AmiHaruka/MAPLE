@@ -14,9 +14,10 @@ from ase import Atoms
 from ..mechanics import build_mm_topology_cache, dihedral_radians, evaluate_mm_energy
 from ..readparm import CorrectionParameterSet
 from ..runtime import copy_thresholds, get_potential_energy, parmfit_work_prefix
-from .config import TorsionFitParams, normalize_center_bond
+from .config import TorsionFitParams
 from .records import TorsionEnsembleResult, TorsionGlobalProblem, TorsionObjectiveTarget
 from .scanio import HARTREE_TO_KCAL_MOL
+from .topology import normalize_center_bond
 
 _TORSION_STEP_DEG = 15.0
 _TORSION_OFFSETS_DEG = tuple(float(angle) for angle in range(-180, 181, int(_TORSION_STEP_DEG)) if angle)
@@ -88,17 +89,24 @@ def _center_bond_rotor(
     right_side = _graph_side(adjacency, right, left)
     if left_side & right_side:
         return None
-    if mobile_atoms is not None:
-        left_side &= mobile_atoms
-        right_side &= mobile_atoms
-    if not left_side or not right_side:
-        return None
     if _is_terminal_h_side(parameter_set, left_side) or _is_terminal_h_side(parameter_set, right_side):
         return None
 
-    if len(left_side) <= len(right_side):
-        return (left, left, right, left)
-    return (right, right, left, right)
+    def valid_rotating_side(side: set[int]) -> bool:
+        if not side:
+            return False
+        if mobile_atoms is not None and not side <= mobile_atoms:
+            return False
+        return True
+
+    candidates: list[tuple[int, tuple[int, int, int, int]]] = []
+    if valid_rotating_side(left_side):
+        candidates.append((len(left_side), (left, left, right, left)))
+    if valid_rotating_side(right_side):
+        candidates.append((len(right_side), (right, right, left, right)))
+    if not candidates:
+        return None
+    return min(candidates, key=lambda item: item[0])[1]
 
 
 def _eligible_rotors(

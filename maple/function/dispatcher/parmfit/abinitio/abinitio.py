@@ -6,10 +6,10 @@ from ase import Atoms
 
 from ...jobABC import JobABC
 from .report import format_abinitio_summary
+from ..utils.structure import classify_kind, get_resid_label, read_pdb
 from ..utils.context import find_unique_residue
 from ..utils.MetalAA import parse_metal_abinitio_config, run_metal_abinitio
 from ..utils.NCAA import parse_ncaa_abinitio_config, run_ncaa_abinitio
-from ..utils.structure import classify_kind, get_resid_label, read_pdb
 
 from maple.function.timer import timer
 

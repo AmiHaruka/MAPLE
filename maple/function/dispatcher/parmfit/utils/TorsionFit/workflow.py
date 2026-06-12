@@ -14,6 +14,7 @@ from ..readparm import CorrectionParameterSet
 from ..runtime import parmfit_work_prefix
 from ..Scan import run_silent_scan
 from .topology import (
+    normalize_center_bond,
     representative_dihedral_for_center_bond,
     resolve_torsion_center_bonds,
 )
@@ -21,7 +22,7 @@ from .fit import run_loss_mode
 from .records import TorsionScanData, TorsionScanRuntime, TorsionWorkflowResult
 from .ensemble import build_torsion_local_ensemble
 from .scanio import read_scan_xyz
-from .config import TorsionFitParams, normalize_center_bond
+from .config import TorsionFitParams
 from .report import format_torsion_stage1_lines, format_torsion_stage2_lines
 
 

@@ -9,25 +9,14 @@ import numpy as np
 
 from ..mechanics import build_mm_topology_cache
 from ..readparm import CorrectionParameterSet
-from .topology import _clone_terms, apply_fitted_torsion, center_bond_dihedrals
+from .topology import _clone_terms, apply_fitted_torsion, center_bond_dihedrals, normalize_center_bond
 from .records import TorsionEnsembleResult, TorsionFitReport, TorsionScanData, TorsionWorkflowResult
 from .config import TorsionFitParams
-from .basis import _MMProfileCache, build_global_torsion_problem
-from .basis import build_local_torsion_problem as _build_local_problem
+from .basis import _MMProfileCache, build_global_torsion_problem, build_local_torsion_problem
 from .report import format_torsion_final_point_table, format_torsion_fit_report, format_torsion_stage2_lines
-from .stage1 import (
-    _build_fit_report,
-    _default_local_fit_solver,
-)
-from .stage2 import (
-    _build_stage2_objective_cache,
-    _global_mm_rel_map,
-    apply_global_delta,
-    evaluate_global_refit_objective,
-    refine_torsion_scans_global,
-)
+from .stage1 import _build_fit_report, local_fit_solver
+from .stage2 import _build_stage2_objective_cache, _global_mm_rel_map, apply_global_delta, evaluate_global_refit_objective, refine_torsion_scans_global
 from .ensemble import attach_stage2_extra_targets
-from .config import normalize_center_bond
 
 
 def fit_torsion_scan(
@@ -43,7 +32,7 @@ def fit_torsion_scan(
     mm_base_rel_override: np.ndarray | None = None,
     stage0_mm_rel_override: np.ndarray | None = None,
 ) -> TorsionFitReport:
-    problem = _build_local_problem(
+    problem = build_local_torsion_problem(
         scan_data,
         parameter_set,
         center_bond,
@@ -51,7 +40,7 @@ def fit_torsion_scan(
         mm_base_rel_override=mm_base_rel_override,
         stage0_mm_rel_override=stage0_mm_rel_override,
     )
-    solver_output = _default_local_fit_solver(problem, params=params, return_problem=True)
+    solver_output = local_fit_solver(problem, params=params, return_problem=True)
     if isinstance(solver_output, tuple):
         solved_problem = solver_output[0]
         delta_kphi = np.asarray(solver_output[1], dtype=float)
@@ -145,29 +134,41 @@ def _fit_stage1_cycle(
 
 def _stage2_cycle_diagnostics(
     *,
-    requested_cycles: int,
+    requested_rounds: int,
     refine_cycles,
-    accepted_cycles: int,
-    rejected_cycles: int,
-    final_cycle: str,
-    last_cycle_diagnostics: dict[str, object],
     initial_eval,
     final_eval,
 ) -> dict[str, object]:
-    per_scan_guard = last_cycle_diagnostics.get("per_scan", {}) if isinstance(last_cycle_diagnostics, dict) else {}
-    accepted = bool(accepted_cycles > 0)
+    accepted_cycles = sum(1 for cycle in refine_cycles if cycle.diagnostics.get("status") == "accepted")
+    rejected_cycles = sum(1 for cycle in refine_cycles if cycle.diagnostics.get("status") != "accepted")
+    last_accepted = 0
+    for cycle in refine_cycles:
+        if cycle.diagnostics.get("status") == "accepted":
+            last_accepted = int(cycle.cycle)
+    accepted = bool(last_accepted)
+    last_diagnostics = refine_cycles[-1].diagnostics if refine_cycles else {}
     return {
-        "solver": "continuous_phase_k_refine" if requested_cycles > 0 else "disabled",
-        "requested_cycles": int(requested_cycles),
+        "solver": "auto_mean_shift" if requested_rounds > 0 else "disabled",
+        "requested_cycles": int(requested_rounds),
+        "requested_rounds": int(requested_rounds),
         "cycles": int(len(refine_cycles)),
+        "rounds": int(len(refine_cycles)),
         "accepted_cycles": int(accepted_cycles),
         "rejected_cycles": int(rejected_cycles),
+        "best_round": int(last_accepted),
         "accepted": accepted,
-        "rolled_back": bool(rejected_cycles > 0 or not accepted),
-        "final_cycle": final_cycle,
-        "reject_reason": last_cycle_diagnostics.get("reject_reason") if isinstance(last_cycle_diagnostics, dict) else None,
-        "objective_kind": last_cycle_diagnostics.get("objective_kind") if isinstance(last_cycle_diagnostics, dict) else getattr(final_eval, "objective_kind", None),
-        "center_bonds": per_scan_guard,
+        "rolled_back": not accepted,
+        "final_cycle": (
+            f"cycle {last_accepted} accepted"
+            if accepted and rejected_cycles == 0
+            else f"cycle {last_accepted} accepted, cycle {refine_cycles[-1].cycle} rejected"
+            if accepted and refine_cycles
+            else "kept Stage1"
+        ),
+        "objective_kind": last_diagnostics.get("objective_kind") if isinstance(last_diagnostics, dict) else getattr(final_eval, "objective_kind", None),
+        "selected_optimizer": last_diagnostics.get("selected_optimizer") if isinstance(last_diagnostics, dict) else None,
+        "k_phase_loss": float(last_diagnostics.get("k_phase_loss", 0.0)) if isinstance(last_diagnostics, dict) else 0.0,
+        "coeff_ab_loss": float(last_diagnostics.get("coeff_ab_loss", 0.0)) if isinstance(last_diagnostics, dict) else 0.0,
         "initial_total_loss": float(initial_eval.total_loss),
         "final_total_loss": float(final_eval.total_loss),
         "initial_data_loss": float(initial_eval.data_loss),
@@ -177,9 +178,8 @@ def _stage2_cycle_diagnostics(
     }
 
 
-def _run_stage2_cycle(
+def _run_stage2_refinement(
     *,
-    cycle_index: int,
     stage1_parameter_set: CorrectionParameterSet,
     fit_reports: list[TorsionFitReport],
     scan_data_map,
@@ -214,20 +214,20 @@ def _run_stage2_cycle(
         max_block_iter=params.refine_max_iter,
         tol=params.refine_tol,
     )
-    for cycle in refine_cycles:
-        cycle.cycle = int(cycle_index)
     final_parameter_set = apply_global_delta(problem, vector_final)
     final_eval = evaluate_global_refit_objective(problem, vector_final, cache=objective_cache)
     stage2_curves = _global_mm_rel_map(problem, vector_final, cache=objective_cache)
-    guard_diagnostics = refine_cycles[-1].diagnostics if refine_cycles else {}
-    if isinstance(guard_diagnostics, dict):
-        guard_diagnostics["outer_cycle"] = int(cycle_index)
-        guard_diagnostics["objective_kind"] = guard_diagnostics.get("objective_kind", final_eval.objective_kind)
+    diagnostics = _stage2_cycle_diagnostics(
+        requested_rounds=int(params.refine_rounds),
+        refine_cycles=refine_cycles,
+        initial_eval=initial_eval,
+        final_eval=final_eval,
+    )
 
     final_topology_cache = build_mm_topology_cache(final_parameter_set)
     if log_info is not None:
         log_info(format_torsion_stage2_lines(params, refine_cycles))
-        log_info([f"\nFinal refined point tables after cycle {cycle_index}:\n"])
+        log_info(["\nFinal refined point tables after Stage 2:\n"])
     final_fit_reports = []
     for fit_report in fit_reports:
         stage2_report = _stage2_fit_report_from_stage1(
@@ -239,14 +239,7 @@ def _run_stage2_cycle(
         final_fit_reports.append(stage2_report)
         if log_info is not None:
             log_info(format_torsion_final_point_table(stage2_report))
-    return final_parameter_set, final_fit_reports, refine_cycles, initial_eval, final_eval, guard_diagnostics
-
-
-def _accept_cycle_score(previous_score: float | None, candidate_score: float, tol: float) -> bool:
-    if previous_score is None:
-        return True
-    threshold = max(float(tol), 1.0e-4 * max(abs(float(previous_score)), 1.0))
-    return float(candidate_score) < float(previous_score) - threshold
+    return final_parameter_set, final_fit_reports, refine_cycles, initial_eval, final_eval, diagnostics
 
 
 def run_loss_mode(
@@ -282,28 +275,31 @@ def run_loss_mode(
     final_fit_reports = list(fit_reports)
     refine_cycles: list = []
     stage2_diagnostics: dict[str, object] = {
-        "solver": "disabled" if params.refine_rounds <= 0 else "continuous_phase_k_refine",
+        "solver": "disabled" if params.refine_rounds <= 0 else "auto_mean_shift",
         "requested_cycles": max(int(params.refine_rounds), 0),
+        "requested_rounds": max(int(params.refine_rounds), 0),
         "cycles": 0,
+        "rounds": 0,
         "accepted_cycles": 0,
         "rejected_cycles": 0,
         "final_cycle": "stage1 only" if params.refine_rounds <= 0 else "not run",
     }
     if params.refine_rounds > 0 and fit_reports:
         if log_info is not None:
-            log_info(["\n[Stage 2] Running stage-2 global torsion refinement...\n"])
-        current_parameter_set = deepcopy(base_parameter_set)
-        best_stage1_parameter_set = deepcopy(stage1_parameter_set)
+            log_info([f"\n[Stage 2] Running auto mean-shift fast cycle ({int(params.refine_rounds)} max cycles)...\n"])
+        current_parameter_set = base_parameter_set
+        current_stage1_parameter_set = stage1_parameter_set
+        current_fit_reports = fit_reports
+        current_stage1_diagnostics = stage1_diagnostics
+        best_stage1_parameter_set = stage1_parameter_set
         best_stage1_diagnostics = stage1_diagnostics
-        best_score: float | None = None
-        accepted_cycles = 0
-        rejected_cycles = 0
-        last_initial_eval = None
-        last_final_eval = None
-        last_cycle_diagnostics: dict[str, object] = {}
+        best_eval = None
+        initial_eval = None
+        improvement_tol = max(float(params.refine_tol), 1.0e-12)
+
         for cycle_index in range(1, int(params.refine_rounds) + 1):
             if cycle_index > 1:
-                stage1_parameter_set, fit_reports, stage1_diagnostics = _fit_stage1_cycle(
+                current_stage1_parameter_set, current_fit_reports, current_stage1_diagnostics = _fit_stage1_cycle(
                     current_parameter_set=current_parameter_set,
                     original_parameter_set=original_parameter_set,
                     normalized_center_bonds=normalized_center_bonds,
@@ -313,71 +309,64 @@ def run_loss_mode(
                     profile_cache=profile_cache,
                     log_info=log_info,
                 )
-            if log_info is not None:
-                log_info([f"\n[Stage 2] Fast MM cycle {cycle_index}/{int(params.refine_rounds)} ...\n"])
             (
-                cycle_parameter_set,
-                cycle_fit_reports,
-                cycle_refine_cycles,
-                initial_eval,
-                final_eval,
-                guard_diagnostics,
-            ) = _run_stage2_cycle(
-                cycle_index=cycle_index,
-                stage1_parameter_set=stage1_parameter_set,
-                fit_reports=fit_reports,
+                candidate_parameter_set,
+                candidate_fit_reports,
+                cycle_reports,
+                cycle_initial_eval,
+                cycle_final_eval,
+                _cycle_diagnostics,
+            ) = _run_stage2_refinement(
+                stage1_parameter_set=current_stage1_parameter_set,
+                fit_reports=current_fit_reports,
                 scan_data_map=scan_data_map,
                 params=params,
                 current_parameter_set=current_parameter_set,
                 ensemble_result=ensemble_result,
                 log_info=log_info,
             )
-            has_ensemble_targets = (
-                ensemble_result is not None
-                and params.torsion_ensemble_weight > 0.0
-                and bool(ensemble_result.frames_by_center)
-            )
-            candidate_score = float(final_eval.total_loss if has_ensemble_targets else final_eval.data_loss)
-            last_initial_eval = initial_eval
-            last_final_eval = final_eval
-            last_cycle_diagnostics = guard_diagnostics if isinstance(guard_diagnostics, dict) else {}
-            inner_accepted = any(int(getattr(cycle, "accepted_blocks", 0)) > 0 for cycle in cycle_refine_cycles)
-            if inner_accepted and _accept_cycle_score(best_score, candidate_score, params.refine_tol):
-                refine_cycles.extend(cycle_refine_cycles)
-                accepted_cycles += 1
-                best_score = candidate_score
-                current_parameter_set = deepcopy(cycle_parameter_set)
-                best_stage1_parameter_set = deepcopy(stage1_parameter_set)
-                best_stage1_diagnostics = stage1_diagnostics
-                final_parameter_set = deepcopy(cycle_parameter_set)
-                final_fit_reports = list(cycle_fit_reports)
-                continue
+            if initial_eval is None:
+                initial_eval = cycle_initial_eval
+            if best_eval is None:
+                best_eval = cycle_initial_eval
 
-            rejected_cycles += 1
-            for cycle in cycle_refine_cycles:
-                cycle.diagnostics["outer_cycle_rejected"] = True
-                cycle.diagnostics["outer_cycle_reject_reason"] = "no_fast_cycle_data_loss_gain"
-            refine_cycles.extend(cycle_refine_cycles)
-            break
-        stage1_parameter_set = deepcopy(best_stage1_parameter_set)
-        stage1_diagnostics = best_stage1_diagnostics
-        if rejected_cycles and accepted_cycles > 0:
-            final_cycle = f"cycle {accepted_cycles} accepted, cycle {accepted_cycles + 1} rejected"
-        elif rejected_cycles:
-            final_cycle = "cycle 1 rejected; keeping Stage1"
-        else:
-            final_cycle = f"cycle {accepted_cycles} accepted"
-        if last_initial_eval is not None and last_final_eval is not None:
-            stage2_diagnostics = _stage2_cycle_diagnostics(
-                requested_cycles=int(params.refine_rounds),
-                refine_cycles=refine_cycles,
-                accepted_cycles=accepted_cycles,
-                rejected_cycles=rejected_cycles,
-                final_cycle=final_cycle,
-                last_cycle_diagnostics=last_cycle_diagnostics,
-                initial_eval=last_initial_eval,
-                final_eval=last_final_eval,
+            improved = bool(
+                np.isfinite(cycle_final_eval.data_loss)
+                and cycle_final_eval.data_loss < best_eval.data_loss - improvement_tol
+                and cycle_reports
+                and cycle_reports[-1].diagnostics.get("status") == "accepted"
             )
+            for cycle_report in cycle_reports:
+                cycle_report.cycle = int(cycle_index)
+                cycle_report.diagnostics["cycle_index"] = int(cycle_index)
+                cycle_report.diagnostics["cycle_data_loss_before"] = float(best_eval.data_loss)
+                cycle_report.diagnostics["cycle_data_loss_after"] = float(cycle_final_eval.data_loss)
+                if improved:
+                    cycle_report.diagnostics["status"] = "accepted"
+                else:
+                    cycle_report.diagnostics["status"] = "rejected"
+                    cycle_report.accepted_blocks = 0
+                    cycle_report.rejected_blocks = len(normalized_center_bonds)
+            refine_cycles.extend(cycle_reports)
+
+            if improved:
+                final_parameter_set = candidate_parameter_set
+                final_fit_reports = candidate_fit_reports
+                best_stage1_parameter_set = current_stage1_parameter_set
+                best_stage1_diagnostics = current_stage1_diagnostics
+                current_parameter_set = candidate_parameter_set
+                best_eval = cycle_final_eval
+                continue
+            break
+
+        stage1_parameter_set = best_stage1_parameter_set
+        stage1_diagnostics = best_stage1_diagnostics
+        stage2_diagnostics = _stage2_cycle_diagnostics(
+            requested_rounds=int(params.refine_rounds),
+            refine_cycles=refine_cycles,
+            initial_eval=initial_eval if initial_eval is not None else best_eval,
+            final_eval=best_eval if best_eval is not None else initial_eval,
+        )
     elif log_info is not None:
         log_info(format_torsion_stage2_lines(params, refine_cycles))
 

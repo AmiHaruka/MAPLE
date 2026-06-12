@@ -7,20 +7,25 @@ from typing import TYPE_CHECKING
 
 from ..mechanics import build_mm_topology_cache
 from ..readparm import CorrectionParameterSet, Dihedral, FourierTerm
-from .config import TorsionFitParams, _pair, normalize_center_bond
 
 if TYPE_CHECKING:
+    from .config import TorsionFitParams
     from .records import TorsionFitReport
 
 
 _ROTATABLE_MOL2_BOND_TYPES = {"1", "1.0", "s", "single"}
 
 
+def normalize_center_bond(center_bond: tuple[int, int]) -> tuple[int, int]:
+    i, j = int(center_bond[0]), int(center_bond[1])
+    return (i, j) if i < j else (j, i)
+
+
 def _mol2_bond_type_by_center_bond(parameter_set: CorrectionParameterSet) -> dict[tuple[int, int], str]:
     id_to_index = parameter_set.mol2.id_to_index
     bond_types: dict[tuple[int, int], str] = {}
     for bond in parameter_set.mol2.bonds:
-        bond_types[_pair(id_to_index[bond.atom1], id_to_index[bond.atom2])] = str(bond.bond_type)
+        bond_types[normalize_center_bond((id_to_index[bond.atom1], id_to_index[bond.atom2]))] = str(bond.bond_type)
     return bond_types
 
 
@@ -39,7 +44,7 @@ def _center_bond_dihedral_indices(
         [
             index
             for index, dihedral in enumerate(parameter_set.dihedrals)
-            if _pair(dihedral.atoms[1], dihedral.atoms[2]) == center
+            if normalize_center_bond((dihedral.atoms[1], dihedral.atoms[2])) == center
         ],
         key=lambda index: parameter_set.dihedrals[index].atoms,
     )
@@ -149,10 +154,6 @@ def _clone_terms(dihedrals: list[Dihedral]) -> list[list[FourierTerm]]:
 def canonical_torsion_atom_types(atom_types: tuple[str, str, str, str]) -> tuple[str, str, str, str]:
     reverse = tuple(reversed(atom_types))
     return atom_types if atom_types <= reverse else reverse
-
-
-def shared_group_label(atom_types: tuple[str, str, str, str]) -> str:
-    return "-".join(atom_types)
 
 
 def _validate_fit_targets(dihedrals: list[Dihedral]) -> None:

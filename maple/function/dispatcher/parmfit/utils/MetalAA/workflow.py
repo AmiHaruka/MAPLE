@@ -10,7 +10,7 @@ from typing import Callable, Optional
 
 import numpy as np
 
-from .. import interface as amber_interface
+from .. import interface
 from ..Seminario import apply_seminario
 from ..mSeminario import apply_mseminario
 from ..model import build_bond_angle_terms, flatten_model_atoms, infer_bond_pairs, model_to_atoms
@@ -574,7 +574,7 @@ def run_metal_abinitio(
     log_info(["  [MetalAA] final parameter files written.\n"])
     log_info(["  [MetalAA] running tleap validation ...\n"])
     with _timed_stage(stage_timings, "tleap validation"):
-        amber_interface.run_tleap(
+        interface.run_tleap(
             artifacts.files["tleap_input"],
             workdir=os.path.dirname(artifacts.files["tleap_input"]) or ".",
         )

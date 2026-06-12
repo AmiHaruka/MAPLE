@@ -26,7 +26,7 @@ stage0 parameter set
 TorsionFit scan + spectral shared-group Stage1
         |
         v
-Stage2 direct k/phase fast MM cycles
+Stage2 global loss refinement fast cycles
         |
         v
 final parameter set
@@ -73,7 +73,7 @@ TorsionFit 当前文件边界：
 | `spectral.py` | FFT/DiFT-style candidate period 和 shared-group phase seed |
 | `ensemble.py` | optional rigid rotor ensemble sampling and Stage2 extra targets |
 | `stage1.py` | spectral shared-group restrained LLS |
-| `stage2.py` | global direct k/phase loss refinement |
+| `stage2.py` | global Stage2 loss refinement with k/phase and coeff_ab optimizer paths |
 | `fit.py` | Stage1/Stage2/cycle 组合入口 |
 | `records.py` | scan、report、cycle、workflow result 数据对象 |
 | `report.py` | torsion fit 报告 |
@@ -245,10 +245,11 @@ min ||B k - fit_target_rel||^2 + lambda sum_j w_j (k_j - k0_j)^2
 
 - existing term 进入 weak-prior refit。
 - existing term 可以被 refit 到接近 0。
-- old zero-amplitude term 不进 active fitting，但保留到最终参数，避免 Amber 缺项。
-- spectral helper 从 `n = 1, 2, 3, 4, 6` 中选 candidate。
-- 默认不主动新增 `n=5`；若原始参数已有 `n=5`，会作为 existing term 保留。
-- 单个 center bond 默认最多新增 3 个 spectral slots。
+- 每个 shared group 默认开放 canonical slot `n = 1, 2, 3, 4`。
+- old zero-amplitude canonical term 也进入 active fitting 空间，但可被 prior/Stage2 压回接近 0。
+- spectral helper 只提供 phase seed 和诊断，不再用局部 gain 决定 term 生死。
+- `n=5/6` 当前不作为默认拟合 slot；若原始参数已有，会作为 frozen non-template term 保留。
+- Stage1 不再限制新增 slot 数量，最终贡献由 Stage2 global optimizer、prior 和 k cap 决定。
 
 Spectral candidate 的代表 profile 近似写作：
 
@@ -273,55 +274,41 @@ phase_seed_g,n = phase_fft,n + arg(response_g,n)
 
 coherence 过低表示 group 内 path cancellation，candidate 不会激活。
 
-## 10. Stage2: Global Direct K/Phase Refinement
+## 10. Stage2: Global Loss Refinement
 
-Stage2 不新增 slot，不做 candidate gate；它直接优化 Stage1 已确定 slot 的 AMBER torsion 参数：
-
-```text
-x = [k_1, gamma_1, k_2, gamma_2, ...]
-```
-
-计算时仍使用 cached cos/sin basis，以避免逐 frame 重算完整 MM：
+Stage2 不新增 slot；它只优化 Stage1 已确定 slot 的参数。计算时仍使用 coefficient form 和 cached cos/sin basis，以避免逐 frame 重算完整 MM：
 
 ```text
-a_j = k_j cos(gamma_j)
-b_j = k_j sin(gamma_j)
+delta = [delta_a, delta_b]
+a_j = a0_j + delta_a_j
+b_j = b0_j + delta_b_j
 
-MM_s(x) = constant_s + cos_basis_s @ a + sin_basis_s @ b
+MM_s(delta) = constant_s + cos_basis_s @ a + sin_basis_s @ b
 ```
 
-目标函数：
+每个 Stage2 调用会比较两条 optimizer path：
+
+```text
+k_phase:  x = [k1, phase1, k2, phase2, ...]
+coeff_ab: x = [delta_a1, delta_a2, ..., delta_b1, delta_b2, ...]
+```
+
+二者使用同一个 objective：
 
 ```text
 L = L_scan + w_ensemble L_ensemble + L_prior
 ```
 
-其中 scan 和 ensemble target 使用同一套相对 reference 约定；`torsion_ensemble_weight` 只作为 ensemble loss 的权重。prior 在 coefficient space 约束 Stage2 不要无意义偏离 Stage1：
-
-```text
-a0_j = k0_j cos(gamma0_j)
-b0_j = k0_j sin(gamma0_j)
-
-L_prior = lambda sum_j p_j [(a_j-a0_j)^2 + (b_j-b0_j)^2] / scale_j^2
-```
-
-Stage2 的接受规则是全局 loss 判断：
-
-```text
-if finite(final_total_loss) and final_total_loss < initial_total_loss - tol:
-    accept optimized k/phase
-else:
-    keep Stage1
-```
+其中 scan 和 ensemble target 使用同一套相对 reference 约定；`torsion_ensemble_weight` 只作为 ensemble loss 的权重。prior 在 coefficient space 约束 Stage2 不要无意义偏离 Stage1。两条 path 都优化完成后，Stage2 选择 finite total loss 更低的参数写回。
 
 数值边界：
 
-- `0 <= kPhi <= k_cap`，由 L-BFGS-B bounds 约束。
-- `phase` 优化时不设硬边界，写回前 wrap 到 `(-pi, pi]`。
+- direct `k_phase` path 使用 `0 <= kPhi <= k_cap` bounds；phase 写回前 wrap 到 `(-pi, pi]`。
+- `coeff_ab` path 使用 coefficient box bounds，并在最终写回前 radial project 到 `kPhi <= k_cap`。
 - nonfinite loss / vector 返回大 penalty；最终非有限则拒绝。
-- 不再使用 checkpoint selection、per-center rollback、geometry jump/cancellation/torsion-unidentifiable hard guard。
+- 不再使用 per-center rollback、checkpoint gate、geometry jump/cancellation/torsion-unidentifiable hard guard。
 
-`stage2_ref` 在报告中表示最终 accepted parameter set 对 scan frames 的 MM profile。如果 Stage2 没有降低 total loss，最终参数保持 Stage1。
+`stage2_ref` 在报告中表示最终 parameter set 对 scan frames 的 MM profile。如果 Stage2 没有降低 loss，最终参数保持 Stage1。
 
 ## 11. Optional Torsion Ensemble Target
 
@@ -368,27 +355,27 @@ target_count ~= ceil(number_of_center_bonds * (torsion_steps + 1) * torsion_ense
 
 最终进入 Stage2 的 frame 数还会受 MM filter、MLIP high-energy filter 和每个 center 至少 2 帧的要求影响。`torsion_ensemble_weight` 只在 Stage2 loss 中缩放 ensemble target。
 
-## 12. Fast MM Cycle
+## 12. Stage2 Rounds
 
 `torsion_refine_rounds` 当前语义：
 
 ```text
 0: Stage1 only
-1: Stage1 + Stage2 once
-N: 最多 N 轮 Stage1 + Stage2 fast MM cycle
+1: one fast cycle = Stage1 + Stage2
+N: at most N fast cycles
 ```
 
 每轮：
 
 ```text
-current parameter set
- -> cached MM profile refresh
- -> Stage1 refit
- -> Stage2 direct k/phase refinement
- -> inner Stage2 accepts only if total loss improves
- -> outer fast-cycle accepts only if this round improves the best scan score
- -> otherwise keep previous best and stop
+current accepted parameter set
+ -> refresh scan-frame MM reference
+ -> Stage1 shared-group LLS
+ -> Stage2 k_phase / coeff_ab optimizer comparison
+ -> accept if data loss improves; otherwise rollback and stop
 ```
+
+多轮 fast cycle 只在 `fit.py` 外层执行；`stage2.py` 本身只做单次 global optimization。最终写回最后一个 accepted cycle 的参数；如果没有 cycle 改善 data loss，则保留 Stage1。
 
 不做：
 
