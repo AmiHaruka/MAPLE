@@ -19,6 +19,7 @@ from maple.function.timer import timer
 
 from ..integrator.velocity_verlet import VelocityVerlet
 from ..utils import (
+    VELOCITY_REPR_LFMIDDLE_CARRIED,
     apply_runtime_motion_projection,
     calculate_temperature,
     calculate_kinetic_energy,
@@ -27,6 +28,8 @@ from ..utils import (
     get_n_dof_from_policy,
     get_runtime_dof_policy,
     initialize_velocities,
+    lfmiddle_carried_to_standard,
+    FS_TO_AU,
     HA_PER_ANG_TO_AU,
 )
 from ..logger import MDLogger
@@ -230,6 +233,7 @@ class NVE(JobABC):
                     load_state=True,
                 )
                 self.atoms, velocities, step_offset = result
+                velocities = self._restore_standard_velocities(velocities)
                 remaining = self.params.steps
             elif self.params.restart:
                 if self.params.init_velocities and self.params.debug:
@@ -248,6 +252,7 @@ class NVE(JobABC):
                 if result is None:   # already completed
                     return
                 self.atoms, velocities, step_offset = result
+                velocities = self._restore_standard_velocities(velocities)
                 remaining = self.params.steps - step_offset
             else:
                 # ── Velocity initialisation ───────────────────────────────
@@ -387,6 +392,19 @@ class NVE(JobABC):
             )
             self.log_info([nvt_warn])
             print(nvt_warn, end='', flush=True)
+
+    def _restore_standard_velocities(self, velocities: np.ndarray) -> np.ndarray:
+        # NVT (LF-Middle Langevin) writes carried velocities to .rst. Standard
+        # Velocity Verlet expects v_standard = v_carried + 0.5 * F * dt / m at
+        # the saved position; without this half-kick the NVE microcanonical
+        # surface is offset by O(dt²) and ⟨T⟩ drifts low.
+        if self.logger.resumed_velocity_representation != VELOCITY_REPR_LFMIDDLE_CARRIED:
+            return velocities
+        forces = self.atoms.get_forces() * HA_PER_ANG_TO_AU
+        source_dt_au = (self.logger.resumed_timestep * FS_TO_AU
+                        if self.logger.resumed_timestep is not None
+                        else self.params.timestep * FS_TO_AU)
+        return lfmiddle_carried_to_standard(self.atoms, velocities, forces, source_dt_au)
 
     def _initialize_velocities(self) -> np.ndarray:
         """

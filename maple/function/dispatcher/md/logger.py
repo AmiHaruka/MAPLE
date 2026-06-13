@@ -87,8 +87,6 @@ class MDLogger:
         traj_every: Trajectory write frequency (steps)
     """
 
-    eV2Hartree = 1 / 27.211386245988
-
     def __init__(
         self,
         output_path: str,
