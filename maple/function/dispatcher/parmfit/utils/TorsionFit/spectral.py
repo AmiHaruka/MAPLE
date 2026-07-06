@@ -6,8 +6,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .config import TORSIONFIT_CANONICAL_PERIODS
 
-DEFAULT_SPECTRAL_PERIODS = (1, 2, 3, 4)
+DEFAULT_SPECTRAL_PERIODS = TORSIONFIT_CANONICAL_PERIODS
 _AMPLITUDE_FLOOR = 1.0e-8
 
 

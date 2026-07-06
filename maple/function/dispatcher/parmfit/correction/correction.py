@@ -7,7 +7,6 @@ from typing import Optional
 from ase import Atoms
 
 from ...jobABC import JobABC
-from ..utils.mSeminario import apply_mseminario
 from ..utils.readparm import CorrectionParameterSet
 from ..utils.TorsionFit import run_torsion_workflow
 from .artifacts import CorrectionWorkflowResult
@@ -31,7 +30,7 @@ class Correction(JobABC):
     def result(self) -> Optional[CorrectionParameterSet]:
         if self.workflow_result is None:
             return None
-        return self.workflow_result.final_parameter_set
+        return self.workflow_result.final_parmset
 
     def run(self) -> CorrectionWorkflowResult:
         with timer("Parmfit correction"):
@@ -40,7 +39,6 @@ class Correction(JobABC):
                 atoms=self.atoms,
                 config=self.params,
                 log_info=self.log_info,
-                apply_mseminario_fn=apply_mseminario,
                 torsion_workflow_fn=run_torsion_workflow,
             )
             return self.workflow_result

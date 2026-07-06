@@ -298,6 +298,7 @@ def run_resp_pipeline(
     watm: str | None = None,
     prom: str = "ff14SB",
     charge_groups: list[tuple[list[int], float]] | None = None,
+    wfn_path: str | None = None,
 ) -> RespPipelineResult:
     paths = _resp_paths(output, label=label)
     os.makedirs(paths["workdir"], exist_ok=True)
@@ -309,6 +310,7 @@ def run_resp_pipeline(
         multiplicity=multiplicity,
         decision=qm,
         watm=watm,
+        wfn_path=wfn_path,
     )
     gaussian_log = interface.run_gaussian(paths["gaussian_input"], qm)
     paths["gaussian_log"] = gaussian_log
@@ -412,6 +414,7 @@ def run_multiconformer_resp(
     multiplicity: int,
     qm: QMMethod,
     prom: str = "ff14SB",
+    wfn_path: str | None = None,
 ) -> MultiRespPipelineResult:
     if not conformers:
         raise ValueError("Multiconformer RESP requires at least one conformer.")
@@ -432,6 +435,7 @@ def run_multiconformer_resp(
             multiplicity=multiplicity,
             decision=qm,
             title=f"MAPLE NCAA {label} RESP",
+            wfn_path=wfn_path,
         )
         gaussian_log = interface.run_gaussian(gaussian_input, qm)
         esp_path = paths[f"{label}_esp"]

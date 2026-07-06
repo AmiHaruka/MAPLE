@@ -24,6 +24,7 @@ from .logger import log_info
 from ...jobABC import JobABC
 
 from maple.function.utility import Molecules
+from maple.function.read.filereader.pdb_reader import write_pdb_model, write_pdb_trajectory
 
 # =============================================================================
 # ------------------------------ Utilities ------------------------------------
@@ -83,6 +84,9 @@ def write_xyz(filename: str, images: List[Atoms], energies: Optional[List[float]
     """
     Write a multi-frame XYZ trajectory. If energies given, write in comment line.
     """
+    if images and images[0].info.get("pdb_template"):
+        write_pdb_trajectory(filename, images, energies=energies)
+        return
     with open(filename, "w") as f:
         for i, at in enumerate(images):
             pos = to_numpy_f64(at.get_positions())
@@ -102,6 +106,22 @@ def write_all_images_xyz(filename: str, images: List[Atoms], energies: Optional[
     """
     if iteration == 0 and os.path.exists(filename):
         os.remove(filename)
+    if images and images[0].info.get("pdb_template"):
+        with open(filename, "a", encoding="utf-8") as f:
+            for i, at in enumerate(images):
+                template = at.info.get("pdb_template") or images[0].info["pdb_template"]
+                E = None if energies is None else energies[i]
+                remark = f"Iter {iteration} Image {i}"
+                if E is not None:
+                    remark += f"  Energy = {E:.10f}"
+                write_pdb_model(
+                    f,
+                    at,
+                    template,
+                    model_index=iteration * len(images) + i + 1,
+                    remark=remark,
+                )
+        return
     with open(filename, "a") as f:
         for i, at in enumerate(images):
             pos = to_numpy_f64(at.get_positions())
@@ -599,8 +619,9 @@ class NEB(JobABC):
 
         # --- write optimized endpoints to XYZ ---
         base, ext = os.path.splitext(self.output)
-        reactant_path = base + "_reactant_min.xyz"
-        product_path  = base + "_product_min.xyz"
+        ext = ".pdb" if atoms_R.info.get("pdb_template") else ".xyz"
+        reactant_path = base + "_reactant_min" + ext
+        product_path  = base + "_product_min" + ext
         write_xyz(reactant_path, [atoms_R], energies=[atoms_R.get_potential_energy(force_consistent=True)])
         write_xyz(product_path,  [atoms_P], energies=[atoms_P.get_potential_energy(force_consistent=True)])
 
@@ -849,7 +870,8 @@ class NEB(JobABC):
         # reset any previous fixed HEI
         self._cineb_fixed_hei = None
 
-        traj_file = os.path.splitext(self.output)[0] + "_cineb_traj.xyz"
+        ext = ".pdb" if images and images[0].info.get("pdb_template") else ".xyz"
+        traj_file = os.path.splitext(self.output)[0] + "_cineb_traj" + ext
         driver = LBFGSDriver(m=self.params.lbfgs_m, curvature=70.0, maxstep=self.params.cistep0)
         # set convergence thresholds
         driver.fmax_reg = self.params.neb_f_max_th
@@ -946,8 +968,8 @@ class NEB(JobABC):
 
         # --- Stage 1 summary: CI part ---
         base, _ = os.path.splitext(self.output)
-        cineb_mep = base + "_cineb_mep.xyz"
-        cineb_hei = base + "_cineb_hei.xyz"
+        cineb_mep = base + "_cineb_mep" + ext
+        cineb_hei = base + "_cineb_hei" + ext
         write_xyz(cineb_mep, images, energies=Es)
         write_xyz(cineb_hei, [images[hei]], energies=[Es[hei]])
 
@@ -987,8 +1009,8 @@ class NEB(JobABC):
             images.insert(hei + 1, ts_opt)
             Es.insert(hei + 1, E_TS)
 
-            nebts_mep = base + "_nebts_mep.xyz"
-            nebts_ts = base + "_nebts_ts.xyz"
+            nebts_mep = base + "_nebts_mep" + ext
+            nebts_ts = base + "_nebts_ts" + ext
             write_xyz(nebts_mep, images, energies=Es)
             write_xyz(nebts_ts, [ts_opt], energies=[E_TS])
 
@@ -1331,7 +1353,8 @@ class NEB(JobABC):
         # Step 3: Normal NEB optimization loop
         # ===================================================================
         
-        traj_file = os.path.splitext(self.output)[0] + "_image_traj.xyz"
+        ext = ".pdb" if images and images[0].info.get("pdb_template") else ".xyz"
+        traj_file = os.path.splitext(self.output)[0] + "_image_traj" + ext
         
         driver = LBFGSDriver(
             m=self.params.lbfgs_m,
@@ -1456,8 +1479,8 @@ class NEB(JobABC):
         #  Final path summary
         # ---------------------------------------------------------------
         base, _ = os.path.splitext(self.output)
-        mep_path = base + "_mep.xyz"
-        hip_path = base + "_hei.xyz"
+        mep_path = base + "_mep" + ext
+        hip_path = base + "_hei" + ext
         write_xyz(mep_path, images, energies=Es)
         write_xyz(hip_path, [images[hei]], energies=[Es[hei]])
 

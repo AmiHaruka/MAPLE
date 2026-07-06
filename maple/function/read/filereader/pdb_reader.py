@@ -11,6 +11,8 @@ import numpy as np
 
 from maple.function.utility import Molecules
 
+_PDB_ATOM_RECORDS = {"ATOM", "HETATM", "HEATOM"}
+
 
 def _case_insensitive_lookup(path: str) -> str:
     directory, filename = os.path.split(path)
@@ -73,12 +75,13 @@ def _infer_pdb_element(atom_name: str, element_field: str = "") -> str:
     return letters[0].upper()
 
 
-def _pdb_atoms_to_ase(atoms: list[dict]) -> Atoms:
+def _pdb_atoms_to_ase(atoms: list[dict], template_lines: list[str]) -> Atoms:
     if not atoms:
         raise ValueError("PDB model contains no ATOM/HETATM coordinate records.")
     symbols = [atom["element"] for atom in atoms]
     positions = np.asarray([atom["xyz"] for atom in atoms], dtype=np.float64)
     ase_atoms = Atoms(symbols=symbols, positions=positions)
+    ase_atoms.info["pdb_template"] = list(template_lines)
     return ase_atoms
 
 
@@ -111,14 +114,16 @@ class PDBReader:
     def _read_coordinate_frames(path: str) -> list[Atoms]:
         frames: list[Atoms] = []
         current_atoms: list[dict] = []
+        current_template: list[str] = []
         saw_model = False
         in_model = False
 
         def finish_frame() -> None:
-            nonlocal current_atoms
+            nonlocal current_atoms, current_template
             if current_atoms:
-                frames.append(_pdb_atoms_to_ase(current_atoms))
+                frames.append(_pdb_atoms_to_ase(current_atoms, current_template))
                 current_atoms = []
+                current_template = []
 
         with open(path, "r", encoding="utf-8", errors="replace") as handle:
             for raw in handle:
@@ -129,6 +134,7 @@ class PDBReader:
                     saw_model = True
                     in_model = True
                     current_atoms = []
+                    current_template = []
                     continue
 
                 if record == "ENDMDL":
@@ -142,7 +148,12 @@ class PDBReader:
                 if saw_model and not in_model:
                     continue
 
-                if record not in {"ATOM", "HETATM", "HEATOM"}:
+                if record == "TER":
+                    if current_atoms:
+                        current_template.append(line)
+                    continue
+
+                if record not in _PDB_ATOM_RECORDS:
                     continue
 
                 altloc = line[16].strip()
@@ -150,6 +161,7 @@ class PDBReader:
                     continue
 
                 atom_name = line[12:16].strip()
+                current_template.append(line)
                 current_atoms.append(
                     {
                         "element": _infer_pdb_element(atom_name, line[76:78]),
@@ -163,6 +175,85 @@ class PDBReader:
             finish_frame()
 
         return frames
+
+
+def _format_pdb_atom_line(line: str, xyz: np.ndarray) -> str:
+    padded = line.rstrip("\n").ljust(80)
+    x, y, z = xyz
+    return f"{padded[:30]}{x:8.3f}{y:8.3f}{z:8.3f}{padded[54:]}"
+
+
+def _pdb_frame_lines(atoms: Atoms, template_lines: list[str]) -> list[str]:
+    positions = np.asarray(atoms.get_positions(), dtype=float)
+    atom_line_count = sum(
+        1 for line in template_lines if line[:6].strip().upper() in _PDB_ATOM_RECORDS
+    )
+    if atom_line_count != len(atoms):
+        raise ValueError(
+            f"PDB template atom count ({atom_line_count}) does not match atom count ({len(atoms)})."
+        )
+
+    lines: list[str] = []
+    atom_index = 0
+    for raw in template_lines:
+        line = raw.rstrip("\n").ljust(80)
+        record = line[:6].strip().upper()
+        if record in _PDB_ATOM_RECORDS:
+            lines.append(_format_pdb_atom_line(line, positions[atom_index]))
+            atom_index += 1
+        elif record == "TER":
+            lines.append(line)
+    return lines
+
+
+def write_pdb(path: str, atoms: Atoms, template_lines: list[str]) -> None:
+    with open(path, "w", encoding="utf-8") as handle:
+        for line in _pdb_frame_lines(atoms, template_lines):
+            handle.write(line.rstrip("\n") + "\n")
+        handle.write("END\n")
+
+
+def write_pdb_model(
+    handle,
+    atoms: Atoms,
+    template_lines: list[str],
+    *,
+    model_index: int = 1,
+    remark: Optional[str] = None,
+) -> None:
+    handle.write(f"MODEL     {model_index:4d}\n")
+    if remark:
+        handle.write(f"REMARK   {remark}\n")
+    for line in _pdb_frame_lines(atoms, template_lines):
+        handle.write(line.rstrip("\n") + "\n")
+    handle.write("ENDMDL\n")
+
+
+def write_pdb_trajectory(
+    path: str,
+    atoms_list: list[Atoms],
+    energies: Optional[list[float]] = None,
+    mode: str = "w",
+    start_index: int = 0,
+) -> None:
+    if not atoms_list:
+        with open(path, mode, encoding="utf-8"):
+            pass
+        return
+    base_template = atoms_list[0].info.get("pdb_template")
+    with open(path, mode, encoding="utf-8") as handle:
+        for i, atoms in enumerate(atoms_list):
+            template = atoms.info.get("pdb_template") or base_template
+            if not template:
+                raise ValueError("PDB trajectory output requires atoms.info['pdb_template'].")
+            remark = f"Energy = {energies[i]:.10f}" if energies is not None else None
+            write_pdb_model(
+                handle,
+                atoms,
+                template,
+                model_index=start_index + i + 1,
+                remark=remark,
+            )
 
 
 def _parse_conect_line(line: str) -> tuple[Optional[int], list[int]]:

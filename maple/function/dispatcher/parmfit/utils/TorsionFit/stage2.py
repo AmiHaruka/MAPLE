@@ -439,7 +439,7 @@ def _stage2_data_evaluation_and_gradient_weights(
         global_rmse=float(np.sqrt(mean_data_loss)) if mean_data_loss > 0.0 else 0.0,
         per_scan_rmse=dict(per_scan_rmse),
         per_scan_data_loss=dict(per_scan_data_loss),
-        objective_kind="auto_mean_shift",
+        objective_kind="direct_k_phase",
         scan_data_loss=float(scan_data_loss),
         ensemble_data_loss=float(extra_data_loss),
     )
@@ -798,54 +798,6 @@ def _optimize_stage2_coeff_ab(
     return _stage2_project_vector_to_k_caps(problem, best_x, k_caps)
 
 
-def _optimize_stage2_auto_mean_shift(
-    problem: TorsionGlobalProblem,
-    delta_init: np.ndarray,
-    *,
-    max_iter: int,
-    tol: float,
-    cache: _Stage2ObjectiveCache | None = None,
-) -> tuple[np.ndarray, dict[str, object]]:
-    cache = _build_stage2_objective_cache(problem) if cache is None else cache
-    initial_eval = evaluate_global_refit_objective(problem, delta_init, cache=cache)
-    k_phase_vector = _optimize_stage2_k_phase(
-        problem,
-        delta_init,
-        max_iter=max_iter,
-        tol=tol,
-        cache=cache,
-    )
-    coeff_ab_vector = _optimize_stage2_coeff_ab(
-        problem,
-        delta_init,
-        max_iter=max_iter,
-        tol=tol,
-        cache=cache,
-    )
-    k_phase_eval = evaluate_global_refit_objective(problem, k_phase_vector, cache=cache)
-    coeff_ab_eval = evaluate_global_refit_objective(problem, coeff_ab_vector, cache=cache)
-    if np.isfinite(coeff_ab_eval.total_loss) and (
-        not np.isfinite(k_phase_eval.total_loss) or coeff_ab_eval.total_loss < k_phase_eval.total_loss
-    ):
-        selected = "coeff_ab"
-        final_vector = coeff_ab_vector
-        final_eval = coeff_ab_eval
-    else:
-        selected = "k_phase"
-        final_vector = k_phase_vector
-        final_eval = k_phase_eval
-    diagnostics = {
-        "solver": "auto_mean_shift",
-        "objective_kind": "auto_mean_shift",
-        "selected_optimizer": selected,
-        "initial_loss": float(initial_eval.total_loss),
-        "k_phase_loss": float(k_phase_eval.total_loss),
-        "coeff_ab_loss": float(coeff_ab_eval.total_loss),
-        "final_loss": float(final_eval.total_loss),
-    }
-    return final_vector, diagnostics
-
-
 # -----------------------------------------------------------------------------
 # Public algorithm entry points
 # -----------------------------------------------------------------------------
@@ -874,7 +826,7 @@ def refine_torsion_scans_global(
     max_iter = max(int(max_block_iter), int(problem.global_max_iter), 1)
     improvement_tol = max(float(tol), 1.0e-12)
     before_eval = evaluate_global_refit_objective(problem, vector_init, cache=objective_cache)
-    candidate_vector, optimizer_diagnostics = _optimize_stage2_auto_mean_shift(
+    candidate_vector = _optimize_stage2_k_phase(
         problem,
         vector_init,
         max_iter=max_iter,
@@ -889,16 +841,17 @@ def refine_torsion_scans_global(
     final_vector = candidate_vector if accepted else vector_init
     final_eval = candidate_eval if accepted else before_eval
     diagnostics = {
-        "objective_kind": "auto_mean_shift",
-        "solver": "auto_mean_shift",
+        "solver": "direct_k_phase",
         "status": "accepted" if accepted else "kept_stage1",
         "accepted": bool(accepted),
         "candidate_total_loss": float(candidate_eval.total_loss),
         "candidate_data_loss": float(candidate_eval.data_loss),
+        "scan_loss_before": float(before_eval.scan_data_loss),
         "scan_loss_after": float(final_eval.scan_data_loss),
+        "ensemble_loss_before": float(before_eval.ensemble_data_loss),
         "ensemble_loss_after": float(final_eval.ensemble_data_loss),
+        "prior_loss_before": float(before_eval.prior_loss),
         "prior_loss_after": float(final_eval.prior_loss),
-        **optimizer_diagnostics,
     }
     cycle = TorsionRefineCycle(
         cycle=1,

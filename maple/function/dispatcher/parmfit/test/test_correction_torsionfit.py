@@ -107,11 +107,13 @@ if str(ROOT) not in sys.path:
 
 from maple.function.dispatcher.parmfit.correction import correction as correction_module
 from maple.function.dispatcher.parmfit.correction import parameters as correction_parameters_module
+from maple.function.dispatcher.parmfit.correction import workflow as correction_workflow_module
 from maple.function.dispatcher.parmfit.correction.artifacts import AmberExportResult, CorrectionWorkflowResult, GromacsExportResult
-from maple.function.dispatcher.parmfit.correction.config import CorrectionConfig
+from maple.function.dispatcher.parmfit.correction.config import CorrectionConfig, build_correction_config
 from maple.function.dispatcher.parmfit.correction.correction import Correction
 from maple.function.dispatcher.parmfit.correction.report import correction_result_lines, summary_lines
 from maple.function.dispatcher.parmfit.utils import interface as interface_module
+from maple.function.dispatcher.parmfit.utils.QMInterface import QMReferenceResult
 from maple.function.dispatcher.parmfit.utils.TorsionFit import TorsionFitParams, TorsionWorkflowResult
 from maple.function.dispatcher.parmfit.utils.TorsionFit.records import TorsionRefineCycle
 from maple.function.dispatcher.parmfit.utils.mechanics import angle_radians, distance_angstrom
@@ -151,6 +153,501 @@ def _empty_parameter_set() -> CorrectionParameterSet:
         unmatched_impropers=[],
         unmatched_nonbonds=[],
     )
+
+
+def test_build_correction_config_parses_bonded_methods() -> None:
+    config = build_correction_config({"parmfit": {"bonded": "none"}})
+    seminario = build_correction_config({"parmfit": {"bonded": "Seminario"}})
+
+    assert config.bonded == "none"
+    assert seminario.bonded == "seminario"
+
+    with pytest.raises(ValueError, match="bonded method"):
+        build_correction_config({"parmfit": {"bonded": "bad"}})
+
+
+def test_build_correction_config_parses_qm_reference_options() -> None:
+    config = build_correction_config(
+        {
+            "parmfit": {
+                "iqm": "true",
+                "qm_engine": "g16",
+                "theory": "IGNORED",
+                "basis": "IGNORED",
+                "opt_level": "B3LYP/def2SVP",
+                "sp_level": "wB97X-D/def2TZVP",
+                "opt_route": "SCF=Tight",
+                "sp_route": "SCF=VeryTight",
+                "qm_nproc": "12",
+                "qm_mem": "48",
+                "qm_compare": "true",
+            }
+        }
+    )
+
+    assert config.qm.iqm is True
+    assert config.qm.qm_engine == "g16"
+    assert config.qm.opt_level == "B3LYP/def2SVP"
+    assert config.qm.sp_level == "wB97X-D/def2TZVP"
+    assert config.qm.opt_route == "SCF=Tight"
+    assert config.qm.sp_route == "SCF=VeryTight"
+    assert config.qm.qm_nproc == 12
+    assert config.qm.qm_mem == 48
+    assert config.qm.qm_compare is True
+
+
+def test_correction_bonded_none_torsionfit_disabled_skips_refinement(monkeypatch, tmp_path: Path) -> None:
+    calls: list[str] = []
+    parameter_set = _empty_parameter_set()
+
+    def fake_build_init_parmset(output, atoms, config):
+        del output, atoms, config
+        calls.append("build_init_parmset")
+        return parameter_set, str(tmp_path / "demo_original.frcmod")
+
+    def fail_geometry(*args, **kwargs):
+        raise AssertionError("geometry optimization should be skipped")
+
+    def fail_bonded_refinement(*args, **kwargs):
+        raise AssertionError("bonded refinement should be skipped")
+
+    def fail_torsion(*args, **kwargs):
+        raise AssertionError("TorsionFit should be skipped")
+
+    def fake_export_gromacs(output, atoms, final_parmset, *, output_suffix=""):
+        del output, atoms
+        calls.append("export_gromacs")
+        assert output_suffix == ""
+        assert final_parmset.bonds == parameter_set.bonds
+        assert final_parmset.angles == parameter_set.angles
+        assert final_parmset.dihedrals == parameter_set.dihedrals
+        return GromacsExportResult(top=str(tmp_path / "demo.top"), gro=str(tmp_path / "demo.gro"))
+
+    def fake_export_amber(output, config, final_parmset, *, use_refined_parameters=True, source_frcmod=""):
+        del output, config
+        calls.append("export_amber")
+        assert use_refined_parameters is False
+        assert source_frcmod == str(tmp_path / "demo_original.frcmod")
+        assert final_parmset.bonds == parameter_set.bonds
+        assert final_parmset.angles == parameter_set.angles
+        assert final_parmset.dihedrals == parameter_set.dihedrals
+        return AmberExportResult(mol2=str(tmp_path / "demo.mol2"), frcmod=str(tmp_path / "demo.frcmod"))
+
+    monkeypatch.setattr(correction_workflow_module, "build_init_parmset", fake_build_init_parmset)
+    monkeypatch.setattr(correction_workflow_module, "run_geometry_optimization", fail_geometry)
+    monkeypatch.setattr(correction_workflow_module, "run_bonded_refinement", fail_bonded_refinement)
+    monkeypatch.setattr(correction_workflow_module, "export_gromacs", fake_export_gromacs)
+    monkeypatch.setattr(correction_workflow_module, "export_amber", fake_export_amber)
+
+    config = CorrectionConfig(mol2=str(tmp_path / "input.mol2"), bonded="none")
+    config.torsion = TorsionFitParams(enabled=False)
+    result = correction_workflow_module.run_correction_workflow(
+        output=str(tmp_path / "demo.out"),
+        atoms=Atoms(symbols=["C"], positions=[(0.0, 0.0, 0.0)]),
+        config=config,
+        log_info=lambda lines: None,
+        torsion_workflow_fn=fail_torsion,
+    )
+
+    assert calls == ["build_init_parmset", "export_gromacs", "export_amber"]
+    assert result.init_parmset.bonds == parameter_set.bonds
+    assert result.stage0_parmset.bonds == parameter_set.bonds
+    assert result.final_parmset.bonds == parameter_set.bonds
+    assert result.torsion.stage1_parameter_set is None
+    assert result.torsion.center_bonds == []
+
+
+def test_correction_bonded_seminario_selects_seminario_applicator(monkeypatch, tmp_path: Path) -> None:
+    calls: list[str] = []
+    parameter_set = _empty_parameter_set()
+
+    class FakeOptimizer:
+        converged = True
+        params = type("Params", (), {"max_iter": 10})()
+
+    def fake_build_init_parmset(output, atoms, config):
+        del output, atoms, config
+        calls.append("build_init_parmset")
+        return parameter_set, str(tmp_path / "demo_original.frcmod")
+
+    def fake_geometry(atoms, output, config):
+        del atoms, output, config
+        calls.append("geometry")
+        return FakeOptimizer()
+
+    def fake_hessian(atoms):
+        del atoms
+        calls.append("hessian")
+        return np.eye(3)
+
+    def fake_apply_seminario(atoms, hessian, bonds, angles, vib_scale):
+        del atoms, hessian, bonds, angles, vib_scale
+        calls.append("seminario")
+
+    def fail_apply_mseminario(*args, **kwargs):
+        raise AssertionError("mSeminario should not be called for bonded=seminario")
+
+    def fake_export_gromacs(output, atoms, final_parmset, *, output_suffix=""):
+        del output, atoms, final_parmset
+        assert output_suffix == ""
+        calls.append("export_gromacs")
+        return GromacsExportResult(top=str(tmp_path / "demo.top"), gro=str(tmp_path / "demo.gro"))
+
+    def fake_export_amber(output, config, final_parmset, *, use_refined_parameters=True, source_frcmod=""):
+        del output, config, final_parmset, source_frcmod
+        calls.append("export_amber")
+        assert use_refined_parameters is True
+        return AmberExportResult(mol2=str(tmp_path / "demo.mol2"), frcmod=str(tmp_path / "demo.frcmod"))
+
+    monkeypatch.setattr(correction_workflow_module, "build_init_parmset", fake_build_init_parmset)
+    monkeypatch.setattr(correction_workflow_module, "run_geometry_optimization", fake_geometry)
+    monkeypatch.setattr(correction_workflow_module, "get_cartesian_hessian", fake_hessian)
+    monkeypatch.setattr(correction_workflow_module, "apply_seminario", fake_apply_seminario, raising=False)
+    monkeypatch.setattr(correction_workflow_module, "apply_mseminario", fail_apply_mseminario)
+    monkeypatch.setattr(correction_workflow_module, "export_gromacs", fake_export_gromacs)
+    monkeypatch.setattr(correction_workflow_module, "export_amber", fake_export_amber)
+
+    config = CorrectionConfig(mol2=str(tmp_path / "input.mol2"), bonded="seminario")
+    config.torsion = TorsionFitParams(enabled=False)
+    correction_workflow_module.run_correction_workflow(
+        output=str(tmp_path / "demo.out"),
+        atoms=Atoms(symbols=["C"], positions=[(0.0, 0.0, 0.0)]),
+        config=config,
+        log_info=lambda lines: None,
+    )
+
+    assert calls == [
+        "build_init_parmset",
+        "geometry",
+        "hessian",
+        "seminario",
+        "export_gromacs",
+        "export_amber",
+    ]
+
+
+def test_correction_iqm_bonded_uses_qm_opt_structure_and_hessian(monkeypatch, tmp_path: Path) -> None:
+    calls: list[str] = []
+    parameter_set = _empty_parameter_set()
+
+    class FakeOptimizer:
+        converged = True
+        params = type("Params", (), {"max_iter": 10})()
+
+    class FakeQMRunner:
+        def opt_frequency(self, atoms, prefix):
+            del prefix
+            calls.append("qm_optfreq")
+            shifted = atoms.copy()
+            shifted.set_positions(np.asarray(atoms.get_positions(), dtype=float) + 1.0)
+            return QMReferenceResult(
+                atoms=shifted,
+                energy_hartree=-1.1,
+                input_path=str(tmp_path / "optfreq.gjf"),
+                log_path=str(tmp_path / "optfreq.log"),
+                hessian=np.eye(3 * len(atoms), dtype=float) * 7.0,
+            )
+
+    def fake_build_init_parmset(output, atoms, config):
+        del output, atoms, config
+        calls.append("build_init_parmset")
+        return parameter_set, str(tmp_path / "demo_original.frcmod")
+
+    def fake_geometry(atoms, output, config):
+        del output, config
+        calls.append("mlip_geometry")
+        atoms.set_positions(np.asarray(atoms.get_positions(), dtype=float) + 0.5)
+        return FakeOptimizer()
+
+    def fake_runner_factory(config):
+        assert config.iqm is True
+        return FakeQMRunner()
+
+    def fake_apply_mseminario(atoms, hessian, bonds, angles, vib_scale):
+        del bonds, angles, vib_scale
+        calls.append("mseminario")
+        assert np.allclose(atoms.get_positions(), np.ones((1, 3)) * 1.5)
+        assert np.allclose(hessian, np.eye(3) * 7.0)
+
+    def fake_export_gromacs(output, atoms, final_parmset, *, output_suffix=""):
+        del output, atoms, final_parmset
+        assert output_suffix == ""
+        calls.append("export_gromacs")
+        return GromacsExportResult(top=str(tmp_path / "demo.top"), gro=str(tmp_path / "demo.gro"))
+
+    def fake_export_amber(output, config, final_parmset, *, use_refined_parameters=True, source_frcmod=""):
+        del output, config, final_parmset, use_refined_parameters, source_frcmod
+        calls.append("export_amber")
+        return AmberExportResult(mol2=str(tmp_path / "demo.mol2"), frcmod=str(tmp_path / "demo.frcmod"))
+
+    monkeypatch.setattr(correction_workflow_module, "build_init_parmset", fake_build_init_parmset)
+    monkeypatch.setattr(correction_workflow_module, "run_geometry_optimization", fake_geometry)
+    monkeypatch.setattr(correction_workflow_module, "build_qm_reference_runner", fake_runner_factory)
+    monkeypatch.setattr(correction_workflow_module, "apply_mseminario", fake_apply_mseminario)
+    monkeypatch.setattr(correction_workflow_module, "export_gromacs", fake_export_gromacs)
+    monkeypatch.setattr(correction_workflow_module, "export_amber", fake_export_amber)
+
+    config = build_correction_config(
+        {"parmfit": {"mol2": str(tmp_path / "input.mol2"), "iqm": "true", "torsionfit": "false"}}
+    )
+    correction_workflow_module.run_correction_workflow(
+        output=str(tmp_path / "demo.out"),
+        atoms=Atoms(symbols=["C"], positions=[(0.0, 0.0, 0.0)]),
+        config=config,
+        log_info=lambda lines: None,
+    )
+
+    assert calls == [
+        "build_init_parmset",
+        "mlip_geometry",
+        "qm_optfreq",
+        "mseminario",
+        "export_gromacs",
+        "export_amber",
+    ]
+
+
+def test_correction_qm_compare_runs_mlip_and_qm_refinement_branches(monkeypatch, tmp_path: Path) -> None:
+    calls: list[tuple[str, object]] = []
+    parameter_set = _empty_parameter_set()
+
+    class FakeOptimizer:
+        converged = True
+        params = type("Params", (), {"max_iter": 10})()
+
+    class FakeQMRunner:
+        def opt_frequency(self, atoms, prefix):
+            calls.append(("qm_optfreq", Path(prefix).name))
+            shifted = atoms.copy()
+            shifted.set_positions(np.asarray(atoms.get_positions(), dtype=float) + 1.0)
+            return QMReferenceResult(
+                atoms=shifted,
+                energy_hartree=-1.1,
+                input_path=str(tmp_path / "optfreq.gjf"),
+                log_path=str(tmp_path / "optfreq.log"),
+                hessian=np.eye(3 * len(atoms), dtype=float) * 7.0,
+            )
+
+    def fake_build_init_parmset(output, atoms, config):
+        del output, atoms, config
+        calls.append(("build_init_parmset", "initial"))
+        return parameter_set, str(tmp_path / "demo_original.frcmod")
+
+    def fake_geometry(atoms, output, config):
+        del output, config
+        calls.append(("mlip_geometry", None))
+        atoms.set_positions(np.asarray(atoms.get_positions(), dtype=float) + 0.5)
+        return FakeOptimizer()
+
+    def fake_runner_factory(config):
+        assert config.iqm is True
+        return FakeQMRunner()
+
+    def fake_hessian(atoms):
+        calls.append(("mlip_hessian", float(np.asarray(atoms.get_positions(), dtype=float)[0, 0])))
+        return np.eye(3 * len(atoms), dtype=float) * 3.0
+
+    def fake_apply_mseminario(atoms, hessian, bonds, angles, vib_scale):
+        del bonds, angles, vib_scale
+        source = "qm" if np.allclose(hessian, np.eye(3 * len(atoms)) * 7.0) else "mlip"
+        calls.append(("mseminario", source))
+
+    def fake_torsion_workflow(*, atoms, output, parameter_set, params, runtime, original_parameter_set=None, qm_runner=None, log_info=None, **kwargs):
+        del atoms, output, params, runtime, original_parameter_set, log_info, kwargs
+        branch = "qm" if qm_runner is not None else "mlip"
+        calls.append(("torsion", branch))
+        return TorsionWorkflowResult(
+            stage1_parameter_set=parameter_set,
+            final_parameter_set=parameter_set,
+            refine_cycles=[],
+            scan_xyz={(1, 2): str(tmp_path / f"{branch}_scan.xyz")},
+            center_bonds=[(1, 2)],
+            warnings=[],
+        )
+
+    def fake_export_gromacs(output, atoms, final_parmset, *, output_suffix=""):
+        del output, final_parmset
+        calls.append(("export_gromacs", output_suffix or "main"))
+        if output_suffix == "_mlip":
+            assert np.allclose(atoms.get_positions(), np.ones((1, 3)) * 0.5)
+        prefix = "demo" + output_suffix
+        return GromacsExportResult(top=str(tmp_path / f"{prefix}.top"), gro=str(tmp_path / f"{prefix}.gro"))
+
+    def fake_export_amber(
+        output,
+        config,
+        final_parmset,
+        *,
+        use_refined_parameters=True,
+        source_frcmod="",
+        output_suffix="",
+    ):
+        del output, config, final_parmset, use_refined_parameters, source_frcmod
+        calls.append(("export_amber", output_suffix or "main"))
+        prefix = "demo" + output_suffix
+        return AmberExportResult(
+            mol2=str(tmp_path / f"{prefix}_maple.mol2"),
+            frcmod=str(tmp_path / f"{prefix}_maple.frcmod"),
+        )
+
+    monkeypatch.setattr(correction_workflow_module, "build_init_parmset", fake_build_init_parmset)
+    monkeypatch.setattr(correction_workflow_module, "run_geometry_optimization", fake_geometry)
+    monkeypatch.setattr(correction_workflow_module, "build_qm_reference_runner", fake_runner_factory)
+    monkeypatch.setattr(correction_workflow_module, "get_cartesian_hessian", fake_hessian)
+    monkeypatch.setattr(correction_workflow_module, "apply_mseminario", fake_apply_mseminario)
+    monkeypatch.setattr(correction_workflow_module, "export_gromacs", fake_export_gromacs)
+    monkeypatch.setattr(correction_workflow_module, "export_amber", fake_export_amber)
+
+    config = build_correction_config(
+        {
+            "parmfit": {
+                "mol2": str(tmp_path / "input.mol2"),
+                "iqm": "true",
+                "qm_compare": "true",
+                "torsionfit": "true",
+            }
+        }
+    )
+    result = correction_workflow_module.run_correction_workflow(
+        output=str(tmp_path / "demo.out"),
+        atoms=Atoms(symbols=["C"], positions=[(0.0, 0.0, 0.0)]),
+        config=config,
+        log_info=lambda lines: None,
+        torsion_workflow_fn=fake_torsion_workflow,
+    )
+
+    assert ("mlip_hessian", 0.5) in calls
+    assert ("qm_optfreq", "demo_ref") in calls
+    assert ("mseminario", "mlip") in calls
+    assert ("mseminario", "qm") in calls
+    assert calls.count(("torsion", "mlip")) == 1
+    assert calls.count(("torsion", "qm")) == 1
+    assert ("export_gromacs", "main") in calls
+    assert ("export_gromacs", "_mlip") in calls
+    assert ("export_amber", "main") in calls
+    assert ("export_amber", "_mlip") in calls
+    assert result.mlip_torsion is not None
+    assert result.mlip_gromacs is not None
+    assert result.mlip_gromacs.top.endswith("demo_mlip.top")
+    assert result.mlip_amber is not None
+    assert result.mlip_amber.mol2.endswith("demo_mlip_maple.mol2")
+    assert result.torsion.scan_xyz[(1, 2)].endswith("qm_scan.xyz")
+    assert result.mlip_torsion.scan_xyz[(1, 2)].endswith("mlip_scan.xyz")
+
+
+def test_correction_qm_compare_bonded_none_compares_torsion_only(monkeypatch, tmp_path: Path) -> None:
+    calls: list[tuple[str, object]] = []
+    parameter_set = _empty_parameter_set()
+
+    class FakeOptimizer:
+        converged = True
+        params = type("Params", (), {"max_iter": 10})()
+
+    class FakeQMRunner:
+        def optimize(self, atoms, prefix):
+            calls.append(("qm_opt", Path(prefix).name))
+            shifted = atoms.copy()
+            shifted.set_positions(np.asarray(atoms.get_positions(), dtype=float) + 1.0)
+            return QMReferenceResult(
+                atoms=shifted,
+                energy_hartree=-1.0,
+                input_path=str(tmp_path / "opt.gjf"),
+                log_path=str(tmp_path / "opt.log"),
+            )
+
+        def opt_frequency(self, atoms, prefix):
+            del atoms, prefix
+            raise AssertionError("bonded=none must not run QM opt-frequency")
+
+    def fake_build_init_parmset(output, atoms, config):
+        del output, atoms, config
+        calls.append(("build_init_parmset", "initial"))
+        return parameter_set, str(tmp_path / "demo_original.frcmod")
+
+    def fake_geometry(atoms, output, config):
+        del output, config
+        calls.append(("mlip_geometry", None))
+        atoms.set_positions(np.asarray(atoms.get_positions(), dtype=float) + 0.5)
+        return FakeOptimizer()
+
+    def fail_hessian(*args, **kwargs):
+        raise AssertionError("bonded=none must not compute Hessian")
+
+    def fail_bonded(*args, **kwargs):
+        raise AssertionError("bonded=none must not apply bonded refinement")
+
+    def fake_runner_factory(config):
+        assert config.iqm is True
+        return FakeQMRunner()
+
+    def fake_torsion_workflow(*, atoms, output, parameter_set, params, runtime, qm_runner=None, **kwargs):
+        del atoms, output, parameter_set, params, runtime, kwargs
+        branch = "qm" if qm_runner is not None else "mlip"
+        calls.append(("torsion", branch))
+        return TorsionWorkflowResult(
+            stage1_parameter_set=None,
+            final_parameter_set=_empty_parameter_set(),
+            scan_xyz={(1, 2): str(tmp_path / f"{branch}_scan.xyz")},
+            center_bonds=[(1, 2)],
+        )
+
+    def fake_export_gromacs(output, atoms, final_parmset, *, output_suffix=""):
+        del output, atoms, final_parmset
+        calls.append(("export_gromacs", output_suffix or "main"))
+        prefix = "demo" + output_suffix
+        return GromacsExportResult(top=str(tmp_path / f"{prefix}.top"), gro=str(tmp_path / f"{prefix}.gro"))
+
+    def fake_export_amber(
+        output,
+        config,
+        final_parmset,
+        *,
+        use_refined_parameters=True,
+        source_frcmod="",
+        output_suffix="",
+    ):
+        del output, config, final_parmset, use_refined_parameters, source_frcmod
+        calls.append(("export_amber", output_suffix or "main"))
+        prefix = "demo" + output_suffix
+        return AmberExportResult(
+            mol2=str(tmp_path / f"{prefix}_maple.mol2"),
+            frcmod=str(tmp_path / f"{prefix}_maple.frcmod"),
+        )
+
+    monkeypatch.setattr(correction_workflow_module, "build_init_parmset", fake_build_init_parmset)
+    monkeypatch.setattr(correction_workflow_module, "run_geometry_optimization", fake_geometry)
+    monkeypatch.setattr(correction_workflow_module, "build_qm_reference_runner", fake_runner_factory)
+    monkeypatch.setattr(correction_workflow_module, "get_cartesian_hessian", fail_hessian)
+    monkeypatch.setattr(correction_workflow_module, "apply_mseminario", fail_bonded)
+    monkeypatch.setattr(correction_workflow_module, "export_gromacs", fake_export_gromacs)
+    monkeypatch.setattr(correction_workflow_module, "export_amber", fake_export_amber)
+
+    config = build_correction_config(
+        {
+            "parmfit": {
+                "mol2": str(tmp_path / "input.mol2"),
+                "bonded": "none",
+                "iqm": "true",
+                "qm_compare": "true",
+                "torsionfit": "true",
+            }
+        }
+    )
+    result = correction_workflow_module.run_correction_workflow(
+        output=str(tmp_path / "demo.out"),
+        atoms=Atoms(symbols=["C"], positions=[(0.0, 0.0, 0.0)]),
+        config=config,
+        log_info=lambda lines: None,
+        torsion_workflow_fn=fake_torsion_workflow,
+    )
+
+    assert ("qm_opt", "demo_ref") in calls
+    assert calls.count(("torsion", "mlip")) == 1
+    assert calls.count(("torsion", "qm")) == 1
+    assert ("export_gromacs", "_mlip") in calls
+    assert ("export_amber", "_mlip") in calls
+    assert result.mlip_torsion is not None
+    assert result.mlip_gromacs is not None
 
 
 class FakeCalculator:
@@ -201,13 +698,13 @@ def test_correction_result_shows_stage2_debug_reasons_only_when_requested(tmp_pa
         },
     )
     result = CorrectionWorkflowResult(
-        initial_parameter_set=parameter_set,
-        stage0_parameter_set=parameter_set,
-        final_parameter_set=parameter_set,
+        init_parmset=parameter_set,
+        stage0_parmset=parameter_set,
+        final_parmset=parameter_set,
         torsion=torsion,
         gromacs=GromacsExportResult(top=str(tmp_path / "corr.top"), gro=str(tmp_path / "corr.gro")),
         amber=AmberExportResult(mol2=str(tmp_path / "corr.mol2"), frcmod=str(tmp_path / "corr.frcmod")),
-        auto_frcmod=str(tmp_path / "corr_original.frcmod"),
+        init_frcmod=str(tmp_path / "corr_original.frcmod"),
     )
 
     config = CorrectionConfig(mol2=str(tmp_path / "input.mol2"))
@@ -374,7 +871,7 @@ def test_correction_setup_reports_torsion_ensemble_switch():
 
 def test_correction_integrates_torsion_stage1_initializer_into_main_output(tmp_path: Path, monkeypatch):
     _patch_fake_torsion_scan(monkeypatch)
-    monkeypatch.setattr(correction_module, "apply_mseminario", _fake_apply_mseminario)
+    monkeypatch.setattr(correction_workflow_module, "apply_mseminario", _fake_apply_mseminario)
 
     mol2_path = tmp_path / "chain_ff.mol2"
     frcmod_path = tmp_path / "chain_ff.frcmod"
@@ -401,7 +898,7 @@ def test_correction_integrates_torsion_stage1_initializer_into_main_output(tmp_p
     result = run.run()
 
     assert run.result is not None
-    assert result.stage0_parameter_set is not None
+    assert result.stage0_parmset is not None
     assert result.torsion.stage1_parameter_set is not None
     assert run.result.bonds[0].kBond == pytest.approx(111.0)
     assert run.result.angles[0].kTheta == pytest.approx(3.21)
@@ -420,7 +917,7 @@ def test_correction_integrates_torsion_stage1_initializer_into_main_output(tmp_p
     assert "Torsion constraint:projected" in text
     assert "Scan grid:         72.0000 deg x 5 steps" in text
     assert "Stage2 refine:" in text
-    assert "max_cycles=0" in text
+    assert "max_fast_cycles=0" in text
     assert f"max_iter_per_cycle={TorsionFitParams().refine_max_iter}" in text
     assert "tol=1e-06" in text
     assert "mSeminario bond/angle changes" in text
@@ -454,7 +951,7 @@ def test_correction_integrates_torsion_stage1_initializer_into_main_output(tmp_p
 
 
 def test_correction_builds_torsion_runtime_from_shared_params(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(correction_module, "apply_mseminario", _fake_apply_mseminario)
+    monkeypatch.setattr(correction_workflow_module, "apply_mseminario", _fake_apply_mseminario)
 
     mol2_path = tmp_path / "chain_ff.mol2"
     frcmod_path = tmp_path / "chain_ff.frcmod"
@@ -517,7 +1014,7 @@ def test_correction_builds_torsion_runtime_from_shared_params(tmp_path: Path, mo
 
 
 def test_correction_exposes_torsion_scan_xyz(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(correction_module, "apply_mseminario", _fake_apply_mseminario)
+    monkeypatch.setattr(correction_workflow_module, "apply_mseminario", _fake_apply_mseminario)
 
     mol2_path = tmp_path / "chain_ff.mol2"
     frcmod_path = tmp_path / "chain_ff.frcmod"
@@ -570,7 +1067,7 @@ def test_correction_exposes_torsion_scan_xyz(tmp_path: Path, monkeypatch):
 
 def test_correction_stage2_global_refine_cycles_are_reported(tmp_path: Path, monkeypatch):
     _patch_fake_torsion_scan(monkeypatch)
-    monkeypatch.setattr(correction_module, "apply_mseminario", _fake_apply_mseminario)
+    monkeypatch.setattr(correction_workflow_module, "apply_mseminario", _fake_apply_mseminario)
 
     mol2_path = tmp_path / "chain_ff.mol2"
     frcmod_path = tmp_path / "chain_ff.frcmod"
@@ -610,7 +1107,7 @@ def test_correction_stage2_global_refine_cycles_are_reported(tmp_path: Path, mon
     text = output_path.read_text(encoding="utf-8")
     assert "PARMFIT CORRECTION RESULT" in text
     assert "stage1: completed" in text
-    assert "stage2: enabled, max_cycles=2" in text
+    assert "stage2: enabled, max_fast_cycles=2" in text
     assert "fast cycles:" in text
     assert "final parameters:" in text
     assert "accepted_blocks=" not in text
@@ -627,7 +1124,7 @@ def test_correction_stage2_global_refine_cycles_are_reported(tmp_path: Path, mon
 
 def test_correction_result_carries_stage_and_artifact_metadata(tmp_path: Path, monkeypatch):
     _patch_fake_torsion_scan(monkeypatch)
-    monkeypatch.setattr(correction_module, "apply_mseminario", _fake_apply_mseminario)
+    monkeypatch.setattr(correction_workflow_module, "apply_mseminario", _fake_apply_mseminario)
 
     mol2_path = tmp_path / "chain_ff.mol2"
     frcmod_path = tmp_path / "chain_ff.frcmod"
@@ -653,7 +1150,7 @@ def test_correction_result_carries_stage_and_artifact_metadata(tmp_path: Path, m
     )
     result = run.run()
 
-    assert result.stage0_parameter_set is not None
+    assert result.stage0_parmset is not None
     assert result.torsion.stage1_parameter_set is not None
     assert result.torsion.refine_cycles == []
     assert result.gromacs is not None
@@ -667,7 +1164,7 @@ def test_correction_result_carries_stage_and_artifact_metadata(tmp_path: Path, m
 
 
 def test_correction_reports_disabled_torsionfit_and_keeps_stage1_empty(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(correction_module, "apply_mseminario", _fake_apply_mseminario)
+    monkeypatch.setattr(correction_workflow_module, "apply_mseminario", _fake_apply_mseminario)
 
     mol2_path = tmp_path / "chain_ff.mol2"
     frcmod_path = tmp_path / "chain_ff.frcmod"
@@ -691,7 +1188,7 @@ def test_correction_reports_disabled_torsionfit_and_keeps_stage1_empty(tmp_path:
     )
     result = run.run()
 
-    assert result.stage0_parameter_set is not None
+    assert result.stage0_parmset is not None
     assert result.torsion.stage1_parameter_set is None
     assert run.result is not None
     assert run.result.dihedrals[0].terms[0].kPhi == pytest.approx(0.5)
@@ -708,7 +1205,7 @@ def test_correction_reports_disabled_torsionfit_and_keeps_stage1_empty(tmp_path:
 
 
 def test_correction_requires_runtime_thresholds(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(correction_module, "apply_mseminario", _fake_apply_mseminario)
+    monkeypatch.setattr(correction_workflow_module, "apply_mseminario", _fake_apply_mseminario)
 
     mol2_path = tmp_path / "chain_ff.mol2"
     frcmod_path = tmp_path / "chain_ff.frcmod"

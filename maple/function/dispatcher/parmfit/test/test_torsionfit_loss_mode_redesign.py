@@ -122,7 +122,6 @@ from maple.function.dispatcher.parmfit.utils.TorsionFit.stage2 import (
     _evaluate_stage2_delta_objective_with_gradient,
     _global_vector_size,
     _global_mm_rel_map,
-    _optimize_stage2_auto_mean_shift,
     _optimize_stage2_coeff_ab,
     _optimize_stage2_k_phase,
     _split_global_vector,
@@ -846,11 +845,6 @@ class _FakeMinimizeResult:
 
 def _patch_stage2_minimize(monkeypatch, fake_minimize):
     monkeypatch.setattr(torsion_stage2_module, "minimize", fake_minimize)
-    monkeypatch.setattr(
-        torsion_stage2_module,
-        "_optimize_stage2_coeff_ab",
-        lambda _problem, delta_init, **_kwargs: np.asarray(delta_init, dtype=float).reshape(-1).copy(),
-    )
 
 
 def test_stage2_direct_optimizer_runs_one_cycle_per_global_call(monkeypatch):
@@ -885,7 +879,7 @@ def test_stage2_direct_optimizer_runs_one_cycle_per_global_call(monkeypatch):
     assert len(cycles) == 1
     assert seen_x0[0].tolist() == pytest.approx([0.0, 0.0])
     assert vector_final[0] > 0.0
-    assert cycles[-1].diagnostics["objective_kind"] == "auto_mean_shift"
+    assert cycles[-1].diagnostics["solver"] == "direct_k_phase"
 
 
 def test_stage2_mean_shift_loss_ignores_constant_profile_offset():
@@ -900,33 +894,6 @@ def test_stage2_mean_shift_loss_ignores_constant_profile_offset():
 
     assert evaluation.data_loss == pytest.approx(0.0)
     assert evaluation.scan_data_loss == pytest.approx(0.0)
-
-
-def test_stage2_auto_optimizer_can_select_coeff_ab(monkeypatch):
-    problem = _guard_problem(
-        qm_rel=[0.0, 1.0],
-        constant_rel=[0.0, 0.0],
-        basis=[[0.0], [1.0]],
-        scales=[100.0],
-    )
-    vector_init = np.zeros(2 * len(problem.k_orig), dtype=float)
-    cache = _build_stage2_objective_cache(problem)
-    coeff_candidate = np.asarray([1.0, 0.0], dtype=float)
-
-    monkeypatch.setattr(torsion_stage2_module, "_optimize_stage2_k_phase", lambda *_args, **_kwargs: vector_init)
-    monkeypatch.setattr(torsion_stage2_module, "_optimize_stage2_coeff_ab", lambda *_args, **_kwargs: coeff_candidate)
-
-    vector_final, diagnostics = _optimize_stage2_auto_mean_shift(
-        problem,
-        vector_init,
-        max_iter=5,
-        tol=1.0e-8,
-        cache=cache,
-    )
-
-    assert vector_final.tolist() == pytest.approx(coeff_candidate.tolist())
-    assert diagnostics["selected_optimizer"] == "coeff_ab"
-    assert diagnostics["coeff_ab_loss"] < diagnostics["k_phase_loss"]
 
 
 def test_stage2_optimizer_receives_direct_k_phase_vector(monkeypatch):
@@ -964,7 +931,7 @@ def test_stage2_optimizer_receives_direct_k_phase_vector(monkeypatch):
     k_values, phase_values = _split_global_vector(problem, vector_final)
     assert k_values.tolist() == pytest.approx([0.5])
     assert phase_values.tolist() == pytest.approx([0.75])
-    assert cycles[-1].diagnostics["objective_kind"] == "auto_mean_shift"
+    assert cycles[-1].diagnostics["solver"] == "direct_k_phase"
 
 
 def test_stage2_direct_optimizer_preserves_zero_k_phase_seed(monkeypatch):
@@ -1596,7 +1563,7 @@ def test_run_loss_mode_exposes_public_five_curve_outputs(tmp_path: Path, monkeyp
     assert "MM_stage2" in text
     assert f"{float(scan_data.qm_rel[0]):10.6f}" in text
     assert result.stage1_diagnostics["solver"] == "local_restrained_lls"
-    assert result.stage2_diagnostics["solver"] == "auto_mean_shift"
+    assert result.stage2_diagnostics["solver"] == "direct_k_phase"
     assert result.stage2_diagnostics["requested_cycles"] == 3
     assert result.stage2_diagnostics["cycles"] == len(result.refine_cycles)
     assert "final_cycle" in result.stage2_diagnostics
@@ -1747,7 +1714,7 @@ def test_stage2_keeps_stage1_when_optimizer_returns_initial_vector(monkeypatch):
         tol=1.0e-8,
     )
 
-    assert calls["count"] == 2
+    assert calls["count"] == 1
     assert vector_final.tolist() == pytest.approx(initial.tolist())
     assert cycles[-1].accepted_blocks == 0
     assert cycles[-1].rejected_blocks == 1
@@ -1981,7 +1948,7 @@ def test_stage1_report_keeps_debug_output_slot_oriented(monkeypatch):
     debug_text = "".join(format_torsion_fit_report(debug_report))
     assert "rejected_reason" not in base_text
     assert "rejected_reason" not in debug_text
-    assert "active_slots: k1, k2, k3, k4" in debug_text
+    assert "slot_periods: k1, k2, k3, k4" in debug_text
 
 
 def test_refine_torsion_scans_global_does_not_call_mm_engine_in_inner_loop(monkeypatch, tmp_path: Path):

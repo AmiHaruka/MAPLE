@@ -1,0 +1,185 @@
+-I: Adding /home/hungn/BioMed/AMBER24/ORG/dat/leap/prep to search path.
+-I: Adding /home/hungn/BioMed/AMBER24/ORG/dat/leap/lib to search path.
+-I: Adding /home/hungn/BioMed/AMBER24/ORG/dat/leap/parm to search path.
+-I: Adding /home/hungn/BioMed/AMBER24/ORG/dat/leap/cmd to search path.
+-s: Ignoring all leaprc startup files.
+-f: Source P450_metal_tleap.in.
+
+Welcome to LEaP!
+Sourcing: ./P450_metal_tleap.in
+----- Source: /home/hungn/BioMed/AMBER24/ORG/dat/leap/cmd/leaprc.protein.ff14SB
+----- Source of /home/hungn/BioMed/AMBER24/ORG/dat/leap/cmd/leaprc.protein.ff14SB done
+Log file: ./leap.log
+Loading parameters: /home/hungn/BioMed/AMBER24/ORG/dat/leap/parm/parm10.dat
+Reading title:
+PARM99 + frcmod.ff99SB + frcmod.parmbsc0 + OL3 for RNA
+Loading parameters: /home/hungn/BioMed/AMBER24/ORG/dat/leap/parm/frcmod.ff14SB
+Reading force field modification type file (frcmod)
+Reading title:
+ff14SB protein backbone and sidechain parameters
+Loading library: /home/hungn/BioMed/AMBER24/ORG/dat/leap/lib/amino12.lib
+Loading library: /home/hungn/BioMed/AMBER24/ORG/dat/leap/lib/aminoct12.lib
+Loading library: /home/hungn/BioMed/AMBER24/ORG/dat/leap/lib/aminont12.lib
+----- Source: /home/hungn/BioMed/AMBER24/ORG/dat/leap/cmd/leaprc.gaff2
+----- Source of /home/hungn/BioMed/AMBER24/ORG/dat/leap/cmd/leaprc.gaff2 done
+Log file: ./leap.log
+Loading parameters: /home/hungn/BioMed/AMBER24/ORG/dat/leap/parm/gaff2.dat
+Reading title:
+AMBER General Force Field for organic molecules (Version 2.2.20, March 2021)
+----- Source: /home/hungn/BioMed/AMBER24/ORG/dat/leap/cmd/leaprc.water.tip3p
+----- Source of /home/hungn/BioMed/AMBER24/ORG/dat/leap/cmd/leaprc.water.tip3p done
+Loading library: /home/hungn/BioMed/AMBER24/ORG/dat/leap/lib/atomic_ions.lib
+Loading library: /home/hungn/BioMed/AMBER24/ORG/dat/leap/lib/solvents.lib
+Loading parameters: /home/hungn/BioMed/AMBER24/ORG/dat/leap/parm/frcmod.tip3p
+Reading force field modification type file (frcmod)
+Reading title:
+This is the additional/replacement parameter set for TIP3P water
+Loading parameters: /home/hungn/BioMed/AMBER24/ORG/dat/leap/parm/frcmod.ions1lm_126_tip3p
+Reading force field modification type file (frcmod)
+Reading title:
+Li/Merz ion parameters of monovalent ions for TIP3P water model (12-6 normal usage set)
+Loading parameters: /home/hungn/BioMed/AMBER24/ORG/dat/leap/parm/frcmod.ionsjc_tip3p
+Reading force field modification type file (frcmod)
+Reading title:
+Monovalent ion parameters for Ewald and TIP3P water from Joung & Cheatham JPCB (2008)
+Loading parameters: /home/hungn/BioMed/AMBER24/ORG/dat/leap/parm/frcmod.ions234lm_126_tip3p
+Reading force field modification type file (frcmod)
+Reading title:
+Li/Merz ion parameters of divalent to tetravalent ions for TIP3P water model (12-6 normal usage set)
+Loading Mol2 file: ./CM1.mol2
+Reading MOLECULE named CM1
+Loading Mol2 file: ./HM1.mol2
+Reading MOLECULE named HM1
+Loading Mol2 file: ./FE1.mol2
+Reading MOLECULE named FE1
+Loading parameters: /home/hungn/BioMed/AMBER24/ORG/dat/leap/parm/frcmod.ions234lm_126_tip3p
+Reading force field modification type file (frcmod)
+Reading title:
+Li/Merz ion parameters of divalent to tetravalent ions for TIP3P water model (12-6 normal usage set)
+Loading parameters: ./P450_metal.frcmod
+Reading force field modification type file (frcmod)
+Reading title:
+REMARK MAPLE MetalAA generated metal-site frcmod
+Loading PDB file: ./P450_metal_tleap.pdb
+
+/home/hungn/BioMed/AMBER24/ORG/bin/teLeap: Warning!
+One sided connection. Residue (CM1) missing connect0 atom.
+
+/home/hungn/BioMed/AMBER24/ORG/bin/teLeap: Warning!
+One sided connection. Residue (default_name) missing connect1 atom.
+  total atoms in file: 7440
+Writing pdb file: P450_metal_tleap_dry.pdb
+
+/home/hungn/BioMed/AMBER24/ORG/bin/teLeap: Warning!
+ Converting N-terminal residue name to PDB format: NTHR -> THR
+
+/home/hungn/BioMed/AMBER24/ORG/bin/teLeap: Warning!
+ Converting C-terminal residue name to PDB format: CSER -> SER
+Checking Unit.
+
+/home/hungn/BioMed/AMBER24/ORG/bin/teLeap: Warning!
+The unperturbed charge of the unit (-11.000001) is not zero.
+
+/home/hungn/BioMed/AMBER24/ORG/bin/teLeap: Note.
+Ignoring the warning from Unit Checking.
+
+Building topology.
+Building atom parameters.
+Building bond parameters.
+Building angle parameters.
+Building proper torsion parameters.
+Building improper torsion parameters.
+ total 1483 improper torsions applied
+Building H-Bond parameters.
+Incorporating Non-Bonded adjustments.
+Not Marking per-residue atom chain types.
+Marking per-residue atom chain types.
+  (Residues lacking connect0/connect1 - 
+   these don't have chain types marked:
+
+	res	total affected
+
+	CM1	1
+	CSER	1
+	HM1	1
+	NTHR	1
+  )
+ (no restraints)
+  Solute vdw bounding box:              68.422 62.787 72.413
+  Total bounding box for atom centers:  88.422 82.787 92.413
+  Solvent unit box:                     18.774 18.774 18.774
+  Total vdw box size:                   91.309 85.784 95.594 angstroms.
+  Volume: 748772.895 A^3 
+  Total mass 378201.556 amu,  Density 0.839 g/cc
+  Added 18052 residues.
+11 Na+ ions required to neutralize.
+Adding 11 counter ions to "mol" using 1A grid
+Grid extends from solute vdw + 3.13  to  9.13
+Resolution:      1.00 Angstrom.
+Solvent present: replacing closest with ion
+	 when steric overlaps occur
+Calculating grid charges
+(Replacing solvent molecule)
+Placed Na+ in mol at (-12.57, 10.39, -11.71).
+(Replacing solvent molecule)
+Placed Na+ in mol at (-11.87, -3.03, 32.93).
+(Replacing solvent molecule)
+Placed Na+ in mol at (-8.52, -25.92, 6.11).
+(Replacing solvent molecule)
+Placed Na+ in mol at (-8.22, 27.35, 11.39).
+(Replacing solvent molecule)
+Placed Na+ in mol at (-8.63, 6.41, -19.65).
+(Replacing solvent molecule)
+Placed Na+ in mol at (-10.44, -22.35, -11.28).
+(Replacing solvent molecule)
+Placed Na+ in mol at (-1.86, 11.71, -36.33).
+(Replacing solvent molecule)
+Placed Na+ in mol at (-29.30, 1.55, -8.85).
+(Replacing solvent molecule)
+Placed Na+ in mol at (-5.15, 24.02, 1.41).
+(Replacing solvent molecule)
+Placed Na+ in mol at (-8.37, -18.38, 7.85).
+(Replacing solvent molecule)
+Placed Na+ in mol at (15.71, -18.62, -20.30).
+
+Done adding ions.
+
+/home/hungn/BioMed/AMBER24/ORG/bin/teLeap: Warning!
+addIons: 1st Ion & target unit have charges of the same sign:
+     unit charge = -1e-06; ion1 charge = -1;
+     can't neutralize.
+Writing pdb file: P450_metal_tleap_solvated.pdb
+   printing CRYST1 record to PDB file with box info
+
+/home/hungn/BioMed/AMBER24/ORG/bin/teLeap: Warning!
+ Converting N-terminal residue name to PDB format: NTHR -> THR
+
+/home/hungn/BioMed/AMBER24/ORG/bin/teLeap: Warning!
+ Converting C-terminal residue name to PDB format: CSER -> SER
+Checking Unit.
+Building topology.
+Building atom parameters.
+Building bond parameters.
+Building angle parameters.
+Building proper torsion parameters.
+Building improper torsion parameters.
+ total 1483 improper torsions applied
+Building H-Bond parameters.
+Incorporating Non-Bonded adjustments.
+Not Marking per-residue atom chain types.
+Marking per-residue atom chain types.
+  (Residues lacking connect0/connect1 - 
+   these don't have chain types marked:
+
+	res	total affected
+
+	CM1	1
+	CSER	1
+	HM1	1
+	NTHR	1
+	WAT	18041
+  )
+ (no restraints)
+	Quit
+
+Exiting LEaP: Errors = 0; Warnings = 8; Notes = 1.

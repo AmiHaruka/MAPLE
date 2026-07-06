@@ -8,6 +8,7 @@ from ase.neighborlist import NeighborList, natural_cutoffs
 from ..jobABC import JobABC
 
 from maple.function.timer import timer
+from maple.function.read.filereader.pdb_reader import write_pdb_model
 
 class Scan(JobABC):
     """
@@ -39,6 +40,7 @@ class Scan(JobABC):
         
         # Initialize XYZ file handle
         self.xyz_file = None
+        self._pdb_model_index = 0
 
     def _convert_constraints(self, original_constraints: list) -> list:
         """Normalize constraint definitions."""
@@ -200,15 +202,27 @@ class Scan(JobABC):
         pos = atoms.get_positions()
         symbols = atoms.get_chemical_symbols()
         
-        # Write to XYZ file immediately
-        self.xyz_file.write(f"{len(symbols)}\n")
         coord_str = "[" + ", ".join(f"{v:.4f}" for v in coord) + "]"
-        self.xyz_file.write(
+        comment = (
             f"Scanning combination {self._current_index}/{self._total_combinations}: "
             f"{coord_str}  Energy = {e:.10f}\n"
         )
-        for s, (x, y, z) in zip(symbols, pos):
-            self.xyz_file.write(f"{s:2s} {x: .10f} {y: .10f} {z: .10f}\n")
+        output_pdb = atoms.info.get("pdb_template")
+        if output_pdb:
+            self._pdb_model_index += 1
+            write_pdb_model(
+                self.xyz_file,
+                atoms,
+                output_pdb,
+                model_index=self._pdb_model_index,
+                remark=comment.strip(),
+            )
+        else:
+            # Write to XYZ file immediately
+            self.xyz_file.write(f"{len(symbols)}\n")
+            self.xyz_file.write(comment)
+            for s, (x, y, z) in zip(symbols, pos):
+                self.xyz_file.write(f"{s:2s} {x: .10f} {y: .10f} {z: .10f}\n")
         self.xyz_file.flush()  # Ensure data is written
         
         # Store lightweight data
@@ -363,9 +377,11 @@ class Scan(JobABC):
         self._total_combinations = total
         self._current_index = 0
 
-        # Open output XYZ file for streaming
+        # Open output structure file for streaming
         base, _ = os.path.splitext(self.output)
-        xyz_filename = base + "_scan_final.xyz"
+        output_pdb = self.atoms.info.get("pdb_template")
+        xyz_filename = base + ("_scan_final.pdb" if output_pdb else "_scan_final.xyz")
+        self._pdb_model_index = 0
         
         try:
             self.xyz_file = open(xyz_filename, "w")
@@ -387,6 +403,8 @@ class Scan(JobABC):
             
         finally:
             if self.xyz_file is not None:
+                if output_pdb:
+                    self.xyz_file.write("END\n")
                 self.xyz_file.close()
 
     def run(self):
@@ -400,7 +418,12 @@ class Scan(JobABC):
     def _cleanup_opt_files(output_path):
         from pathlib import Path
         base, _ = os.path.splitext(str(output_path))
-        for f in (base + "_opt.xyz", base + "_opt_traj.xyz"):
+        for f in (
+            base + "_opt.xyz",
+            base + "_opt_traj.xyz",
+            base + "_opt.pdb",
+            base + "_opt_traj.pdb",
+        ):
             Path(f).unlink(missing_ok=True)
 
     def _build_connectivity(self, atoms: Atoms):

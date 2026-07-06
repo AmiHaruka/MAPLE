@@ -229,6 +229,26 @@ def test_interface_gaussian_input_omits_radii_without_ion(tmp_path: Path) -> Non
     assert "Zn " not in content
 
 
+def test_interface_gaussian_input_can_reuse_wfn_checkpoint(tmp_path: Path) -> None:
+    decision = interface_module.set_method({"theory": "HF", "basis": "6-31G*", "nproc": "4", "mem": 8000, "route": ""})
+    model = {"residues": [_internal_ser_site_model()["residues"][1]]}
+    com_file = tmp_path / "resp_wfn.com"
+    previous_wfn = tmp_path / "reference.chk"
+
+    interface_module.prepare_gaussian_esp_input(
+        str(com_file),
+        model,
+        total_charge=0,
+        multiplicity=1,
+        decision=decision,
+        wfn_path=str(previous_wfn),
+    )
+
+    content = com_file.read_text(encoding="utf-8")
+    assert f"%oldchk={previous_wfn}" in content
+    assert "Guess=Read" in content
+
+
 def test_ionparams_resolve_common_mcpb_names_and_reject_ambiguous_ones() -> None:
     assert ionparams_module.infer_ion_identity("FE") == ("Fe", 3, "Fe3")
     assert ionparams_module.infer_ion_identity("FE2") == ("Fe", 2, "Fe2")

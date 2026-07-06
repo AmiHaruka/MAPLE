@@ -162,6 +162,7 @@ cython_debug/
 #.idea/
 *.pt
 *.model
+*.fnx
 
 # Local assistant workspace artifacts
 /.claude/
@@ -182,3 +183,7 @@ examples/md/**/*.xyz
 # Generated explicit-solvent example outputs
 examples/opt/exp-solv/*.out
 examples/opt/exp-solv/*.xyz
+
+# Parmfit artifacts
+maple/function/dispatcher/parmfit/doc/
+maple/function/dispatcher/parmfit/test/

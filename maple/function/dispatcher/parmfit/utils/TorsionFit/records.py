@@ -179,7 +179,6 @@ class TorsionSharedGroupReport:
     frozen_non_template_slots: tuple[str, ...] = ()
     effective_rank: int = 0
     dropped_singular_directions: int = 0
-    activated_new_slot: bool = False
     diagnostic_flags: tuple[str, ...] = ()
 
 

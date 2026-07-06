@@ -234,16 +234,16 @@ def find_metal_site_core(
                     )
                 continue
 
-            ligand_names: list[str] = []
+            donor_names: list[str] = []
             for atom in residue["atoms"]:
                 if atom["element"] not in METAL_SITE_DONOR_ELEMENTS:
                     continue
                 delta = get_atom_xyz(atom) - metal_xyz
                 distance = float(np.sqrt(np.dot(delta, delta)))
                 if distance <= donor_cutoff:
-                    ligand_names.append(atom["name"])
-            if ligand_names:
-                donor_atoms[get_resid_key(residue)] = sorted(set(ligand_names))
+                    donor_names.append(atom["name"])
+            if donor_names:
+                donor_atoms[get_resid_key(residue)] = sorted(set(donor_names))
                 typed_nonprotein = residue["kind"] in {"ligand", "cofactor"} and residue.get("_cfmol2_path")
                 if residue["kind"] == "protein" or typed_nonprotein:
                     auto_residues.append(residue)

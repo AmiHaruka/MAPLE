@@ -1,0 +1,10 @@
+#model=fennix-bio1m
+#ts(method=dmf,refine=prfo)
+#device=gpu0
+
+XYZ react.xyz
+
+XYZ prod.xyz
+
+
+

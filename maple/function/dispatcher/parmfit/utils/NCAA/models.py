@@ -63,6 +63,10 @@ def _find_sidechain_anchor(residue: dict) -> dict:
         distance = float(np.linalg.norm(delta))
         if distance <= covalent_cutoff(ca_atom, atom):
             sidechain_candidates.append((distance, atom))
+    if not sidechain_candidates:
+        raise ValueError(
+            f"NCAA target residue {get_resid_label(residue)} has no sidechain heavy atom attached to CA."
+        )
     sidechain_candidates.sort(key=lambda item: (item[0], item[1]["serial"]))
     return sidechain_candidates[0][1]
 
@@ -145,7 +149,7 @@ def infer_terminal_omit_names(resid: dict) -> list[str]:
     return sorted(omit_names)
 
 
-def optimize_capped_reference(
+def optimize_capped_confs(
     model: dict,
     *,
     source_atoms,
@@ -274,17 +278,32 @@ def minimize_conformer(
     ace_count = int(model["segment_sizes"]["ace"])
     target_count = int(model["segment_sizes"]["residue"])
     nme_start = ace_count + target_count
+    target_residue = model["residues"][1]
+    index_by_serial = {
+        atom["serial"]: index
+        for index, (_residue, atom) in enumerate(flatten_model_atoms(model))
+    }
+    phi_extra_indices = {
+        index_by_serial[atom["serial"]]
+        for atom in target_residue["atoms"]
+        if atom["name"] in {"H", "HN", "H1", "H2", "H3"}
+    }
+    psi_extra_indices = {
+        index_by_serial[atom["serial"]]
+        for atom in target_residue["atoms"]
+        if atom["name"] in {"O", "OXT", "OT1", "OT2"}
+    }
     _rotate_cap_to_dihedral(
         minimized_atoms,
         index_map["phi"],
         resolved_phi,
-        [index < ace_count for index in range(len(atoms))],
+        [index < ace_count or index in phi_extra_indices for index in range(len(atoms))],
     )
     _rotate_cap_to_dihedral(
         minimized_atoms,
         index_map["psi"],
         resolved_psi,
-        [index >= nme_start for index in range(len(atoms))],
+        [index >= nme_start or index in psi_extra_indices for index in range(len(atoms))],
     )
     guess_xyz = os.path.splitext(output)[0] + "_guess.xyz"
     with open(guess_xyz, "w", encoding="utf-8") as handle:
@@ -296,10 +315,6 @@ def minimize_conformer(
     copy_thresholds(source_atoms, minimized_atoms)
     minimized_atoms.calc = source_atoms.calc
     nme_residue = model["residues"][2]
-    index_by_serial = {
-        atom["serial"]: index
-        for index, (_residue, atom) in enumerate(flatten_model_atoms(model))
-    }
     nnm_idx,hnm_idx = index_by_serial[search_atom(nme_residue, "NNM")["serial"]], index_by_serial[search_atom(nme_residue, "HNM")["serial"]]
     positions = np.asarray(minimized_atoms.get_positions(), dtype=float)
     nme_nh_distance = float(np.linalg.norm(positions[nnm_idx] - positions[hnm_idx]))
@@ -337,7 +352,7 @@ def minimize_conformer(
     )
 
 
-def build_resp_conformers_from_reference(
+def build_resp_confs(
     reference_model: dict,
     *,
     chirality: str,

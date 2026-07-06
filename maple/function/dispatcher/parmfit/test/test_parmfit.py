@@ -47,12 +47,27 @@ except ModuleNotFoundError:
 
     ase_stub.Atoms = Atoms
     sys.modules["ase"] = ase_stub
+    ase_data_stub = types.ModuleType("ase.data")
+    ase_data_stub.atomic_numbers = atomic_numbers
+    ase_data_stub.atomic_masses = np.ones(120, dtype=float)
+    ase_data_stub.covalent_radii = np.ones(120, dtype=float)
+    ase_data_stub.vdw_radii = np.ones(120, dtype=float)
+    sys.modules["ase.data"] = ase_data_stub
+
+if "ase.data" not in sys.modules:
+    ase_data_stub = types.ModuleType("ase.data")
+    ase_data_stub.atomic_numbers = {"H": 1, "C": 6, "N": 7, "O": 8}
+    ase_data_stub.atomic_masses = np.ones(120, dtype=float)
+    ase_data_stub.covalent_radii = np.ones(120, dtype=float)
+    ase_data_stub.vdw_radii = np.ones(120, dtype=float)
+    sys.modules["ase.data"] = ase_data_stub
 
 ROOT = Path(__file__).resolve().parents[5]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from maple.function.dispatcher.dispatcher import Dispatcher
+from maple.function.dispatcher.optimization.algorithm import _common
 from maple.function.dispatcher.parmfit import Parmfit
 from maple.function.dispatcher.parmfit.utils.readparm import (
     build_correction_parameter_set,
@@ -60,6 +75,7 @@ from maple.function.dispatcher.parmfit.utils.readparm import (
     parse_mol2,
 )
 from maple.function.read.filereader import PDBReader
+from maple.function.read.filereader.pdb_reader import write_pdb, write_pdb_trajectory
 from maple.function.read.filereader.parmfit_reader import ParmfitReader
 from maple.function.read.input_reader import InputReader
 from maple.function.utility import Molecules
@@ -476,6 +492,104 @@ def test_pdb_reader_reads_single_model_atoms(tmp_path: Path):
 
     assert atoms.get_chemical_symbols() == ["N", "C", "C", "O"]
     np.testing.assert_allclose(atoms.get_positions()[1], [1.4, 0.0, 0.0])
+    template = atoms.info["pdb_template"]
+    atom_lines = [line for line in template if line[:6].strip().upper() in {"ATOM", "HETATM", "HEATOM"}]
+    assert len(atom_lines) == len(atoms)
+    assert all(not line.startswith("CONECT") for line in template)
+
+
+def test_pdb_reader_keeps_ter_and_drops_conect_in_template(tmp_path: Path):
+    pdb_path = tmp_path / "nmr.pdb"
+    pdb_path.write_text(PDB_NMR_TEXT, encoding="utf-8")
+
+    molecules = PDBReader("PDB nmr.pdb", base_dir=str(tmp_path))
+
+    assert any(line.startswith("TER") for line in molecules.multiatoms[0].info["pdb_template"])
+    assert all(not line.startswith("CONECT") for line in molecules.multiatoms[1].info["pdb_template"])
+
+
+def test_write_pdb_replaces_coordinates_and_preserves_template_fields(tmp_path: Path):
+    pdb_path = tmp_path / "fixture.pdb"
+    pdb_path.write_text(PDB_TEXT, encoding="utf-8")
+    atoms = PDBReader("PDB fixture.pdb", base_dir=str(tmp_path))
+    atoms.set_positions(atoms.get_positions() + np.array([1.0, 2.0, 3.0]))
+    out_path = tmp_path / "out.pdb"
+
+    write_pdb(str(out_path), atoms, atoms.info["pdb_template"])
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "ATOM      1  N   ALA A   1       1.000   2.000   3.000" in text
+    assert "ATOM      2  CA  ALA A   1       2.400   2.000   3.000" in text
+    assert "CONECT" not in text
+
+
+def test_write_pdb_rejects_template_atom_count_mismatch(tmp_path: Path):
+    atoms = Atoms(["H"], positions=[[0.0, 0.0, 0.0]])
+    template = [
+        "ATOM      1  H1  MOL A   1       0.000   0.000   0.000  1.00  0.00           H",
+        "ATOM      2  H2  MOL A   1       0.000   0.000   0.000  1.00  0.00           H",
+    ]
+
+    with pytest.raises(ValueError, match="PDB template atom count"):
+        write_pdb(str(tmp_path / "bad.pdb"), atoms, template)
+
+
+def test_write_pdb_trajectory_appends_model_blocks(tmp_path: Path):
+    pdb_path = tmp_path / "fixture.pdb"
+    pdb_path.write_text(PDB_TEXT, encoding="utf-8")
+    atoms = PDBReader("PDB fixture.pdb", base_dir=str(tmp_path))
+    out_path = tmp_path / "traj.pdb"
+
+    write_pdb_trajectory(str(out_path), [atoms], energies=[1.0], start_index=0)
+    write_pdb_trajectory(str(out_path), [atoms], energies=[2.0], mode="a", start_index=1)
+
+    text = out_path.read_text(encoding="utf-8")
+    assert text.count("MODEL") == 2
+    assert "MODEL        1" in text
+    assert "MODEL        2" in text
+    assert "REMARK   Energy = 1.0000000000" in text
+    assert "REMARK   Energy = 2.0000000000" in text
+
+
+def test_optimization_write_xyz_uses_pdb_template(tmp_path: Path):
+    pdb_path = tmp_path / "fixture.pdb"
+    pdb_path.write_text(PDB_TEXT, encoding="utf-8")
+    atoms = PDBReader("PDB fixture.pdb", base_dir=str(tmp_path))
+    out_path = tmp_path / "opt_traj.pdb"
+
+    _common.write_xyz(str(out_path), [atoms], energies=[3.0])
+
+    text = out_path.read_text(encoding="utf-8")
+    assert text.startswith("MODEL")
+    assert "ATOM      1  N   ALA A   1       0.000   0.000   0.000" in text
+    assert "REMARK   Energy = 3.0000000000" in text
+
+
+def test_solvent_template_serials_continue_after_solute_serials():
+    from maple.function.read.post_process.explicit_solvent.solvate import (
+        _solvent_pdb_template_from_arrays,
+    )
+
+    atoms = Atoms(
+        ["C", "O", "H"],
+        positions=[
+            [0.0, 0.0, 0.0],
+            [1.0, 2.0, 3.0],
+            [1.5, 2.5, 3.5],
+        ],
+    )
+    if not hasattr(atoms, "arrays"):
+        atoms.arrays = {}
+    atoms.arrays["maple_molecule_id"] = np.asarray([-1, 0, 0], dtype=np.int64)
+    atoms.arrays["maple_resname"] = np.asarray(["MOL", "HOH", "HOH"], dtype="U5")
+    atoms.arrays["maple_atom_name"] = np.asarray(["C1", "O", "H1"], dtype="U5")
+    solute_template = [
+        "ATOM    101  C1  MOL A   1       0.000   0.000   0.000  1.00  0.00           C"
+    ]
+
+    lines = _solvent_pdb_template_from_arrays(atoms, 1, solute_template)
+
+    assert [int(line[6:11]) for line in lines] == [102, 103]
 
 
 def test_pdb_reader_stores_charge_and_multiplicity(tmp_path: Path):

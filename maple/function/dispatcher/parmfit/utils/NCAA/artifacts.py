@@ -235,7 +235,7 @@ def build_ncaa_amber_artifacts(
 
 
 # ---------------------------------------------------------------------------
-# Deployment Files
+# Export Files
 # ---------------------------------------------------------------------------
 
 
@@ -275,7 +275,7 @@ def export_ncaa_artifacts(
         artifacts.tleap_input,
         amber=amber,
         atom_type_rows=atom_type_rows,
-        prepared_pdb=os.path.basename(artifacts.tleap_pdb),
+        prepared_pdb_name=os.path.basename(artifacts.tleap_pdb),
         base=base,
         prom=config.prom,
         watm=config.watm,
@@ -291,10 +291,11 @@ def write_ncaa_tleap_pdb(
     target_residue: dict,
     rn: str,
 ) -> str:
-    target_key = get_resid_key(target_residue)
+    target_resname = str(target_residue.get("resname", "")).upper()
     residues = []
     for new_resseq, residue in enumerate(sorted(structure["residues"], key=residue_sort_key), start=1):
-        copied = copy_residue(residue, resname=rn) if get_resid_key(residue) == target_key else copy_residue(residue)
+        resname = str(residue.get("resname", "")).upper()
+        copied = copy_residue(residue, resname=rn) if resname == target_resname else copy_residue(residue)
         copied["resseq"] = new_resseq
         residues.append(copied)
     write_model_pdb(path, {"name": "ncaa_tleap_model", "residues": residues})
@@ -306,7 +307,7 @@ def write_ncaa_tleap_input(
     *,
     amber: NCAAAmberArtifacts,
     atom_type_rows: list["AtomTypeRow"],
-    prepared_pdb: str,
+    prepared_pdb_name: str,
     base: str,
     prom: str = "ff14SB",
     watm: str = "tip3p",
@@ -327,7 +328,7 @@ def write_ncaa_tleap_input(
             f"loadamberprep {os.path.basename(amber.refined_prepin)}\n",
             f"loadamberparams {os.path.basename(amber.refined_frcmod)}\n",
             f"loadamberparams {infer_ion_frcmod_name(watm=watm, ionm=ionm, residue='Na')}\n",
-            f"mol = loadpdb {prepared_pdb}\n",
+            f"mol = loadpdb {prepared_pdb_name}\n",
             "check mol\n",
             "charge mol\n",
             f"solvatebox mol {'SPCBOX' if watm == 'spce' else watm.upper() + 'BOX'} 10.0\n",
@@ -347,15 +348,16 @@ def write_ncaa_tleap_input(
 # ---------------------------------------------------------------------------
 
 
-_PREPIN_ATOM_RE = re.compile(r"^(\s*\d+\s+\S+\s+)(\S+)(\s+.*)$")
+_PREPIN_ATOM_RE = re.compile(r"^(\s*\d+\s+)(\S+)(\s+)(\S+)(\s+.*)$")
 
 
-def _replace_prepin_atom_type(raw: str, new_type: str) -> str:
+def _replace_prepin_atom_fields(raw: str, new_name: str, new_type: str) -> str:
     match = _PREPIN_ATOM_RE.match(raw.rstrip("\n"))
     if match is None:
-        raise ValueError(f"Could not rewrite prepin atom type for line: {raw.rstrip()}")
-    prefix, old_type, suffix = match.groups()
-    return f"{prefix}{new_type:<{len(old_type)}}{suffix}\n"
+        raise ValueError(f"Could not rewrite prepin atom fields for line: {raw.rstrip()}")
+    prefix, old_name, name_sep, old_type, suffix = match.groups()
+    name_width = max(len(old_name), len(new_name))
+    return f"{prefix}{new_name:<{name_width}}{name_sep}{new_type:<{len(old_type)}}{suffix}\n"
 
 
 def _insert_frcmod_section_lines(frcmod_path: str, extra_sections: dict[str, list[str]]) -> None:
@@ -370,10 +372,14 @@ def _insert_frcmod_section_lines(frcmod_path: str, extra_sections: dict[str, lis
     for index, line in enumerate(lines):
         stripped = line.strip()
         if stripped in {"MASS", "BOND", "ANGLE", "DIHE", "IMPROPER", "NONBON"}:
+            if current is not None:
+                section_end[current] = index
             current = stripped
         elif stripped == "" and current is not None:
             section_end[current] = index
             current = None
+    if current is not None:
+        section_end[current] = len(lines)
 
     output: list[str] = []
     for index, line in enumerate(lines):
@@ -381,6 +387,11 @@ def _insert_frcmod_section_lines(frcmod_path: str, extra_sections: dict[str, lis
             if index == section_end.get(section):
                 output.extend(extra_sections.get(section, ()))
         output.append(line)
+    for section in ("BOND", "ANGLE", "DIHE"):
+        if section_end.get(section) == len(lines):
+            if output and not output[-1].endswith("\n"):
+                output[-1] += "\n"
+            output.extend(extra_sections.get(section, ()))
 
     with open(frcmod_path, "w", encoding="utf-8") as handle:
         handle.writelines(output)
@@ -416,15 +427,24 @@ def _build_maple_residue_mapping(
     residue_atoms = sorted(charged_residue["atoms"], key=lambda atom: atom["serial"])
     residue_atom_names = [atom["name"] for atom in residue_atoms]
     if Counter(prepin_atom_names) != Counter(residue_atom_names):
-        raise ValueError(
-            "prepgen produced an invalid NCAA template: prepin atom names do not match the target residue atoms."
-        )
-    residue_atom_by_name = {atom["name"]: atom for atom in residue_atoms}
+        prepin_name_keys = [str(name).strip().upper() for name in prepin_atom_names]
+        residue_name_keys = [str(name).strip().upper() for name in residue_atom_names]
+        if (
+            Counter(prepin_name_keys) != Counter(residue_name_keys)
+            or len(set(prepin_name_keys)) != len(prepin_name_keys)
+            or len(set(residue_name_keys)) != len(residue_name_keys)
+        ):
+            raise ValueError(
+                "prepgen produced an invalid NCAA template: prepin atom names do not match the target residue atoms."
+            )
+    residue_atom_by_key = {str(atom["name"]).strip().upper(): atom for atom in residue_atoms}
+    prepin_name_by_key = {str(name).strip().upper(): name for name in prepin_atom_names}
     residue_start = int(representative_model["segment_sizes"]["ace"]) + 1
-    name_to_global_index = {
-        atom["name"]: residue_start + offset
-        for offset, atom in enumerate(residue_atoms)
-    }
+    name_to_global_index: dict[str, int] = {}
+    for offset, atom in enumerate(residue_atoms):
+        global_index = residue_start + offset
+        name_to_global_index[atom["name"]] = global_index
+        name_to_global_index[prepin_name_by_key[str(atom["name"]).strip().upper()]] = global_index
 
     existing_types = {atom.atom_type for atom in parameter_set.mol2.atoms}
     maple_types = allocate_maple_atom_types(len(prepin_atom_rows), existing_types)
@@ -432,22 +452,32 @@ def _build_maple_residue_mapping(
     global_to_maple_type: dict[int, str] = {}
     maple_mass_params: dict[str, float] = {}
     atom_type_rows: list[AtomTypeRow] = []
+    canonical_prepin_atom_names: list[str] = []
 
     for local_index, (line_index, parts) in enumerate(prepin_atom_rows, start=1):
         name = parts[1]
         global_index = name_to_global_index[name]
+        residue_atom = residue_atom_by_key[str(name).strip().upper()]
+        canonical_name = residue_atom["name"]
         old_type = parameter_set.nonbonds[global_index - 1].atom_type
         resp_charge = float(parameter_set.nonbonds[global_index - 1].charge)
         maple_type = maple_types[local_index]
-        prepin_lines[line_index] = _replace_prepin_atom_type(prepin_lines[line_index], maple_type)
-        atom_type_rows.append(AtomTypeRow(name, residue_atom_by_name[name]["element"], old_type, maple_type, resp_charge))
+        prepin_lines[line_index] = _replace_prepin_atom_fields(
+            prepin_lines[line_index],
+            canonical_name,
+            maple_type,
+        )
+        canonical_prepin_atom_names.append(canonical_name)
+        atom_type_rows.append(
+            AtomTypeRow(canonical_name, residue_atom["element"], old_type, maple_type, resp_charge)
+        )
         global_to_local_index[global_index] = local_index
         global_to_maple_type[global_index] = maple_type
         maple_mass_params[maple_type] = parameter_set.frcmod.mass_params[old_type]
 
     return _MapleResidueMapping(
         prepin_lines=prepin_lines,
-        prepin_atom_names=prepin_atom_names,
+        prepin_atom_names=canonical_prepin_atom_names,
         atom_type_rows=atom_type_rows,
         name_to_global_index=name_to_global_index,
         global_to_local_index=global_to_local_index,
@@ -578,6 +608,27 @@ def write_ncaa_amber_files(
         extra_sections,
     )
     return mapping.atom_type_rows
+
+
+def _uses_refined_parameters(config: NCAAAbinitioConfig) -> bool:
+    return config.bonded != "none" or bool(config.torsion.enabled)
+
+
+def _select_amber_artifacts(amber: NCAAAmberArtifacts, *, use_refined_parameters: bool) -> NCAAAmberArtifacts:
+    if use_refined_parameters:
+        return amber
+    return NCAAAmberArtifacts(
+        capped_mol2=amber.capped_mol2,
+        gaff2_mol2=amber.gaff2_mol2,
+        ac=amber.ac,
+        mc=amber.mc,
+        prepin=amber.prepin,
+        refined_prepin=amber.prepin,
+        res=amber.res,
+        newpdb=amber.newpdb,
+        frcmod=amber.frcmod,
+        refined_frcmod=amber.frcmod,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -859,18 +910,23 @@ def build_ncaa_export_bundle(
     structure: dict,
     target_residue: dict,
 ) -> NCAAExportBundle:
-    atom_type_rows = write_ncaa_amber_files(
-        amber=amber,
-        representative_model=representative_model,
-        charged_residue=charged_residue,
-        final_parameter_set=final_parameter_set,
-        structure=structure,
-        target_residue=target_residue,
-        prom=config.prom,
-    )
+    use_refined_parameters = _uses_refined_parameters(config)
+    if use_refined_parameters:
+        atom_type_rows = write_ncaa_amber_files(
+            amber=amber,
+            representative_model=representative_model,
+            charged_residue=charged_residue,
+            final_parameter_set=final_parameter_set,
+            structure=structure,
+            target_residue=target_residue,
+            prom=config.prom,
+        )
+    else:
+        atom_type_rows: list[AtomTypeRow] = []
+    selected_amber = _select_amber_artifacts(amber, use_refined_parameters=use_refined_parameters)
     artifacts = export_ncaa_artifacts(
         output,
-        amber=amber,
+        amber=selected_amber,
         representative_model=representative_model,
         conformers=conformers,
         config=config,
@@ -879,7 +935,7 @@ def build_ncaa_export_bundle(
         target_residue=target_residue,
     )
     return NCAAExportBundle(
-        amber=amber,
+        amber=selected_amber,
         atom_type_rows=atom_type_rows,
         artifacts=artifacts,
     )

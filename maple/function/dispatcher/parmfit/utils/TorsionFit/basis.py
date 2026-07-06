@@ -16,9 +16,9 @@ from .topology import (
     normalize_center_bond,
 )
 from .records import TorsionGlobalProblem, TorsionLocalProblem, TorsionScanData, TorsionSharedGroupSpec
-from .config import TorsionFitParams
+from .config import TORSIONFIT_CANONICAL_PERIODS, TorsionFitParams
 
-_SLOT_PERIODS = (1, 2, 3, 4)
+_SLOT_PERIODS = TORSIONFIT_CANONICAL_PERIODS
 _SLOT_PHASES = {
     1: 0.0,
     2: np.pi,

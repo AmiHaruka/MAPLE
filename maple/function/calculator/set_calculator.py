@@ -44,6 +44,9 @@ _BUILTIN_NAME_TO_MODULE = {
     'macepols': 'maple.function.calculator.mace._macepol_calculator',
     'macepolm': 'maple.function.calculator.mace._macepol_calculator',
     'macepoll': 'maple.function.calculator.mace._macepol_calculator',
+    'fennol': 'maple.function.calculator.fennol._fennol_calculator',
+    'fennix-bio1s': 'maple.function.calculator.fennol._fennol_calculator',
+    'fennix-bio1m': 'maple.function.calculator.fennol._fennol_calculator',
     'uma': 'maple.function.calculator.uma._uma_calculator',
 }
 
@@ -335,6 +338,9 @@ class SetCalculator:
         - Else if `cls.REQUIRES_LOCAL_MODEL_FILE` is True → require local.
         - Else → no path (backend looks up its own default).
         """
+        local_filenames = getattr(cls, 'LOCAL_MODEL_FILENAMES', None)
+        if local_filenames and name in local_filenames:
+            return self._require_local_model_file(name, local_filenames[name])
         if cls.CHECKPOINT_FILENAME and name in cls.CHECKPOINT_FILENAME:
             filename = cls.CHECKPOINT_FILENAME[name]
             return self._ensure_model_file(filename, name)

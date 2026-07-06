@@ -184,6 +184,7 @@ from maple.function.dispatcher.parmfit.utils.TorsionFit.topology import (
     resolve_torsion_center_bonds,
 )
 from maple.function.dispatcher.parmfit.utils.TorsionFit.fit import fit_torsion_scan
+from maple.function.dispatcher.parmfit.utils.TorsionFit.workflow import _apply_qm_scan
 from maple.function.dispatcher.parmfit.utils.TorsionFit import ensemble as torsion_ensemble_module
 from maple.function.dispatcher.parmfit.utils.TorsionFit.basis import _group_center_bond_dihedrals, build_global_torsion_problem
 from maple.function.dispatcher.parmfit.utils.TorsionFit.stage2 import (
@@ -198,6 +199,7 @@ from maple.function.dispatcher.parmfit.utils.TorsionFit.records import (
     TorsionWorkflowResult,
 )
 from maple.function.dispatcher.parmfit.utils.TorsionFit.scanio import HARTREE_TO_KCAL_MOL, read_scan_xyz as read_scan_xyz_from_scanio
+from maple.function.dispatcher.parmfit.utils.QMInterface import QMReferenceConfig, QMReferenceResult
 from maple.function.dispatcher.parmfit.utils import runtime as runtime_module
 from maple.function.dispatcher.parmfit.utils.Scan import read_scan_final_atoms, run_silent_scan
 from maple.function.dispatcher.parmfit.utils.Scan.engine import SilentScanEngine
@@ -1468,6 +1470,241 @@ def test_run_torsion_workflow_passes_optional_ensemble_provider(monkeypatch):
 
     assert captured["ensemble_result"] is ensemble
     assert result.ensemble_xyz == {(2, 3): "ensemble.xyz"}
+
+
+def test_run_torsion_workflow_replaces_scan_reference_with_qm_constrained_opt(monkeypatch, tmp_path: Path):
+    atoms = _four_atom_frame(0.0)
+    parameter_set = _make_parameter_set(
+        atom_types=["c", "c", "c", "c"],
+        bond_graph=[(1, 2), (2, 3), (3, 4)],
+        dihedrals=[
+            Dihedral(
+                atoms=(1, 2, 3, 4),
+                atom_types=("c", "c", "c", "c"),
+                terms=[FourierTerm(kPhi=0.5, period=1.0, phase=0.0)],
+            )
+        ],
+        nonbonds=[Nonbond(atom=index, atom_type="c", charge=0.0) for index in range(1, 5)],
+    )
+    captured: dict[str, object] = {}
+
+    class FakeQMRunner:
+        def __init__(self):
+            self.config = QMReferenceConfig(opt_level="B3LYP/def2-SVP", sp_level="B3LYP/def2-SVP")
+            self.last_wfn_path = str(tmp_path / "base.chk")
+            self.calls: list[tuple[tuple[int, int, int, int], float, str | None]] = []
+
+        def constrained_torsion_opt(self, frame, prefix, *, torsion, torsion_angle_deg, wfn_path=None):
+            del prefix
+            self.calls.append((tuple(torsion), float(torsion_angle_deg), wfn_path))
+            relaxed = frame.copy()
+            relaxed.set_positions(np.asarray(frame.get_positions(), dtype=float) + 0.1 * len(self.calls))
+            energy = -10.0 + 0.01 * (len(self.calls) - 1)
+            return QMReferenceResult(
+                atoms=relaxed,
+                energy_hartree=energy,
+                input_path=str(tmp_path / f"qm_{len(self.calls)}.gjf"),
+                log_path=str(tmp_path / f"qm_{len(self.calls)}.log"),
+                wfn_path=str(tmp_path / f"qm_{len(self.calls)}.chk"),
+            )
+
+        def single_point(self, *args, **kwargs):
+            raise AssertionError("single_point should not be called when sp_level equals opt_level.")
+
+    qm_runner = FakeQMRunner()
+
+    def fake_run_silent_scan(*, output, atoms, constraints, params=None, method="lbfgs", constraint_mode="fixinternals"):
+        del atoms, constraints, params, method, constraint_mode
+        xyz_path = Path(str(Path(output).with_suffix("")) + "_scan_final.xyz")
+        _write_scan_xyz(
+            xyz_path,
+            [(0.0, 0.0, _four_atom_frame(0.0)), (60.0, 1.0, _four_atom_frame(60.0))],
+        )
+        return SilentScanResult(output_path=output, xyz_path=str(xyz_path))
+
+    def fake_run_loss_mode(**kwargs):
+        captured.update(kwargs)
+        return TorsionWorkflowResult(
+            stage1_parameter_set=kwargs["base_parameter_set"],
+            final_parameter_set=kwargs["base_parameter_set"],
+            scan_xyz=kwargs["scan_xyz_map"],
+        )
+
+    monkeypatch.setattr(
+        "maple.function.dispatcher.parmfit.utils.TorsionFit.workflow.resolve_torsion_center_bonds",
+        lambda parameter_set, params, topology_cache=None: ([(2, 3)], []),
+    )
+    monkeypatch.setattr(
+        "maple.function.dispatcher.parmfit.utils.TorsionFit.workflow.representative_dihedral_for_center_bond",
+        lambda parameter_set, center_bond, topology_cache=None: types.SimpleNamespace(atoms=(1, 2, 3, 4)),
+    )
+    monkeypatch.setattr("maple.function.dispatcher.parmfit.utils.TorsionFit.workflow.run_silent_scan", fake_run_silent_scan)
+    monkeypatch.setattr("maple.function.dispatcher.parmfit.utils.TorsionFit.workflow.run_loss_mode", fake_run_loss_mode)
+
+    result = run_torsion_workflow(
+        atoms=atoms,
+        output=str(tmp_path / "qm_scan.out"),
+        parameter_set=parameter_set,
+        params=TorsionFitParams(enabled=True, torsion_steps=1, torsion_ensemble=False),
+        runtime=TorsionScanRuntime(max_iter=5, memory=5, curvature=70.0, max_step=0.2),
+        qm_runner=qm_runner,
+    )
+
+    scan_data = captured["scan_data_map"][(2, 3)]
+    assert np.allclose(scan_data.qm_hartree, [-10.0, -9.99])
+    assert scan_data.frames[0].get_positions()[0, 0] == pytest.approx(1.1)
+    assert qm_runner.calls == [
+        ((1, 2, 3, 4), 0.0, str(tmp_path / "base.chk")),
+        ((1, 2, 3, 4), 60.0, str(tmp_path / "qm_1.chk")),
+    ]
+    comments = _read_scan_comments(Path(result.scan_xyz[(2, 3)]))
+    assert result.scan_xyz[(2, 3)].endswith("_qm_torsionfit_2-3_scan_final.xyz")
+    assert Path(str(tmp_path / "qm_scan_work/torsionfit/qm_scan_torsionfit_2-3_scan_final.xyz")).is_file()
+    assert all("Reference = QM mode=2" in comment for comment in comments)
+    assert all("Geometry = QM constrained opt" in comment for comment in comments)
+
+
+def test_qm_mode3_projected_scan_uses_qm_output_name_and_maple_thresholds(monkeypatch, tmp_path: Path):
+    atoms = _four_atom_frame(0.0)
+    parameter_set = _make_parameter_set(
+        atom_types=["c", "c", "c", "c"],
+        bond_graph=[(1, 2), (2, 3), (3, 4)],
+        dihedrals=[
+            Dihedral(
+                atoms=(1, 2, 3, 4),
+                atom_types=("c", "c", "c", "c"),
+                terms=[FourierTerm(kPhi=0.5, period=1.0, phase=0.0)],
+            )
+        ],
+        nonbonds=[Nonbond(atom=index, atom_type="c", charge=0.0) for index in range(1, 5)],
+    )
+    captured: dict[str, object] = {}
+
+    class FakeQMRunner:
+        def __init__(self):
+            self.config = QMReferenceConfig(
+                iqm=True,
+                opt_level="B3LYP/def2-SVP",
+                sp_level="B3LYP/def2-SVP",
+                qm_mode=3,
+            )
+            self.last_wfn_path = str(tmp_path / "base.chk")
+
+        def gradient(self, atoms, prefix, *, wfn_path=None):
+            del prefix, wfn_path
+            return -1.0, np.zeros((len(atoms), 3), dtype=float), str(tmp_path / "next.chk")
+
+    def fake_run_silent_scan(*, output, atoms, constraints, params=None, method="lbfgs", constraint_mode="fixinternals"):
+        del constraints, params, method
+        assert constraint_mode == "projected"
+        captured["thresholds"] = (
+            atoms.f_max_th,
+            atoms.f_rms_th,
+            atoms.dp_max_th,
+            atoms.dp_rms_th,
+        )
+        xyz_path = Path(str(Path(output).with_suffix("")) + "_scan_final.xyz")
+        _write_scan_xyz(
+            xyz_path,
+            [(0.0, -1.0, _four_atom_frame(0.0)), (60.0, -0.99, _four_atom_frame(60.0))],
+        )
+        return SilentScanResult(output_path=output, xyz_path=str(xyz_path))
+
+    def fake_run_loss_mode(**kwargs):
+        captured.update(kwargs)
+        return TorsionWorkflowResult(
+            stage1_parameter_set=kwargs["base_parameter_set"],
+            final_parameter_set=kwargs["base_parameter_set"],
+            scan_xyz=kwargs["scan_xyz_map"],
+        )
+
+    monkeypatch.setattr(
+        "maple.function.dispatcher.parmfit.utils.TorsionFit.workflow.resolve_torsion_center_bonds",
+        lambda parameter_set, params, topology_cache=None: ([(2, 3)], []),
+    )
+    monkeypatch.setattr(
+        "maple.function.dispatcher.parmfit.utils.TorsionFit.workflow.representative_dihedral_for_center_bond",
+        lambda parameter_set, center_bond, topology_cache=None: types.SimpleNamespace(atoms=(1, 2, 3, 4)),
+    )
+    monkeypatch.setattr("maple.function.dispatcher.parmfit.utils.TorsionFit.workflow.run_silent_scan", fake_run_silent_scan)
+    monkeypatch.setattr("maple.function.dispatcher.parmfit.utils.TorsionFit.workflow.run_loss_mode", fake_run_loss_mode)
+
+    result = run_torsion_workflow(
+        atoms=atoms,
+        output=str(tmp_path / "qm_mode3.out"),
+        parameter_set=parameter_set,
+        params=TorsionFitParams(enabled=True, torsion_steps=1, torsion_ensemble=False),
+        runtime=TorsionScanRuntime(max_iter=5, memory=5, curvature=70.0, max_step=0.2),
+        qm_runner=FakeQMRunner(),
+    )
+
+    assert result.scan_xyz[(2, 3)].endswith("_mode3_qm_torsionfit_2-3_scan_final.xyz")
+    assert captured["thresholds"] == pytest.approx((0.00285, 0.00190, 0.00315, 0.00210))
+    comments = _read_scan_comments(Path(result.scan_xyz[(2, 3)]))
+    assert all("Reference = QM mode=3" in comment for comment in comments)
+    assert all("Geometry = QM projected scan" in comment for comment in comments)
+
+
+def test_qm_reference_scan_uses_sp_energy_when_sp_level_differs(tmp_path: Path):
+    frames = [_four_atom_frame(0.0), _four_atom_frame(60.0)]
+    scan_data = TorsionScanData(
+        angles_deg=np.asarray([0.0, 60.0], dtype=float),
+        qm_hartree=np.asarray([0.0, 0.0], dtype=float),
+        qm_kcal=np.asarray([0.0, 0.0], dtype=float),
+        frames=frames,
+        source_path=str(tmp_path / "seed.xyz"),
+        ref_idx=0,
+        qm_rel=np.asarray([0.0, 0.0], dtype=float),
+    )
+
+    class FakeQMRunner:
+        def __init__(self):
+            self.config = QMReferenceConfig(opt_level="B3LYP/def2-SVP", sp_level="wB97X-D/def2-TZVP")
+            self.last_wfn_path = str(tmp_path / "base.chk")
+            self.opt_wfns: list[str | None] = []
+            self.sp_wfns: list[str | None] = []
+
+        def constrained_torsion_opt(self, frame, prefix, *, torsion, torsion_angle_deg, wfn_path=None):
+            del prefix, torsion, torsion_angle_deg
+            self.opt_wfns.append(wfn_path)
+            index = len(self.opt_wfns)
+            relaxed = frame.copy()
+            relaxed.set_positions(np.asarray(frame.get_positions(), dtype=float) + index)
+            return QMReferenceResult(
+                atoms=relaxed,
+                energy_hartree=-1.0,
+                input_path=str(tmp_path / f"opt_{index}.gjf"),
+                log_path=str(tmp_path / f"opt_{index}.log"),
+                wfn_path=str(tmp_path / f"opt_{index}.chk"),
+            )
+
+        def single_point(self, atoms, prefix, *, wfn_path=None):
+            del atoms, prefix
+            self.sp_wfns.append(wfn_path)
+            index = len(self.sp_wfns)
+            return QMReferenceResult(
+                atoms=frames[index - 1],
+                energy_hartree=-20.0 - index,
+                input_path=str(tmp_path / f"sp_{index}.gjf"),
+                log_path=str(tmp_path / f"sp_{index}.log"),
+            )
+
+    qm_runner = FakeQMRunner()
+    updated = _apply_qm_scan(
+        scan_data=scan_data,
+        scan_xyz=str(tmp_path / "qm_scan.xyz"),
+        output=str(tmp_path / "demo.out"),
+        center_bond=(2, 3),
+        representative_dihedral=(1, 2, 3, 4),
+        qm_runner=qm_runner,
+        qm_mode=2,
+        use_sp=True,
+    )
+
+    assert updated.qm_hartree.tolist() == pytest.approx([-21.0, -22.0])
+    assert updated.frames[0].get_positions()[0, 0] == pytest.approx(2.0)
+    assert qm_runner.opt_wfns == [str(tmp_path / "base.chk"), str(tmp_path / "opt_1.chk")]
+    assert qm_runner.sp_wfns == [str(tmp_path / "opt_1.chk"), str(tmp_path / "opt_2.chk")]
 
 
 def test_run_torsion_workflow_does_not_scan_non_rotatable_mol2_bonds(monkeypatch):

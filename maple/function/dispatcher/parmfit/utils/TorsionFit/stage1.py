@@ -9,7 +9,7 @@ import numpy as np
 
 from ..mechanics import build_mm_topology_cache, dihedral_radians, evaluate_mm_energy
 from ..readparm import CorrectionParameterSet, FourierTerm
-from .config import TorsionFitParams
+from .config import TORSIONFIT_CANONICAL_PERIODS, TorsionFitParams
 from .spectral import DEFAULT_SPECTRAL_PERIODS, dominant_spectral_peaks, rank_shared_group_spectral_slots
 from .topology import _clone_terms
 from .records import (
@@ -36,7 +36,7 @@ _STAGE1_LLS_PRIOR_WEIGHT = 0.01
 _FITTED_TERM_MAX_K = 3.0
 _METHYL_LIKE_H_TYPES = {"hc", "h1", "h2", "h3"}
 _STAGE1_SPECTRAL_COHERENCE_FLOOR = 0.15
-_STAGE1_CANONICAL_PERIODS = (1, 2, 3, 4)
+_STAGE1_CANONICAL_PERIODS = TORSIONFIT_CANONICAL_PERIODS
 
 
 def _project_coefficients_to_k_caps(
@@ -821,10 +821,6 @@ def _build_fit_report(
             if capped_count > 0 and "k_capped" not in diagnostic_flags:
                 diagnostic_flags = diagnostic_flags + ("k_capped",)
         frozen_non_template_slots = _group_frozen_non_template_slot_labels(problem, group)
-        activated_new_slot = any(
-            active_mask[slot_index] and not is_existing
-            for slot_index, is_existing in zip(group.slot_indices, group.existing_slot_mask)
-        )
         shared_groups.append(
             TorsionSharedGroupReport(
                 label=group.label,
@@ -837,7 +833,6 @@ def _build_fit_report(
                 frozen_non_template_slots=frozen_non_template_slots,
                 effective_rank=rank,
                 dropped_singular_directions=dropped,
-                activated_new_slot=activated_new_slot,
                 diagnostic_flags=diagnostic_flags,
             )
         )

@@ -26,6 +26,7 @@ from maple.function.dispatcher.parmfit.utils.NCAA.config import (
 )
 from maple.function.dispatcher.parmfit.utils.NCAA import report as ncaa_report_module
 from maple.function.dispatcher.parmfit.utils.NCAA import workflow as ncaa_workflow_module
+from maple.function.dispatcher.parmfit.utils.QMInterface import QMReferenceResult
 from maple.function.dispatcher.parmfit.utils.TorsionFit import TorsionWorkflowResult
 from maple.function.dispatcher.parmfit.utils.outputparm import format_tleap_add_atom_types_lines
 from maple.function.dispatcher.parmfit.utils.readparm import (
@@ -266,14 +267,14 @@ def test_parse_ncaa_abinitio_config_uses_current_defaults() -> None:
     )
 
     assert config.rn == "MOL"
-    assert not hasattr(config, "qm")
+    assert config.qm.iqm is False
     assert config.resp.qm.theory == "HF"
     assert config.resp.qm.basis == "6-31G(d)"
     assert config.resp.qm.nproc == 8
     assert config.resp.qm.mem == 16
     assert config.vib_scale == pytest.approx(1.0)
-    assert not hasattr(config, "max_iter")
-    assert not hasattr(config, "max_step")
+    assert config.opt_max_iter == 256
+    assert config.opt_max_step == pytest.approx(0.2)
     assert config.watm == "tip3p"
     assert config.ionm == "12_6"
     assert config.resp.watm == "tip3p"
@@ -282,6 +283,24 @@ def test_parse_ncaa_abinitio_config_uses_current_defaults() -> None:
     assert config.torsion.enabled
     assert config.torsion.torsion_steps == 36
     assert config.torsion.torsion_step_deg == pytest.approx(10.0)
+
+
+def test_parse_ncaa_abinitio_config_reads_opt_controls() -> None:
+    config = parse_ncaa_abinitio_config(
+        {
+            "pdb": "demo.pdb",
+            "target": "A1",
+            "opt_max_iter": "91",
+            "opt_max_step": "0.08",
+        },
+        pdb_path="demo.pdb",
+        target="A1",
+        charge=0,
+        mult=1,
+    )
+
+    assert config.opt_max_iter == 91
+    assert config.opt_max_step == pytest.approx(0.08)
 
 
 @pytest.mark.parametrize(
@@ -360,7 +379,7 @@ def test_parse_ncaa_abinitio_config_reads_shared_torsion_steps() -> None:
     assert config.torsion.torsion_step_deg == pytest.approx(10.0)
 
 
-def test_parse_ncaa_abinitio_config_reads_torsion_backend_without_breaking_qm_backend() -> None:
+def test_parse_ncaa_abinitio_config_reads_torsion_backend_without_breaking_resp_backend() -> None:
     config = parse_ncaa_abinitio_config(
         {"pdb": "demo.pdb", "target": "A1", "backend": "cgws", "constraint_mode": "projected"},
         pdb_path="demo.pdb",
@@ -372,6 +391,57 @@ def test_parse_ncaa_abinitio_config_reads_torsion_backend_without_breaking_qm_ba
     assert config.resp.qm.backend == "gaussian"
     assert config.torsion.backend == "cgws"
     assert config.torsion.constraint_mode == "projected"
+
+
+def test_parse_ncaa_abinitio_config_accepts_bonded_none() -> None:
+    config = parse_ncaa_abinitio_config(
+        {"pdb": "demo.pdb", "target": "A1", "bonded": "none"},
+        pdb_path="demo.pdb",
+        target="A1",
+        charge=0,
+        mult=1,
+    )
+
+    assert config.bonded == "none"
+
+
+def test_parse_ncaa_abinitio_config_parses_qm_reference_options() -> None:
+    config = parse_ncaa_abinitio_config(
+        {
+            "pdb": "demo.pdb",
+            "target": "A1",
+            "iqm": "true",
+            "qm_engine": "g16",
+            "theory": "IGNORED",
+            "basis": "IGNORED",
+            "opt_level": "B3LYP/def2SVP",
+            "sp_level": "wB97X-D/def2TZVP",
+            "opt_route": "SCF=Tight",
+            "sp_route": "SCF=VeryTight",
+            "chg_level": "HF/6-31G(d)",
+            "chg_route": "Pop=MK",
+            "qm_nproc": "12",
+            "qm_mem": "48",
+        },
+        pdb_path="demo.pdb",
+        target="A1",
+        charge=0,
+        mult=1,
+    )
+
+    assert config.qm.iqm is True
+    assert config.qm.qm_engine == "g16"
+    assert config.qm.opt_level == "B3LYP/def2SVP"
+    assert config.qm.sp_level == "wB97X-D/def2TZVP"
+    assert config.qm.opt_route == "SCF=Tight"
+    assert config.qm.sp_route == "SCF=VeryTight"
+    assert config.qm.qm_nproc == 12
+    assert config.qm.qm_mem == 48
+    assert config.resp.qm.theory == "HF"
+    assert config.resp.qm.basis == "6-31G(d)"
+    assert config.resp.qm.route == "Pop=MK"
+    assert config.resp.qm.nproc == 12
+    assert config.resp.qm.mem == 48
 
 
 def test_ncaa_report_start_lines_cover_current_summary_fields() -> None:
@@ -404,6 +474,14 @@ def test_ncaa_identity_helpers_use_current_public_interface() -> None:
 
     assert detect_ncaa_chirality(structure_l["residues"][0]) == "L"
     assert detect_ncaa_chirality(structure_d["residues"][0]) == "D"
+
+
+def test_ncaa_identity_reports_missing_sidechain_anchor() -> None:
+    residue = _protein_residue(resname="NAA")
+    residue["atoms"] = [atom for atom in residue["atoms"] if atom["name"] != "CB"]
+
+    with pytest.raises(ValueError, match="NCAA target residue A1:NAA has no sidechain heavy atom attached to CA"):
+        ncaa_build_module.identity_ncaa(residue)
     assert conformer_targets("L") == [("alpha", -60.0, -40.0), ("beta", -120.0, -140.0)]
     assert conformer_targets("D") == [("alpha", 60.0, 40.0), ("beta", 120.0, 140.0)]
 
@@ -445,17 +523,26 @@ def test_prepare_ncaa_models_uses_peptide_neighbors_for_caps(monkeypatch, tmp_pa
     structure = {"residues": [previous, target, next_residue], "explicit_pairs": set(), "_pair_cache": {}}
     captured: dict[str, dict] = {}
 
-    def fake_optimize_capped_reference(model, **kwargs):
+    def fake_optimize_capped_confs(model, **kwargs):
         captured["model"] = model
         captured["frozen_indices"] = kwargs["frozen_indices"]
+        captured["ref_max_iter"] = kwargs["max_iter"]
+        captured["ref_max_step"] = kwargs["max_step"]
         return NCAAConformer(label="ref", phi_deg=0.0, psi_deg=0.0, energy=0.0, model=model)
 
-    monkeypatch.setattr(ncaa_workflow_module, "optimize_capped_reference", fake_optimize_capped_reference)
-    monkeypatch.setattr(ncaa_workflow_module, "build_resp_conformers_from_reference", lambda *args, **kwargs: [])
+    monkeypatch.setattr(ncaa_workflow_module, "optimize_capped_confs", fake_optimize_capped_confs)
+
+    def fake_build_resp_confs(*args, **kwargs):
+        del args
+        captured["resp_max_iter"] = kwargs["max_iter"]
+        captured["resp_max_step"] = kwargs["max_step"]
+        return []
+
+    monkeypatch.setattr(ncaa_workflow_module, "build_resp_confs", fake_build_resp_confs)
 
     atoms = Atoms("H", positions=[[0.0, 0.0, 0.0]])
     config = parse_ncaa_abinitio_config(
-        {"target": "A1", "rn": "NSR"},
+        {"target": "A1", "rn": "NSR", "opt_max_iter": "31", "opt_max_step": "0.055"},
         pdb_path=str(tmp_path / "protein.pdb"),
         target="A1",
         charge=0,
@@ -481,6 +568,66 @@ def test_prepare_ncaa_models_uses_peptide_neighbors_for_caps(monkeypatch, tmp_pa
     assert set(captured["frozen_indices"]) == {
         index - 1 for index in range(1, atom_count + 1) if index not in sidechain_relax_indices
     }
+    assert captured["ref_max_iter"] == 31
+    assert captured["ref_max_step"] == pytest.approx(0.055)
+    assert captured["resp_max_iter"] == 31
+    assert captured["resp_max_step"] == pytest.approx(0.055)
+
+
+def test_prepare_ncaa_models_can_qm_refine_representative_with_frozen_atoms(monkeypatch, tmp_path: Path) -> None:
+    target = _protein_residue(chirality="L")
+    structure = {"residues": [target], "explicit_pairs": set(), "_pair_cache": {}}
+    captured: dict[str, object] = {}
+
+    def fake_optimize_capped_confs(model, **kwargs):
+        captured["mlip_frozen_indices"] = kwargs["frozen_indices"]
+        return NCAAConformer(label="ref", phi_deg=0.0, psi_deg=0.0, energy=0.0, model=model)
+
+    class FakeQMRunner:
+        def opt_frequency(self, atoms, prefix, *, frozen_indices=()):
+            captured["qm_prefix"] = prefix
+            captured["qm_frozen_indices"] = tuple(frozen_indices)
+            shifted = atoms.copy()
+            positions = atoms.get_positions()
+            movable = [index for index in range(len(atoms)) if index not in set(frozen_indices)]
+            positions[movable] += np.array((0.25, 0.0, 0.0))
+            shifted.set_positions(positions)
+            return QMReferenceResult(
+                atoms=shifted,
+                energy_hartree=-101.0,
+                input_path="qm.gjf",
+                log_path="qm.log",
+                hessian=np.eye(3 * len(atoms), dtype=float),
+            )
+
+    monkeypatch.setattr(ncaa_workflow_module, "optimize_capped_confs", fake_optimize_capped_confs)
+    monkeypatch.setattr(ncaa_workflow_module, "build_resp_confs", lambda *args, **kwargs: [])
+
+    config = parse_ncaa_abinitio_config(
+        {"target": "A1", "rn": "NSR"},
+        pdb_path=str(tmp_path / "protein.pdb"),
+        target="A1",
+        charge=0,
+        mult=1,
+    )
+
+    prepared = ncaa_workflow_module._prepare_ncaa_models(
+        output=str(tmp_path / "ncaa.out"),
+        source_atoms=Atoms("H", positions=[[0.0, 0.0, 0.0]]),
+        structure=structure,
+        target_residue=target,
+        config=config,
+        qm_runner=FakeQMRunner(),
+    )
+
+    assert captured["qm_frozen_indices"] == captured["mlip_frozen_indices"]
+    assert str(captured["qm_prefix"]).endswith("_work/ncaa/ncaa_reference_qm")
+    assert prepared.representative.energy == pytest.approx(-101.0)
+    target_residue = prepared.representative.model["residues"][1]
+    frozen_atom = search_atom(target_residue, "N")
+    movable_atom = search_atom(target_residue, "CB")
+    np.testing.assert_allclose(frozen_atom["xyz"], search_atom(target, "N")["xyz"])
+    np.testing.assert_allclose(movable_atom["xyz"], search_atom(target, "CB")["xyz"] + np.array((0.25, 0.0, 0.0)))
 
 
 def test_warn_capped_proton_transfer_flags_nme_hnm_shift(capsys) -> None:
@@ -534,18 +681,26 @@ def test_minimize_conformer_uses_cap_only_prescan_then_optimizes_last_frame(monk
     assert guess_xyz.exists()
     assert sum(1 for line in guess_xyz.read_text(encoding="utf-8").splitlines() if line.isdigit()) == 1
 
-    ace_count = model["segment_sizes"]["ace"]
-    target_count = model["segment_sizes"]["residue"]
-    target_slice = slice(ace_count, ace_count + target_count)
-    assert np.allclose(captured["positions_before_opt"][target_slice], start_atoms.positions[target_slice])
+    index_by_serial = {atom["serial"]: index for index, (_residue, atom) in enumerate(ncaa_build_module.flatten_model_atoms(model))}
+    target_residue = model["residues"][1]
+    target_index_by_name = {
+        atom["name"]: index_by_serial[atom["serial"]]
+        for atom in target_residue["atoms"]
+    }
+    preopt_positions = captured["positions_before_opt"]
+    for atom_name in ("N", "CA", "C", "CB", "HA"):
+        atom_index = target_index_by_name[atom_name]
+        assert np.allclose(preopt_positions[atom_index], start_atoms.positions[atom_index])
+    for atom_name in ("H", "O"):
+        atom_index = target_index_by_name[atom_name]
+        assert not np.allclose(preopt_positions[atom_index], start_atoms.positions[atom_index])
     assert str(captured["opt_output"]).endswith("alpha_opt.out")
     constraint = captured["constraints_after_scan"][0]
     assert constraint.__class__.__name__ == "FixInternals"
     nme_residue = model["residues"][2]
-    index_by_serial = {atom["serial"]: index for index, (_residue, atom) in enumerate(ncaa_build_module.flatten_model_atoms(model))}
     nnm_index = index_by_serial[search_atom(nme_residue, "NNM")["serial"]]
     hnm_index = index_by_serial[search_atom(nme_residue, "HNM")["serial"]]
-    nme_nh_distance = np.linalg.norm(start_atoms.positions[nnm_index] - start_atoms.positions[hnm_index])
+    nme_nh_distance = np.linalg.norm(preopt_positions[nnm_index] - preopt_positions[hnm_index])
     assert constraint.bonds == [[pytest.approx(nme_nh_distance), [nnm_index, hnm_index]]]
     dihedrals = _fixinternals_dihedrals_deg(constraint)
     assert dihedrals[0][0] == pytest.approx(current_phi + expected_phi_delta)
@@ -554,7 +709,12 @@ def test_minimize_conformer_uses_cap_only_prescan_then_optimizes_last_frame(monk
     assert dihedrals[1][1] == list(index_map["psi"])
 
     minimized_atoms = model_to_atoms(conformer.model)
-    assert np.allclose(minimized_atoms.positions[target_slice], start_atoms.positions[target_slice] + np.array([-0.05, 0.05, 0.02]))
+    for atom_name in ("N", "CA", "C", "CB", "HA"):
+        atom_index = target_index_by_name[atom_name]
+        assert np.allclose(minimized_atoms.positions[atom_index], start_atoms.positions[atom_index] + np.array([-0.05, 0.05, 0.02]))
+    for atom_name in ("H", "O"):
+        atom_index = target_index_by_name[atom_name]
+        assert np.allclose(minimized_atoms.positions[atom_index], preopt_positions[atom_index] + np.array([-0.05, 0.05, 0.02]))
     assert conformer.label == "alpha"
     assert conformer.phi_deg == -60.0
     assert conformer.psi_deg == -40.0
@@ -857,6 +1017,239 @@ def test_export_ncaa_artifacts_writes_processed_tleap_pdb_and_loads_it(tmp_path:
     assert "mol = loadpdb protein.pdb" not in tleap_text
 
 
+def test_write_ncaa_tleap_pdb_renames_all_residues_with_target_resname(tmp_path: Path) -> None:
+    target = _translated_residue(_protein_residue(resname="NLE"), delta=(0.0, 0.0, 0.0), resseq=12)
+    second_nle = _translated_residue(target, delta=(5.0, 0.0, 0.0), resseq=18, serial_offset=20)
+    ala = _translated_residue(target, delta=(10.0, 0.0, 0.0), resseq=19, resname="ALA", serial_offset=40)
+    path = tmp_path / "ncaa_tleap.pdb"
+
+    ncaa_export_module.write_ncaa_tleap_pdb(
+        str(path),
+        structure={"residues": [target, second_nle, ala]},
+        target_residue=target,
+        rn="MOL",
+    )
+
+    resnames_by_resseq = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith(("ATOM", "HETATM")):
+            resnames_by_resseq.setdefault(int(line[22:26]), line[17:20].strip())
+
+    assert resnames_by_resseq == {1: "MOL", 2: "MOL", 3: "ALA"}
+
+
+def test_insert_frcmod_section_lines_handles_section_at_eof(tmp_path: Path) -> None:
+    frcmod = tmp_path / "MOL.frcmod"
+    frcmod.write_text(
+        "REMARK MAPLE test\n"
+        "MASS\n"
+        "Z0 12.0100\n"
+        "\n"
+        "BOND\n"
+        "Z0-Z1  300.0000  1.5000\n",
+        encoding="utf-8",
+    )
+
+    ncaa_export_module._insert_frcmod_section_lines(
+        str(frcmod),
+        {"BOND": ["Z1-Z2  250.0000  1.4000\n"], "ANGLE": [], "DIHE": []},
+    )
+
+    assert "Z0-Z1  300.0000  1.5000\nZ1-Z2  250.0000  1.4000\n" in frcmod.read_text(encoding="utf-8")
+
+
+def test_insert_frcmod_section_lines_handles_next_section_without_blank(tmp_path: Path) -> None:
+    frcmod = tmp_path / "MOL.frcmod"
+    frcmod.write_text(
+        "REMARK MAPLE test\n"
+        "BOND\n"
+        "Z0-Z1  300.0000  1.5000\n"
+        "ANGLE\n"
+        "Z0-Z1-Z2  50.0000  109.5000\n",
+        encoding="utf-8",
+    )
+
+    ncaa_export_module._insert_frcmod_section_lines(
+        str(frcmod),
+        {"BOND": ["Z1-Z2  250.0000  1.4000\n"], "ANGLE": [], "DIHE": []},
+    )
+
+    text = frcmod.read_text(encoding="utf-8")
+    assert text.index("Z1-Z2  250.0000  1.4000") < text.index("ANGLE")
+
+
+def test_ncaa_export_uses_base_amber_files_when_all_bonded_refinement_disabled(
+    monkeypatch, tmp_path: Path
+) -> None:
+    target = _translated_residue(_protein_residue(resname="NLE"), delta=(0.0, 0.0, 0.0), resseq=1)
+    structure = {"residues": [target]}
+    representative_model = build_capped_ncaa_model(target, "MOL")
+    amber = ncaa_amber_module.NCAAAmberArtifacts(
+        capped_mol2=str(tmp_path / "MOL.mol2"),
+        gaff2_mol2=str(tmp_path / "MOL_gaff2.mol2"),
+        ac=str(tmp_path / "MOL.ac"),
+        mc=str(tmp_path / "MOL.mc"),
+        prepin=str(tmp_path / "MOL.prepin"),
+        refined_prepin=str(tmp_path / "MOL_maple.prepin"),
+        res=str(tmp_path / "MOL.res"),
+        newpdb=str(tmp_path / "NEWPDB.PDB"),
+        frcmod=str(tmp_path / "MOL.frcmod"),
+        refined_frcmod=str(tmp_path / "MOL_maple.frcmod"),
+    )
+    Path(amber.prepin).write_text("", encoding="utf-8")
+    Path(amber.frcmod).write_text("", encoding="utf-8")
+    config = parse_ncaa_abinitio_config(
+        {"pdb": "demo.pdb", "target": "A1", "bonded": "none", "torsionfit": "false"},
+        pdb_path="demo.pdb",
+        target="A1",
+        charge=0,
+        mult=1,
+    )
+
+    def fail_write_ncaa_amber_files(*args, **kwargs):
+        raise AssertionError("MAPLE refined NCAA files should not be written")
+
+    monkeypatch.setattr(ncaa_export_module, "write_ncaa_amber_files", fail_write_ncaa_amber_files)
+
+    bundle = ncaa_export_module.build_ncaa_export_bundle(
+        str(tmp_path / "ncaa.out"),
+        amber=amber,
+        representative_model=representative_model,
+        charged_residue=target,
+        conformers=[],
+        final_parameter_set=_minimal_parameter_set(),
+        config=config,
+        structure=structure,
+        target_residue=target,
+    )
+
+    assert bundle.atom_type_rows == []
+    tleap_text = Path(bundle.artifacts.tleap_input).read_text(encoding="utf-8")
+    assert "loadamberprep MOL.prepin" in tleap_text
+    assert "loadamberparams MOL.frcmod" in tleap_text
+    assert "MOL_maple" not in tleap_text
+
+
+def test_ncaa_bonded_none_torsionfit_disabled_skips_hessian_and_torsion(monkeypatch, tmp_path: Path) -> None:
+    target = _protein_residue(resname="NLE")
+    representative_model = build_capped_ncaa_model(target, "MOL")
+    source_atoms = Atoms("H", positions=[[0.0, 0.0, 0.0]])
+    source_atoms.calc = ZeroCalculator()
+    parameter_set = _minimal_parameter_set()
+    config = parse_ncaa_abinitio_config(
+        {"pdb": "demo.pdb", "target": "A1", "bonded": "none", "torsionfit": "false"},
+        pdb_path="demo.pdb",
+        target="A1",
+        charge=0,
+        mult=1,
+    )
+
+    monkeypatch.setattr(ncaa_workflow_module, "build_correction_parameter_set", lambda *args, **kwargs: parameter_set)
+    monkeypatch.setattr(
+        ncaa_workflow_module,
+        "get_cartesian_hessian",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("Hessian should be skipped")),
+    )
+    monkeypatch.setattr(
+        ncaa_workflow_module,
+        "run_torsion_workflow",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("TorsionFit should be skipped")),
+    )
+
+    final_parameter_set, torsion = ncaa_workflow_module._refine_ncaa_parameters(
+        output=str(tmp_path / "ncaa.out"),
+        source_atoms=source_atoms,
+        representative_model=representative_model,
+        typed_mol2_path=str(tmp_path / "MOL.mol2"),
+        frcmod_path=str(tmp_path / "MOL.frcmod"),
+        config=config,
+        sidechain_relax_indices=(),
+        stage_timings=[],
+    )
+
+    assert final_parameter_set is parameter_set
+    assert torsion.final_parameter_set is parameter_set
+    assert torsion.stage1_parameter_set is None
+    assert torsion.center_bonds == []
+
+
+def test_ncaa_refine_can_use_qm_hessian_and_pass_qm_to_torsionfit(monkeypatch, tmp_path: Path) -> None:
+    target = _protein_residue(resname="NLE")
+    representative_model = build_capped_ncaa_model(target, "MOL")
+    source_atoms = Atoms("H", positions=[[0.0, 0.0, 0.0]])
+    source_atoms.calc = object()
+    parameter_set = _minimal_parameter_set()
+    qm_hessian = np.eye(3 * sum(len(residue["atoms"]) for residue in representative_model["residues"]), dtype=float) * 3.0
+    captured: dict[str, object] = {}
+    config = parse_ncaa_abinitio_config(
+        {
+            "pdb": "demo.pdb",
+            "target": "A1",
+            "torsionfit": "true",
+            "opt_max_iter": "41",
+            "opt_max_step": "0.066",
+        },
+        pdb_path="demo.pdb",
+        target="A1",
+        charge=0,
+        mult=1,
+    )
+
+    class FakeQMRunner:
+        def opt_frequency(self, atoms, prefix):
+            captured["freq_prefix"] = prefix
+            return QMReferenceResult(
+                atoms=atoms.copy(),
+                energy_hartree=-10.0,
+                input_path="freq.gjf",
+                log_path="freq.log",
+                hessian=qm_hessian,
+            )
+
+    def fake_apply_mseminario(atoms, hessian, bonds, angles, vib_scale):
+        del atoms, bonds, angles, vib_scale
+        captured["hessian"] = hessian
+
+    def fake_run_torsion_workflow(**kwargs):
+        captured["torsion_qm_runner"] = kwargs.get("qm_runner")
+        captured["runtime"] = kwargs["runtime"]
+        return TorsionWorkflowResult(
+            stage1_parameter_set=parameter_set,
+            final_parameter_set=parameter_set,
+            center_bonds=[(1, 2)],
+        )
+
+    monkeypatch.setattr(ncaa_workflow_module.interface, "patch_frcmod_crossterms", lambda *args, **kwargs: None)
+    monkeypatch.setattr(ncaa_workflow_module, "build_correction_parameter_set", lambda *args, **kwargs: parameter_set)
+    monkeypatch.setattr(ncaa_workflow_module, "apply_mseminario", fake_apply_mseminario)
+    monkeypatch.setattr(ncaa_workflow_module, "run_torsion_workflow", fake_run_torsion_workflow)
+    monkeypatch.setattr(
+        ncaa_workflow_module,
+        "get_cartesian_hessian",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("MLIP Hessian should not be used")),
+    )
+
+    final_parameter_set, torsion = ncaa_workflow_module._refine_ncaa_parameters(
+        output=str(tmp_path / "ncaa.out"),
+        source_atoms=source_atoms,
+        representative_model=representative_model,
+        typed_mol2_path=str(tmp_path / "MOL.mol2"),
+        frcmod_path=str(tmp_path / "MOL.frcmod"),
+        config=config,
+        sidechain_relax_indices=(),
+        stage_timings=[],
+        qm_runner=FakeQMRunner(),
+    )
+
+    assert str(captured["freq_prefix"]).endswith("_work/qm/ncaa_ncaa_reference")
+    np.testing.assert_allclose(captured["hessian"], qm_hessian)
+    assert captured["torsion_qm_runner"] is not None
+    assert captured["runtime"].max_iter == 41
+    assert captured["runtime"].max_step == pytest.approx(0.066)
+    assert final_parameter_set is parameter_set
+    assert torsion.center_bonds == [(1, 2)]
+
+
 def test_ncaa_workflow_runs_current_stage_pipeline_and_delegates_torsion(monkeypatch, tmp_path: Path) -> None:
     residue = _protein_residue()
     decoy_residue = make_residue(
@@ -905,11 +1298,11 @@ def test_ncaa_workflow_runs_current_stage_pipeline_and_delegates_torsion(monkeyp
         "mult": 1,
     }
 
-    def fake_optimize_capped_reference(*args, **kwargs):
+    def fake_optimize_capped_confs(*args, **kwargs):
         del args, kwargs
         return NCAAConformer(label="reference", phi_deg=0.0, psi_deg=0.0, energy=-2.0, model=deepcopy(minimized_model))
 
-    def fake_build_resp_conformers_from_reference(*args, **kwargs):
+    def fake_build_resp_confs(*args, **kwargs):
         del args, kwargs
         return [
             NCAAConformer(label="alpha", phi_deg=-60.0, psi_deg=-40.0, energy=0.0, model=deepcopy(minimized_model)),
@@ -1024,8 +1417,8 @@ def test_ncaa_workflow_runs_current_stage_pipeline_and_delegates_torsion(monkeyp
             warnings=[],
         )
 
-    monkeypatch.setattr(ncaa_workflow_module, "optimize_capped_reference", fake_optimize_capped_reference)
-    monkeypatch.setattr(ncaa_workflow_module, "build_resp_conformers_from_reference", fake_build_resp_conformers_from_reference)
+    monkeypatch.setattr(ncaa_workflow_module, "optimize_capped_confs", fake_optimize_capped_confs)
+    monkeypatch.setattr(ncaa_workflow_module, "build_resp_confs", fake_build_resp_confs)
     monkeypatch.setattr(ncaa_workflow_module, "run_multiconformer_resp", fake_run_multiconformer_resp)
     monkeypatch.setattr(ncaa_workflow_module, "run_torsion_workflow", fake_run_torsion_workflow)
     monkeypatch.setattr(ncaa_workflow_module, "build_correction_parameter_set", lambda *args, **kwargs: fake_parameter_set)
@@ -1143,7 +1536,7 @@ def test_ncaa_workflow_runs_current_stage_pipeline_and_delegates_torsion(monkeyp
     assert "solvatebox mol TIP3PBOX 10.0" in tleap_text
     assert tleap_calls == [(result.files["tleap_input"], str(Path(result.files["tleap_input"]).parent))]
     joined_logs = "\n".join(logged_blocks)
-    assert "[NCAA] model preparation + reference optimization ..." in joined_logs
+    assert "[NCAA] MLIP model preparation + reference optimization ..." in joined_logs
     assert "[NCAA] multiconformer RESP ..." in joined_logs
     assert "[NCAA] tleap validation ..." in joined_logs
     assert "[NCAA] route completed; final summary follows." in joined_logs
@@ -1333,6 +1726,86 @@ def test_write_ncaa_amber_files_generates_refined_prepin_and_residue_only_frcmod
             "C", "C", atom_types[residue_start + 1], "Z2", pytest.approx(nonbonds[residue_start + 1].charge)
         ),
     ]
+
+
+def test_ncaa_prepin_mapping_accepts_prepgen_halogen_case_normalization(tmp_path: Path) -> None:
+    raw_prepin = tmp_path / "INT.prepin"
+    raw_prepin.write_text(
+        "\n".join(
+            [
+                "INT   INT  0",
+                "CORRECT     OMIT DU   BEG",
+                "  0.0000",
+                "   1 Cl1  c1   M 0 0 0 0.000 0.0 0.0 0.00000",
+                "   2 C1   c2   M 0 0 0 0.000 0.0 0.0 0.00000",
+                "DONE",
+                "STOP",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    amber = ncaa_export_module.NCAAAmberArtifacts(
+        capped_mol2=str(tmp_path / "capped.mol2"),
+        gaff2_mol2=str(tmp_path / "typed.mol2"),
+        ac=str(tmp_path / "INT.ac"),
+        mc=str(tmp_path / "INT.mc"),
+        prepin=str(raw_prepin),
+        refined_prepin=str(tmp_path / "INT_maple.prepin"),
+        res=str(tmp_path / "INT.res"),
+        newpdb=str(tmp_path / "NEWPDB.PDB"),
+        frcmod=str(tmp_path / "INT.frcmod"),
+        refined_frcmod=str(tmp_path / "INT_maple.frcmod"),
+    )
+    charged_residue = {
+        "atoms": [
+            make_atom(1, "CL1", "Cl", np.array((0.0, 0.0, 0.0))),
+            make_atom(2, "C1", "C", np.array((1.0, 0.0, 0.0))),
+        ]
+    }
+    parameter_set = CorrectionParameterSet(
+        mol2=Mol2Topology(
+            atoms=[
+                Mol2Atom(atom_id=1, name="CL1", atom_type="cl", charge=-0.1),
+                Mol2Atom(atom_id=2, name="C1", atom_type="c", charge=0.1),
+            ],
+            bonds=[],
+            id_to_index={1: 1, 2: 2},
+            adjacency={},
+        ),
+        frcmod=FrcmodDB(mass_params={"cl": 35.45, "c": 12.01}),
+        bonds=[],
+        angles=[],
+        dihedrals=[],
+        impropers=[],
+        nonbonds=[
+            Nonbond(atom=1, atom_type="cl", charge=-0.1),
+            Nonbond(atom=2, atom_type="c", charge=0.1),
+        ],
+        unmatched_bonds=[],
+        unmatched_angles=[],
+        unmatched_dihedrals=[],
+        unmatched_impropers=[],
+        unmatched_nonbonds=[],
+    )
+
+    mapping = ncaa_export_module._build_maple_residue_mapping(
+        amber=amber,
+        representative_model={"segment_sizes": {"ace": 0}},
+        charged_residue=charged_residue,
+        parameter_set=parameter_set,
+    )
+
+    assert mapping.prepin_atom_names == ["CL1", "C1"]
+    assert mapping.name_to_global_index["Cl1"] == 1
+    assert mapping.name_to_global_index["CL1"] == 1
+    assert mapping.name_to_global_index["C1"] == 2
+    assert mapping.atom_type_rows[0].atom_name == "CL1"
+    assert mapping.atom_type_rows[0].element == "Cl"
+    assert mapping.maple_mass_params[mapping.global_to_maple_type[1]] == 35.45
+    prepin_text = "".join(mapping.prepin_lines)
+    assert " CL1 " in prepin_text
+    assert " Cl1 " not in prepin_text
 
 
 def test_ncaa_boundary_crossterms_follow_actual_ff19sb_non_pro_neighbor() -> None:

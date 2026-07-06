@@ -5,10 +5,10 @@ from __future__ import annotations
 from ..structure import CHARGED_STANDARD_RESIDUES, get_resid_key
 
 
-def infer_large_model_charge(metal_formal_charge: int, large_model: dict) -> int:
-    charge = int(metal_formal_charge)
-    target_key = large_model.get("target_key")
-    for residue in large_model["residues"]:
+def infer_model_charge(base_charge: int, model: dict) -> int:
+    charge = int(base_charge)
+    target_key = model.get("target_key")
+    for residue in model["residues"]:
         residue_key = get_resid_key(residue)
         if residue_key == target_key:
             continue
@@ -26,7 +26,7 @@ def project_resp_charges_onto_site_model(site_model: dict, charged_large_model: 
         residue_key = get_resid_key(residue)
         large_residue = large_residues.get(residue_key)
         if large_residue is None:
-            raise ValueError(f"RESP charges for deployment residue {residue_key} were not found in large_model.")
+            raise ValueError(f"RESP charges for site residue {residue_key} were not found in large_model.")
 
         site_atoms = list(residue["atoms"])
         large_atoms = list(large_residue["atoms"])
@@ -47,7 +47,7 @@ def project_resp_charges_onto_site_model(site_model: dict, charged_large_model: 
         for atom, charged_atom in zip(site_atoms, large_atoms, strict=True):
             if "charge" not in charged_atom:
                 raise ValueError(
-                    f"RESP charge for deployment atom {residue_key}:{charged_atom['name']} "
+                    f"RESP charge for site atom {residue_key}:{charged_atom['name']} "
                     "was not found in large_model."
                 )
             atom["charge"] = float(charged_atom["charge"])

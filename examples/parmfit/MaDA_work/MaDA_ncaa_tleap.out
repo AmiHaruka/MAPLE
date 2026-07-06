@@ -1,0 +1,141 @@
+-I: Adding /home/hungn/BioMed/AMBER24/ORG/dat/leap/prep to search path.
+-I: Adding /home/hungn/BioMed/AMBER24/ORG/dat/leap/lib to search path.
+-I: Adding /home/hungn/BioMed/AMBER24/ORG/dat/leap/parm to search path.
+-I: Adding /home/hungn/BioMed/AMBER24/ORG/dat/leap/cmd to search path.
+-s: Ignoring all leaprc startup files.
+-f: Source MaDA_ncaa_tleap.in.
+
+Welcome to LEaP!
+Sourcing: ./MaDA_ncaa_tleap.in
+----- Source: /home/hungn/BioMed/AMBER24/ORG/dat/leap/cmd/leaprc.protein.ff14SB
+----- Source of /home/hungn/BioMed/AMBER24/ORG/dat/leap/cmd/leaprc.protein.ff14SB done
+Log file: ./leap.log
+Loading parameters: /home/hungn/BioMed/AMBER24/ORG/dat/leap/parm/parm10.dat
+Reading title:
+PARM99 + frcmod.ff99SB + frcmod.parmbsc0 + OL3 for RNA
+Loading parameters: /home/hungn/BioMed/AMBER24/ORG/dat/leap/parm/frcmod.ff14SB
+Reading force field modification type file (frcmod)
+Reading title:
+ff14SB protein backbone and sidechain parameters
+Loading library: /home/hungn/BioMed/AMBER24/ORG/dat/leap/lib/amino12.lib
+Loading library: /home/hungn/BioMed/AMBER24/ORG/dat/leap/lib/aminoct12.lib
+Loading library: /home/hungn/BioMed/AMBER24/ORG/dat/leap/lib/aminont12.lib
+----- Source: /home/hungn/BioMed/AMBER24/ORG/dat/leap/cmd/leaprc.gaff2
+----- Source of /home/hungn/BioMed/AMBER24/ORG/dat/leap/cmd/leaprc.gaff2 done
+Log file: ./leap.log
+Loading parameters: /home/hungn/BioMed/AMBER24/ORG/dat/leap/parm/gaff2.dat
+Reading title:
+AMBER General Force Field for organic molecules (Version 2.2.20, March 2021)
+----- Source: /home/hungn/BioMed/AMBER24/ORG/dat/leap/cmd/leaprc.water.tip3p
+----- Source of /home/hungn/BioMed/AMBER24/ORG/dat/leap/cmd/leaprc.water.tip3p done
+Loading library: /home/hungn/BioMed/AMBER24/ORG/dat/leap/lib/atomic_ions.lib
+Loading library: /home/hungn/BioMed/AMBER24/ORG/dat/leap/lib/solvents.lib
+Loading parameters: /home/hungn/BioMed/AMBER24/ORG/dat/leap/parm/frcmod.tip3p
+Reading force field modification type file (frcmod)
+Reading title:
+This is the additional/replacement parameter set for TIP3P water
+Loading parameters: /home/hungn/BioMed/AMBER24/ORG/dat/leap/parm/frcmod.ions1lm_126_tip3p
+Reading force field modification type file (frcmod)
+Reading title:
+Li/Merz ion parameters of monovalent ions for TIP3P water model (12-6 normal usage set)
+Loading parameters: /home/hungn/BioMed/AMBER24/ORG/dat/leap/parm/frcmod.ionsjc_tip3p
+Reading force field modification type file (frcmod)
+Reading title:
+Monovalent ion parameters for Ewald and TIP3P water from Joung & Cheatham JPCB (2008)
+Loading parameters: /home/hungn/BioMed/AMBER24/ORG/dat/leap/parm/frcmod.ions234lm_126_tip3p
+Reading force field modification type file (frcmod)
+Reading title:
+Li/Merz ion parameters of divalent to tetravalent ions for TIP3P water model (12-6 normal usage set)
+Loading Prep file: ./HF1_maple.prepin
+Loading parameters: ./HF1_maple.frcmod
+Reading force field modification type file (frcmod)
+Reading title:
+REMARK MAPLE ncaa refined frcmod
+Loading parameters: /home/hungn/BioMed/AMBER24/ORG/dat/leap/parm/frcmod.ions1lm_126_tip3p
+Reading force field modification type file (frcmod)
+Reading title:
+Li/Merz ion parameters of monovalent ions for TIP3P water model (12-6 normal usage set)
+Loading PDB file: ./MaDA_ncaa_tleap.pdb
+  total atoms in file: 8267
+Checking 'mol'....
+Checking parameters for unit 'mol'.
+Checking for bond parameters.
+Checking for angle parameters.
+Unit is OK.
+Total unperturbed charge:  -0.000001
+Total perturbed charge:    -0.000001
+  Solute vdw bounding box:              87.949 63.372 67.525
+  Total bounding box for atom centers:  107.949 83.372 87.525
+  Solvent unit box:                     18.774 18.774 18.774
+  Total vdw box size:                   111.102 86.834 90.552 angstroms.
+  Volume: 873595.949 A^3 
+  Total mass 440364.502 amu,  Density 0.837 g/cc
+  Added 21157 residues.
+ 0.000001 0 1 0
+0 Na+ ion required to neutralize.
+Adding 0 counter ions to "mol" using 1A grid
+
+/home/hungn/BioMed/AMBER24/ORG/bin/teLeap: Warning!
+addIons: 1st Ion & target unit have charges of the same sign:
+     unit charge = -1e-06; ion1 charge = -1;
+     can't neutralize.
+Writing pdb file: MaDA_ncaa_solvated.pdb
+   printing CRYST1 record to PDB file with box info
+
+/home/hungn/BioMed/AMBER24/ORG/bin/teLeap: Warning!
+ Converting N-terminal residue name to PDB format: NTHR -> THR
+
+/home/hungn/BioMed/AMBER24/ORG/bin/teLeap: Warning!
+ Converting C-terminal residue name to PDB format: CLEU -> LEU
+Checking Unit.
+Building topology.
+Building atom parameters.
+Building bond parameters.
+Building angle parameters.
+Building proper torsion parameters.
+Building improper torsion parameters.
+old PREP-specified impropers:
+ <HF1 87>:  -M   CA   N    H   
+ <HF1 87>:  C3   C5   C4   N2  
+ <HF1 87>:  C30  C4   N2   C6  
+ <HF1 87>:  H6   N2   C6   N3  
+ <HF1 87>:  C4   H5   C5   N3  
+ <HF1 87>:  C30  C26  C28  C31 
+ <HF1 87>:  C27  C28  C26  C24 
+ <HF1 87>:  C26  C23  C24  H9  
+ <HF1 87>:  C24  C32  C23  N9  
+ <HF1 87>:  C17  C33  C20  N9  
+ <HF1 87>:  C20  N7   C17  O15 
+ <HF1 87>:  C17  C13  N7   H8  
+ <HF1 87>:  N5   N7   C13  O11 
+ <HF1 87>:  C20  N13  C33  N5  
+ <HF1 87>:  C11  C32  N13  C33 
+ <HF1 87>:  C12  C18  N12  C29 
+ <HF1 87>:  C21  N12  C18  N8  
+ <HF1 87>:  H20  N8   C14  N6  
+ <HF1 87>:  C21  N6   C25  N10 
+ <HF1 87>:  C25  H30  N10  H31 
+ <HF1 87>:  C18  C25  C21  N11 
+ <HF1 87>:  H32  N12  C29  N11 
+ <HF1 87>:  C23  C31  C32  N13 
+ <HF1 87>:  C28  C32  C31  H10 
+ <HF1 87>:  +M   CA   C    O   
+ total 1736 improper torsions applied
+ 25 improper torsions in old prep form
+Building H-Bond parameters.
+Incorporating Non-Bonded adjustments.
+Not Marking per-residue atom chain types.
+Marking per-residue atom chain types.
+  (Residues lacking connect0/connect1 - 
+   these don't have chain types marked:
+
+	res	total affected
+
+	CLEU	1
+	NTHR	1
+	WAT	21157
+  )
+ (no restraints)
+	Quit
+
+Exiting LEaP: Errors = 0; Warnings = 3; Notes = 0.

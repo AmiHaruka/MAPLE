@@ -110,5 +110,31 @@ class TransitionState(JobABC):
                 else:
                     raise ValueError('For AutoNEB method, you should provide a Molecules object or a list of structures.')
 
+            elif self.method == 'dmf':
+                try:
+                    import cyipopt  # noqa: F401
+                except ImportError as exc:
+                    raise ImportError(
+                        "The Direct MaxFlux needs cyipopt; you should run: "
+                        "conda install -c conda-forge cyipopt"
+                    ) from exc
+
+                if isinstance(self.atoms, Molecules):
+                    molecules = self.atoms
+                elif isinstance(self.atoms, list):
+                    if len(self.atoms) < 2:
+                        raise ValueError('For DMF method, you should provide at least two structures.')
+                    molecules = Molecules(self.atoms)
+                else:
+                    raise ValueError('For DMF method, you should provide a Molecules object or a list of at least two structures.')
+
+                from .algorithm.dmf import DMF
+                dmf = DMF(
+                    output=self.output,
+                    atoms_or_molecules=molecules,
+                    paras=self.params,
+                )
+                dmf.run()
+
             else:
-                raise ValueError(f'Method {self.method} not recognized. Available methods are: prfo, neb, string, dimer, autoneb.')
+                raise ValueError(f'Method {self.method} not recognized. Available methods are: prfo, neb, string, dimer, autoneb, dmf.')

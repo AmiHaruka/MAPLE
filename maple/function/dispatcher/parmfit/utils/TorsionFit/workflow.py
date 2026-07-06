@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from copy import deepcopy
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
@@ -11,8 +12,9 @@ from ase import Atoms
 
 from ..mechanics import build_mm_topology_cache, evaluate_mm_energy
 from ..readparm import CorrectionParameterSet
-from ..runtime import parmfit_work_prefix
+from ..runtime import copy_thresholds, parmfit_work_prefix
 from ..Scan import run_silent_scan
+from ..QMInterface.calculator import QMExternalCalculator
 from .topology import (
     normalize_center_bond,
     representative_dihedral_for_center_bond,
@@ -21,7 +23,7 @@ from .topology import (
 from .fit import run_loss_mode
 from .records import TorsionScanData, TorsionScanRuntime, TorsionWorkflowResult
 from .ensemble import build_torsion_local_ensemble
-from .scanio import read_scan_xyz
+from .scanio import HARTREE_TO_KCAL_MOL, read_scan_xyz
 from .config import TorsionFitParams
 from .report import format_torsion_stage1_lines, format_torsion_stage2_lines
 
@@ -32,6 +34,13 @@ _LOSS_MODE_MM_ORIG_FILTER_KCAL = 50.0
 def _scan_output_paths(output: str, center_bond: tuple[int, int]) -> tuple[str, str]:
     center = normalize_center_bond(center_bond)
     prefix = f"{parmfit_work_prefix(output, 'torsionfit')}_torsionfit_{center[0]}-{center[1]}"
+    return prefix + ".out", prefix + "_scan_final.xyz"
+
+
+def _qm_scan_output_paths(output: str, center_bond: tuple[int, int], qm_mode: int) -> tuple[str, str]:
+    center = normalize_center_bond(center_bond)
+    tag = "mode3_qm_torsionfit" if int(qm_mode) == 3 else "qm_torsionfit"
+    prefix = f"{parmfit_work_prefix(output, 'torsionfit')}_{tag}_{center[0]}-{center[1]}"
     return prefix + ".out", prefix + "_scan_final.xyz"
 
 
@@ -97,6 +106,177 @@ def _run_center_bond_scan(
     return result.xyz_path
 
 
+def _scan_has_qm(path: str, qm_mode: int | None = None) -> bool:
+    if not os.path.isfile(path):
+        return False
+    with open(path, "r", encoding="utf-8", errors="replace") as handle:
+        while True:
+            natoms_line = handle.readline()
+            if natoms_line == "":
+                return False
+            if not natoms_line.strip():
+                continue
+            try:
+                natoms = int(natoms_line.strip())
+            except ValueError:
+                return False
+            comment = handle.readline()
+            for _ in range(natoms):
+                handle.readline()
+            if "Reference = QM" not in comment:
+                return False
+            if qm_mode is None:
+                return True
+            return f"Reference = QM mode={int(qm_mode)}" in comment
+
+
+def _write_qm_scan_xyz(
+    path: str,
+    *,
+    angles_deg: np.ndarray,
+    energies_hartree: np.ndarray,
+    frames: list[Atoms],
+    qm_mode: int,
+    geometry: str,
+) -> None:
+    with open(path, "w", encoding="utf-8") as handle:
+        for index, (angle_deg, energy_hartree, frame) in enumerate(
+            zip(angles_deg, energies_hartree, frames, strict=True),
+            start=1,
+        ):
+            handle.write(f"{len(frame)}\n")
+            handle.write(
+                f"Scanning combination {index}/{len(frames)}: [{float(angle_deg):.4f}]  "
+                f"Reference = QM mode={int(qm_mode)}  Geometry = {geometry}  "
+                f"Energy = {float(energy_hartree):.10f}\n"
+            )
+            for symbol, (x_coord, y_coord, z_coord) in zip(
+                frame.get_chemical_symbols(),
+                np.asarray(frame.get_positions(), dtype=float),
+                strict=True,
+            ):
+                handle.write(f"{symbol:2s} {float(x_coord): .10f} {float(y_coord): .10f} {float(z_coord): .10f}\n")
+
+
+def _apply_qm_scan(
+    *,
+    scan_data: TorsionScanData,
+    scan_xyz: str,
+    output: str,
+    center_bond: tuple[int, int],
+    representative_dihedral: tuple[int, int, int, int],
+    qm_runner,
+    qm_mode: int,
+    use_sp: bool,
+) -> TorsionScanData:
+    center = normalize_center_bond(center_bond)
+    work_prefix = Path(parmfit_work_prefix(output, "qm"))
+    work_dir = work_prefix.parent / "opt" / f"{work_prefix.name}_qm_torsionfit_{center[0]}-{center[1]}"
+    qm_frames: list[Atoms] = []
+    qm_energies: list[float] = []
+    angles = np.asarray(scan_data.angles_deg, dtype=float)
+    previous_wfn = getattr(qm_runner, "last_wfn_path", None)
+    for point_index, (angle_deg, frame) in enumerate(zip(angles, scan_data.frames, strict=True), start=1):
+        prefix = str(work_dir / f"point_{point_index:03d}")
+        if qm_mode == 1:
+            energy_result = qm_runner.single_point(
+                frame,
+                prefix,
+                wfn_path=previous_wfn,
+            )
+            qm_frames.append(frame.copy())
+            previous_wfn = energy_result.wfn_path
+        else:
+            result = qm_runner.constrained_torsion_opt(
+                frame,
+                prefix,
+                torsion=representative_dihedral,
+                torsion_angle_deg=float(angle_deg),
+                wfn_path=previous_wfn,
+            )
+            energy_result = result
+            if use_sp:
+                energy_result = qm_runner.single_point(
+                    result.atoms,
+                    f"{prefix}_sp",
+                    wfn_path=result.wfn_path,
+                )
+            qm_frames.append(result.atoms)
+            previous_wfn = result.wfn_path
+        qm_energies.append(float(energy_result.energy_hartree))
+    _write_qm_scan_xyz(
+        scan_xyz,
+        angles_deg=angles,
+        energies_hartree=np.asarray(qm_energies, dtype=float),
+        frames=qm_frames,
+        qm_mode=qm_mode,
+        geometry="MLIP scan" if int(qm_mode) == 1 else "QM constrained opt",
+    )
+    qm_kcal = np.asarray(qm_energies, dtype=float) * HARTREE_TO_KCAL_MOL
+    ref_idx = int(np.argmin(qm_kcal))
+    return TorsionScanData(
+        angles_deg=angles.copy(),
+        qm_hartree=np.asarray(qm_energies, dtype=float),
+        qm_kcal=qm_kcal,
+        frames=qm_frames,
+        source_path=str(scan_xyz),
+        ref_idx=ref_idx,
+        qm_rel=qm_kcal - qm_kcal[ref_idx],
+    )
+
+
+def _run_qm_projected_scan(
+    atoms: Atoms,
+    output: str,
+    params: TorsionFitParams,
+    runtime: TorsionScanRuntime,
+    center_bond: tuple[int, int],
+    representative_dihedral: tuple[int, int, int, int],
+    qm_runner,
+    use_sp: bool,
+) -> str:
+    center = normalize_center_bond(center_bond)
+    scan_output, scan_xyz = _qm_scan_output_paths(output, center_bond, 3)
+    scan_atoms = atoms.copy()
+    scan_atoms.info = dict(atoms.info)
+    copy_thresholds(atoms, scan_atoms)
+    work_prefix = Path(parmfit_work_prefix(output, "qm"))
+    qm_work_dir = work_prefix.parent / "opt" / f"{work_prefix.name}_mode3_qm_torsionfit_{center[0]}-{center[1]}"
+    scan_atoms.calc = QMExternalCalculator(
+        qm_runner,
+        work_dir=qm_work_dir,
+        wfn_path=getattr(qm_runner, "last_wfn_path", None),
+    )
+    result = run_silent_scan(
+        output=scan_output,
+        atoms=scan_atoms,
+        constraints=[[*representative_dihedral, params.torsion_step_deg, params.torsion_steps]],
+        params=runtime.to_scan_params(),
+        method=runtime.backend,
+        constraint_mode="projected",
+    )
+    scan_data = read_scan_xyz(result.xyz_path)
+    energies = np.asarray(scan_data.qm_hartree, dtype=float)
+    previous_wfn = getattr(scan_atoms.calc, "last_wfn_path", getattr(qm_runner, "last_wfn_path", None))
+    if use_sp:
+        sp_energies = []
+        for point_index, frame in enumerate(scan_data.frames, start=1):
+            prefix = str(qm_work_dir / f"point_{point_index:03d}_sp")
+            result_sp = qm_runner.single_point(frame, prefix, wfn_path=previous_wfn)
+            sp_energies.append(float(result_sp.energy_hartree))
+            previous_wfn = result_sp.wfn_path
+        energies = np.asarray(sp_energies, dtype=float)
+    _write_qm_scan_xyz(
+        result.xyz_path,
+        angles_deg=np.asarray(scan_data.angles_deg, dtype=float),
+        energies_hartree=energies,
+        frames=list(scan_data.frames),
+        qm_mode=3,
+        geometry="QM projected scan",
+    )
+    return scan_xyz
+
+
 def _filtered_scan_data(scan_data: TorsionScanData, keep_mask: np.ndarray) -> TorsionScanData:
     mask = np.asarray(keep_mask, dtype=bool)
     if mask.ndim != 1 or mask.shape[0] != len(scan_data.frames):
@@ -159,6 +339,7 @@ def run_torsion_workflow(
     runtime: TorsionScanRuntime,
     center_bond_filter: Callable[[tuple[int, int]], bool] | None = None,
     mobile_atoms=None,
+    qm_runner=None,
     log_info: Callable[[list[str]], None] | None = None,
 ) -> TorsionWorkflowResult:
     base_parameter_set = deepcopy(parameter_set)
@@ -205,21 +386,70 @@ def run_torsion_workflow(
             center_bond,
             topology_cache=topology_cache,
         )
-        _, scan_xyz = _scan_output_paths(output, center_bond)
-        scan_data = _read_cached_scan_if_valid(scan_xyz, atoms, params, representative.atoms)
-        if scan_data is not None:
-            if log_info is not None:
-                log_info([f"reuse existing torsion scan xyz: {scan_xyz}\n"])
+        _, mlip_scan_xyz = _scan_output_paths(output, center_bond)
+        qm_config = getattr(qm_runner, "config", None) if qm_runner is not None else None
+        qm_mode = int(getattr(qm_config, "qm_mode", 2)) if qm_config is not None else None
+        use_sp = bool(
+            qm_config is not None
+            and str(getattr(qm_config, "sp_level", "")).strip()
+            != str(getattr(qm_config, "opt_level", "")).strip()
+        )
+        if qm_runner is not None and int(qm_mode) == 3:
+            _, scan_xyz = _qm_scan_output_paths(output, center_bond, 3)
+            scan_data = _read_cached_scan_if_valid(scan_xyz, atoms, params, representative.atoms)
+            if scan_data is not None and not _scan_has_qm(scan_xyz, 3):
+                scan_data = None
+            if scan_data is not None:
+                if log_info is not None:
+                    log_info([f"reuse existing torsion scan xyz: {scan_xyz}\n"])
+            else:
+                scan_xyz = _run_qm_projected_scan(
+                    atoms,
+                    output,
+                    params,
+                    runtime,
+                    center_bond,
+                    representative.atoms,
+                    qm_runner,
+                    use_sp,
+                )
+                scan_data = read_scan_xyz(scan_xyz)
         else:
-            scan_xyz = _run_center_bond_scan(
-                atoms,
-                output,
-                params,
-                runtime,
-                center_bond,
-                representative.atoms,
-            )
-            scan_data = read_scan_xyz(scan_xyz)
+            scan_xyz = mlip_scan_xyz
+            scan_data = _read_cached_scan_if_valid(mlip_scan_xyz, atoms, params, representative.atoms)
+            if scan_data is not None and _scan_has_qm(mlip_scan_xyz):
+                scan_data = None
+            if scan_data is not None:
+                if log_info is not None:
+                    log_info([f"reuse existing torsion scan xyz: {scan_xyz}\n"])
+            else:
+                scan_xyz = _run_center_bond_scan(
+                    atoms,
+                    output,
+                    params,
+                    runtime,
+                    center_bond,
+                    representative.atoms,
+                )
+                scan_data = read_scan_xyz(scan_xyz)
+        if qm_runner is not None and int(qm_mode) in {1, 2}:
+            _, qm_scan_xyz = _qm_scan_output_paths(output, center_bond, int(qm_mode))
+            qm_scan_data = _read_cached_scan_if_valid(qm_scan_xyz, atoms, params, representative.atoms)
+            if qm_scan_data is not None and not _scan_has_qm(qm_scan_xyz, qm_mode):
+                qm_scan_data = None
+            if qm_scan_data is None:
+                qm_scan_data = _apply_qm_scan(
+                    scan_data=scan_data,
+                    scan_xyz=qm_scan_xyz,
+                    output=output,
+                    center_bond=center_bond,
+                    representative_dihedral=representative.atoms,
+                    qm_runner=qm_runner,
+                    qm_mode=int(qm_mode),
+                    use_sp=use_sp,
+                )
+            scan_data = qm_scan_data
+            scan_xyz = qm_scan_xyz
         scan_data, warning, mm_orig_rel = _filter_loss_mode_scan_points(
             scan_data,
             original_parameter_set,

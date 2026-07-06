@@ -148,9 +148,11 @@ def _stage2_cycle_diagnostics(
     accepted = bool(last_accepted)
     last_diagnostics = refine_cycles[-1].diagnostics if refine_cycles else {}
     return {
-        "solver": "auto_mean_shift" if requested_rounds > 0 else "disabled",
+        "solver": "direct_k_phase" if requested_rounds > 0 else "disabled",
+        "requested_fast_cycles": int(requested_rounds),
         "requested_cycles": int(requested_rounds),
         "requested_rounds": int(requested_rounds),
+        "fast_cycles": int(len(refine_cycles)),
         "cycles": int(len(refine_cycles)),
         "rounds": int(len(refine_cycles)),
         "accepted_cycles": int(accepted_cycles),
@@ -165,14 +167,14 @@ def _stage2_cycle_diagnostics(
             if accepted and refine_cycles
             else "kept Stage1"
         ),
-        "objective_kind": last_diagnostics.get("objective_kind") if isinstance(last_diagnostics, dict) else getattr(final_eval, "objective_kind", None),
-        "selected_optimizer": last_diagnostics.get("selected_optimizer") if isinstance(last_diagnostics, dict) else None,
-        "k_phase_loss": float(last_diagnostics.get("k_phase_loss", 0.0)) if isinstance(last_diagnostics, dict) else 0.0,
-        "coeff_ab_loss": float(last_diagnostics.get("coeff_ab_loss", 0.0)) if isinstance(last_diagnostics, dict) else 0.0,
         "initial_total_loss": float(initial_eval.total_loss),
         "final_total_loss": float(final_eval.total_loss),
         "initial_data_loss": float(initial_eval.data_loss),
         "final_data_loss": float(final_eval.data_loss),
+        "initial_scan_loss": float(getattr(initial_eval, "scan_data_loss", 0.0)),
+        "final_scan_loss": float(getattr(final_eval, "scan_data_loss", 0.0)),
+        "initial_ensemble_loss": float(getattr(initial_eval, "ensemble_data_loss", 0.0)),
+        "final_ensemble_loss": float(getattr(final_eval, "ensemble_data_loss", 0.0)),
         "initial_prior_loss": float(initial_eval.prior_loss),
         "final_prior_loss": float(final_eval.prior_loss),
     }
@@ -275,9 +277,11 @@ def run_loss_mode(
     final_fit_reports = list(fit_reports)
     refine_cycles: list = []
     stage2_diagnostics: dict[str, object] = {
-        "solver": "disabled" if params.refine_rounds <= 0 else "auto_mean_shift",
+        "solver": "disabled" if params.refine_rounds <= 0 else "direct_k_phase",
+        "requested_fast_cycles": max(int(params.refine_rounds), 0),
         "requested_cycles": max(int(params.refine_rounds), 0),
         "requested_rounds": max(int(params.refine_rounds), 0),
+        "fast_cycles": 0,
         "cycles": 0,
         "rounds": 0,
         "accepted_cycles": 0,
@@ -286,7 +290,7 @@ def run_loss_mode(
     }
     if params.refine_rounds > 0 and fit_reports:
         if log_info is not None:
-            log_info([f"\n[Stage 2] Running auto mean-shift fast cycle ({int(params.refine_rounds)} max cycles)...\n"])
+            log_info([f"\n[Stage 2] Running direct k/phase fast cycles ({int(params.refine_rounds)} max cycles)...\n"])
         current_parameter_set = base_parameter_set
         current_stage1_parameter_set = stage1_parameter_set
         current_fit_reports = fit_reports
@@ -331,14 +335,16 @@ def run_loss_mode(
                 best_eval = cycle_initial_eval
 
             improved = bool(
-                np.isfinite(cycle_final_eval.data_loss)
-                and cycle_final_eval.data_loss < best_eval.data_loss - improvement_tol
+                np.isfinite(cycle_final_eval.total_loss)
+                and cycle_final_eval.total_loss < best_eval.total_loss - improvement_tol
                 and cycle_reports
                 and cycle_reports[-1].diagnostics.get("status") == "accepted"
             )
             for cycle_report in cycle_reports:
                 cycle_report.cycle = int(cycle_index)
                 cycle_report.diagnostics["cycle_index"] = int(cycle_index)
+                cycle_report.diagnostics["cycle_total_loss_before"] = float(best_eval.total_loss)
+                cycle_report.diagnostics["cycle_total_loss_after"] = float(cycle_final_eval.total_loss)
                 cycle_report.diagnostics["cycle_data_loss_before"] = float(best_eval.data_loss)
                 cycle_report.diagnostics["cycle_data_loss_after"] = float(cycle_final_eval.data_loss)
                 if improved:

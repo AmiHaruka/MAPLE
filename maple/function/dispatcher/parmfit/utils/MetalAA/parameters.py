@@ -7,7 +7,8 @@ from functools import lru_cache
 from pathlib import Path
 import re
 
-from ..ionparams import infer_ion_frcmod_name, infer_ion_identity
+from ..ionparams import ION_UFF_LJ_FALLBACK, infer_ion_frcmod_name, infer_ion_identity
+from ..structure import ATOMIC_MASSES
 
 _NUM = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
 
@@ -332,19 +333,28 @@ def amber_ion_atom_type(element: str, formal_charge: int) -> str:
 
 
 def lookup_ion_lj_from_frcmod(*, watm: str, ionm: str, residue: dict | str) -> tuple[str, str, float, tuple[float, float]]:
-    element, formal_charge, _ion_key = infer_ion_identity(residue)
+    element, formal_charge, ion_key = infer_ion_identity(residue)
     frcmod_name = infer_ion_frcmod_name(watm=watm, ionm=ionm, residue=residue)
-    path = parm_dir() / frcmod_name
-    if not path.exists():
-        raise ValueError(f"Could not find ion frcmod file {frcmod_name!r} under {parm_dir()}.")
-    db = parse_amber_frcmod(path)
     amber_type = amber_ion_atom_type(element, formal_charge)
-    nonbond = db.nonbond.get(amber_type)
-    if nonbond is None:
-        raise ValueError(
-            f"Ion frcmod {frcmod_name!r} does not define NONBON parameters for {amber_type!r}."
-        )
-    mass = db.mass.get(amber_type)
-    if mass is None:
+    path = parm_dir() / frcmod_name
+    if path.exists():
+        db = parse_amber_frcmod(path)
+        nonbond = db.nonbond.get(amber_type)
+        mass = db.mass.get(amber_type)
+        if nonbond is not None and mass is not None:
+            return frcmod_name, amber_type, mass, nonbond
+
+    fallback = ION_UFF_LJ_FALLBACK.get(ion_key)
+    if fallback is None:
+        if not path.exists():
+            raise ValueError(f"Could not find ion frcmod file {frcmod_name!r} under {parm_dir()}.")
+        if db.nonbond.get(amber_type) is None:
+            raise ValueError(
+                f"Ion frcmod {frcmod_name!r} does not define NONBON parameters for {amber_type!r}."
+            )
         raise ValueError(f"Ion frcmod {frcmod_name!r} does not define MASS for {amber_type!r}.")
-    return frcmod_name, amber_type, mass, nonbond
+
+    mass = ATOMIC_MASSES.get(element.upper())
+    if mass is None:
+        raise ValueError(f"Could not determine atomic mass for UFF fallback ion element {element!r}.")
+    return "MCPB-UFF", amber_type, mass, fallback

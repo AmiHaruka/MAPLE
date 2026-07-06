@@ -92,7 +92,7 @@ def _timing_label(label: str) -> str:
         "Hessian/mSeminario/frcmod export": "Hessian + mSeminario",
         "Hessian/Seminario/frcmod export": "Hessian + Seminario",
         "large optimization": "large optimization",
-        "site deployment export": "site export",
+        "site export": "site export",
         "site selection/model build": "site selection/model build",
         "model preparation/reference optimization": "model preparation + reference",
         "multiconformer RESP": "multiconformer RESP",
@@ -240,9 +240,9 @@ def _metal_warnings(result) -> list[str]:
     warnings: list[str] = []
     warnings.extend(getattr(selection, "warnings", []) or [])
     warnings.extend(site_model.get("warnings", []) if isinstance(site_model, dict) else [])
-    mseminario_warning = getattr(result, "mseminario_warning", None)
-    if mseminario_warning:
-        warnings.append(str(mseminario_warning))
+    bonded_warning = getattr(result, "bonded_warning", None)
+    if bonded_warning:
+        warnings.append(str(bonded_warning))
     return warnings
 
 

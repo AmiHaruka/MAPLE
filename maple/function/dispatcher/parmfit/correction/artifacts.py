@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass, field
 
 from ase import Atoms
@@ -31,26 +32,34 @@ class AmberExportResult:
 
 @dataclass(frozen=True)
 class CorrectionWorkflowResult:
-    initial_parameter_set: CorrectionParameterSet
-    stage0_parameter_set: CorrectionParameterSet
-    final_parameter_set: CorrectionParameterSet
+    init_parmset: CorrectionParameterSet
+    stage0_parmset: CorrectionParameterSet
+    final_parmset: CorrectionParameterSet
     torsion: TorsionWorkflowResult
     gromacs: GromacsExportResult
     amber: AmberExportResult
-    auto_frcmod: str
+    init_frcmod: str
     stage_timings: list[tuple[str, float]] = field(default_factory=list)
+    mlip_stage0_parmset: CorrectionParameterSet | None = None
+    mlip_final_parmset: CorrectionParameterSet | None = None
+    mlip_torsion: TorsionWorkflowResult | None = None
+    mlip_gromacs: GromacsExportResult | None = None
+    mlip_amber: AmberExportResult | None = None
 
 
 def export_gromacs(
     output: str,
     atoms: Atoms,
-    parameter_set: CorrectionParameterSet,
+    parmset: CorrectionParameterSet,
+    *,
+    output_suffix: str = "",
 ) -> GromacsExportResult:
     base = os.path.splitext(os.path.basename(output))[0]
+    output_base = os.path.join(parmfit_output_dir(output), base + str(output_suffix))
     gromacs_top, gromacs_gro, gromacs_meta = write_gromacs_files(
-        parameter_set,
+        parmset,
         atoms,
-        os.path.join(parmfit_output_dir(output), base),
+        output_base,
     )
     return GromacsExportResult(
         top=gromacs_top,
@@ -61,11 +70,26 @@ def export_gromacs(
     )
 
 
-def export_amber(output: str, config: CorrectionConfig, parameter_set: CorrectionParameterSet) -> AmberExportResult:
+def export_amber(
+    output: str,
+    config: CorrectionConfig,
+    parmset: CorrectionParameterSet,
+    *,
+    use_refined_parameters: bool = True,
+    source_frcmod: str = "",
+    output_suffix: str = "",
+) -> AmberExportResult:
     base = os.path.splitext(os.path.basename(output))[0]
+    output_base = os.path.join(parmfit_output_dir(output), base + str(output_suffix))
+    if not use_refined_parameters:
+        maple_mol2 = output_base + "_maple.mol2"
+        maple_frcmod = output_base + "_maple.frcmod"
+        shutil.copyfile(config.mol2, maple_mol2)
+        shutil.copyfile(source_frcmod, maple_frcmod)
+        return AmberExportResult(mol2=maple_mol2, frcmod=maple_frcmod)
     maple_mol2, maple_frcmod = write_amber_files(
-        parameter_set,
+        parmset,
         config.mol2,
-        os.path.join(parmfit_output_dir(output), base),
+        output_base,
     )
     return AmberExportResult(mol2=maple_mol2, frcmod=maple_frcmod)

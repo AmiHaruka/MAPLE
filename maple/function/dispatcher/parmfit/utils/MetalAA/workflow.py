@@ -13,8 +13,9 @@ import numpy as np
 from .. import interface
 from ..Seminario import apply_seminario
 from ..mSeminario import apply_mseminario
-from ..model import build_bond_angle_terms, flatten_model_atoms, infer_bond_pairs, model_to_atoms
-from ..runtime import copy_thresholds, get_cartesian_hessian, optimize_model_geometry, run_resp_pipeline
+from ..model import build_bond_angle_terms, flatten_model_atoms, infer_bond_pairs, model_to_atoms, update_model_from_atoms
+from ..QMInterface import build_qm_reference_runner
+from ..runtime import copy_thresholds, get_cartesian_hessian, optimize_model_geometry, parmfit_work_prefix, run_resp_pipeline
 from ..structure import (
     CHARGED_STANDARD_RESIDUES,
     METAL_SITE_DONOR_ELEMENTS,
@@ -23,7 +24,7 @@ from ..structure import (
     get_resid_label,
     residue_sort_key,
 )
-from .charges import infer_large_model_charge, project_resp_charges_onto_site_model
+from .charges import infer_model_charge, project_resp_charges_onto_site_model
 from .config import MetalAbinitioConfig
 from .recognize import MetalSiteSelection, apply_cfmol2_templates, build_cofactor_orig_frcmods, find_metal_site_core
 from .artifacts import MetalArtifacts, MetalSiteTyping, plan_metal_artifacts, write_large_pdb, write_site_frcmod, write_site_model_files
@@ -47,7 +48,7 @@ class MetalWorkflowResult:
     site_model: dict
     artifacts: MetalArtifacts
     site_typing: MetalSiteTyping
-    mseminario_warning: Optional[str] = None
+    bonded_warning: Optional[str] = None
     stage_timings: list[tuple[str, float]] = field(default_factory=list)
 
     @property
@@ -64,30 +65,30 @@ class MetalWorkflowResult:
 
 
 @dataclass(frozen=True)
-class MetalOptimizedCore:
+class _OptimizedCore:
     selection: MetalSiteSelection
-    final_core_residues: list[dict]
-    optimized_donor_atoms: dict[tuple[str, int, str], list[str]]
+    core_residues: list[dict]
+    donor_atoms: dict[tuple[str, int, str], list[str]]
     target_key: tuple[str, int, str]
     target_residue: dict
     metal_atom: dict
 
 
 @dataclass(frozen=True)
-class MetalRespProblem:
+class _RespProblem:
     bond_pairs: list[tuple[int, int]]
     charge_groups: list[tuple[list[int], float]]
 
 
 @dataclass(frozen=True)
-class MetalDeploymentResult:
+class _SiteExport:
     site_pdb_path: str
     site_mol2_path: str
     site_typing: MetalSiteTyping
 
 
 @dataclass(frozen=True)
-class MetalBondedResult:
+class _BondedResult:
     frcmod_path: str
     bonded_warning: Optional[str]
 
@@ -219,7 +220,7 @@ def _prepare_metal_large_model(structure: dict, config: MetalAbinitioConfig) -> 
     )
     metal_formal_charge = config.oxy if config.oxy is not None else config.charge
     _annotate_target_ion_formal_charge(bundle.large_model, bundle.large_model.get("target_key"), metal_formal_charge)
-    bundle.large_charge = infer_large_model_charge(config.charge, bundle.large_model)
+    bundle.large_charge = infer_model_charge(config.charge, bundle.large_model)
     bundle.large_mult = config.mult
     bundle.large_model["charge"] = bundle.large_charge
     bundle.large_model["mult"] = bundle.large_mult
@@ -231,7 +232,7 @@ def _reselect_optimized_core(
     bundle: MetalModelBundle,
     selection: MetalSiteSelection,
     config: MetalAbinitioConfig,
-) -> MetalOptimizedCore:
+) -> _OptimizedCore:
     target_key = bundle.large_model.get("target_key")
     residues_by_key = {get_resid_key(residue): residue for residue in bundle.large_model["residues"]}
     target_residue = residues_by_key.get(target_key)
@@ -240,8 +241,8 @@ def _reselect_optimized_core(
     metal_atom = _single_atom_residue_atom(target_residue, label="MetalAA target metal residue")
     metal_xyz = get_atom_xyz(metal_atom)
     manual_core_keys = {get_resid_key(residue) for residue in selection.manual_core_residues}
-    optimized_donor_atoms: dict[tuple[str, int, str], list[str]] = {}
-    optimized_auto_core_keys: set[tuple[str, int, str]] = set()
+    donor_atoms: dict[tuple[str, int, str], list[str]] = {}
+    auto_core_keys: set[tuple[str, int, str]] = set()
     if config.set_bonded:
         for residue_key, atom_names in selection.donor_atoms.items():
             residue = residues_by_key.get(residue_key)
@@ -252,9 +253,9 @@ def _reselect_optimized_core(
             if missing:
                 joined = ", ".join(missing)
                 raise ValueError(f"Explicit MetalAA donor atom(s) missing after optimization for {residue_key!r}: {joined}.")
-            optimized_donor_atoms[residue_key] = list(atom_names)
+            donor_atoms[residue_key] = list(atom_names)
             if residue_key not in manual_core_keys:
-                optimized_auto_core_keys.add(residue_key)
+                auto_core_keys.add(residue_key)
     else:
         for residue in sorted(bundle.large_model["residues"], key=residue_sort_key):
             residue_key = get_resid_key(residue)
@@ -271,70 +272,70 @@ def _reselect_optimized_core(
                 if float(np.sqrt(np.dot(delta, delta))) <= config.donor_cutoff:
                     donor_names.append(atom["name"])
             if donor_names:
-                optimized_donor_atoms[residue_key] = sorted(set(donor_names))
+                donor_atoms[residue_key] = sorted(set(donor_names))
                 if (residue.get("kind") == "protein" or typed_nonprotein) and residue_key not in manual_core_keys:
-                    optimized_auto_core_keys.add(residue_key)
+                    auto_core_keys.add(residue_key)
 
-    final_core_keys = {target_key} | manual_core_keys | optimized_auto_core_keys
-    optimized_donor_atoms = {
+    core_keys = {target_key} | manual_core_keys | auto_core_keys
+    donor_atoms = {
         residue_key: atom_names
-        for residue_key, atom_names in optimized_donor_atoms.items()
-        if residue_key in final_core_keys
+        for residue_key, atom_names in donor_atoms.items()
+        if residue_key in core_keys
     }
-    final_core_residues = [
+    core_residues = [
         residue
         for residue in sorted(bundle.large_model["residues"], key=residue_sort_key)
-        if get_resid_key(residue) in final_core_keys
+        if get_resid_key(residue) in core_keys
     ]
-    optimized_selection = MetalSiteSelection(
+    updated_selection = MetalSiteSelection(
         target=target_residue,
-        core_residues=final_core_residues,
+        core_residues=core_residues,
         auto_core_residues=[
             residue
-            for residue in final_core_residues
-            if get_resid_key(residue) in optimized_auto_core_keys
+            for residue in core_residues
+            if get_resid_key(residue) in auto_core_keys
         ],
         manual_core_residues=[
             residue
-            for residue in final_core_residues
+            for residue in core_residues
             if get_resid_key(residue) in manual_core_keys
         ],
-        donor_atoms=optimized_donor_atoms,
+        donor_atoms=donor_atoms,
         warnings=list(selection.warnings),
         donor_cutoff=config.donor_cutoff,
     )
-    bundle.selection = optimized_selection
-    bundle.large_model["core_keys"] = [get_resid_key(residue) for residue in final_core_residues]
-    bundle.large_model["donor_atoms"] = dict(optimized_donor_atoms)
-    return MetalOptimizedCore(
-        selection=optimized_selection,
-        final_core_residues=final_core_residues,
-        optimized_donor_atoms=optimized_donor_atoms,
+    bundle.selection = updated_selection
+    bundle.large_model["core_keys"] = [get_resid_key(residue) for residue in core_residues]
+    bundle.large_model["donor_atoms"] = dict(donor_atoms)
+    return _OptimizedCore(
+        selection=updated_selection,
+        core_residues=core_residues,
+        donor_atoms=donor_atoms,
         target_key=target_key,
         target_residue=target_residue,
         metal_atom=metal_atom,
     )
 
 
-def _build_large_resp_problem(bundle: MetalModelBundle, core: MetalOptimizedCore) -> MetalRespProblem:
+def _build_large_resp_problem(bundle: MetalModelBundle, core: _OptimizedCore) -> _RespProblem:
     flattened_large = flatten_model_atoms(bundle.large_model)
     index_by_residue_atom = {
         (get_resid_key(residue), atom["name"]): atom_index
         for atom_index, (residue, atom) in enumerate(flattened_large, start=1)
     }
     large_entries_by_residue = _atom_entries_by_residue(bundle.large_model)
-    final_core_keys = {get_resid_key(residue) for residue in core.final_core_residues}
+    core_keys = {get_resid_key(residue) for residue in core.core_residues}
     charge_groups: list[tuple[list[int], float]] = []
     for residue in sorted(bundle.large_model["residues"], key=residue_sort_key):
         residue_key = get_resid_key(residue)
-        if residue_key in final_core_keys:
+        if residue_key in core_keys:
             continue
         atom_indices = [atom_index for atom_index, _atom in large_entries_by_residue[residue_key]]
         if "formal_charge" in residue:
             target_charge = int(residue["formal_charge"])
         elif residue.get("kind") in {"ligand", "cofactor"}:
             raise ValueError(
-                f"Non-deployment residue {get_resid_label(residue)}:{residue['resname']} "
+                f"Non-site residue {get_resid_label(residue)}:{residue['resname']} "
                 "requires a ligand/NCAA template or an explicit formal_charge."
             )
         else:
@@ -348,7 +349,7 @@ def _build_large_resp_problem(bundle: MetalModelBundle, core: MetalOptimizedCore
         if get_resid_key(residue) == core.target_key
     }
     donor_metal_pairs: set[tuple[int, int]] = set()
-    for donor_key, atom_names in core.optimized_donor_atoms.items():
+    for donor_key, atom_names in core.donor_atoms.items():
         for atom_name in atom_names:
             donor_index = index_by_residue_atom.get((donor_key, atom_name))
             if donor_index is not None:
@@ -377,41 +378,41 @@ def _build_large_resp_problem(bundle: MetalModelBundle, core: MetalOptimizedCore
             continue
         large_bond_pairs_set.add(pair)
     large_bond_pairs_set.update(donor_metal_pairs)
-    return MetalRespProblem(
+    return _RespProblem(
         bond_pairs=sorted(large_bond_pairs_set),
         charge_groups=charge_groups,
     )
 
 
-def _deploy_metal_site_model(
+def _export_metal_site_model(
     *,
     structure: dict,
     bundle: MetalModelBundle,
-    core: MetalOptimizedCore,
+    core: _OptimizedCore,
     resp_result,
     artifacts: MetalArtifacts,
     config: MetalAbinitioConfig,
-) -> MetalDeploymentResult:
+) -> _SiteExport:
     bundle.site_model = build_metal_site_model(
         bundle.large_model,
-        core.final_core_residues,
-        donor_atoms=core.optimized_donor_atoms,
+        core.core_residues,
+        donor_atoms=core.donor_atoms,
     )
     metal_formal_charge = config.oxy if config.oxy is not None else config.charge
     _annotate_target_ion_formal_charge(bundle.site_model, bundle.site_model.get("target_key"), metal_formal_charge)
     bundle.site_model, charge_warnings = project_resp_charges_onto_site_model(bundle.site_model, resp_result.model)
-    deployment_charge = infer_large_model_charge(config.charge, bundle.site_model)
-    actual_deployment_charge = sum(
+    site_charge = infer_model_charge(config.charge, bundle.site_model)
+    resp_charge_sum = sum(
         float(atom.get("charge", 0.0))
         for residue in bundle.site_model["residues"]
         for atom in residue["atoms"]
     )
-    if abs(actual_deployment_charge - float(deployment_charge)) > 1.0e-4:
+    if abs(resp_charge_sum - float(site_charge)) > 1.0e-4:
         raise ValueError(
-            f"Deployment RESP charge {actual_deployment_charge:.6f} does not match "
-            f"integer target {deployment_charge:d}."
+            f"Site-model RESP charge {resp_charge_sum:.6f} does not match "
+            f"integer target {site_charge:d}."
         )
-    bundle.site_model["charge"] = deployment_charge
+    bundle.site_model["charge"] = site_charge
     bundle.site_model["mult"] = config.mult
     bundle.site_model["warnings"] = list(bundle.large_model.get("warnings", [])) + charge_warnings
     artifacts.files["gaussian_input"] = resp_result.files["gaussian_input"]
@@ -427,7 +428,7 @@ def _deploy_metal_site_model(
         cofactor_frcmods=artifacts.cofactor_frcmods,
         cofactor_frcmod_by_residue=artifacts.cofactor_frcmod_by_residue,
     )
-    return MetalDeploymentResult(
+    return _SiteExport(
         site_pdb_path=site_pdb_path,
         site_mol2_path=site_mol2_path,
         site_typing=site_typing,
@@ -438,22 +439,37 @@ def _export_metal_bonded_frcmod(
     *,
     source_atoms,
     bundle: MetalModelBundle,
-    resp_problem: MetalRespProblem,
+    resp_problem: _RespProblem,
     artifacts: MetalArtifacts,
     site_typing: MetalSiteTyping,
     stage_timings: list[tuple[str, float]],
     bonded_method: str,
-) -> MetalBondedResult:
+    output: str,
+    qm_hessian=None,
+    qm_runner=None,
+    vib_scale: float = 1.0,
+) -> _BondedResult:
     large_atoms = model_to_atoms(bundle.large_model, charge=bundle.large_charge, mult=bundle.large_mult)
     copy_thresholds(source_atoms, large_atoms)
     large_atoms.calc = source_atoms.calc
-    if not hasattr(large_atoms.calc, "get_hessian"):
+    if qm_runner is None and not hasattr(large_atoms.calc, "get_hessian"):
         raise ValueError(
             "Attached calculator does not provide get_hessian(), which is required for metal bond/angle fitting."
         )
 
     with _timed_stage(stage_timings, "Hessian evaluation"):
-        hessian = get_cartesian_hessian(large_atoms)
+        if qm_hessian is not None:
+            hessian = qm_hessian
+        elif qm_runner is not None:
+            qm_freq = qm_runner.opt_frequency(
+                large_atoms,
+                f"{parmfit_work_prefix(output, 'qm')}_metal_large",
+            )
+            if qm_freq.hessian is None:
+                raise ValueError("QM opt-frequency job did not provide a Cartesian Hessian.")
+            hessian = qm_freq.hessian
+        else:
+            hessian = get_cartesian_hessian(large_atoms)
     large_bond_terms, large_angle_terms = build_bond_angle_terms(
         bundle.large_model,
         source_structure=bundle.large_model,
@@ -463,7 +479,7 @@ def _export_metal_bonded_frcmod(
     apply_bonded = apply_seminario if bonded_method == "seminario" else apply_mseminario
     bonded_warning: Optional[str] = None
     try:
-        apply_bonded(large_atoms, hessian, large_bond_terms, large_angle_terms)
+        apply_bonded(large_atoms, hessian, large_bond_terms, large_angle_terms, vib_scale)
     except (ZeroDivisionError, ValueError, FloatingPointError) as exc:
         bonded_warning = (
             f"{label} fitting could not determine all metal-related bond/angle force constants "
@@ -480,9 +496,9 @@ def _export_metal_bonded_frcmod(
         site_model=bundle.site_model,
         bond_terms=bond_terms,
         angle_terms=angle_terms,
-        typing=site_typing,
+        site_typing=site_typing,
     )
-    return MetalBondedResult(frcmod_path=frcmod_path, bonded_warning=bonded_warning)
+    return _BondedResult(frcmod_path=frcmod_path, bonded_warning=bonded_warning)
 
 
 def run_metal_abinitio(
@@ -494,6 +510,7 @@ def run_metal_abinitio(
     log_info: Callable[[list], None],
 ) -> MetalWorkflowResult:
     stage_timings: list[tuple[str, float]] = []
+    qm_runner = build_qm_reference_runner(config.qm)
     artifacts = plan_metal_artifacts(output)
     cofactor_templates = apply_cfmol2_templates(structure, config.cfmol2)
     cofactor_frcmod_by_residue = build_cofactor_orig_frcmods(output, cofactor_templates)
@@ -507,8 +524,9 @@ def run_metal_abinitio(
     log_info(format_metal_start_lines(config, large_charge=bundle.large_charge, large_mult=bundle.large_mult))
     write_large_pdb(artifacts, bundle.large_model, optimized=False)
     log_info(["  [MetalAA] large-model input written.\n"])
+    qm_large_hessian = None
 
-    log_info(["  [MetalAA] large-model optimization ...\n"])
+    log_info(["  [MetalAA] MLIP large-model optimization ...\n"])
     with _timed_stage(stage_timings, "large optimization"):
         bundle.large_model = optimize_model_geometry(
             bundle.large_model,
@@ -518,6 +536,14 @@ def run_metal_abinitio(
             max_step=config.opt_max_step,
             failure_message="Metal-site optimization did not converge for large_model.",
         )
+        if qm_runner is not None:
+            log_info(["  [MetalAA] QM reference optimization ...\n"])
+            qm_atoms = model_to_atoms(bundle.large_model, charge=bundle.large_charge, mult=bundle.large_mult)
+            qm_result = qm_runner.opt_frequency(qm_atoms, f"{parmfit_work_prefix(output, 'qm')}_metal_large")
+            qm_large_hessian = qm_result.hessian
+            if qm_large_hessian is None:
+                raise ValueError("QM opt-frequency job did not provide a Cartesian Hessian.")
+            bundle.large_model = update_model_from_atoms(bundle.large_model, qm_result.atoms)
     metal_formal_charge = config.oxy if config.oxy is not None else config.charge
     _annotate_target_ion_formal_charge(bundle.large_model, bundle.large_model.get("target_key"), metal_formal_charge)
     write_large_pdb(artifacts, bundle.large_model, optimized=True)
@@ -531,6 +557,11 @@ def run_metal_abinitio(
     resp_problem = _build_large_resp_problem(bundle, core)
 
     log_info(["  [MetalAA] large-model RESP ...\n"])
+    resp_wfn = None
+    if qm_runner is not None and config.resp.qm.backend == "gaussian":
+        opt_theory, opt_basis = (part.strip() for part in config.qm.opt_level.strip().split("/", 1))
+        if config.resp.qm.theory == opt_theory and config.resp.qm.basis == opt_basis:
+            resp_wfn = getattr(qm_runner, "last_wfn_path", None)
     with _timed_stage(stage_timings, "large RESP"):
         with _timed_stage(stage_timings, "large RESP/Gaussian ESP"):
             resp_result = run_resp_pipeline(
@@ -546,10 +577,11 @@ def run_metal_abinitio(
                 watm=config.watm,
                 prom=config.prom,
                 charge_groups=resp_problem.charge_groups,
+                wfn_path=resp_wfn,
             )
 
-    with _timed_stage(stage_timings, "site deployment export"):
-        deployment = _deploy_metal_site_model(
+    with _timed_stage(stage_timings, "site export"):
+        site_export = _export_metal_site_model(
             structure=structure,
             bundle=bundle,
             core=core,
@@ -557,19 +589,24 @@ def run_metal_abinitio(
             artifacts=artifacts,
             config=config,
         )
-    log_info(["  [MetalAA] site deployment files written.\n"])
+    log_info(["  [MetalAA] site files written.\n"])
 
     bonded_label = "Seminario" if config.bonded == "seminario" else "mSeminario"
-    log_info([f"  [MetalAA] Hessian + {bonded_label} + final frcmod ...\n"])
+    hessian_source = "QM Hessian" if qm_large_hessian is not None else "MLIP Hessian"
+    log_info([f"  [MetalAA] {hessian_source} + {bonded_label} + final frcmod ...\n"])
     with _timed_stage(stage_timings, f"Hessian/{bonded_label}/frcmod export"):
         bonded = _export_metal_bonded_frcmod(
             source_atoms=source_atoms,
             bundle=bundle,
             resp_problem=resp_problem,
             artifacts=artifacts,
-            site_typing=deployment.site_typing,
+            site_typing=site_export.site_typing,
             stage_timings=stage_timings,
             bonded_method=config.bonded,
+            output=output,
+            qm_hessian=qm_large_hessian,
+            qm_runner=qm_runner,
+            vib_scale=config.vib_scale,
         )
     log_info(["  [MetalAA] final parameter files written.\n"])
     log_info(["  [MetalAA] running tleap validation ...\n"])
@@ -581,11 +618,11 @@ def run_metal_abinitio(
     log_info(
         format_metal_final_lines(
             artifacts=artifacts,
-            atom_type_rows=deployment.site_typing.atom_type_rows,
-            ion_frcmods=deployment.site_typing.ion_frcmods,
-            metal_formal_charge=deployment.site_typing.metal_formal_charge,
-            metal_fitted_charge=deployment.site_typing.metal_fitted_charge,
-            mseminario_warning=bonded.bonded_warning,
+            atom_type_rows=site_export.site_typing.atom_type_rows,
+            ion_frcmods=site_export.site_typing.ion_frcmods,
+            metal_formal_charge=site_export.site_typing.metal_formal_charge,
+            metal_fitted_charge=site_export.site_typing.metal_fitted_charge,
+            bonded_warning=bonded.bonded_warning,
             external_residues=_external_residue_labels(
                 structure,
                 {get_resid_key(residue) for residue in bundle.selection.core_residues},
@@ -599,7 +636,7 @@ def run_metal_abinitio(
         large_model=bundle.large_model,
         site_model=bundle.site_model,
         artifacts=artifacts,
-        site_typing=deployment.site_typing,
-        mseminario_warning=bonded.bonded_warning,
+        site_typing=site_export.site_typing,
+        bonded_warning=bonded.bonded_warning,
         stage_timings=list(stage_timings),
     )

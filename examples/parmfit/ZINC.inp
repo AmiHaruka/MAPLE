@@ -1,5 +1,5 @@
 #model=uma(size=uma-s-1p1)
-#parmfit(method=abinitio,cfmol2=MNS_ff.mol2,target=A262,cmo=1 1 2,nproc=8,mem=24,prom=ff14sb,watm=tip3p)
+#parmfit(method=abinitio,cfmol2=MNS_ff.mol2,target=A262,cmo=1 1 2,prom=ff14sb,watm=tip3p)
 #device=gpu0
 
 PDB 1OKL_H.pdb

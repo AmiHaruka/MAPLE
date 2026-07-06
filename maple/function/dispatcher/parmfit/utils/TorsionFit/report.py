@@ -41,9 +41,16 @@ def format_torsion_fit_report(report: TorsionFitReport) -> list[str]:
             lines.append(f"      instances: {instances}\n")
             if "[methyl-split outer=" in group.label:
                 lines.append("      sharing_override: methyl-like split applied\n")
-            active_slots = getattr(group, "active_slots", ())
-            if active_slots:
-                lines.append(f"      active_slots: {', '.join(active_slots)}\n")
+            slot_periods = tuple(f"k{int(round(float(term.period)))}" for term in group.fitted_terms)
+            if slot_periods:
+                lines.append(f"      slot_periods: {', '.join(slot_periods)}\n")
+            final_nonzero_slots = tuple(
+                f"k{int(round(float(term.period)))}"
+                for term in group.fitted_terms
+                if abs(float(term.kPhi)) > 1.0e-8
+            )
+            if final_nonzero_slots:
+                lines.append(f"      final_nonzero_slots: {', '.join(final_nonzero_slots)}\n")
             frozen_non_template_slots = getattr(group, "frozen_non_template_slots", ())
             if frozen_non_template_slots:
                 lines.append(f"      frozen_non_template: {', '.join(frozen_non_template_slots)}\n")
@@ -51,10 +58,6 @@ def format_torsion_fit_report(report: TorsionFitReport) -> list[str]:
                 "      "
                 f"effective_rank: {getattr(group, 'effective_rank', 0)}  "
                 f"dropped_singular_directions: {getattr(group, 'dropped_singular_directions', 0)}\n"
-            )
-            lines.append(
-                "      "
-                f"activated_new_slot: {str(bool(getattr(group, 'activated_new_slot', False))).lower()}\n"
             )
             diagnostic_flags = getattr(group, "diagnostic_flags", ())
             if diagnostic_flags:
@@ -245,7 +248,7 @@ def format_torsion_stage2_lines(
         lines.append("refine state:     no eligible center bonds were selected in stage 1\n")
         return lines
     if not refine_reports:
-        lines.append("refine state:     no refinement cycles were executed\n")
+        lines.append("refine state:     no fast cycles were executed\n")
     else:
         selected_cycles: list[TorsionRefineCycle] = []
         for cycle in refine_reports:
@@ -266,7 +269,7 @@ def format_torsion_refine_cycle(report: TorsionRefineCycle) -> list[str]:
     diagnostics = report.diagnostics if isinstance(report.diagnostics, dict) else {}
     status = str(diagnostics.get("status", "cycle"))
     headline = (
-        f"\ncycle {report.cycle}: status={status}  "
+        f"\nfast cycle {report.cycle}: status={status}  "
         f"total_loss {report.total_loss_before:.6f} -> {report.total_loss_after:.6f}  "
         f"data_loss {report.data_loss_before:.6f} -> {report.data_loss_after:.6f}  "
         f"global weighted energy RMSE {report.global_rmse_before:.6f} -> {report.global_rmse_after:.6f}"

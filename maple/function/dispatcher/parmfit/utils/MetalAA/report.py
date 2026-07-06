@@ -38,10 +38,10 @@ def format_metal_final_lines(
     ion_frcmods: list[str] | None = None,
     metal_formal_charge: int | None = None,
     metal_fitted_charge: float | None = None,
-    mseminario_warning: Optional[str] = None,
+    bonded_warning: Optional[str] = None,
     external_residues: list[str] | None = None,
     stage_timings: list[tuple[str, float]] | None = None,
 ) -> list[str]:
     del artifacts, atom_type_rows, ion_frcmods, metal_formal_charge
-    del metal_fitted_charge, mseminario_warning, external_residues, stage_timings
+    del metal_fitted_charge, bonded_warning, external_residues, stage_timings
     return ["  [MetalAA] route completed; final summary follows.\n"]

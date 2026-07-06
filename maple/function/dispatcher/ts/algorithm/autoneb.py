@@ -1006,13 +1006,15 @@ class AutoNEB(JobABC):
         else:
             global_images, global_energies = self._merge_global_mep()
 
-        mep_file = base + "_autoneb_global_mep.xyz"
+        ext = ".pdb" if global_images and global_images[0].info.get("pdb_template") else ".xyz"
+        mep_file = base + "_autoneb_global_mep" + ext
         write_xyz(mep_file, global_images, energies=global_energies)
         log_info([f"\nWrote global MEP to: {mep_file}\n"], self.output)
 
         # Intermediates
         if self.all_intermediates:
-            int_file = base + "_autoneb_intermediates.xyz"
+            ext = ".pdb" if self.all_intermediates[0].info.get("pdb_template") else ".xyz"
+            int_file = base + "_autoneb_intermediates" + ext
             int_energies = [float(at.get_potential_energy(force_consistent=True))
                           for at in self.all_intermediates]
             write_xyz(int_file, self.all_intermediates, energies=int_energies)
@@ -1021,7 +1023,8 @@ class AutoNEB(JobABC):
         # Transition states
         self._collect_all_ts()
         if self.all_ts:
-            ts_file = base + "_autoneb_ts_list.xyz"
+            ext = ".pdb" if self.all_ts[0].info.get("pdb_template") else ".xyz"
+            ts_file = base + "_autoneb_ts_list" + ext
             ts_energies = [float(at.get_potential_energy(force_consistent=True))
                          for at in self.all_ts]
             write_xyz(ts_file, self.all_ts, energies=ts_energies)
@@ -1051,7 +1054,8 @@ class AutoNEB(JobABC):
                 for c in node.children:
                     write_path_meps(c)
             elif node.status == 'converged':
-                path_file = base + f"_autoneb_path_{path_id}_mep.xyz"
+                ext = ".pdb" if node.images and node.images[0].info.get("pdb_template") else ".xyz"
+                path_file = base + f"_autoneb_path_{path_id}_mep" + ext
                 write_xyz(path_file, node.images, energies=node.energies)
 
         write_path_meps(self.root_path_id)

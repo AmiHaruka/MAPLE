@@ -1,0 +1,342 @@
+
+**********************************************************************
+*                                                                    *
+*                        M   A   P   L   E                           *
+*                                                                    *
+*      MAchine-learning Potential for Landscape Exploration          *
+*                                                                    *
+*                                                                    *
+*      © 2025 University of Pittsburgh. All rights reserved.         *
+*      Licensed under CC BY 4.0 for academic use.                    *
+*                                                                    *
+*      Principal Developer:  Xujian Wang                             *
+*                                                                    *
+**********************************************************************
+
+
+Parsing # commands...
+Global parameter: model = fennix-bio1m
+Task set to 'ts'
+Global parameter: device = gpu0
+Parsed configuration:
+----------------------------------------
+Task: ts
+model          : fennix-bio1m
+method         : dmf
+refine         : prfo
+device         : gpu0
+
+                             Coordinates                              
+**********************************************************************
+
+Group 1 (from file: react.xyz)
+--------------------
+1    C              0.826066             0.550860            -0.126179
+2    H              0.455445             1.241751            -0.878432
+3    O              0.568075             1.024651             1.118743
+4    C              1.441110            -0.587360            -0.436361
+5    H              0.909909             0.393232             1.766632
+6    H              1.591683            -0.859293            -1.474189
+7    H              1.808953            -1.273475             0.323724
+
+Group 2 (from file: prod.xyz)
+--------------------
+1    C              0.964601             0.915184             0.079478
+2    H              1.213995             1.461369            -0.856381
+3    O              0.558938             1.513833             1.046148
+4    C              1.173339            -0.574112             0.026877
+5    H              0.895519            -1.026143             0.981199
+6    H              0.571803            -1.005747            -0.781942
+7    H              2.223047            -0.794017            -0.201441
+
+======================================================================
+Direct MaxFlux (DMF) transition-state search
+======================================================================
+Input structures : 2 (2 endpoints + 0 intermediate guess)
+beta             : 10.0000 1/eV
+movable points   : 10  (total eval points = 12)
+B-spline         : nsegs=6, degree=3
+backend          : numpy
+update_teval     : False
+initial path     : fbenm
+ipopt output     : False
+mass weighted    : False
+convergence      : tight
+
+Generating initial DMF path with FB-ENM...
+FB-ENM initial path completed.
+
+Fixed endpoints:
+    Reactant  E =  0.01074821 Eh
+    Product   E = -0.00475003 Eh
+    dE(P-R)     = -9.7253 kcal/mol
+
+Solving the direct MaxFlux variational problem (IPOPT)...
+
+IPOPT status : 0  (Algorithm terminated successfully at a locally optimal point, satisfying the convergence tolerances (can be specified by options).)
+objective    :  2.59370791 eV  (internal soft-max barrier estimate)
+IPOPT log    : disabled
+
+---------------------------------------------------------------
+Starting DMF TS refinement with PRFO from t_max guess
+---------------------------------------------------------------
+
+Starting Transition State Search (TS) with RS-PRFO...
+Hessian recalc interval: 1; update method: bofill
+Trust radius adaptation: eta_shrink=0.75, eta_expand=1.75
+Convergence thresholds: f_max=0.002850, f_rms=0.001900, dp_max=0.003150, dp_rms=0.002100
+
+----------------------------------------------------------------------
+                             Iteration: 1                             
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -0.2083               0.7052              -0.1783
+1    H               -0.5224               1.4065              -0.9515
+2    O               -0.4099               0.9764               1.0534
+3    C                0.2415              -0.6300              -0.2173
+4    H               -0.3010              -0.3252               1.0762
+5    H                0.1520              -1.2278              -1.1187
+6    H                1.2131              -0.7715               0.2677
+
+
+Energy:                    0.114851 Convergence criteria  Is converged 
+Maximum Force:             0.019828     0.002850                No
+RMS Force:                 0.006798     0.001900                No
+Maximum Displacement:      0.089047     0.003150                No
+RMS Displacement:          0.037244     0.002100                No
+
+Model change: -3.103435e-03  Actual change: -2.768651e-03  rho: 0.892
+Trust radius (MW):  0.200000  Step norm (MW):  0.194937  On boundary: False
+
+----------------------------------------------------------------------
+                             Iteration: 2                             
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -0.2040               0.7151              -0.1859
+1    H               -0.4682               1.4371              -0.9550
+2    O               -0.4135               0.9637               1.0507
+3    C                0.2304              -0.6367              -0.1963
+4    H               -0.2649              -0.2731               1.0611
+5    H                0.1476              -1.2133              -1.1179
+6    H                1.2668              -0.7069               0.1675
+
+
+Energy:                    0.112231 Convergence criteria  Is converged 
+Maximum Force:             0.016912     0.002850                No
+RMS Force:                 0.006728     0.001900                No
+Maximum Displacement:      0.100237     0.003150                No
+RMS Displacement:          0.035479     0.002100                No
+
+Model change: -2.868681e-03  Actual change: -2.617906e-03  rho: 0.913
+Trust radius (MW):  0.200000  Step norm (MW):  0.194948  On boundary: False
+
+----------------------------------------------------------------------
+                             Iteration: 3                             
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -0.1997               0.7282              -0.1942
+1    H               -0.4032               1.4714              -0.9589
+2    O               -0.4187               0.9488               1.0487
+3    C                0.2263              -0.6385              -0.1787
+4    H               -0.2368              -0.2277               1.0445
+5    H                0.1009              -1.2437              -1.0794
+6    H                1.2989              -0.6528               0.0695
+
+
+Energy:                    0.110447 Convergence criteria  Is converged 
+Maximum Force:             0.012687     0.002850                No
+RMS Force:                 0.005381     0.001900                No
+Maximum Displacement:      0.097991     0.003150                No
+RMS Displacement:          0.036197     0.002100                No
+
+Model change: -2.126056e-03  Actual change: -1.794777e-03  rho: 0.844
+Trust radius (MW):  0.200000  Step norm (MW):  0.194940  On boundary: False
+
+----------------------------------------------------------------------
+                             Iteration: 4                             
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -0.1812               0.7357              -0.1993
+1    H               -0.3118               1.5057              -0.9523
+2    O               -0.4393               0.9401               1.0431
+3    C                0.2320              -0.6350              -0.1685
+4    H               -0.2355              -0.2104               1.0564
+5    H                0.0340              -1.2810              -1.0266
+6    H                1.3128              -0.6599               0.0103
+
+
+Energy:                    0.109643 Convergence criteria  Is converged 
+Maximum Force:             0.003727     0.002850                No
+RMS Force:                 0.001888     0.001900                Yes
+Maximum Displacement:      0.091467     0.003150                No
+RMS Displacement:          0.033480     0.002100                No
+
+Model change: -7.268683e-04  Actual change: -7.655203e-04  rho: 1.053
+Trust radius (MW):  0.200000  Step norm (MW):  0.194945  On boundary: False
+
+----------------------------------------------------------------------
+                             Iteration: 5                             
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -0.1833               0.7383              -0.1942
+1    H               -0.3043               1.5115              -0.9408
+2    O               -0.4773               0.9260               1.0428
+3    C                0.2572              -0.6248              -0.1639
+4    H               -0.2397              -0.2112               1.0571
+5    H                0.0549              -1.2722              -1.0152
+6    H                1.3389              -0.6399              -0.0023
+
+
+Energy:                    0.109556 Convergence criteria  Is converged 
+Maximum Force:             0.001708     0.002850                Yes
+RMS Force:                 0.000547     0.001900                Yes
+Maximum Displacement:      0.038014     0.003150                No
+RMS Displacement:          0.014742     0.002100                No
+
+Model change: -6.751200e-05  Actual change: -9.669435e-05  rho: 1.432
+Trust radius (MW):  0.200000  Step norm (MW):  0.194946  On boundary: False
+
+----------------------------------------------------------------------
+                             Iteration: 6                             
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -0.1831               0.7384              -0.1939
+1    H               -0.3035               1.5119              -0.9402
+2    O               -0.4775               0.9256               1.0423
+3    C                0.2573              -0.6245              -0.1635
+4    H               -0.2394              -0.2106               1.0576
+5    H                0.0519              -1.2723              -1.0138
+6    H                1.3395              -0.6403              -0.0060
+
+
+Energy:                    0.109539 Convergence criteria  Is converged 
+Maximum Force:             0.000123     0.002850                Yes
+RMS Force:                 0.000060     0.001900                Yes
+Maximum Displacement:      0.003712     0.003150                No
+RMS Displacement:          0.001147     0.002100                Yes
+
+Model change: -1.944066e-06  Actual change: -2.511109e-05  rho: 12.917
+Trust radius (MW):  0.006250  Step norm (MW):  0.006106  On boundary: False
+
+----------------------------------------------------------------------
+                             Iteration: 7                             
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C               -0.1831               0.7384              -0.1939
+1    H               -0.3034               1.5120              -0.9402
+2    O               -0.4775               0.9256               1.0423
+3    C                0.2573              -0.6245              -0.1634
+4    H               -0.2392              -0.2105               1.0577
+5    H                0.0514              -1.2724              -1.0135
+6    H                1.3397              -0.6405              -0.0066
+
+
+Energy:                    0.109561 Convergence criteria  Is converged 
+Maximum Force:             0.000109     0.002850                Yes
+RMS Force:                 0.000050     0.001900                Yes
+Maximum Displacement:      0.000599     0.003150                Yes
+RMS Displacement:          0.000197     0.002100                Yes
+
+Model change: -1.269334e-07  Actual change:  6.930521e-06  rho: -54.600
+Trust radius (MW):  0.001000  Step norm (MW):  0.000975  On boundary: False
+
+
+----------------------------------------------------------------------
+                          Normal Termination                          
+
+
+---------------------------------------------------------------
+                         DMF PATH SUMMARY
+---------------------------------------------------------------
+Energies in Eh (dE vs reactant in kcal/mol).
+
+Point   t_eval        E(Eh)       dE(kcal/mol)
+  0     0.0000        0.010751        0.002
+  1     0.0909        0.032537       13.673
+  2     0.1818        0.051191       25.378
+  3     0.2727        0.076942       41.537
+  4     0.3636        0.071675       38.232
+  5     0.4545        0.092213       51.120
+  6     0.5455        0.091102       50.423 <= tmax / TS guess
+  7     0.6364        0.045100       21.556
+  8     0.7273        0.029939       12.043
+  9     0.8182        0.021976        7.046
+ 10     0.9091        0.006940       -2.390
+ 11     1.0000       -0.004748       -9.724
+
+---------------------------------------------------------------
+              DMF TMAX / TS GUESS (highest point of path)
+---------------------------------------------------------------
+t_max                       ....   0.5021
+E(t_max)                    ....   0.11760936 Eh
+Forward barrier (t_max - R) ....   67.056 kcal/mol
+Reverse barrier (t_max - P) ....   76.782 kcal/mol
+max|F| at t_max guess       ....   0.035668 Eh/Angstrom
+
+t_max / TS guess XYZ (Angstrom):
+C       -0.212848       0.699283      -0.168931
+H       -0.573910       1.365094      -0.945482
+O       -0.404317       0.984714       1.054741
+C        0.253633      -0.623267      -0.234931
+H       -0.361204      -0.346823       1.042253
+H        0.167596      -1.252782      -1.104396
+H        1.131051      -0.826218       0.356748
+
+---------------------------------------------------------------
+                      DMF-PRFO REFINEMENT
+---------------------------------------------------------------
+Energy (refined TS)                  ....   0.10954603 Eh
+max|F| (refined TS)                  ....   0.000140 Eh/Angstrom
+RMS |F| (refined TS)                 ....   0.000086 Eh/Angstrom
+
+-----------------------------------------
+  REFINED TS STRUCTURE (ANGSTROEM)
+-----------------------------------------
+C       -0.183064       0.738408      -0.193904
+H       -0.303363       1.511972      -0.940152
+O       -0.477537       0.925607       1.042316
+C        0.257334      -0.624481      -0.163419
+H       -0.239229      -0.210485       1.057657
+H        0.051396      -1.272367      -1.013510
+H        1.339655      -0.640457      -0.006617
+
+Wrote DMF MEP to          : /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/ts/dmf/inp3_dmf_mep.xyz
+Wrote DMF t_max to        : /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/ts/dmf/inp3_dmf_tmax.xyz
+Wrote t_max trajectory to : /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/ts/dmf/inp3_dmf_tmax_traj.xyz
+Wrote refined TS structure to:  /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/ts/dmf/inp3_dmf_refine_prfo_ts.xyz
+
+
+
+Program started: 2026-07-07 00:17:58
+
+======================================================================
+                      TIMING SUMMARY
+======================================================================
+Input Reading.......................................   1.135 s  (   1.9 %)
+  Settings Parsing....................................   1.132 s  (  99.7 %)
+  Coordinate Section Parsing..........................   0.002 s  (   0.2 %)
+  Post-Processing Expansion...........................   0.000 s  (   0.0 %)
+MLP Initialization..................................   0.830 s  (   1.4 %)
+Job Dispatching.....................................  58.247 s  (  96.7 %)
+  Transition State Optimization.......................  58.247 s  ( 100.0 %)
+======================================================================
+Total wall time: 60.212 s
+Total CPU time: 137.339 s
+======================================================================
+
+Program ended: 2026-07-07 00:18:59
+TOTAL RUN TIME: 0 days 0 hours 1 minutes 0 seconds 211 msec

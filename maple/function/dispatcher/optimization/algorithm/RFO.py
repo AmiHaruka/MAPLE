@@ -71,7 +71,8 @@ class RFO(JobABC):
         """
         atoms = self.atoms
         base, _ = os.path.splitext(self.output)
-        opt_traj_file = base + "_opt_traj.xyz"
+        output_pdb = atoms.info.get("pdb_template")
+        opt_traj_file = base + ("_opt_traj.pdb" if output_pdb else "_opt_traj.xyz")
         iteration = 0
 
         # initial energy/forces
@@ -312,9 +313,10 @@ class RFO(JobABC):
         opt_traj_file: str,
         final_path_label: str,
     ) -> None:
-        """Write final _opt.xyz and log the closing summary."""
+        """Write final optimized structure and log the closing summary."""
         base, _ = os.path.splitext(self.output)
-        opt_file = base + "_opt.xyz"
+        output_pdb = self.atoms.info.get("pdb_template")
+        opt_file = base + ("_opt.pdb" if output_pdb else "_opt.xyz")
         write_xyz(opt_file, [self.atoms], energies=[energy])
         if self.params.verbose != 1 and self._last_iter_info is not None:
             self.log_info(self._last_iter_info)

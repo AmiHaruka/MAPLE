@@ -6,6 +6,9 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
+TORSIONFIT_CANONICAL_PERIODS = (1, 2, 3, 4)
+
+
 @dataclass
 class TorsionFitParams:
     enabled: bool = True

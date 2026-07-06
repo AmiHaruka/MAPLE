@@ -26,6 +26,9 @@ class CommandControl:
         "macepols",
         "macepolm",
         "macepoll",
+        "fennol",
+        "fennix-bio1s",
+        "fennix-bio1m",
     }
 
     SUPPORTED_TASKS = {"sp", "opt", "ts", "scan", "freq", "irc", "md", "parmfit"}
@@ -92,7 +95,7 @@ class CommandControl:
     IMPLEMENTATION_MAP = {
         "opt": {"lbfgs", "rfo", "sd", "cg", "sdcg", ""},
         "scan": {"lbfgs", "rfo", "sd", "cg", "sdcg"},
-        "ts": {"prfo", "string", "neb", "dimer", "autoneb"},
+        "ts": {"prfo", "string", "neb", "dimer", "autoneb", "dmf"},
         "freq": {"mw", "nonmw", "both"},
         "sp": set(),
         "irc": {"gs", "hpc", "eulerpc", "lqa"},
@@ -194,6 +197,7 @@ class CommandControl:
     TS_REFINE_MAP = {
         "neb": {"cineb", "nebts"},
         "string": {"cistring", "stringts"},
+        "dmf": {"prfo", "dimer"},
     }
     GLOBAL_PARAMS = {
         "model",
@@ -290,6 +294,7 @@ class CommandControl:
     TS_REFINE_MAP = {
         "neb": {"cineb", "nebts"},
         "string": {"cistring", "stringts"},
+        "dmf": {"prfo", "dimer"},
     }
 
     def __init__(self, params: Dict[str, Any], task: str, output_path: Optional[str] = None):

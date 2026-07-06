@@ -6,12 +6,24 @@ from typing import List, Optional
 import numpy as np
 from ase import Atoms
 
+from maple.function.read.filereader.pdb_reader import write_pdb_trajectory
+
 
 def write_xyz(filename: str, atoms_list: List[Atoms],
               energies: Optional[List[float]] = None,
               mode: str = "w",
               start_index: int = 0) -> None:
     """Write one or more structures in XYZ format."""
+    if atoms_list and atoms_list[0].info.get("pdb_template"):
+        write_pdb_trajectory(
+            filename,
+            atoms_list,
+            energies=energies,
+            mode=mode,
+            start_index=start_index,
+        )
+        return
+
     blocks = []
     for i, at in enumerate(atoms_list):
         pos = at.get_positions()

@@ -415,6 +415,15 @@ ION_LJ_BY_WATM: dict[str, dict[str, float]] = {
     },
 }
 
+ION_UFF_LJ_FALLBACK: dict[str, tuple[float, float]] = {
+    "Ti4": (1.5875, 0.017),
+    "Nb5": (1.5825, 0.059),
+    "Mo6": (1.5060, 0.056),
+    "Tc5": (1.4990, 0.048),
+    "Ta5": (1.5850, 0.081),
+}
+
+
 # Only unambiguous MCPB-style residue names are accepted here. Ambiguous names
 # such as CE/SM/EU/YB/TL/AG/OS/RH still require an explicit extension.
 ION_RESNAME_TO_KEY = {

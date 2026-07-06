@@ -27,6 +27,7 @@ import numpy as np
 from ase import Atoms
 
 from .logger import log_info, log_error
+from maple.function.read.filereader.pdb_reader import write_pdb_trajectory
 
 # =============================== Utilities ===============================
 BOHR_TO_ANG = 0.529177210903
@@ -80,6 +81,9 @@ def masses_D(atoms: Atoms) -> np.ndarray:
 
 def write_xyz(path: str, atoms_list: List[Atoms], energies: Optional[List[float]] = None):
     """Write a list of structures to an XYZ file."""
+    if atoms_list and atoms_list[0].info.get("pdb_template"):
+        write_pdb_trajectory(path, atoms_list, energies=energies)
+        return
     with open(path, "w") as f:
         for i, at in enumerate(atoms_list):
             pos = at.get_positions()
@@ -836,9 +840,10 @@ class HPC:
     def _write_trajs(self, f: Dict, b: Dict):
         """Write full, forward, and backward trajectories as XYZ files."""
         base, _ = os.path.splitext(self.output)
-        full_path = base + "_full.xyz"
-        fwd_path = base + "_forward.xyz"
-        bwd_path = base + "_backward.xyz"
+        ext = ".pdb" if self.atoms.info.get("pdb_template") else ".xyz"
+        full_path = base + "_full" + ext
+        fwd_path = base + "_forward" + ext
+        bwd_path = base + "_backward" + ext
 
         # Forward
         f_atoms, f_E = [], []

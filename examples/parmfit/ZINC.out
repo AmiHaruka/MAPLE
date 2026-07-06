@@ -1,0 +1,136 @@
+
+**********************************************************************
+*                                                                    *
+*                        M   A   P   L   E                           *
+*                                                                    *
+*      MAchine-learning Potential for Landscape Exploration          *
+*                                                                    *
+*                                                                    *
+*      © 2025 University of Pittsburgh. All rights reserved.         *
+*      Licensed under CC BY 4.0 for academic use.                    *
+*                                                                    *
+*      Principal Developer:  Xujian Wang                             *
+*                                                                    *
+**********************************************************************
+
+
+Parsing # commands...
+Global parameter: model = uma with options {'size': 'uma-s-1p1'}
+Task set to 'parmfit'
+Global parameter: device = gpu0
+Parsed configuration:
+----------------------------------------
+Task: parmfit
+model          : uma(size=uma-s-1p1)
+method         : abinitio
+cfmol2         : MNS_ff.mol2
+target         : A262
+cmo            : 1 1 2
+prom           : ff14sb
+watm           : tip3p
+device         : gpu0
+
+                             Coordinates                              
+**********************************************************************
+
+Group 1 (PDB File)
+Resolved PDB: /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/1OKL_H.pdb
+PDB coordinates are parsed by parmfit abinitio at runtime.
+--------------------
+
+======================================================================
+                           Parmfit Abinitio                           
+======================================================================
+Target: A262:ZN (ion)
+  Target metal selector: A262
+  add_resid: []
+  cluster_cutoff: 3.00 A
+  donor_cutoff: 2.70 A
+  water model: tip3p
+  protein model: ff14SB
+  ion parameter set: 12_6
+  metal site charge/mult: 1 1
+  metal oxidation: 2
+  large model charge/mult: 1 1
+  chgmod: 1
+  fixchg_resids: []
+  QM method: PBE1PBE/def2SVP
+  [MetalAA] large-model input written.
+  [MetalAA] MLIP large-model optimization ...
+  [MetalAA] large-model RESP ...
+  [MetalAA] site files written.
+  [MetalAA] MLIP Hessian + mSeminario + final frcmod ...
+  [MetalAA] final parameter files written.
+  [MetalAA] running tleap validation ...
+  [MetalAA] route completed; final summary follows.
+
+======================================================================
+                       PARMFIT ABINITIO RESULT                        
+======================================================================
+Status: completed
+Route: MetalAA
+Target: A262:ZN
+Protein model: ff14SB
+Charge/mult/oxidation: 1 1 2
+Large model charge/mult: 1 1
+Core residues: _90:HID, _92:HID, _115:HIE, A262:ZN, A862:MNS
+
+Main products:
+  final frcmod: ZINC_work/ZINC_metal.frcmod
+  tleap input: ZINC_work/ZINC_metal_tleap.in
+  tleap PDB:   ZINC_work/ZINC_metal_tleap.pdb
+  mol2 files:  ZINC_work/HD1.mol2, ZINC_work/HD2.mol2, ZINC_work/HE1.mol2, ZINC_work/ZN1.mol2, ZINC_work/MS1.mol2
+
+Renamed atom types:
+  residue      atom  old   new   charge
+  _90:HID      NE2   NB    Y1     0.029101
+  _92:HID      NE2   NB    Y2     0.010890
+  _115:HIE     ND1   NB    Y3     0.108188
+  A262:ZN      ZN    ZN    M1     0.085717
+  A862:MNS     O1S   o     Y4    -0.387940
+  A862:MNS     N3S   n2    Y5    -0.362979
+
+Stage timing:
+  large RESP/Gaussian ESP       10m 58s   slowest
+  Hessian + mSeminario           1m 17s
+  large optimization                11s
+  tleap validation                   2s
+  site export                        0s
+  site selection/model build         0s
+
+Next step:
+  cd ZINC_work
+  tleap -s -f ZINC_metal_tleap.in |tee ZINC_metal_tleap.out
+
+Tleap status:
+  Errors: 0
+  Warnings: 14
+  Notes: 6
+  Check: long bond ZN-O1S = 3.207 A
+
+Warnings:
+  Environment contains potentially charged standard residues outside the site core: _5:LYS, _10:GLU, _14:LYS, _15:ASP, _20:LYS, _22:GLU, _23:ARG, _28:ASP
+======================================================================
+
+
+
+Program started: 2026-07-06 18:02:30
+
+======================================================================
+                      TIMING SUMMARY
+======================================================================
+Input Reading.......................................   1.132 s  (   0.1 %)
+  Settings Parsing....................................   1.130 s  (  99.9 %)
+  Coordinate Section Parsing..........................   0.001 s  (   0.0 %)
+  Post-Processing Expansion...........................   0.000 s  (   0.0 %)
+MLP Initialization..................................   9.389 s  (   1.2 %)
+Job Dispatching..................................... 748.611 s  (  98.6 %)
+  Parmfit optimization................................ 748.601 s  ( 100.0 %)
+    Parmfit abinitio.................................... 748.512 s  ( 100.0 %)
+======================================================================
+Total wall time: 759.132 s
+Total CPU time: 100.250 s
+======================================================================
+
+Program ended: 2026-07-06 18:15:09
+TOTAL RUN TIME: 0 days 0 hours 12 minutes 39 seconds 132 msec

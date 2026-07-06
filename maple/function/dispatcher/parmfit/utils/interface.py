@@ -117,11 +117,14 @@ def prepare_gaussian_esp_input(
     decision: QMMethod,
     title: str = "MAPLE RESP",
     watm: str | None = None,
+    wfn_path: str | os.PathLike[str] | None = None,
 ) -> str:
     atoms_flat = [atom for residue in model["residues"] for atom in sorted(residue["atoms"], key=lambda item: item["serial"])]
     radii_entries = collect_gaussian_readradii_entries(model, watm=watm)
     chk_name = Path(path).with_suffix(".chk").name
     with open(path, "w", encoding="utf-8") as handle:
+        if wfn_path is not None:
+            handle.write(f"%oldchk={os.fspath(wfn_path)}\n")
         handle.write(f"%chk={chk_name}\n")
         handle.write(f"%nproc={decision.nproc}\n")
         handle.write(f"%mem={decision.mem}GB\n")
@@ -133,6 +136,8 @@ def prepare_gaussian_esp_input(
         ]
         if decision.route:
             route_terms.append(decision.route)
+        if wfn_path is not None:
+            route_terms.append("Guess=Read")
         handle.write(f"#P {' '.join(route_terms)}\n")
         handle.write(f"\n{title}\n\n")
         handle.write(f"{int(total_charge)} {int(multiplicity)}\n")

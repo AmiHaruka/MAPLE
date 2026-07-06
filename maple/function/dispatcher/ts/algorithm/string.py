@@ -27,6 +27,7 @@ from ase import Atoms
 # You already have these utilities / mixins in your codebase:
 from .logger import log_info
 from ...jobABC import JobABC
+from maple.function.read.filereader.pdb_reader import write_pdb_trajectory
 
 
 # =============================================================================
@@ -75,6 +76,9 @@ def write_xyz(filename: str, images: List[Atoms], energies: Optional[List[float]
     """
     Write a multi-frame XYZ trajectory. If energies given, write in comment line.
     """
+    if images and images[0].info.get("pdb_template"):
+        write_pdb_trajectory(filename, images, energies=energies)
+        return
     with open(filename, "w") as f:
         for i, at in enumerate(images):
             pos = to_numpy_f64(at.get_positions())
@@ -99,6 +103,8 @@ def inherit_attrs(src: Atoms, dst: Atoms):
     for name in ("f_max_th", "f_rms_th", "dp_max_th", "dp_rms_th"):
         if hasattr(src, name):
             setattr(dst, name, getattr(src, name))
+    if "pdb_template" in src.info and "pdb_template" not in dst.info:
+        dst.info["pdb_template"] = src.info["pdb_template"]
 
 
 def atoms_to_xyz_block(atoms: Atoms) -> str:
@@ -579,8 +585,9 @@ class GSM(JobABC):
                 rmsFp_list.append(float(np.sqrt(np.mean(np.linalg.norm(Fp, axis=1) ** 2))))
 
         # Dump STRING-TS files
-        stringts_mep = base_prefix + "_stringts_mep.xyz"
-        stringts_ts  = base_prefix + "_stringts_ts.xyz"
+        ext = ".pdb" if images_ts and images_ts[0].info.get("pdb_template") else ".xyz"
+        stringts_mep = base_prefix + "_stringts_mep" + ext
+        stringts_ts  = base_prefix + "_stringts_ts" + ext
         write_xyz(stringts_mep, images_ts, energies=Es_path)
         write_xyz(stringts_ts, [ts_opt], energies=[E_TS])
 
@@ -927,12 +934,13 @@ class GSM(JobABC):
         linear_reparam(images)
 
         # Dump growth-final equal-arc path & HEI
-        grow_final = base + "_gsm_grow_final.xyz"
+        ext = ".pdb" if images and images[0].info.get("pdb_template") else ".xyz"
+        grow_final = base + "_gsm_grow_final" + ext
         write_xyz(grow_final, images, energies=get_energies(images))
         Es = get_energies(images)
         hei = max(range(1, len(images) - 1), key=lambda i: Es[i]) if len(images) > 2 else 0
-        mep_path = base + "_gsm_mep.xyz"   # equal-arc path
-        hei_path = base + "_gsm_hei.xyz"
+        mep_path = base + "_gsm_mep" + ext   # equal-arc path
+        hei_path = base + "_gsm_hei" + ext
         write_xyz(mep_path, images, energies=Es)
         write_xyz(hei_path, [images[hei]], energies=[Es[hei]])
 
@@ -944,4 +952,3 @@ class GSM(JobABC):
 
         # --- Direct TS refinement via PRFO/RFO on HEI (no CI-STRING / no full relax)
         self.restart_run(images, hei, base)
-

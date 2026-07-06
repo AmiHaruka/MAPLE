@@ -32,7 +32,17 @@ COVALENT_RADII = {
 }
 WATER_NAMES = {"HOH", "WAT", "SOL"}
 
-ION_ELEMENTS = {"LI", "NA", "K", "RB", "CS", "MG", "CA", "SR", "BA", "ZN", "FE", "MN", "CO", "NI", "CU"}
+ION_ELEMENTS = {
+    "LI", "NA", "K", "RB", "CS",
+    "BE", "MG", "CA", "SR", "BA",
+    "AL", "IN",
+    "Y", "LA", "PR", "ND", "GD", "TB", "DY", "HO", "ER", "LU",
+    "TI", "ZR", "HF", "TH", "U", "PU",
+    "FE", "MN", "CO", "NI", "CU", "ZN",
+    "CD", "HG", "PB",
+    "PD", "PT",
+    "NB", "TA", "TC", "MO",
+}
 
 METAL_SITE_DONOR_ELEMENTS = {"N", "O", "S", "P", "SE", "F", "CL", "BR", "I"}
 
@@ -60,6 +70,11 @@ ATOMIC_MASSES = {
     "SE": 78.971,
     "BR": 79.904,
     "I": 126.904,
+    "TI": 47.867,
+    "NB": 92.906,
+    "MO": 95.950,
+    "TC": 98.000,
+    "TA": 180.948,
 }
 
 BOUNDARY_H_BOND_LENGTH = {
