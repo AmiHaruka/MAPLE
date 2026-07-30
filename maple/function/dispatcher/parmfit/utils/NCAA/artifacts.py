@@ -11,11 +11,12 @@ import re
 import shutil
 
 from .. import interface
+from ..chargefit import ChargeFitResult
 from ..ionparams import infer_ion_frcmod_name
 from ..model import write_model_pdb
 from ..outputparm import allocate_maple_atom_types, format_tleap_add_atom_types_lines
 from ..readparm import Angle, Bond, Dihedral, Improper, Nonbond, CorrectionParameterSet, FrcmodDB, Mol2Atom, Mol2Topology
-from ..runtime import MultiRespPipelineResult, parmfit_output_dir, parmfit_workdir
+from ..runtime import parmfit_output_dir, parmfit_workdir
 from ..structure import copy_residue, covalent_cutoff, get_atom_xyz, get_resid_key, residue_sort_key, search_atom
 from .config import NCAAAbinitioConfig
 from .models import NCAAConformer, build_residue_local_adjacency, infer_mainchain_names, infer_terminal_omit_names
@@ -116,7 +117,7 @@ def _run_ambertools_build(
     output: str,
     representative_model: dict,
     charged_residue: dict,
-    resp_result: MultiRespPipelineResult,
+    charge_result: ChargeFitResult,
     config: NCAAAbinitioConfig,
 ) -> NCAAAmberBuildBundle:
     workdir = parmfit_workdir(output, "ncaa")
@@ -124,9 +125,10 @@ def _run_ambertools_build(
     interface_cfg = {
         "residue_name": config.rn,
         "net_charge": config.charge,
+        "multiplicity": config.mult,
     }
-    source_mol2 = os.path.basename(resp_result.files["mol2"])
-    target_chg = os.path.basename(resp_result.resp_files["target_chg"])
+    source_mol2 = os.path.basename(charge_result.work_mol2)
+    target_chg = os.path.basename(charge_result.files["target_chg"])
     typed_mol2_result = interface.run_antechamber(
         source_mol2,
         interface_cfg,
@@ -191,7 +193,7 @@ def _run_ambertools_build(
 def _materialize_amber_artifacts(
     *,
     build: NCAAAmberBuildBundle,
-    resp_result: MultiRespPipelineResult,
+    charge_result: ChargeFitResult,
     config: NCAAAbinitioConfig,
 ) -> NCAAAmberArtifacts:
     final_prepin = os.path.join(build.final_dir, f"{config.rn}.prepin")
@@ -199,7 +201,7 @@ def _materialize_amber_artifacts(
     shutil.copyfile(build.prepgen_result.prepin_path, final_prepin)
     shutil.copyfile(build.parmchk_result.frcmod_path, final_frcmod)
     return NCAAAmberArtifacts(
-        capped_mol2=resp_result.files["mol2"],
+        capped_mol2=charge_result.work_mol2,
         gaff2_mol2=build.typed_mol2_result.ac_path,
         ac=build.antechamber_result.ac_path,
         mc=build.mainchain_path,
@@ -217,19 +219,19 @@ def build_ncaa_amber_artifacts(
     output: str,
     representative_model: dict,
     charged_residue: dict,
-    resp_result: MultiRespPipelineResult,
+    charge_result: ChargeFitResult,
     config: NCAAAbinitioConfig,
 ) -> NCAAAmberArtifacts:
     build = _run_ambertools_build(
         output=output,
         representative_model=representative_model,
         charged_residue=charged_residue,
-        resp_result=resp_result,
+        charge_result=charge_result,
         config=config,
     )
     return _materialize_amber_artifacts(
         build=build,
-        resp_result=resp_result,
+        charge_result=charge_result,
         config=config,
     )
 

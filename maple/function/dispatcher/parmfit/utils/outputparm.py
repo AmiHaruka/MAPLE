@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from copy import deepcopy
 import os
-import re
 from math import degrees
 
 import numpy as np
 from ase import Atoms
 
 from .mechanics import build_mm_topology_cache
+from .mol2_tools import write_updated_mol2
 from .readparm import CorrectionParameterSet
 
 
@@ -19,7 +19,6 @@ _ANG_TO_NM = 0.1
 _BOX_PADDING_NM = 0.5
 _MIN_BOX_LENGTH_NM = 0.5
 _SIGMA_DENOM = 2.0 ** (1.0 / 6.0)
-_MOL2_TOKEN_RE = re.compile(r"\S+")
 _MAPLE_TYPE_LETTERS = ("Z", "U", "V", "I", "J", "K", "L", "M", "N", "P", "Q", "R", "S", "T", "W", "X", "Y", "B", "E")
 _MAPLE_TYPE_SUFFIXES = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 _ATOMIC_FALLBACK = {
@@ -419,32 +418,22 @@ def write_amber_files(
     existing_types = {atom.atom_type for atom in parameter_set.mol2.atoms}
     maple_types = allocate_maple_atom_types(len(parameter_set.mol2.atoms), existing_types)
 
-    with open(input_mol2_path, "r", encoding="utf-8", errors="replace") as handle:
-        lines = handle.readlines()
-    output_lines: list[str] = []
-    in_atom_section = False
-    atom_index = 0
-    for raw in lines:
-        stripped = raw.strip()
-        if stripped.startswith("@<TRIPOS>"):
-            in_atom_section = stripped.upper() == "@<TRIPOS>ATOM"
-            output_lines.append(raw)
-            continue
-        if not in_atom_section or not stripped:
-            output_lines.append(raw)
-            continue
-        atom_index += 1
-        token_spans = [match.span() for match in _MOL2_TOKEN_RE.finditer(raw)]
-        if len(token_spans) < 6:
-            raise ValueError(f"Invalid mol2 atom line in {input_mol2_path}: {raw.rstrip()}")
-        start, end = token_spans[5]
-        output_lines.append(raw[:start] + maple_types[atom_index] + raw[end:])
-    if atom_index != len(parameter_set.mol2.atoms):
-        raise ValueError(
-            f"mol2 atom count ({atom_index}) does not match parameter set size ({len(parameter_set.mol2.atoms)})."
-        )
-    with open(mol2_path, "w", encoding="utf-8") as handle:
-        handle.writelines(output_lines)
+    charges_by_atom = {
+        nonbond.atom: float(nonbond.charge)
+        for nonbond in parameter_set.nonbonds
+    }
+    write_updated_mol2(
+        input_mol2_path,
+        mol2_path,
+        atom_types=[
+            maple_types[index]
+            for index in range(1, len(parameter_set.mol2.atoms) + 1)
+        ],
+        charges=[
+            charges_by_atom[index]
+            for index in range(1, len(parameter_set.mol2.atoms) + 1)
+        ],
+    )
 
     mapped = deepcopy(parameter_set)
     maple_mass_params: dict[str, float] = {}

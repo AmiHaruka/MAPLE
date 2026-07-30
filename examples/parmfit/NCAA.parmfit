@@ -14,7 +14,7 @@ qm_compare=false
 qm_nproc=8
 qm_mem=24
 
-# RESP charges
+chg_fit=resp
 resp_backend=gaussian
 chg_level=HF/6-31G(d)
 chg_route=
@@ -27,14 +27,14 @@ ionm=hfe
 bonded=mseminario
 vib_scale=1.0
 
-# NCAA capped/RESP conformer optimization controls
+# NCAA capped/charge conformer optimization controls
 opt_max_iter=256
 opt_max_step=0.2
 
 # TorsionFit
 torsionfit=true
 torsion_bonds=
-torsion_steps=72
+torsion_steps=36
 backend=cgbs
 constraint_mode=projected
 stage1_weights=true

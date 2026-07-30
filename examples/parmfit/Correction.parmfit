@@ -1,6 +1,10 @@
 method=correction
 mol2=toluene_ff.mol2
 
+chg_fit=none
+chg_level=HF/6-31G(d)
+chg_route=
+
 # QM reference for correction and TorsionFit
 iqm=false
 qm_engine=g16

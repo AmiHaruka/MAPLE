@@ -270,7 +270,8 @@ def run_antechamber(
         f"-i {input_file} -fi {input_format} "
         f"-o {output_name} -fo {output_format} "
         f"-rn {rn} -at gaff2 "
-        f"-nc {cfg['net_charge']} -pf y"
+        f"-nc {cfg['net_charge']} "
+        f"-m {cfg.get('multiplicity', 1)} -seq n -pf y"
     )
     if charge_mode is not None:
         cmd += f" -c {charge_mode}"

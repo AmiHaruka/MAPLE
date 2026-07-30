@@ -12,6 +12,7 @@ from ..utils.outputparm import write_amber_files, write_gromacs_files
 from ..utils.readparm import CorrectionParameterSet
 from ..utils.runtime import parmfit_output_dir
 from ..utils.TorsionFit import TorsionWorkflowResult
+from ..utils.chargefit import ChargeFitResult
 from .config import CorrectionConfig
 
 
@@ -40,11 +41,15 @@ class CorrectionWorkflowResult:
     amber: AmberExportResult
     init_frcmod: str
     stage_timings: list[tuple[str, float]] = field(default_factory=list)
+    charge_result: ChargeFitResult | None = None
+    charge_timing: float | None = None
     mlip_stage0_parmset: CorrectionParameterSet | None = None
     mlip_final_parmset: CorrectionParameterSet | None = None
     mlip_torsion: TorsionWorkflowResult | None = None
     mlip_gromacs: GromacsExportResult | None = None
     mlip_amber: AmberExportResult | None = None
+    mlip_charge_result: ChargeFitResult | None = None
+    mlip_charge_timing: float | None = None
 
 
 def export_gromacs(

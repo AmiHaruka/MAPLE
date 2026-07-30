@@ -11,7 +11,9 @@ from ase import Atoms
 
 from ..utils.Seminario import apply_seminario
 from ..utils.mSeminario import apply_mseminario
+from ..utils.chargefit import apply_atomic_charges, fit_molecule_charges
 from ..utils.QMInterface import build_qm_reference_runner
+from ..utils.mlip_tools import release_charge_calculator_cache
 from ..utils.readparm import CorrectionParameterSet
 from ..utils.runtime import get_cartesian_hessian, parmfit_work_prefix, run_silent_lbfgs
 from ..utils.Scan.optimizer import LBFGS
@@ -100,6 +102,7 @@ def run_correction_workflow(
     refine_enabled = _needs_refine(config)
     qm_runner = build_qm_reference_runner(config.qm)
     qm_compare_enabled = bool(qm_runner is not None and getattr(config.qm, "qm_compare", False) and refine_enabled)
+    route_name = "qm_route" if qm_runner is not None else "mlip_route"
     mlip_atoms = None
 
     if refine_enabled:
@@ -166,6 +169,61 @@ def run_correction_workflow(
             )
         )
 
+    calculator_cache: dict = {}
+    try:
+        log_info(stage_lines("\n[Correction] atomic charge fitting ..."))
+        with _timed_stage("charge fitting", stage_timings):
+            charge_result = fit_molecule_charges(
+                output=output,
+                atoms=atoms,
+                source_mol2=config.mol2,
+                config=config.charge_fit,
+                route=route_name,
+                calculator_cache=calculator_cache,
+            )
+        charge_timing = stage_timings[-1][1]
+        route_baseline_parmset = apply_atomic_charges(
+            init_parmset,
+            charge_result.charges,
+        )
+        stage0_parmset = apply_atomic_charges(
+            stage0_parmset,
+            charge_result.charges,
+        )
+
+        mlip_charge_result = None
+        mlip_charge_timing = None
+        mlip_baseline_parmset = None
+        if qm_compare_enabled:
+            mlip_charge_atoms = mlip_atoms or atoms
+            log_info(stage_lines("[Correction] atomic charge fitting (MLIP comparison) ..."))
+            with _timed_stage("charge fitting (MLIP comparison)", stage_timings):
+                mlip_charge_result = fit_molecule_charges(
+                    output=output,
+                    atoms=mlip_charge_atoms,
+                    source_mol2=config.mol2,
+                    config=config.charge_fit,
+                    route="mlip_route",
+                    calculator_cache=calculator_cache,
+                )
+            mlip_charge_timing = stage_timings[-1][1]
+            mlip_baseline_parmset = apply_atomic_charges(
+                init_parmset,
+                mlip_charge_result.charges,
+            )
+            mlip_stage0_parmset = apply_atomic_charges(
+                mlip_stage0_parmset or deepcopy(init_parmset),
+                mlip_charge_result.charges,
+            )
+    finally:
+        release_charge_calculator_cache(
+            calculator_cache,
+            active_calculators=(
+                getattr(atoms, "calc", None),
+                getattr(mlip_atoms, "calc", None) if mlip_atoms is not None else None,
+            ),
+        )
+
     mlip_torsion = None
     mlip_final_parmset = None
     if torsion_enabled:
@@ -178,7 +236,7 @@ def run_correction_workflow(
                     atoms=mlip_torsion_atoms,
                     output=output,
                     parameter_set=mlip_stage0_parmset or deepcopy(init_parmset),
-                    original_parameter_set=init_parmset,
+                    original_parameter_set=mlip_baseline_parmset or init_parmset,
                     params=config.torsion,
                     runtime=build_torsion_runtime(config),
                     log_info=None,
@@ -201,7 +259,7 @@ def run_correction_workflow(
                 "atoms": atoms,
                 "output": output,
                 "parameter_set": stage0_parmset,
-                "original_parameter_set": init_parmset,
+                "original_parameter_set": route_baseline_parmset,
                 "params": config.torsion,
                 "runtime": build_torsion_runtime(config),
                 "log_info": None,
@@ -231,11 +289,15 @@ def run_correction_workflow(
             )
             mlip_final_parmset = mlip_torsion.final_parameter_set
 
-    if has_parameter_changes(init_parmset, final_parmset, sections=("impropers", "nonbonds")):
+    if has_parameter_changes(
+        route_baseline_parmset,
+        final_parmset,
+        sections=("impropers", "nonbonds"),
+    ):
         log_info(
             parameter_change_lines(
                 "Other final changes",
-                init_parmset,
+                route_baseline_parmset,
                 final_parmset,
                 sections=("impropers", "nonbonds"),
             )
@@ -246,10 +308,12 @@ def run_correction_workflow(
         gromacs = export_gromacs(output, atoms, final_parmset)
 
     log_info(stage_lines("[Correction] export Amber ..."))
+    export_config = deepcopy(config)
+    export_config.mol2 = charge_result.work_mol2
     with _timed_stage("export Amber", stage_timings):
         amber = export_amber(
             output,
-            config,
+            export_config,
             final_parmset,
             use_refined_parameters=refine_enabled,
             source_frcmod=init_frcmod_path,
@@ -267,10 +331,13 @@ def run_correction_workflow(
                 output_suffix="_mlip",
             )
         log_info(stage_lines("[Correction] export Amber (MLIP comparison) ..."))
+        mlip_export_config = deepcopy(config)
+        if mlip_charge_result is not None:
+            mlip_export_config.mol2 = mlip_charge_result.work_mol2
         with _timed_stage("export Amber (MLIP comparison)", stage_timings):
             mlip_amber = export_amber(
                 output,
-                config,
+                mlip_export_config,
                 mlip_final_parmset,
                 use_refined_parameters=refine_enabled,
                 source_frcmod=init_frcmod_path,
@@ -286,11 +353,15 @@ def run_correction_workflow(
         amber=amber,
         init_frcmod=init_frcmod_path,
         stage_timings=stage_timings,
+        charge_result=charge_result,
+        charge_timing=charge_timing,
         mlip_stage0_parmset=mlip_stage0_parmset,
         mlip_final_parmset=mlip_final_parmset,
         mlip_torsion=mlip_torsion,
         mlip_gromacs=mlip_gromacs,
         mlip_amber=mlip_amber,
+        mlip_charge_result=mlip_charge_result,
+        mlip_charge_timing=mlip_charge_timing,
     )
     log_info(correction_result_lines(config, result))
     return result

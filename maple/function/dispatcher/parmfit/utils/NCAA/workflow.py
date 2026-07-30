@@ -9,6 +9,11 @@ from time import perf_counter
 from typing import Callable
 
 from .. import interface
+from ..chargefit import (
+    ChargeFitResult,
+    apply_model_charges,
+    fit_multiconformer_charges,
+)
 from ..context import find_prev_next_peptide_residues, find_residue_by_key
 from ..Seminario import apply_seminario
 from ..mSeminario import apply_mseminario
@@ -19,13 +24,12 @@ from ..runtime import (
     copy_thresholds,
     get_cartesian_hessian,
     parmfit_work_prefix,
-    run_multiconformer_resp,
 )
 from ..structure import copy_residue
 from ..TorsionFit import TorsionScanRuntime, TorsionWorkflowResult, run_torsion_workflow
 from .artifacts import NCAAArtifacts, build_ncaa_amber_artifacts, build_ncaa_export_bundle
 from .config import NCAAAbinitioConfig
-from .models import NCAAConformer, NCAAIdentity, build_capped_ncaa_model, build_ncaa_center_bond_filter, build_ncaa_sidechain_relax_indices, build_resp_confs, identity_ncaa, optimize_capped_confs, warn_capped_proton_transfer
+from .models import NCAAConformer, NCAAIdentity, build_capped_ncaa_model, build_charge_conformers, build_ncaa_center_bond_filter, build_ncaa_sidechain_relax_indices, identity_ncaa, optimize_capped_confs, warn_capped_proton_transfer
 from .report import format_ncaa_final_lines, format_ncaa_start_lines
 
 
@@ -46,7 +50,7 @@ class NCAAWorkflowResult:
     parameter_set: CorrectionParameterSet
     torsion: TorsionWorkflowResult
     artifacts: NCAAArtifacts
-    resp_files: dict[str, str]
+    charge_result: ChargeFitResult
     representative_model: dict
     residue_model: dict
     stage_timings: list[tuple[str, float]] = field(default_factory=list)
@@ -138,7 +142,7 @@ def _prepare_ncaa_models(
             energy=qm_result.energy_hartree,
             model=update_model_from_atoms(representative.model, qm_result.atoms),
         )
-    conformers = build_resp_confs(
+    conformers = build_charge_conformers(
         representative.model,
         chirality=identity.chirality,
         source_atoms=source_atoms,
@@ -215,7 +219,7 @@ def _refine_ncaa_parameters(
                 "params": config.torsion,
                 "runtime": TorsionScanRuntime(
                     max_iter=config.opt_max_iter,
-                    memory=int(max(config.resp.qm.mem, 1)),
+                    memory=int(max(config.qm.qm_mem, 1)),
                     curvature=0.6,
                     max_step=config.opt_max_step,
                     backend=config.torsion.backend,
@@ -264,14 +268,22 @@ def run_ncaa_abinitio(
         )
     )
 
-    log_info(["  [NCAA] multiconformer RESP ...\n"])
+    log_info([f"  [NCAA] atomic charge fitting ({config.charge_fit.method}) ...\n"])
     resp_wfn = None
-    if qm_runner is not None and config.resp.qm.backend == "gaussian":
+    if (
+        config.charge_fit.method == "resp"
+        and config.charge_fit.qm is not None
+        and qm_runner is not None
+        and config.qm.qm_engine in {"gaussian", "g16", "g09"}
+    ):
         opt_theory, opt_basis = (part.strip() for part in config.qm.opt_level.strip().split("/", 1))
-        if config.resp.qm.theory == opt_theory and config.resp.qm.basis == opt_basis:
+        if (
+            config.charge_fit.qm.theory == opt_theory
+            and config.charge_fit.qm.basis == opt_basis
+        ):
             resp_wfn = getattr(qm_runner, "last_wfn_path", None)
-    with _timed_stage(stage_timings, "multiconformer RESP"):
-        resp_result = run_multiconformer_resp(
+    with _timed_stage(stage_timings, "charge fitting"):
+        charge_result = fit_multiconformer_charges(
             output=output,
             conformers=[(conformer.label, conformer.model) for conformer in prepared.conformers],
             representative_model=prepared.representative.model,
@@ -279,11 +291,15 @@ def run_ncaa_abinitio(
             bond_pairs=infer_bond_pairs(prepared.representative.model),
             total_charge=config.charge,
             multiplicity=config.mult,
-            qm=config.resp.qm,
+            config=config.charge_fit,
+            source_atoms=source_atoms,
             prom=config.prom,
             wfn_path=resp_wfn,
         )
-    representative_model = resp_result.model
+    representative_model = apply_model_charges(
+        prepared.representative.model,
+        charge_result.charges,
+    )
     charged_residue = find_residue_by_key(
         representative_model,
         prepared.identity.residue_key,
@@ -297,7 +313,7 @@ def run_ncaa_abinitio(
             output=output,
             representative_model=representative_model,
             charged_residue=charged_residue,
-            resp_result=resp_result,
+            charge_result=charge_result,
             config=config,
         )
     if config.bonded == "none":
@@ -361,7 +377,7 @@ def run_ncaa_abinitio(
         parameter_set=parameter_set,
         torsion=torsion,
         artifacts=export_bundle.artifacts,
-        resp_files=resp_result.resp_files,
+        charge_result=charge_result,
         representative_model=representative_model,
         residue_model=residue_model,
         stage_timings=list(stage_timings),

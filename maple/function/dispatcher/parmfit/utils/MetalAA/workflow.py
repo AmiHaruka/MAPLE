@@ -558,7 +558,11 @@ def run_metal_abinitio(
 
     log_info(["  [MetalAA] large-model RESP ...\n"])
     resp_wfn = None
-    if qm_runner is not None and config.resp.qm.backend == "gaussian":
+    if (
+        qm_runner is not None
+        and config.resp.qm.backend == "gaussian"
+        and config.qm.qm_engine in {"gaussian", "g16", "g09"}
+    ):
         opt_theory, opt_basis = (part.strip() for part in config.qm.opt_level.strip().split("/", 1))
         if config.resp.qm.theory == opt_theory and config.resp.qm.basis == opt_basis:
             resp_wfn = getattr(qm_runner, "last_wfn_path", None)

@@ -151,7 +151,7 @@ def has_parameter_changes(
 def correction_result_lines(config: CorrectionConfig, result: CorrectionWorkflowResult) -> list[str]:
     bonded_counts = _change_counts(result.init_parmset, result.stage0_parmset)
     torsion_counts = _change_counts(result.stage0_parmset, result.final_parmset)
-    final_counts = _change_counts(result.init_parmset, result.final_parmset)
+    final_counts = _change_counts(result.stage0_parmset, result.final_parmset)
     has_mlip_comparison = result.mlip_final_parmset is not None
     mlip_bonded_counts = (
         _change_counts(result.init_parmset, result.mlip_stage0_parmset)
@@ -203,11 +203,21 @@ def correction_result_lines(config: CorrectionConfig, result: CorrectionWorkflow
                 f"  Amber frcmod: {_relative_path(result.mlip_amber.frcmod)}\n",
             ]
         )
+    if result.charge_result is not None:
+        lines.extend(["\n", "Charge fitting:\n"])
+        lines.extend(_charge_result_lines(result.charge_result, result.amber.mol2))
+    if result.mlip_charge_result is not None and result.mlip_amber is not None:
+        lines.extend(["\n", "Charge fitting (MLIP comparison):\n"])
+        lines.extend(
+            _charge_result_lines(
+                result.mlip_charge_result,
+                result.mlip_amber.mol2,
+            )
+        )
     if result.stage_timings:
         lines.extend(["\n", "Stage timing:\n"])
         for name, elapsed in sorted(result.stage_timings, key=lambda item: item[1], reverse=True):
-            suffix = "   slowest" if elapsed == max(value for _, value in result.stage_timings) else ""
-            lines.append(f"  {name:<30} {_format_duration(elapsed):>9}{suffix}\n")
+            lines.append(f"  {name:<30} {_format_duration(elapsed):>9}\n")
     lines.extend(
         [
             "\n",
@@ -265,6 +275,28 @@ def correction_result_lines(config: CorrectionConfig, result: CorrectionWorkflow
     else:
         lines.append("  none\n")
     lines.append("=" * RESULT_WIDTH + "\n")
+    return lines
+
+
+def _charge_result_lines(charge_result, final_mol2: str) -> list[str]:
+    method = (
+        charge_result.detail
+        if charge_result.method in {"model", "antechamber"}
+        else charge_result.method
+    )
+    lines = [
+        f"  method:        {method}\n",
+    ]
+    if charge_result.method == "resp":
+        lines.append(f"  RESP level:    {charge_result.detail}\n")
+    lines.extend(
+        [
+            f"  target charge: {charge_result.target_charge:d}\n",
+            f"  actual charge: {charge_result.actual_charge:.8f}\n",
+            f"  work MOL2:     {_relative_path(charge_result.work_mol2)}\n",
+            f"  final MOL2:    {_relative_path(final_mol2)}\n",
+        ]
+    )
     return lines
 
 
@@ -423,9 +455,13 @@ def _torsion_fit_report_energy_trace_lines(report, *, ref_label: str) -> list[st
             f"{float(stage1_ref[index]):10.6f}  "
             f"{stage2_text:>10s}\n"
         )
-    if stage2_ref is not None:
-        mae, rmse = _mae_rmse(mlip_ref[:row_count], stage2_ref[:row_count])
-        lines.append(f"    {ref_label} vs stage2_final: MAE = {mae:.6f} kcal/mol, RMSE = {rmse:.6f} kcal/mol\n")
+    final_ref = stage2_ref if stage2_ref is not None else stage1_ref
+    final_label = "stage2_final" if stage2_ref is not None else "stage1_final"
+    mae, rmse = _mae_rmse(mlip_ref[:row_count], final_ref[:row_count])
+    lines.append(
+        f"    {ref_label} vs {final_label}: "
+        f"MAE = {mae:.6f} kcal/mol, RMSE = {rmse:.6f} kcal/mol\n"
+    )
     return lines
 
 

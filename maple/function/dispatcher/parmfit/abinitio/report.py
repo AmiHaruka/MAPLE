@@ -95,7 +95,7 @@ def _timing_label(label: str) -> str:
         "site export": "site export",
         "site selection/model build": "site selection/model build",
         "model preparation/reference optimization": "model preparation + reference",
-        "multiconformer RESP": "multiconformer RESP",
+        "charge fitting": "charge fitting",
         "AmberTools template build": "AmberTools template build",
         "mSeminario setup/Hessian": "Hessian + mSeminario",
         "Seminario setup/Hessian": "Hessian + Seminario",
@@ -123,11 +123,9 @@ def _timing_lines(result) -> list[str]:
     lines = ["\nStage timing:\n"]
     if not timings:
         return lines + ["  none\n"]
-    slowest = timings[0][0]
     label_width = max(len(label) for label, _seconds in timings) + 2
     for label, seconds in timings:
-        suffix = "   slowest" if label == slowest else ""
-        lines.append(f"  {label:<{label_width}} {_duration(seconds):>8s}{suffix}\n")
+        lines.append(f"  {label:<{label_width}} {_duration(seconds):>8s}\n")
     return lines
 
 
@@ -295,11 +293,13 @@ def _format_metal_summary(*, target_label: str, config, result) -> list[str]:
 def _format_ncaa_summary(*, target_label: str, config, result) -> list[str]:
     files = _artifact_files(result)
     identity = getattr(result, "identity", None)
-    representative = getattr(result, "representative", None)
-    conformers = getattr(result, "conformers", []) or []
-    conformer_labels = [getattr(conformer, "label", str(conformer)) for conformer in conformers]
+    charge_result = getattr(result, "charge_result", None)
     refined_prepin = _safe_get(files, "refined_prepin")
     refined_frcmod = _safe_get(files, "refined_frcmod")
+    charge_method = getattr(charge_result, "method", "unknown")
+    charge_detail = str(getattr(charge_result, "detail", "") or "")
+    if charge_method in {"model", "antechamber"} and charge_detail:
+        charge_method = f"{charge_method} ({charge_detail})"
 
     lines = _header()
     lines.extend(
@@ -310,8 +310,15 @@ def _format_ncaa_summary(*, target_label: str, config, result) -> list[str]:
             f"Chirality: {getattr(identity, 'chirality', 'unknown')}\n",
             f"Protein model: {_prom_label(config)}\n",
             f"Charge/mult: {getattr(config, 'charge', 'unknown')} {getattr(config, 'mult', 'unknown')}\n",
-            f"Representative conformer: {getattr(representative, 'label', 'unknown')}\n",
-            f"RESP conformers: {_names(conformer_labels)}\n",
+            f"Charge fitting: {charge_method}\n",
+            *(
+                [f"Charge level: {charge_detail}\n"]
+                if getattr(charge_result, "method", None) == "resp"
+                else []
+            ),
+            f"Target charge: {getattr(charge_result, 'target_charge', 'unknown')}\n",
+            f"Actual charge: {float(getattr(charge_result, 'actual_charge', float('nan'))):.8f}\n",
+            f"Charge MOL2: {_relative_path(getattr(charge_result, 'work_mol2', 'not written'))}\n",
             "\nMain products:\n",
             f"  refined prepin: {_relative_path(refined_prepin)}\n",
             f"  refined frcmod: {_relative_path(refined_frcmod)}\n",

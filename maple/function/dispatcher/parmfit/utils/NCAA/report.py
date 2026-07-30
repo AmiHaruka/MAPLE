@@ -12,15 +12,18 @@ def format_ncaa_start_lines(
     config: NCAAAbinitioConfig,
     identity: NCAAIdentity,
 ) -> list[str]:
-    return [
+    lines = [
         f"  NCAA target selector: {config.target}\n",
         f"  residue name: {config.rn}\n",
         f"  chirality: {identity.chirality}\n",
         f"  charge/mult: {config.charge} {config.mult}\n",
         f"  protein model: {config.prom}\n",
         f"  bonded refinement: {config.bonded}\n",
-        f"  QM ESP method: {config.resp.qm.theory}/{config.resp.qm.basis}\n",
+        f"  charge fitting: {config.charge_fit.method}\n",
     ]
+    if config.charge_fit.method == "resp":
+        lines.append(f"  charge level: {config.charge_fit.level}\n")
+    return lines
 
 
 def format_ncaa_final_lines(

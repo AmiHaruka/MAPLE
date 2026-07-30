@@ -31,20 +31,13 @@ class Parmfit(JobABC):
             self._normalize_paths()
 
             if self.method == "abinitio":
-                parts = self.params.get("cmo", "0 1").split()
-                if len(parts) not in {2, 3}:
-                    raise ValueError("cmo must be '<charge> <mult>' or '<charge> <mult> <oxy>'.")
-                charge, mult = map(int, parts[:2])
-                self.atoms.info["charge"], self.atoms.info["mult"], self.atoms.info["spin"] = charge, mult, (mult - 1) / 2
-                if len(parts) == 3:
-                    self.atoms.info["oxy"] = int(parts[2])
-                else:
-                    self.atoms.info.pop("oxy", None)
+                self._apply_cmo(use_oxy=True, info_fallback=False)
                 from .abinitio import Abinitio
 
                 parmfit = Abinitio(output=self.output, atoms=self.atoms, params=self.params)
                 return parmfit.run()
             elif self.method == "correction":
+                self._apply_cmo(use_oxy=False, info_fallback=True)
                 from .correction import Correction
 
                 parmfit = Correction(output=self.output, atoms=self.atoms, params=self.params)
@@ -57,6 +50,25 @@ class Parmfit(JobABC):
 ###  Load Helpers ###
 #####################
 
+    def _apply_cmo(self, *, use_oxy: bool, info_fallback: bool) -> None:
+        explicit = self.params.get("cmo")
+        if explicit is None:
+            charge = int(self.atoms.info.get("charge", 0)) if info_fallback else 0
+            mult = int(self.atoms.info.get("mult", 1)) if info_fallback else 1
+            parts = (str(charge), str(mult))
+        else:
+            parts = str(explicit).split()
+            if len(parts) not in {2, 3}:
+                raise ValueError("cmo must be '<charge> <mult>' or '<charge> <mult> <oxy>'.")
+            charge, mult = map(int, parts[:2])
+
+        self.atoms.info["charge"] = charge
+        self.atoms.info["mult"] = mult
+        self.atoms.info["spin"] = (mult - 1) / 2
+        if use_oxy and len(parts) == 3:
+            self.atoms.info["oxy"] = int(parts[2])
+        else:
+            self.atoms.info.pop("oxy", None)
 
     def _load_external_config(self) -> None:
         config_ref = self.params.get("input")

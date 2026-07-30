@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ..interface import RespConfig, set_method
+from ..chargefit import ChargeFitConfig, build_charge_fit_config
 from ..QMInterface import QMReferenceConfig, build_qm_reference_config
 from ..TorsionFit import TorsionFitParams, build_torsion_fit_params
 
@@ -21,7 +21,7 @@ class NCAAAbinitioConfig:
     target: str
     charge: int
     mult: int
-    resp: RespConfig
+    charge_fit: ChargeFitConfig
     qm: QMReferenceConfig = field(default_factory=QMReferenceConfig)
     rn: str = "MOL"
     vib_scale: float = 1.0
@@ -45,10 +45,6 @@ def parse_ncaa_abinitio_config(
 
     raw = dict(raw or {})
     raw_prom = raw.get("prom", "ff14SB").strip()
-    resp_backend = raw.get("resp_backend", "gaussian").strip().lower()
-    if resp_backend not in {"gaussian"}:
-        raise ValueError(f"Unsupported RESP backend {resp_backend!r}; expected one of 'gaussian'.")
-
     prom = next((item for item in SUPPORTED_PROM if item.lower() == raw_prom.lower()), None)
     if prom is None:
         raise ValueError(f"Unsupported protein model {raw_prom!r}; expected one of {', '.join(SUPPORTED_PROM)}.")
@@ -79,29 +75,24 @@ def parse_ncaa_abinitio_config(
     torsion._refresh_derived()
 
     qm = build_qm_reference_config(raw)
-    charge_theory, charge_basis = (
-        part.strip() for part in str(raw.get("chg_level", "HF/6-31G(d)")).strip().split("/", 1)
+    charge_fit = build_charge_fit_config(
+        raw,
+        default_method="resp",
+        default_level="HF/6-31G(d)",
+        default_nproc=qm.qm_nproc,
+        default_mem=qm.qm_mem,
     )
+    if charge_fit.method == "none":
+        raise ValueError(
+            "NCAA does not support chg_fit=none because its PDB input has no atomic charges."
+        )
 
     return NCAAAbinitioConfig(
         pdb_path=pdb_path,
         target=target,
         charge=charge,
         mult=mult,
-        resp=RespConfig(
-            qm=set_method(
-                {
-                    "backend": resp_backend,
-                    "theory": charge_theory,
-                    "basis": charge_basis,
-                    "route": raw.get("chg_route", "").strip(),
-                    "nproc": int(raw.get("qm_nproc", 8)),
-                    "mem": int(raw.get("qm_mem", 24)),
-                }
-            ),
-            watm=watm,
-            prom=prom,
-        ),
+        charge_fit=charge_fit,
         qm=qm,
         rn=raw.get("rn", "MOL").strip().upper(),
         vib_scale=float(raw.get("vib_scale", 1.0)),

@@ -11,6 +11,16 @@ from ..calculator_base import CalcABC, hessian_via_double_autograd, register_cal
 from ._common import one_hot_node_attrs, radius_graph_no_pbc
 
 
+def _macepol_atomic_charges(density_coefficients, n_atoms: int) -> np.ndarray:
+    density = density_coefficients.detach().cpu().numpy()
+    density = np.asarray(density, dtype=float)
+    if density.ndim != 2 or density.shape[0] < n_atoms or density.shape[1] < 1:
+        raise ValueError(
+            "MACE-POLAR density coefficients do not contain one monopole per atom."
+        )
+    return density[:n_atoms, 0].copy()
+
+
 # Model name → filename mapping
 _MACEPOL_MODEL_FILES = {
     'macepols': 'macepols.pt',
@@ -42,7 +52,7 @@ class MACEPolCalculator(CalcABC):
     Supports total_charge and total_spin via atoms.info['charge'] and atoms.info['mult'].
     """
 
-    implemented_properties = ['energy', 'forces', 'free_energy', 'hessian']
+    implemented_properties = ['energy', 'forces', 'free_energy', 'hessian', 'charges']
 
     MODEL_NAMES = ('macepols', 'macepolm', 'macepoll')
     MODEL_ENERGY_UNIT = 'eV'
@@ -77,6 +87,7 @@ class MACEPolCalculator(CalcABC):
             solvent: Solvent type.
         """
         super().__init__()
+        self.model_name = str(model).strip().lower()
 
         if model_path is None:
             model_dir = os.path.dirname(os.path.realpath(__file__))
@@ -140,7 +151,7 @@ class MACEPolCalculator(CalcABC):
         # Single forward; positions carry grad only when forces are requested.
         needs_forces = 'forces' in properties
         inputs = self._build_inputs(atoms, requires_grad=needs_forces)
-        total_energy, _, _ = self.model(*inputs)
+        total_energy, _, density_coefficients = self.model(*inputs)
         energy_eV = total_energy.sum().double()
 
         forces_np = None
@@ -155,6 +166,11 @@ class MACEPolCalculator(CalcABC):
             hessian = self.get_hessian(atoms)
 
         self._finalize_results(atoms, energy=energy_eV.item(), forces=forces_np, hessian=hessian)
+        if 'charges' in properties:
+            self.results['charges'] = _macepol_atomic_charges(
+                density_coefficients,
+                len(atoms),
+            )
 
     def _analytic_hessian(self, atoms) -> np.ndarray:
         """Analytic Hessian via autograd. Returns (3N, 3N) np.ndarray in Hartree/Å²."""

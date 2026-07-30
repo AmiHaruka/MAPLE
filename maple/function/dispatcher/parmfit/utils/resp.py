@@ -74,11 +74,14 @@ def _flatten_model_atoms(model: dict) -> list[tuple[dict, dict]]:
     return flatten_model_atoms(model)
 
 
-def _flattened_atoms_and_adjacency(model: dict) -> tuple[list[tuple[dict, dict]], list[dict], dict[int, set[int]]]:
+def _flattened_atoms_and_adjacency(
+    model: dict,
+    bond_pairs: list[tuple[int, int]] | None = None,
+) -> tuple[list[tuple[dict, dict]], list[dict], dict[int, set[int]]]:
     flattened = _flatten_model_atoms(model)
     atoms = [atom for _, atom in flattened]
     adjacency: dict[int, set[int]] = {index: set() for index in range(1, len(atoms) + 1)}
-    for left, right in infer_bond_pairs(model):
+    for left, right in bond_pairs if bond_pairs is not None else infer_bond_pairs(model):
         adjacency[left].add(right)
         adjacency[right].add(left)
     return flattened, atoms, adjacency
@@ -292,9 +295,14 @@ def collect_fixed_charge_constraints(
     return constraints
 
 
-def build_stage2_equivalence_map(model: dict, *, fixed_charge_indices: set[int] | None = None) -> dict[int, int]:
+def build_stage2_equivalence_map(
+    model: dict,
+    *,
+    fixed_charge_indices: set[int] | None = None,
+    bond_pairs: list[tuple[int, int]] | None = None,
+) -> dict[int, int]:
     fixed_charge_indices = fixed_charge_indices or set()
-    _, atoms, adjacency = _flattened_atoms_and_adjacency(model)
+    _, atoms, adjacency = _flattened_atoms_and_adjacency(model, bond_pairs=bond_pairs)
 
     ivary: dict[int, int] = {index: 0 for index in range(1, len(atoms) + 1)}
     for heavy_index, atom in enumerate(atoms, start=1):
@@ -556,10 +564,15 @@ def write_resp_input_files(
     fixchg_resids: list[str] | None = None,
     charge_groups: list[tuple[list[int], float]] | None = None,
     prom: str = "ff14SB",
+    bond_pairs: list[tuple[int, int]] | None = None,
 ) -> RespInputFiles:
     flattened = _flatten_model_atoms(model)
     constraints = collect_fixed_charge_constraints(model, chgmod=chgmod, fixchg_resids=fixchg_resids, prom=prom)
-    ivary_stage2 = build_stage2_equivalence_map(model, fixed_charge_indices=set(constraints))
+    ivary_stage2 = build_stage2_equivalence_map(
+        model,
+        fixed_charge_indices=set(constraints),
+        bond_pairs=bond_pairs,
+    )
 
     resp1_in = Path(workdir) / "resp1.in"
     resp2_in = Path(workdir) / "resp2.in"

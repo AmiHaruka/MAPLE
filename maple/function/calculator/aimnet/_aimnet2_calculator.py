@@ -10,6 +10,16 @@ from ase.calculators.calculator import all_changes
 from ..calculator_base import CalcABC, register_calculator
 
 
+def _aimnet_atomic_charges(model_output, n_atoms: int) -> np.ndarray:
+    charges = model_output["charges"].detach().cpu().numpy()
+    charges = np.asarray(charges, dtype=float).reshape(-1)
+    if charges.size < n_atoms:
+        raise ValueError(
+            f"AIMNet2 returned {charges.size} charges for {n_atoms} atoms."
+        )
+    return charges[:n_atoms].copy()
+
+
 # --------------------------------------------
 # Build dense neighbor list (N+1, M) sentinel padded
 # --------------------------------------------
@@ -65,7 +75,7 @@ def maybe_pad_dim0(a: torch.Tensor, N: int, value=0.0) -> torch.Tensor:
 # ==========================================================
 @register_calculator
 class AIMNet2Calculator(CalcABC):
-    implemented_properties = ['energy', 'forces', 'free_energy', 'hessian']
+    implemented_properties = ['energy', 'forces', 'free_energy', 'hessian', 'charges']
 
     MODEL_NAMES = ('aimnet2', 'aimnet2nse')
     MODEL_ENERGY_UNIT = 'eV'
@@ -97,6 +107,7 @@ class AIMNet2Calculator(CalcABC):
                 ):
         super().__init__()
         self.device = device
+        self.model_name = str(model).strip().lower()
 
         # Load model
         if model_path is None:
@@ -162,7 +173,9 @@ class AIMNet2Calculator(CalcABC):
         data = self._build_data(coord, atoms)
 
         # Pure model energy in eV; _finalize_results handles eV→Ha + solvent.
-        energy_eV = self._forward_energy(data)
+        with torch.jit.optimized_execution(False):
+            model_output = self.model(data)
+        energy_eV = model_output['energy'].sum()
 
         if 'forces' in properties:
             grad_full = torch.autograd.grad(
@@ -182,6 +195,8 @@ class AIMNet2Calculator(CalcABC):
             hessian = self.get_hessian(atoms)
 
         self._finalize_results(atoms, energy=energy_eV.item(), forces=forces_np, hessian=hessian)
+        if 'charges' in properties:
+            self.results['charges'] = _aimnet_atomic_charges(model_output, len(atoms))
 
     def _build_data(self, coord: torch.Tensor, atoms) -> Dict[str, torch.Tensor]:
         Z = torch.tensor(atoms.get_atomic_numbers(), dtype=torch.int32, device=self.device)

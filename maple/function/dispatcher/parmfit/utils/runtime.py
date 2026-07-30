@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from copy import deepcopy
 from dataclasses import dataclass
+from pathlib import Path
 import shutil
 import subprocess as sp
 from typing import Optional
@@ -15,6 +16,7 @@ from ase import Atoms
 from . import interface
 from . import resp
 from .interface import QMMethod
+from .readparm import parse_mol2
 from .Scan.optimizer import LBFGS, LBFGSParams
 
 
@@ -217,6 +219,64 @@ def _run_external_command(args: list[str], *, cwd: str) -> None:
         stdout = (result.stdout or "").strip()
         detail = stderr or stdout or f"return code {result.returncode}"
         raise RuntimeError(f"External command failed: {' '.join(args)}\n{detail}")
+
+
+def run_antechamber_charge_method(
+    input_mol2: str,
+    workdir: str,
+    *,
+    method: str,
+    total_charge: int,
+    multiplicity: int,
+) -> tuple[np.ndarray, str, str]:
+    """Run an arbitrary Antechamber charge method and return its MOL2 charges."""
+    executable = shutil.which("antechamber")
+    if executable is None:
+        raise RuntimeError("Required external program 'antechamber' was not found.")
+    work_path = Path(workdir)
+    work_path.mkdir(parents=True, exist_ok=True)
+    output_name = "antechamber_charged.mol2"
+    args = [
+        executable,
+        "-i",
+        os.path.abspath(input_mol2),
+        "-fi",
+        "mol2",
+        "-o",
+        output_name,
+        "-fo",
+        "mol2",
+        "-c",
+        str(method),
+        "-nc",
+        str(int(total_charge)),
+        "-m",
+        str(int(multiplicity)),
+        "-at",
+        "gaff2",
+        "-seq",
+        "n",
+        "-pf",
+        "y",
+    ]
+    completed = sp.run(
+        args,
+        cwd=str(work_path),
+        capture_output=True,
+        text=True,
+    )
+    stderr = completed.stderr or ""
+    if completed.returncode != 0:
+        detail = stderr.strip() or (completed.stdout or "").strip()
+        raise RuntimeError(f"antechamber charge fitting failed:\n{detail}")
+    output_path = work_path / output_name
+    if not output_path.is_file():
+        raise FileNotFoundError(
+            f"antechamber did not create the expected MOL2 file: {output_path}"
+        )
+    topology = parse_mol2(str(output_path))
+    charges = np.asarray([atom.charge for atom in topology.atoms], dtype=float)
+    return charges, str(output_path.resolve()), stderr
 
 
 def _resp_paths(output: str, *, label: str = "metal_site_resp") -> dict[str, str]:

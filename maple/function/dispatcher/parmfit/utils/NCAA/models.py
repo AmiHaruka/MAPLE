@@ -352,7 +352,7 @@ def minimize_conformer(
     )
 
 
-def build_resp_confs(
+def build_charge_conformers(
     reference_model: dict,
     *,
     chirality: str,
