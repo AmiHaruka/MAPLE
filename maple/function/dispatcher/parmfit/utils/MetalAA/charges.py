@@ -2,18 +2,29 @@
 
 from __future__ import annotations
 
-from ..structure import CHARGED_STANDARD_RESIDUES, get_resid_key
+from ..ionparams import infer_ion_identity
+from ..structure import get_resid_key
+
+
+def residue_net_charge(residue: dict) -> float:
+    if "formal_charge" in residue:
+        return float(residue["formal_charge"])
+    if "net_charge" in residue:
+        return float(residue["net_charge"])
+    if residue.get("kind") == "ion":
+        return float(infer_ion_identity(residue)[1])
+    return 0.0
 
 
 def infer_model_charge(base_charge: int, model: dict) -> int:
-    charge = int(base_charge)
+    charge = float(base_charge)
     target_key = model.get("target_key")
     for residue in model["residues"]:
         residue_key = get_resid_key(residue)
         if residue_key == target_key:
             continue
-        charge += CHARGED_STANDARD_RESIDUES.get(residue["resname"].upper(), 0)
-    return charge
+        charge += residue_net_charge(residue)
+    return int(round(charge))
 
 
 def project_resp_charges_onto_site_model(site_model: dict, charged_large_model: dict) -> tuple[dict, list[str]]:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from collections import OrderedDict, defaultdict
+from dataclasses import dataclass, field
 from typing import Optional
 
 from ase import Atoms
@@ -61,18 +62,29 @@ def _resolve_pdb_path(file_path: str, base_dir: Optional[str] = None) -> str:
     return resolved
 
 
-def _infer_pdb_element(atom_name: str, element_field: str = "") -> str:
+def _infer_pdb_element(
+    atom_name: str,
+    element_field: str = "",
+    *,
+    record: str = "",
+    resname: str = "",
+) -> str:
     field = element_field.strip()
     if field:
         return field[:2].strip().capitalize()
 
-    stripped = atom_name.strip()
+    raw_name = atom_name[:4].ljust(4)
+    stripped = raw_name.strip()
     letters = "".join(ch for ch in stripped if ch.isalpha())
     if not letters:
         return "X"
-    if len(letters) >= 2 and letters[:2].upper() in {"CL", "BR", "NA", "MG", "ZN", "FE", "MN", "CO", "NI", "CU"}:
+    two_letter = {"CL", "BR", "NA", "MG", "ZN", "FE", "MN", "CO", "NI", "CU", "CA", "SE"}
+    token = letters.upper()
+    if record.upper() in {"HETATM", "HEATOM"} and token[:2] == resname.strip().upper()[:2] and token[:2] in two_letter:
+        return token[:2].capitalize()
+    if raw_name[0].isalpha() and len(token) >= 2 and token[:2] in two_letter:
         return letters[:2].capitalize()
-    return letters[0].upper()
+    return token[0]
 
 
 def _pdb_atoms_to_ase(atoms: list[dict], template_lines: list[str]) -> Atoms:
@@ -164,7 +176,12 @@ class PDBReader:
                 current_template.append(line)
                 current_atoms.append(
                     {
-                        "element": _infer_pdb_element(atom_name, line[76:78]),
+                        "element": _infer_pdb_element(
+                            line[12:16],
+                            line[76:78],
+                            record=record,
+                            resname=line[17:20],
+                        ),
                         "xyz": parse_pdb_coord(line),
                     }
                 )
@@ -300,18 +317,42 @@ def _parse_link_line(line: str) -> Optional[dict]:
     }
 
 
-def read_pdb(path: str, keep_altloc: str = "A", model: Optional[int] = None) -> dict:
+@dataclass(frozen=True)
+class PDBReadDiagnostics:
+    matched: int = 0
+    backbone_only: int = 0
+    unmatched: int = 0
+    warnings: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
+class PDBReadResult:
+    structure: dict
+    diagnostics: PDBReadDiagnostics
+
+
+def _read_pdb_records(
+    path: str,
+    keep_altloc: str = "A",
+    model: Optional[int] = None,
+    altloc_selectors: list[str] | None = None,
+) -> dict:
     from maple.function.dispatcher.parmfit.utils import structure as structure_utils
 
     residues_by_key: OrderedDict[tuple[str, int, str], dict] = OrderedDict()
     conect: dict[int, set[int]] = defaultdict(set)
     raw_links: list[dict] = []
-    serial_to_residue: dict[int, dict] = {}
-    serial_to_atom: dict[int, dict] = {}
+    raw_serial_to_atoms: dict[int, list[dict]] = defaultdict(list)
 
     current_model = 1
     target_model = model
     saw_model = False
+    in_model = False
+    requested_altlocs = [
+        selector
+        for text in altloc_selectors or ()
+        if (selector := structure_utils.parse_selector(text))["altloc"]
+    ]
 
     with open(path, "r", encoding="utf-8", errors="replace") as handle:
         for raw in handle:
@@ -320,10 +361,31 @@ def read_pdb(path: str, keep_altloc: str = "A", model: Optional[int] = None) -> 
 
             if record == "MODEL":
                 saw_model = True
+                in_model = True
                 model_field = line[10:14].strip()
                 current_model = int(model_field) if model_field else current_model
                 if target_model is None:
                     target_model = current_model
+                continue
+
+            if record == "ENDMDL":
+                in_model = False
+                continue
+
+            if record == "LINK":
+                if not in_model or current_model == target_model:
+                    parsed = _parse_link_line(line)
+                    if parsed is not None:
+                        raw_links.append(parsed)
+                continue
+
+            if record == "CONECT":
+                if not in_model or current_model == target_model:
+                    root, neighbors = _parse_conect_line(line)
+                    if root is not None:
+                        for neighbor in neighbors:
+                            conect[root].add(neighbor)
+                            conect[neighbor].add(root)
                 continue
 
             if target_model is None:
@@ -332,28 +394,10 @@ def read_pdb(path: str, keep_altloc: str = "A", model: Optional[int] = None) -> 
             if saw_model and current_model != target_model:
                 continue
 
-            if record in {"ENDMDL", "END", "TER"}:
-                continue
-
-            if record == "LINK":
-                parsed = _parse_link_line(line)
-                if parsed is not None:
-                    raw_links.append(parsed)
-                continue
-
-            if record == "CONECT":
-                root, neighbors = _parse_conect_line(line)
-                if root is not None:
-                    for neighbor in neighbors:
-                        conect[root].add(neighbor)
-                        conect[neighbor].add(root)
+            if record in {"END", "TER"}:
                 continue
 
             if record not in {"ATOM", "HETATM", "HEATOM"}:
-                continue
-
-            altloc = line[16].strip()
-            if altloc and altloc not in {"A", keep_altloc}:
                 continue
 
             chain = line[21].strip() or "_"
@@ -367,51 +411,117 @@ def read_pdb(path: str, keep_altloc: str = "A", model: Optional[int] = None) -> 
                     "resseq": resseq,
                     "icode": icode,
                     "resname": line[17:20].strip(),
-                    "atoms": {},
+                    "source_resname": line[17:20].strip(),
+                    "atoms": [],
+                    "_altloc_sites": defaultdict(list),
                     "_index": len(residues_by_key),
                 }
                 residues_by_key[key] = residue
 
-            atom_name = line[12:16].strip()
+            raw_atom_name = line[12:16]
+            atom_name = raw_atom_name.strip()
             occ_field = line[54:60].strip()
             atom = {
-                "serial": int(line[6:11]),
+                "serial": 0,
+                "_pdb_serial": int(line[6:11]),
                 "name": atom_name,
-                "element": structure_utils._infer_element(atom_name, line[76:78]),
+                "source_name": atom_name,
+                "element": _infer_pdb_element(
+                    raw_atom_name,
+                    line[76:78],
+                    record=record,
+                    resname=line[17:20],
+                ).upper(),
                 "xyz": np.array(parse_pdb_coord(line), dtype=float),
                 "record": "HETATM" if record == "HEATOM" else record,
-                "altloc": altloc,
+                "altloc": line[16].strip().upper(),
                 "occ": float(occ_field) if occ_field else 1.0,
             }
-            current = residue["atoms"].get(atom_name)
-            if current is None or atom["occ"] >= current["occ"]:
-                residue["atoms"][atom_name] = atom
-                serial_to_residue[atom["serial"]] = residue
-                serial_to_atom[atom["serial"]] = atom
+            residue["_altloc_sites"][raw_atom_name].append(atom)
 
     residues: list[dict] = []
+    serial_to_residue: dict[int, dict] = {}
+    serial_to_atom: dict[int, dict] = {}
+    next_serial = 1
     for residue in residues_by_key.values():
-        residue["atoms"] = sorted(residue["atoms"].values(), key=lambda atom: atom["serial"])
-        residue["kind"] = structure_utils.classify_kind(residue)
+        matching_selectors = [
+            selector
+            for selector in requested_altlocs
+            if selector["resseq"] == residue["resseq"]
+            and (selector.get("chain") is None or selector["chain"] == residue["chain"])
+            and (
+                selector.get("resname") is None
+                or selector["resname"] == residue["source_resname"].upper()
+            )
+        ]
+        requested = {selector["altloc"] for selector in matching_selectors}
+        if len(requested) > 1:
+            raise ValueError(f"Conflicting altloc selectors for {residue['chain']}{residue['resseq']}.")
+        available = {
+            atom["altloc"]
+            for candidates in residue["_altloc_sites"].values()
+            for atom in candidates
+            if atom["altloc"]
+        }
+        if requested:
+            selected_altloc = requested.pop()
+            if selected_altloc not in available:
+                raise ValueError(
+                    f"Requested altloc {selected_altloc} was not found for "
+                    f"{residue['chain']}{residue['resseq']}:{residue['source_resname']}."
+                )
+        elif keep_altloc.upper() in available:
+            selected_altloc = keep_altloc.upper()
+        elif available:
+            occupancy = {
+                label: sum(
+                    atom["occ"]
+                    for candidates in residue["_altloc_sites"].values()
+                    for atom in candidates
+                    if atom["altloc"] == label
+                )
+                for label in available
+            }
+            selected_altloc = max(sorted(available), key=occupancy.get)
+        else:
+            selected_altloc = ""
+
+        selected_atoms: list[dict] = []
+        for candidates in residue.pop("_altloc_sites").values():
+            compatible = [atom for atom in candidates if atom["altloc"] == selected_altloc]
+            if not compatible:
+                compatible = [atom for atom in candidates if not atom["altloc"]]
+            if compatible:
+                selected_atoms.append(max(compatible, key=lambda atom: atom["occ"]))
+        residue["atoms"] = selected_atoms
+        residue["selected_altloc"] = selected_altloc
+        for atom in residue["atoms"]:
+            atom["serial"] = next_serial
+            raw_serial_to_atoms[atom["_pdb_serial"]].append(atom)
+            serial_to_residue[next_serial] = residue
+            serial_to_atom[next_serial] = atom
+            next_serial += 1
         residue["coords"] = np.asarray([atom["xyz"] for atom in residue["atoms"]], dtype=float)
         residues.append(residue)
 
     explicit_pairs: set[tuple[int, int]] = set()
     for root, neighbors in conect.items():
         for neighbor in neighbors:
-            if root in serial_to_atom and neighbor in serial_to_atom:
-                explicit_pairs.add(structure_utils._bond_pair(root, neighbor))
+            left_atoms = raw_serial_to_atoms.get(root, ())
+            right_atoms = raw_serial_to_atoms.get(neighbor, ())
+            if len(left_atoms) == 1 and len(right_atoms) == 1:
+                explicit_pairs.add(structure_utils._bond_pair(left_atoms[0]["serial"], right_atoms[0]["serial"]))
 
     for link in raw_links:
         left_selector = {
             "chain": link["left"]["chain"],
             "resseq": link["left"]["resseq"],
-            "icode": link["left"]["icode"],
+            "_icode": link["left"]["icode"],
         }
         right_selector = {
             "chain": link["right"]["chain"],
             "resseq": link["right"]["resseq"],
-            "icode": link["right"]["icode"],
+            "_icode": link["right"]["icode"],
         }
         left_resid = next((res for res in residues if structure_utils.match_resid(res, left_selector)), None)
         right_resid = next((res for res in residues if structure_utils.match_resid(res, right_selector)), None)
@@ -423,11 +533,250 @@ def read_pdb(path: str, keep_altloc: str = "A", model: Optional[int] = None) -> 
             continue
         explicit_pairs.add(structure_utils._bond_pair(left_atom["serial"], right_atom["serial"]))
 
-    return {
+    structure = {
         "path": path,
         "residues": residues,
         "serial_to_residue": serial_to_residue,
         "serial_to_atom": serial_to_atom,
+        "pdb_serial_to_serial": {
+            pdb_serial: atoms[0]["serial"]
+            for pdb_serial, atoms in raw_serial_to_atoms.items()
+            if len(atoms) == 1
+        },
         "explicit_pairs": explicit_pairs,
-        "_pair_cache": {},
     }
+    for atom in serial_to_atom.values():
+        atom.pop("_pdb_serial", None)
+    return structure
+
+
+def _candidate_pairs(structure: dict) -> tuple[set[tuple[int, int]], set[tuple[int, int]]]:
+    from scipy.spatial import cKDTree
+
+    from maple.function.dispatcher.parmfit.utils.structure import (
+        ION_ELEMENTS,
+        METAL_SITE_DONOR_ELEMENTS,
+        covalent_cutoff,
+    )
+
+    atoms = list(structure["serial_to_atom"].values())
+    if len(atoms) < 2:
+        return set(structure["explicit_pairs"]), set()
+    positions = np.asarray([atom["xyz"] for atom in atoms], dtype=float)
+    tree = cKDTree(positions)
+    covalent: set[tuple[int, int]] = set()
+    coordination: set[tuple[int, int]] = set()
+    for left_index, right_index in tree.query_pairs(4.0):
+        left = atoms[left_index]
+        right = atoms[right_index]
+        distance = float(np.linalg.norm(left["xyz"] - right["xyz"]))
+        left_is_metal = left["element"] in ION_ELEMENTS
+        right_is_metal = right["element"] in ION_ELEMENTS
+        pair = tuple(sorted((left["serial"], right["serial"])))
+        if left_is_metal != right_is_metal:
+            donor = right if left_is_metal else left
+            if donor["element"] in METAL_SITE_DONOR_ELEMENTS and distance <= 4.0:
+                coordination.add(pair)
+            continue
+        if not left_is_metal and distance <= covalent_cutoff(left, right):
+            covalent.add(pair)
+    for pair in structure["explicit_pairs"]:
+        left = structure["serial_to_atom"][pair[0]]
+        right = structure["serial_to_atom"][pair[1]]
+        if (left["element"] in ION_ELEMENTS) != (right["element"] in ION_ELEMENTS):
+            coordination.add(pair)
+        else:
+            covalent.add(pair)
+    return covalent, coordination
+
+
+def _polymer_connection(residue: dict, serial: int) -> str | None:
+    connect_atoms = residue.get("connect_atoms", ())
+    if connect_atoms:
+        if len(connect_atoms) >= 1 and serial == connect_atoms[0]:
+            return "head"
+        if len(connect_atoms) >= 2 and serial == connect_atoms[1]:
+            return "tail"
+        return None
+    atom = next(atom for atom in residue["atoms"] if atom["serial"] == serial)
+    if residue.get("kind") == "protein":
+        role = atom.get("role", atom["name"])
+        if role == "N":
+            return "head"
+        if role == "C":
+            return "tail"
+    return None
+
+
+def _cross_residue_bond_allowed(structure: dict, pair: tuple[int, int]) -> bool:
+    left_atom = structure["serial_to_atom"][pair[0]]
+    right_atom = structure["serial_to_atom"][pair[1]]
+    left_residue = structure["serial_to_residue"][pair[0]]
+    right_residue = structure["serial_to_residue"][pair[1]]
+    if left_atom["element"] == right_atom["element"] == "S":
+        return (
+            left_residue.get("kind") == right_residue.get("kind") == "protein"
+            and left_atom.get("role", left_atom["name"]) == "SG"
+            and right_atom.get("role", right_atom["name"]) == "SG"
+            and float(np.linalg.norm(left_atom["xyz"] - right_atom["xyz"])) <= 2.3
+        )
+    if left_residue.get("kind") != right_residue.get("kind"):
+        return False
+    if left_residue.get("kind") not in {"protein", "nucleic"}:
+        return False
+    if left_residue["chain"] != right_residue["chain"]:
+        return False
+    left_index = int(left_residue["_index"])
+    right_index = int(right_residue["_index"])
+    lower, upper = sorted((left_index, right_index))
+    if any(
+        residue.get("kind") == left_residue.get("kind")
+        and residue["chain"] == left_residue["chain"]
+        and lower < int(residue["_index"]) < upper
+        for residue in structure["residues"]
+    ):
+        return False
+    left_connection = _polymer_connection(left_residue, pair[0])
+    right_connection = _polymer_connection(right_residue, pair[1])
+    if {left_connection, right_connection} != {"head", "tail"}:
+        return False
+    if left_residue.get("kind") == "protein":
+        return float(np.linalg.norm(left_atom["xyz"] - right_atom["xyz"])) <= 1.65
+    return True
+
+
+def read_pdb_result(
+    path: str,
+    keep_altloc: str = "A",
+    model: Optional[int] = None,
+    *,
+    prom: str = "ff14SB",
+    altloc_selectors: list[str] | None = None,
+) -> PDBReadResult:
+    from maple.function.dispatcher.parmfit.utils.amber_templates import load_amber_template_registry
+    from maple.function.dispatcher.parmfit.utils.residue_matcher import (
+        apply_template_match,
+        match_residue_template,
+        match_peptide_backbone,
+    )
+    from maple.function.dispatcher.parmfit.utils.structure import classify_kind
+
+    structure = _read_pdb_records(
+        path,
+        keep_altloc=keep_altloc,
+        model=model,
+        altloc_selectors=altloc_selectors,
+    )
+    candidate_pairs, coordination_pairs = _candidate_pairs(structure)
+    registry = load_amber_template_registry(prom)
+    bond_pairs: set[tuple[int, int]] = set()
+    matched = 0
+    backbone_only = 0
+    unmatched = 0
+    warnings: list[str] = []
+    pending: list[dict] = []
+
+    for residue in structure["residues"]:
+        initial_kind = classify_kind(residue)
+        if initial_kind in {"water", "ion"}:
+            residue["kind"] = initial_kind
+            if initial_kind == "water":
+                residue["net_charge"] = 0
+            serials = {atom["serial"] for atom in residue["atoms"]}
+            bond_pairs.update(pair for pair in candidate_pairs if pair[0] in serials and pair[1] in serials)
+            continue
+        match = match_residue_template(residue, candidate_pairs, registry)
+        if match is not None:
+            bond_pairs.update(apply_template_match(residue, match))
+            matched += 1
+            continue
+        pending.append(residue)
+
+    for residue in pending:
+        before = [
+            other
+            for other in structure["residues"]
+            if other.get("kind") not in {"water", "ion"}
+            and other["chain"] == residue["chain"]
+            and int(other["_index"]) < int(residue["_index"])
+        ]
+        after = [
+            other
+            for other in structure["residues"]
+            if other.get("kind") not in {"water", "ion"}
+            and other["chain"] == residue["chain"]
+            and int(other["_index"]) > int(residue["_index"])
+        ]
+        previous = max(before, key=lambda other: int(other["_index"])) if before else None
+        following = min(after, key=lambda other: int(other["_index"])) if after else None
+        target_serials = {atom["serial"] for atom in residue["atoms"]}
+        previous_carbons = {
+            atom["serial"]
+            for atom in previous["atoms"]
+            if atom["element"] == "C"
+            and any(tuple(sorted((atom["serial"], serial))) in candidate_pairs for serial in target_serials)
+        } if previous else set()
+        next_nitrogens = {
+            atom["serial"]
+            for atom in following["atoms"]
+            if atom["element"] == "N"
+            and any(tuple(sorted((atom["serial"], serial))) in candidate_pairs for serial in target_serials)
+        } if following else set()
+        if match_peptide_backbone(
+            residue,
+            candidate_pairs,
+            previous_carbons=previous_carbons,
+            next_nitrogens=next_nitrogens,
+        ):
+            residue["kind"] = "protein"
+            residue["net_charge"] = 0
+            backbone_only += 1
+            warnings.append(f"{residue['chain']}{residue['resseq']}:{residue['resname']} matched peptide backbone only; net charge defaults to 0.")
+        else:
+            residue["kind"] = classify_kind(residue)
+            unmatched += 1
+        serials = {atom["serial"] for atom in residue["atoms"]}
+        bond_pairs.update(pair for pair in candidate_pairs if pair[0] in serials and pair[1] in serials)
+
+    serial_to_residue = structure["serial_to_residue"]
+    for pair in candidate_pairs:
+        left_residue = serial_to_residue[pair[0]]
+        right_residue = serial_to_residue[pair[1]]
+        if left_residue is right_residue:
+            continue
+        if _cross_residue_bond_allowed(structure, pair):
+            bond_pairs.add(pair)
+    bond_pairs.update(
+        pair
+        for pair in structure["explicit_pairs"]
+        if pair not in coordination_pairs
+    )
+    structure["bond_pairs"] = bond_pairs
+    structure["coordination_pairs"] = coordination_pairs
+    structure["coordination_cutoff"] = 4.0
+    return PDBReadResult(
+        structure=structure,
+        diagnostics=PDBReadDiagnostics(
+            matched=matched,
+            backbone_only=backbone_only,
+            unmatched=unmatched,
+            warnings=tuple(warnings),
+        ),
+    )
+
+
+def read_pdb(
+    path: str,
+    keep_altloc: str = "A",
+    model: Optional[int] = None,
+    *,
+    prom: str = "ff14SB",
+    altloc_selectors: list[str] | None = None,
+) -> dict:
+    return read_pdb_result(
+        path,
+        keep_altloc=keep_altloc,
+        model=model,
+        prom=prom,
+        altloc_selectors=altloc_selectors,
+    ).structure

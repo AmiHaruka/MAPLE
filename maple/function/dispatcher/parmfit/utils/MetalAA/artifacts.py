@@ -10,6 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
+from ..amber_templates import required_template_leaprcs
 from ..ionparams import infer_ion_frcmod_name
 from ..model import copy_structure_subset, flatten_model_atoms, infer_bond_pairs, rebuild_model_index, write_model_pdb
 from ..resp import lookup_standard_atom_entry, lookup_standard_residue_entry, write_resp_mol2
@@ -289,7 +290,7 @@ def _lookup_reference_entry(
 
 
 def _resolve_old_type(residue: dict, atom: dict, *, watm: str, prom: str) -> str:
-    explicit = str(atom.get("atom_type", "")).strip()
+    explicit = str(atom.get("atom_type") or atom.get("amber_type") or "").strip()
     if explicit:
         return explicit
 
@@ -1129,7 +1130,6 @@ def _write_residue_mol2_files(
             "path": site_model.get("path"),
             "residues": [export_residue],
             "explicit_pairs": set(),
-            "_pair_cache": {},
         }
         rebuild_model_index(local_model)
         atom_type_overrides: dict[int, str] = {}
@@ -1278,6 +1278,7 @@ def _build_tleap_lines(
         "source leaprc.gaff2\n",
         f"source leaprc.water.{watm}\n",
     ]
+    lines[1:1] = [f"source {leaprc}\n" for leaprc in required_template_leaprcs(structure["residues"], prom)]
     lines.append("addAtomTypes {\n")
     for row in site_typing.atom_type_rows:
         element = row.element[:1].upper() + row.element[1:].lower()

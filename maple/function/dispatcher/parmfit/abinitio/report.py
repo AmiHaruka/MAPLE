@@ -12,6 +12,28 @@ from ..utils.structure import get_resid_label
 _WIDTH = 70
 
 
+def format_pdb_read_diagnostics(
+    diagnostics,
+    *,
+    target_charge: tuple[str, int] | None = None,
+) -> list[str]:
+    lines = [
+        "  PDB residue templates: "
+        f"matched={diagnostics.matched}, backbone_only={diagnostics.backbone_only}, unmatched={diagnostics.unmatched}\n"
+    ]
+    resolved_warning = None
+    if target_charge is not None:
+        target_label, charge = target_charge
+        resolved_warning = f"{target_label} matched peptide backbone only; net charge defaults to 0."
+        lines.append(f"  PDB target charge: {target_label} = {charge} (from your input)\n")
+    lines.extend(
+        f"  [PDB WARNING] {warning}\n"
+        for warning in diagnostics.warnings
+        if warning != resolved_warning
+    )
+    return lines
+
+
 @dataclass(frozen=True)
 class TLeapSummary:
     status: str

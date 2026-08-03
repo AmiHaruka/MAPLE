@@ -57,7 +57,7 @@ def _find_sidechain_anchor(residue: dict) -> dict:
 
     sidechain_candidates: list[tuple[float, dict]] = []
     for atom in residue["atoms"]:
-        if atom["name"] in {"N", "CA", "C", "O"} or atom["element"] == "H":
+        if atom.get("role", atom["name"]) in {"N", "CA", "C", "O", "OXT"} or atom["element"] == "H":
             continue
         delta = get_atom_xyz(atom) - get_atom_xyz(ca_atom)
         distance = float(np.linalg.norm(delta))
@@ -90,6 +90,19 @@ def conformer_targets(chirality: str) -> list[tuple[str, float, float]]:
         return [("alpha", -60.0, -40.0), ("beta", -120.0, -140.0)]
     else:  #chirality == "D"
         return [("alpha", 60.0, 40.0), ("beta", 120.0, 140.0)]
+
+
+def _backbone_n_hydrogens(residue: dict) -> list[dict]:
+    nitrogen = search_atom(residue, "N")
+    return sorted(
+        (
+            atom
+            for atom in residue["atoms"]
+            if atom["element"] == "H"
+            and float(np.linalg.norm(get_atom_xyz(atom) - get_atom_xyz(nitrogen))) <= covalent_cutoff(nitrogen, atom)
+        ),
+        key=lambda atom: atom["serial"],
+    )
 
 
 def build_capped_ncaa_model(
@@ -285,8 +298,7 @@ def minimize_conformer(
     }
     phi_extra_indices = {
         index_by_serial[atom["serial"]]
-        for atom in target_residue["atoms"]
-        if atom["name"] in {"H", "HN", "H1", "H2", "H3"}
+        for atom in _backbone_n_hydrogens(target_residue)
     }
     psi_extra_indices = {
         index_by_serial[atom["serial"]]
@@ -317,9 +329,19 @@ def minimize_conformer(
     nme_residue = model["residues"][2]
     nnm_idx,hnm_idx = index_by_serial[search_atom(nme_residue, "NNM")["serial"]], index_by_serial[search_atom(nme_residue, "HNM")["serial"]]
     positions = np.asarray(minimized_atoms.get_positions(), dtype=float)
-    nme_nh_distance = float(np.linalg.norm(positions[nnm_idx] - positions[hnm_idx]))
+    nh_pairs = [
+        (
+            index_by_serial[search_atom(target_residue, "N")["serial"]],
+            index_by_serial[hydrogen["serial"]],
+        )
+        for hydrogen in _backbone_n_hydrogens(target_residue)
+    ]
+    nh_pairs.append((nnm_idx, hnm_idx))
     constraint = FixInternals(
-        bonds=[[nme_nh_distance, [nnm_idx, hnm_idx]]],
+        bonds=[
+            [float(np.linalg.norm(positions[n_idx] - positions[h_idx])), [n_idx, h_idx]]
+            for n_idx, h_idx in nh_pairs
+        ],
         dihedrals_deg=[
             [resolved_phi, list(index_map["phi"])],
             [resolved_psi, list(index_map["psi"])],
@@ -464,14 +486,20 @@ def _ncaa_residue_r_group_indices(representative_model: dict) -> tuple[set[int],
     backbone_indices = {
         residue_start + offset
         for offset, atom in enumerate(residue_atoms)
-        if atom["name"] in {"N", "CA", "C", "O"}
+        if atom.get("role", atom["name"]) in {"N", "CA", "C", "O", "OXT"}
     }
 
-    ca_local_index = next(index for index, atom in enumerate(residue_atoms, start=1) if atom["name"] == "CA")
+    ca_local_index = next(
+        index
+        for index, atom in enumerate(residue_atoms, start=1)
+        if atom.get("role", atom["name"]) == "CA"
+    )
     sidechain_anchors = [
         neighbor
         for neighbor in sorted(local_adjacency[ca_local_index])
-        if residue_atoms[neighbor - 1]["element"] != "H" and residue_atoms[neighbor - 1]["name"] not in {"N", "C", "O"}
+        if residue_atoms[neighbor - 1]["element"] != "H"
+        and residue_atoms[neighbor - 1].get("role", residue_atoms[neighbor - 1]["name"])
+        not in {"N", "C", "O", "OXT"}
     ]
     if not sidechain_anchors:
         raise ValueError(
@@ -484,7 +512,7 @@ def _ncaa_residue_r_group_indices(representative_model: dict) -> tuple[set[int],
     while stack:
         local_index = stack.pop()
         atom = residue_atoms[local_index - 1]
-        if atom["element"] == "H" or atom["name"] in {"N", "CA", "C", "O"}:
+        if atom["element"] == "H" or atom.get("role", atom["name"]) in {"N", "CA", "C", "O", "OXT"}:
             continue
         r_group_indices.add(residue_start + local_index - 1)
         for neighbor in sorted(local_adjacency[local_index]):

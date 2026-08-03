@@ -5,13 +5,14 @@ from typing import Optional
 from ase import Atoms
 
 from ...jobABC import JobABC
-from .report import format_abinitio_summary
-from ..utils.structure import classify_kind, get_resid_label, read_pdb
+from .report import format_abinitio_summary, format_pdb_read_diagnostics
+from ..utils.structure import classify_kind, get_resid_label
 from ..utils.context import find_unique_residue
 from ..utils.MetalAA import parse_metal_abinitio_config, run_metal_abinitio
 from ..utils.NCAA import parse_ncaa_abinitio_config, run_ncaa_abinitio
 
 from maple.function.timer import timer
+from maple.function.read.filereader.pdb_reader import read_pdb_result
 
 
 class Abinitio(JobABC):
@@ -34,11 +35,22 @@ class Abinitio(JobABC):
                 raise ValueError("Ab initio parmfit requires charge and multiplicity on source atoms.")
             oxy = self.atoms.info.get("oxy")
 
-            structure = read_pdb(pdb)
+            altloc_selectors = [target, *raw.get("keep", "").split(), *raw.get("add_resid", "").split()]
+            pdb_result = read_pdb_result(
+                pdb,
+                prom=raw.get("prom", "ff14SB"),
+                altloc_selectors=altloc_selectors,
+            )
+            structure = pdb_result.structure
             target_residue = find_unique_residue(structure, target, label="Target residue")
             target_kind = classify_kind(target_residue)
+            target_charge = None
+            if target_kind == "protein":
+                target_residue["net_charge"] = int(charge)
+                target_charge = (get_resid_label(target_residue), int(charge))
 
             info.append(f"Target: {get_resid_label(target_residue)} ({target_kind})\n")
+            info.extend(format_pdb_read_diagnostics(pdb_result.diagnostics, target_charge=target_charge))
             self.log_info(info)
 
             if target_kind == "ion":

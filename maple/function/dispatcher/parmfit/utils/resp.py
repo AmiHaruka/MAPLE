@@ -8,6 +8,7 @@ from functools import lru_cache
 from pathlib import Path
 import re
 
+from .amber_templates import load_amber_template_registry
 from .context import find_unique_residue
 from .model import flatten_model_atoms, infer_bond_pairs
 from .structure import get_resid_key
@@ -66,10 +67,6 @@ class RespInputFiles:
     resp2_in: str
 
 
-def _params_lib_dir() -> Path:
-    return Path(__file__).resolve().parent.parent / "params" / "leap" / "lib"
-
-
 def _flatten_model_atoms(model: dict) -> list[tuple[dict, dict]]:
     return flatten_model_atoms(model)
 
@@ -100,43 +97,6 @@ def _hydrogen_name_prefix(atom_name: str) -> str:
     return match.group(1) if match is not None else atom_name
 
 
-def _parse_lib_atoms(path: Path) -> dict[str, dict[str, tuple[str, float]]]:
-    residues: dict[str, dict[str, tuple[str, float]]] = {}
-    current_residue: str | None = None
-    in_atoms_table = False
-
-    with open(path, "r", encoding="utf-8", errors="replace") as handle:
-        for raw in handle:
-            line = raw.rstrip("\n")
-            if line.startswith("!entry.") and ".unit.atoms table" in line:
-                match = re.match(r"!entry\.([^.]+)\.unit\.atoms table", line)
-                if match is None:
-                    current_residue = None
-                    in_atoms_table = False
-                    continue
-                current_residue = match.group(1).upper()
-                residues[current_residue] = {}
-                in_atoms_table = True
-                continue
-            if line.startswith("!entry."):
-                in_atoms_table = False
-                current_residue = None
-                continue
-            if not in_atoms_table or current_residue is None:
-                continue
-            stripped = line.strip()
-            if not stripped:
-                continue
-            tokens = re.findall(r'"[^"]*"|\S+', stripped)
-            if len(tokens) < 8:
-                continue
-            atom_name = tokens[0].strip('"')
-            atom_type = tokens[1].strip('"')
-            charge = float(tokens[-1])
-            residues[current_residue][atom_name] = (atom_type, charge)
-    return residues
-
-
 def _library_residue_names(resname: str, category: str) -> list[str]:
     upper = resname.upper()
     names: list[str] = []
@@ -160,16 +120,19 @@ def _library_residue_names(resname: str, category: str) -> list[str]:
 
 @lru_cache(maxsize=4)
 def load_reference_charge_library(prom: str = "ff14SB") -> dict[str, dict[str, dict[str, tuple[str, float]]]]:
-    base = _params_lib_dir()
-    library_files = {
-        "internal": "amino19.lib" if prom == "ff19SB" else "amino12.lib",
-        "nterm": "aminont12.lib",
-        "cterm": "aminoct12.lib",
+    library: dict[str, dict[str, dict[str, tuple[str, float]]]] = {
+        "internal": {},
+        "nterm": {},
+        "cterm": {},
     }
-    return {
-        category: _parse_lib_atoms(base / filename)
-        for category, filename in library_files.items()
-    }
+    for template in load_amber_template_registry(prom).templates:
+        if template.category not in library:
+            continue
+        library[template.category][template.name] = {
+            atom.name: (atom.amber_type, atom.charge)
+            for atom in template.atoms
+        }
+    return library
 
 
 def _reference_category(residue: dict, library: dict[str, dict[str, dict[str, tuple[str, float]]]]) -> str | None:
@@ -271,7 +234,10 @@ def collect_fixed_charge_constraints(
 
     for atom_index, (residue, atom) in enumerate(_flatten_model_atoms(model), start=1):
         residue_key = get_resid_key(residue)
-        entry = _lookup_reference_entry(residue, atom, library)
+        matched_entry = None
+        if residue.get("kind") == "protein" and atom.get("amber_type") and "charge" in atom:
+            matched_entry = (str(atom["amber_type"]), float(atom["charge"]))
+        entry = matched_entry or _lookup_reference_entry(residue, atom, library)
 
         if residue_key in fixed_keys:
             if entry is None:
@@ -284,9 +250,10 @@ def collect_fixed_charge_constraints(
 
         if not allowed_backbone_names:
             continue
-        if _reference_category(residue, library) != "internal":
+        category = residue.get("template_category") or _reference_category(residue, library)
+        if category != "internal":
             continue
-        if not _backbone_atom_matches(atom["name"], allowed_backbone_names):
+        if not _backbone_atom_matches(atom.get("role", atom["name"]), allowed_backbone_names):
             continue
         if entry is None:
             continue
@@ -633,6 +600,8 @@ def _mol2_atom_type(
     explicit = atom.get("atom_type")
     if explicit:
         return str(explicit)
+    if residue.get("kind") == "protein" and atom.get("amber_type"):
+        return str(atom["amber_type"])
     entry = _lookup_reference_entry(residue, atom, library)
     if entry is not None:
         return entry[0].strip() or _default_atom_type(atom)

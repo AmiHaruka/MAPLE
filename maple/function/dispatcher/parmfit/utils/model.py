@@ -42,11 +42,12 @@ def rebuild_model_index(model: dict) -> dict:
             serial_to_residue[atom["serial"]] = residue
     model["serial_to_atom"] = serial_to_atom
     model["serial_to_residue"] = serial_to_residue
-    if "explicit_pairs" in model:
-        model["explicit_pairs"] = {
-            pair for pair in model["explicit_pairs"] if pair[0] in serial_to_atom and pair[1] in serial_to_atom
-        }
-    model["_pair_cache"] = {}
+    for key in ("explicit_pairs", "bond_pairs", "coordination_pairs"):
+        if key in model:
+            model[key] = {
+                pair for pair in model[key] if pair[0] in serial_to_atom and pair[1] in serial_to_atom
+            }
+    model.pop("_pair_cache", None)
     return model
 
 
@@ -60,7 +61,16 @@ def copy_structure_subset(structure: dict, residues: list[dict]) -> dict:
             for pair in structure["explicit_pairs"]
             if pair[0] in structure["serial_to_atom"] and pair[1] in structure["serial_to_atom"]
         },
-        "_pair_cache": {},
+        "bond_pairs": {
+            pair
+            for pair in structure.get("bond_pairs", set())
+            if pair[0] in structure["serial_to_atom"] and pair[1] in structure["serial_to_atom"]
+        },
+        "coordination_pairs": {
+            pair
+            for pair in structure.get("coordination_pairs", set())
+            if pair[0] in structure["serial_to_atom"] and pair[1] in structure["serial_to_atom"]
+        },
     }
     return rebuild_model_index(model)
 
@@ -126,6 +136,8 @@ def _replace_bridge_residues(
         bridge_residue["_index"] = source_residue.get("_index", residue.get("_index", 0))
         rebuilt_residues.append(bridge_residue)
     model["residues"] = rebuilt_residues
+    model.pop("bond_pairs", None)
+    model.pop("coordination_pairs", None)
     rebuild_model_index(model)
 
 
@@ -159,6 +171,8 @@ def _cap_outer_peptide_boundaries(model: dict, structure: dict, *, bond_policy: 
     if not cap_residues:
         return
     model["residues"].extend(cap_residues)
+    model.pop("bond_pairs", None)
+    model.pop("coordination_pairs", None)
     rebuild_model_index(model)
 
 
@@ -228,11 +242,12 @@ def update_model_from_atoms(model: dict, atoms) -> dict:
 
     updated = dict(model)
     updated["residues"] = updated_residues
-    if "explicit_pairs" in model:
-        updated["explicit_pairs"] = set(model["explicit_pairs"])
+    for key in ("explicit_pairs", "bond_pairs", "coordination_pairs"):
+        if key in model:
+            updated[key] = set(model[key])
     updated["serial_to_atom"] = serial_to_atom
     updated["serial_to_residue"] = serial_to_residue
-    updated["_pair_cache"] = {}
+    updated.pop("_pair_cache", None)
     if "charge" not in updated and "charge" in atoms.info:
         updated["charge"] = int(atoms.info["charge"])
     if "mult" not in updated and "mult" in atoms.info:
@@ -271,6 +286,25 @@ def _pair_bonded_without_structure(atom1: dict, atom2: dict) -> bool:
 
 def infer_bond_pairs(model: dict, source_structure: Optional[dict] = None, bond_policy: str = "auto") -> list[tuple[int, int]]:
     atoms = [atom for _, atom in flatten_model_atoms(model)]
+    serial_to_index = {atom["serial"]: index for index, atom in enumerate(atoms, start=1)}
+    if bond_policy == "auto" and len(serial_to_index) == len(atoms):
+        graph_source = source_structure if source_structure is not None and "bond_pairs" in source_structure else model
+        if "bond_pairs" in graph_source:
+            bonds = [
+                tuple(sorted((serial_to_index[left], serial_to_index[right])))
+                for left, right in graph_source["bond_pairs"]
+                if left in serial_to_index and right in serial_to_index
+            ]
+            known_serials = set(graph_source.get("serial_to_atom", serial_to_index))
+            new_indices = [index for index, atom in enumerate(atoms) if atom["serial"] not in known_serials]
+            if not new_indices:
+                return sorted(set(bonds))
+            for left, right in combinations(range(len(atoms)), 2):
+                if left not in new_indices and right not in new_indices:
+                    continue
+                if _pair_bonded_without_structure(atoms[left], atoms[right]):
+                    bonds.append((left + 1, right + 1))
+            return sorted(set(bonds))
     bonds: list[tuple[int, int]] = []
     for left, right in combinations(range(len(atoms)), 2):
         atom1 = atoms[left]
@@ -316,8 +350,8 @@ def build_bond_angle_terms(
         adjacency[left].add(right)
         adjacency[right].add(left)
         atom_types = (
-            atoms[left - 1].get("atom_type", atoms[left - 1]["element"]),
-            atoms[right - 1].get("atom_type", atoms[right - 1]["element"]),
+            atoms[left - 1].get("atom_type") or atoms[left - 1].get("amber_type") or atoms[left - 1]["element"],
+            atoms[right - 1].get("atom_type") or atoms[right - 1].get("amber_type") or atoms[right - 1]["element"],
         )
         bond_terms.append(Bond(atoms=(left, right), atom_types=atom_types))
 
@@ -325,9 +359,9 @@ def build_bond_angle_terms(
     for center, neighbors in adjacency.items():
         for left, right in combinations(sorted(neighbors), 2):
             atom_types = (
-                atoms[left - 1].get("atom_type", atoms[left - 1]["element"]),
-                atoms[center - 1].get("atom_type", atoms[center - 1]["element"]),
-                atoms[right - 1].get("atom_type", atoms[right - 1]["element"]),
+                atoms[left - 1].get("atom_type") or atoms[left - 1].get("amber_type") or atoms[left - 1]["element"],
+                atoms[center - 1].get("atom_type") or atoms[center - 1].get("amber_type") or atoms[center - 1]["element"],
+                atoms[right - 1].get("atom_type") or atoms[right - 1].get("amber_type") or atoms[right - 1]["element"],
             )
             angle_terms.append(Angle(atoms=(left, center, right), atom_types=atom_types))
 

@@ -11,6 +11,7 @@ import re
 import shutil
 
 from .. import interface
+from ..amber_templates import required_template_leaprcs
 from ..chargefit import ChargeFitResult
 from ..ionparams import infer_ion_frcmod_name
 from ..model import write_model_pdb
@@ -282,6 +283,7 @@ def export_ncaa_artifacts(
         prom=config.prom,
         watm=config.watm,
         ionm=config.ionm,
+        template_leaprcs=required_template_leaprcs(structure["residues"], config.prom),
     )
     return artifacts
 
@@ -293,11 +295,10 @@ def write_ncaa_tleap_pdb(
     target_residue: dict,
     rn: str,
 ) -> str:
-    target_resname = str(target_residue.get("resname", "")).upper()
+    target_key = get_resid_key(target_residue)
     residues = []
     for new_resseq, residue in enumerate(sorted(structure["residues"], key=residue_sort_key), start=1):
-        resname = str(residue.get("resname", "")).upper()
-        copied = copy_residue(residue, resname=rn) if resname == target_resname else copy_residue(residue)
+        copied = copy_residue(residue, resname=rn) if get_resid_key(residue) == target_key else copy_residue(residue)
         copied["resseq"] = new_resseq
         residues.append(copied)
     write_model_pdb(path, {"name": "ncaa_tleap_model", "residues": residues})
@@ -314,12 +315,14 @@ def write_ncaa_tleap_input(
     prom: str = "ff14SB",
     watm: str = "tip3p",
     ionm: str = "12_6",
+    template_leaprcs: list[str] | None = None,
 ) -> None:
     lines = [
         f"source leaprc.protein.{prom}\n",
         "source leaprc.gaff2\n",
         f"source leaprc.water.{watm}\n",
     ]
+    lines[1:1] = [f"source {leaprc}\n" for leaprc in template_leaprcs or ()]
     lines.extend(
         format_tleap_add_atom_types_lines(
             [(row.atom_name, row.element, row.old_type, row.maple_type) for row in atom_type_rows]

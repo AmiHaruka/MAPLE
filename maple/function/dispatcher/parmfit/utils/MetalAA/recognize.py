@@ -14,7 +14,6 @@ from ..context import collect_environment_residues, find_prev_next_peptide_resid
 from ..readparm import Mol2Topology, parse_mol2
 from ..runtime import parmfit_output_dir
 from ..structure import (
-    CHARGED_STANDARD_RESIDUES,
     METAL_SITE_DONOR_ELEMENTS,
     get_atom_xyz,
     get_resid_info,
@@ -115,7 +114,6 @@ def _inject_atom_types_and_bonds(
         right_name = atom_id_to_name[bond.atom2]
         bond_name_pairs.add(tuple(sorted((left_name, right_name))))
     residue["_cfmol2_bond_name_pairs"] = bond_name_pairs
-    structure.setdefault("_pair_cache", {}).clear()
 
 
 def apply_cfmol2_templates(structure: dict, cfmol2_paths: list[str]) -> list[CofactorMol2Template]:
@@ -164,7 +162,7 @@ def build_cofactor_orig_frcmods(output: str, templates: list[CofactorMol2Templat
 
 
 def _residue_has_formal_charge_hint(residue: dict) -> bool:
-    return residue["resname"].upper() in CHARGED_STANDARD_RESIDUES
+    return bool(residue.get("formal_charge") or residue.get("net_charge"))
 
 
 def find_metal_site_core(
@@ -192,6 +190,14 @@ def find_metal_site_core(
     donor_atoms: dict[tuple[str, int, str], list[str]] = {}
     explicit_pairs = list(set_bonded or [])
     if explicit_pairs:
+        pdb_serial_to_serial = structure.get("pdb_serial_to_serial", {})
+        explicit_pairs = [
+            (
+                int(pdb_serial_to_serial.get(left, left)),
+                int(pdb_serial_to_serial.get(right, right)),
+            )
+            for left, right in explicit_pairs
+        ]
         metal_serial = int(metal_atom["serial"])
         atom_by_serial = {
             int(atom["serial"]): (residue, atom)
@@ -223,6 +229,13 @@ def find_metal_site_core(
         donor_atoms = {key: sorted(names) for key, names in donor_name_sets.items()}
         auto_residues = sorted(auto_by_key.values(), key=residue_sort_key)
     else:
+        metal_serial = int(metal_atom["serial"])
+        coordination_serials = {
+            right if left == metal_serial else left
+            for left, right in structure.get("coordination_pairs", set())
+            if left == metal_serial or right == metal_serial
+        }
+        use_coordination_graph = donor_cutoff <= float(structure.get("coordination_cutoff", 0.0))
         for residue in structure["residues"]:
             if get_resid_key(residue) == get_resid_key(target_residue):
                 continue
@@ -237,6 +250,8 @@ def find_metal_site_core(
             donor_names: list[str] = []
             for atom in residue["atoms"]:
                 if atom["element"] not in METAL_SITE_DONOR_ELEMENTS:
+                    continue
+                if use_coordination_graph and atom["serial"] not in coordination_serials:
                     continue
                 delta = get_atom_xyz(atom) - metal_xyz
                 distance = float(np.sqrt(np.dot(delta, delta)))
@@ -317,7 +332,11 @@ def identify_metal_site_core(
     keep_altloc: str = "A",
     bond_policy: str = "auto",
 ) -> dict:
-    structure = read_pdb(structure, keep_altloc=keep_altloc) if isinstance(structure, str) else structure
+    structure = (
+        read_pdb(structure, keep_altloc=keep_altloc, altloc_selectors=[target, *add_resid.split()])
+        if isinstance(structure, str)
+        else structure
+    )
     bonded_pairs = []
     for token in set_bonded.replace(",", " ").split():
         parts = token.split("-")
@@ -349,7 +368,11 @@ def extract_metal_cluster(
     if cluster_cutoff < 0.0:
         raise ValueError(f"cluster_cutoff must be >= 0.0, got {cluster_cutoff}.")
 
-    structure = read_pdb(structure, keep_altloc=keep_altloc) if isinstance(structure, str) else structure
+    structure = (
+        read_pdb(structure, keep_altloc=keep_altloc, altloc_selectors=[target, *add_resid.split()])
+        if isinstance(structure, str)
+        else structure
+    )
     core = find_metal_site_core(
         structure,
         target=target,

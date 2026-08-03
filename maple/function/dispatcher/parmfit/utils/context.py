@@ -18,7 +18,7 @@ from .structure import (
 
 def find_unique_residue(structure: dict, selector: str, *, label: str = "Residue") -> dict:
     parsed = parse_selector(selector)
-    selector_label = f"{parsed.get('resname') or parsed['chain']}{parsed['resseq']}{parsed['icode']}"
+    selector_label = f"{parsed.get('resname') or parsed['chain']}{parsed['resseq']}{parsed['altloc']}"
     matches = [residue for residue in structure["residues"] if match_resid(residue, parsed)]
     if not matches:
         raise ValueError(f"{label} {selector_label} was not found.")
@@ -153,7 +153,8 @@ def extract_cluster(
     keep_altloc: str = "A",
     bond_policy: str = "auto",
 ) -> dict:
-    structure = read_pdb(pdb_path, keep_altloc=keep_altloc)
+    selectors = [target, *keep.split()]
+    structure = read_pdb(pdb_path, keep_altloc=keep_altloc, altloc_selectors=selectors)
     context = locate_context(structure, target=target, keep=keep.split(), bond_policy=bond_policy)
     target_residue = context["target"]
     keep_residues = context["keep_residues"]

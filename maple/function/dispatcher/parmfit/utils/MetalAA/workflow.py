@@ -17,14 +17,13 @@ from ..model import build_bond_angle_terms, flatten_model_atoms, infer_bond_pair
 from ..QMInterface import build_qm_reference_runner
 from ..runtime import copy_thresholds, get_cartesian_hessian, optimize_model_geometry, parmfit_work_prefix, run_resp_pipeline
 from ..structure import (
-    CHARGED_STANDARD_RESIDUES,
     METAL_SITE_DONOR_ELEMENTS,
     get_atom_xyz,
     get_resid_key,
     get_resid_label,
     residue_sort_key,
 )
-from .charges import infer_model_charge, project_resp_charges_onto_site_model
+from .charges import infer_model_charge, project_resp_charges_onto_site_model, residue_net_charge
 from .config import MetalAbinitioConfig
 from .recognize import MetalSiteSelection, apply_cfmol2_templates, build_cofactor_orig_frcmods, find_metal_site_core
 from .artifacts import MetalArtifacts, MetalSiteTyping, plan_metal_artifacts, write_large_pdb, write_site_frcmod, write_site_model_files
@@ -331,15 +330,15 @@ def _build_large_resp_problem(bundle: MetalModelBundle, core: _OptimizedCore) ->
         if residue_key in core_keys:
             continue
         atom_indices = [atom_index for atom_index, _atom in large_entries_by_residue[residue_key]]
-        if "formal_charge" in residue:
-            target_charge = int(residue["formal_charge"])
-        elif residue.get("kind") in {"ligand", "cofactor"}:
+        if residue.get("kind") in {"ligand", "cofactor"} and not {
+            "formal_charge",
+            "net_charge",
+        }.intersection(residue):
             raise ValueError(
                 f"Non-site residue {get_resid_label(residue)}:{residue['resname']} "
                 "requires a ligand/NCAA template or an explicit formal_charge."
             )
-        else:
-            target_charge = CHARGED_STANDARD_RESIDUES.get(residue["resname"].upper(), 0)
+        target_charge = residue_net_charge(residue)
         charge_groups.append((atom_indices, float(target_charge)))
 
     metal_index = index_by_residue_atom[(core.target_key, core.metal_atom["name"])]

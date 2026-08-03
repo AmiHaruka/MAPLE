@@ -46,8 +46,6 @@ ION_ELEMENTS = {
 
 METAL_SITE_DONOR_ELEMENTS = {"N", "O", "S", "P", "SE", "F", "CL", "BR", "I"}
 
-CHARGED_STANDARD_RESIDUES = {"ASP": -1, "GLU": -1, "LYS": 1, "ARG": 1, "HIP": 1, "CYM": -1,}
-
 ATOMIC_MASSES = {
     "H": 1.008,
     "C": 12.011,
@@ -137,30 +135,38 @@ def _measure_dihedral(atoms, quartet: tuple[int, int, int, int]) -> float:
 
 def _pair_is_bonded(structure: dict, atom1: dict, atom2: dict, bond_policy: str = "auto") -> bool:
     pair = _bond_pair(atom1["serial"], atom2["serial"])
-    cache_key = (bond_policy, pair)
-    if cache_key in structure["_pair_cache"]:
-        return structure["_pair_cache"][cache_key]
-
-    explicit = pair in structure["explicit_pairs"]
     if bond_policy == "record":
-        structure["_pair_cache"][cache_key] = explicit
-        return explicit
-
+        return pair in structure.get("explicit_pairs", set())
     cutoff = covalent_cutoff(atom1, atom2)
     delta = get_atom_xyz(atom1) - get_atom_xyz(atom2)
     covalent = float(np.sqrt(np.dot(delta, delta))) <= cutoff
-    value = covalent if bond_policy == "covalent" else (explicit or covalent)
-    structure["_pair_cache"][cache_key] = value
-    return value
+    if bond_policy == "covalent":
+        return covalent
+    if "bond_pairs" in structure:
+        return pair in structure["bond_pairs"]
+    return pair in structure.get("explicit_pairs", set()) or covalent
 
 
 def find_external_partners(structure: dict, atom: dict, selected_serials: set[int], bond_policy: str = "auto") -> list[dict]:
-    partners: list[dict] = []
-    for other in structure["serial_to_atom"].values():
-        if other["serial"] == atom["serial"] or other["serial"] in selected_serials:
-            continue
-        if _pair_is_bonded(structure, atom, other, bond_policy=bond_policy):
-            partners.append(other)
+    pairs = structure.get("explicit_pairs", set()) if bond_policy == "record" else None
+    if bond_policy == "auto":
+        pairs = structure.get("bond_pairs")
+    if pairs is None:
+        pairs = {
+            _bond_pair(atom["serial"], other["serial"])
+            for other in structure["serial_to_atom"].values()
+            if other["serial"] != atom["serial"] and _pair_is_bonded(structure, atom, other, bond_policy=bond_policy)
+        }
+    partner_serials = {
+        right if left == atom["serial"] else left
+        for left, right in pairs
+        if left == atom["serial"] or right == atom["serial"]
+    }
+    partners = [
+        structure["serial_to_atom"][serial]
+        for serial in partner_serials
+        if serial not in selected_serials
+    ]
     partners.sort(key=lambda item: item["serial"])
     return partners
 
@@ -254,18 +260,25 @@ def get_atom_xyz(atom: dict) -> np.ndarray:
 
 def search_atom(residue: dict, name: str) -> Optional[dict]:
     for atom in residue["atoms"]:
+        if atom.get("role") == name:
+            return atom
+    for atom in residue["atoms"]:
         if atom["name"] == name:
             return atom
     return None
 
 
 def get_atom_info(atom: dict) -> dict:
-    return {
+    info = {
         "serial": int(atom["serial"]),
         "name": atom["name"],
         "element": atom["element"],
         "xyz": [float(atom["xyz"][0]), float(atom["xyz"][1]), float(atom["xyz"][2])],
     }
+    for key in ("source_name", "altloc", "role", "amber_type", "charge"):
+        if key in atom:
+            info[key] = atom[key]
+    return info
 
 
 def make_atom(serial: int, name: str, element: str, xyz: np.ndarray) -> dict:
@@ -318,7 +331,7 @@ def refresh_resid(residue: dict) -> None:
 def get_resid_info(residue: Optional[dict], resname: Optional[str] = None) -> Optional[dict]:
     if residue is None:
         return None
-    return {
+    info = {
         "chain": residue["chain"],
         "resseq": int(residue["resseq"]),
         "icode": residue["icode"],
@@ -326,6 +339,10 @@ def get_resid_info(residue: Optional[dict], resname: Optional[str] = None) -> Op
         "kind": residue["kind"],
         "atoms": [get_atom_info(atom) for atom in sorted(residue["atoms"], key=lambda item: item["serial"])],
     }
+    for key in ("source_resname", "selected_altloc", "template_id", "template_category", "net_charge"):
+        if key in residue:
+            info[key] = residue[key]
+    return info
 
 
 def make_residue(chain: str, resseq: int, icode: str, resname: str, atoms: list[dict], kind: str = "cap") -> dict:
@@ -342,11 +359,16 @@ def make_residue(chain: str, resseq: int, icode: str, resname: str, atoms: list[
 
 
 def match_resid(residue: dict, selector: dict) -> bool:
-    if residue["resseq"] != selector["resseq"] or residue["icode"] != selector["icode"]:
+    if residue["resseq"] != selector["resseq"]:
+        return False
+    if "_icode" in selector and residue["icode"] != selector["_icode"]:
         return False
     if selector.get("chain") is not None and residue["chain"] != selector["chain"]:
         return False
-    if selector.get("resname") is not None and residue["resname"].upper() != selector["resname"]:
+    names = {str(residue.get("resname", "")).upper(), str(residue.get("source_resname", "")).upper()}
+    if selector.get("resname") is not None and selector["resname"] not in names:
+        return False
+    if selector.get("altloc") and residue.get("selected_altloc", "") != selector["altloc"]:
         return False
     return True
 
@@ -356,7 +378,9 @@ def match_chain(left: dict, right: dict) -> bool:
 
 
 def is_peptide_like(residue: dict) -> bool:
-    names = {atom["name"] for atom in residue["atoms"]}
+    if residue.get("kind") == "protein":
+        return True
+    names = {atom.get("role", atom["name"]) for atom in residue["atoms"]}
     return {"N", "CA", "C", "O"}.issubset(names)
 
 
@@ -379,7 +403,7 @@ def copy_residue(residue: dict, *, resname: Optional[str] = None, kind: Optional
         "atoms": [copy_atom(atom) for atom in residue["atoms"]],
     }
     for key, value in residue.items():
-        if key.startswith("_") and key not in copied and key != "_pair_cache":
+        if key not in copied and key not in {"atoms", "coords", "_pair_cache"}:
             copied[key] = value
     copied["coords"] = (
         np.asarray([atom["xyz"] for atom in copied["atoms"]], dtype=float) if copied["atoms"] else np.zeros((0, 3))
@@ -407,21 +431,21 @@ def parse_selector(selector: str) -> dict:
     if len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"'}:
         text = text[1:-1].strip()
     text = text.replace(":", "")
-    chain_match = re.fullmatch(r"(?P<chain>[A-Za-z0-9_])(?P<resseq>[-+]?\d+)(?P<icode>[A-Za-z]?)", text)
+    chain_match = re.fullmatch(r"(?P<chain>[A-Za-z0-9_])(?P<resseq>[-+]?\d+)(?P<altloc>[A-Za-z]?)", text)
     if chain_match:
         return {
             "chain": chain_match.group("chain"),
             "resname": None,
             "resseq": int(chain_match.group("resseq")),
-            "icode": chain_match.group("icode"),
+            "altloc": chain_match.group("altloc").upper(),
         }
-    resname_match = re.fullmatch(r"(?P<resname>[A-Za-z]{2,4})(?P<resseq>[-+]?\d+)(?P<icode>[A-Za-z]?)", text)
+    resname_match = re.fullmatch(r"(?P<resname>[A-Za-z]{2,4})(?P<resseq>[-+]?\d+)(?P<altloc>[A-Za-z]?)", text)
     if resname_match:
         return {
             "chain": None,
             "resname": resname_match.group("resname").upper(),
             "resseq": int(resname_match.group("resseq")),
-            "icode": resname_match.group("icode"),
+            "altloc": resname_match.group("altloc").upper(),
         }
     raise ValueError(f"Invalid residue selector {selector!r}. Use forms like 'A11', 'A11A', or 'SER11'.")
 
@@ -432,7 +456,20 @@ def parse_pdb_coord(line: str) -> tuple[float, float, float]:
     return _parse_pdb_coord(line)
 
 
-def read_pdb(path: str, keep_altloc: str = "A", model: Optional[int] = None) -> dict:
+def read_pdb(
+    path: str,
+    keep_altloc: str = "A",
+    model: Optional[int] = None,
+    *,
+    prom: str = "ff14SB",
+    altloc_selectors: list[str] | None = None,
+) -> dict:
     from maple.function.read.filereader.pdb_reader import read_pdb as _read_pdb
 
-    return _read_pdb(path, keep_altloc=keep_altloc, model=model)
+    return _read_pdb(
+        path,
+        keep_altloc=keep_altloc,
+        model=model,
+        prom=prom,
+        altloc_selectors=altloc_selectors,
+    )
