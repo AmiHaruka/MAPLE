@@ -166,6 +166,8 @@ def match_residue_template(
     residue: dict,
     candidate_pairs: set[tuple[int, int]],
     registry: AmberTemplateRegistry,
+    *,
+    disulfide_serials: set[int] | None = None,
 ) -> ResidueTemplateMatch | None:
     atoms = list(residue["atoms"])
     local_index = {atom["serial"]: index for index, atom in enumerate(atoms)}
@@ -189,7 +191,25 @@ def match_residue_template(
             for template in registry.templates_for_elements([atom["element"] for atom in atoms])
             if (match := _find_isomorphism(template, atoms, local_edges)) is not None
         ]
-    return min(matches, key=lambda match: (match.score, match.template.template_id)) if matches else None
+    if not matches:
+        return None
+    residue_serials = {atom["serial"] for atom in atoms}
+    in_disulfide = bool(disulfide_serials) and not residue_serials.isdisjoint(disulfide_serials)
+
+    def _selection_key(match: ResidueTemplateMatch) -> tuple:
+        name = match.template.output_name.upper()
+        # CYM (free thiolate) and CYX (disulfide) share an identical intra-residue
+        # graph and near-identical reference geometry, so their distance scores tie
+        # and cannot decide between them. Whether the SG is in a disulfide bond is
+        # the real discriminator, so it must rank ahead of the geometric score.
+        # The penalty is 0 for every other template, leaving normal scoring intact.
+        if name in {"CYX", "CYM"}:
+            disulfide_penalty = 0 if ((name == "CYX") == in_disulfide) else 1
+        else:
+            disulfide_penalty = 0
+        return (disulfide_penalty, match.score, match.template.template_id)
+
+    return min(matches, key=_selection_key)
 
 
 def apply_template_match(residue: dict, match: ResidueTemplateMatch) -> set[tuple[int, int]]:

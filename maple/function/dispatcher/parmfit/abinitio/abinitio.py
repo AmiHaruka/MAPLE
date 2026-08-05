@@ -48,13 +48,20 @@ class Abinitio(JobABC):
             structure = pdb_result.structure
             target_residue = find_unique_residue(structure, target, label="Target residue")
             target_kind = classify_kind(target_residue)
+            target_label = get_resid_label(target_residue)
             target_charge = None
             if target_kind == "protein":
                 target_residue["net_charge"] = int(charge)
-                target_charge = (get_resid_label(target_residue), int(charge))
+                target_charge = (target_label, int(charge))
 
-            info.append(f"Target: {get_resid_label(target_residue)} ({target_kind})\n")
-            info.extend(format_pdb_read_diagnostics(pdb_result.diagnostics, target_charge=target_charge))
+            info.append(f"Target: {target_label} ({target_kind})\n")
+            info.extend(
+                format_pdb_read_diagnostics(
+                    pdb_result.diagnostics,
+                    target_label=target_label,
+                    target_charge=target_charge,
+                )
+            )
             self.log_info(info)
 
             if target_kind == "ion":

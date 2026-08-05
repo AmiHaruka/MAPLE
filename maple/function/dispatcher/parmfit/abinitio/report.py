@@ -15,22 +15,26 @@ _WIDTH = 70
 def format_pdb_read_diagnostics(
     diagnostics,
     *,
+    target_label: str | None = None,
     target_charge: tuple[str, int] | None = None,
 ) -> list[str]:
     lines = [
         "  PDB residue templates: "
         f"matched={diagnostics.matched}, backbone_only={diagnostics.backbone_only}, unmatched={diagnostics.unmatched}\n"
     ]
-    resolved_warning = None
+    backbone_only_residues = getattr(diagnostics, "backbone_only_residues", ())
+    not_matched_residues = getattr(diagnostics, "not_matched_residues", ())
+    if backbone_only_residues:
+        entries = [
+            f"{label} ({'target' if target_label is not None and label == target_label else 'also note'})"
+            for label in backbone_only_residues
+        ]
+        lines.append("    non-standard (matched backbone only): " + ", ".join(entries) + "\n")
+    if not_matched_residues:
+        lines.append("    not matched (seemingly not protein): " + ", ".join(not_matched_residues) + "\n")
     if target_charge is not None:
-        target_label, charge = target_charge
-        resolved_warning = f"{target_label} matched peptide backbone only; net charge defaults to 0."
-        lines.append(f"  PDB target charge: {target_label} = {charge} (from your input)\n")
-    lines.extend(
-        f"  [PDB WARNING] {warning}\n"
-        for warning in diagnostics.warnings
-        if warning != resolved_warning
-    )
+        charge_label, charge = target_charge
+        lines.append(f"  PDB target charge: {charge_label} = {charge} (from your input)\n")
     return lines
 
 

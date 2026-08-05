@@ -80,9 +80,13 @@ def _infer_pdb_element(
         return "X"
     two_letter = {"CL", "BR", "NA", "MG", "ZN", "FE", "MN", "CO", "NI", "CU", "CA", "SE"}
     token = letters.upper()
-    if record.upper() in {"HETATM", "HEATOM"} and token[:2] == resname.strip().upper()[:2] and token[:2] in two_letter:
+    is_hetatm = record.upper() in {"HETATM", "HEATOM"}
+    if is_hetatm and token[:2] == resname.strip().upper()[:2] and token[:2] in two_letter:
         return token[:2].capitalize()
-    if raw_name[0].isalpha() and len(token) >= 2 and token[:2] in two_letter:
+    # Two-letter elements (metals, halides) only appear on HETATM records; an ATOM
+    # record carries a standard biopolymer atom (H/C/N/O/S/P), so names like "CA"
+    # (C-alpha) must not be read as calcium regardless of column justification.
+    if is_hetatm and raw_name[0].isalpha() and len(token) >= 2 and token[:2] in two_letter:
         return letters[:2].capitalize()
     return token[0]
 
@@ -323,6 +327,8 @@ class PDBReadDiagnostics:
     backbone_only: int = 0
     unmatched: int = 0
     warnings: tuple[str, ...] = field(default_factory=tuple)
+    backbone_only_residues: tuple[str, ...] = field(default_factory=tuple)
+    not_matched_residues: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -659,7 +665,7 @@ def read_pdb_result(
         match_residue_template,
         match_peptide_backbone,
     )
-    from maple.function.dispatcher.parmfit.utils.structure import classify_kind
+    from maple.function.dispatcher.parmfit.utils.structure import classify_kind, get_resid_label
 
     structure = _read_pdb_records(
         path,
@@ -669,11 +675,26 @@ def read_pdb_result(
     )
     candidate_pairs, coordination_pairs = _candidate_pairs(structure)
     registry = load_amber_template_registry(prom)
+
+    disulfide_serials: set[int] = set()
+    for pair in candidate_pairs:
+        left = structure["serial_to_atom"][pair[0]]
+        right = structure["serial_to_atom"][pair[1]]
+        if (
+            left["element"] == "S"
+            and right["element"] == "S"
+            and structure["serial_to_residue"][pair[0]] is not structure["serial_to_residue"][pair[1]]
+            and float(np.linalg.norm(left["xyz"] - right["xyz"])) <= 2.3
+        ):
+            disulfide_serials.update(pair)
+
     bond_pairs: set[tuple[int, int]] = set()
     matched = 0
     backbone_only = 0
     unmatched = 0
     warnings: list[str] = []
+    backbone_only_labels: list[str] = []
+    not_matched_labels: list[str] = []
     pending: list[dict] = []
 
     for residue in structure["residues"]:
@@ -685,7 +706,12 @@ def read_pdb_result(
             serials = {atom["serial"] for atom in residue["atoms"]}
             bond_pairs.update(pair for pair in candidate_pairs if pair[0] in serials and pair[1] in serials)
             continue
-        match = match_residue_template(residue, candidate_pairs, registry)
+        match = match_residue_template(
+            residue,
+            candidate_pairs,
+            registry,
+            disulfide_serials=disulfide_serials,
+        )
         if match is not None:
             bond_pairs.update(apply_template_match(residue, match))
             matched += 1
@@ -731,10 +757,12 @@ def read_pdb_result(
             residue["kind"] = "protein"
             residue["net_charge"] = 0
             backbone_only += 1
+            backbone_only_labels.append(get_resid_label(residue))
             warnings.append(f"{residue['chain']}{residue['resseq']}:{residue['resname']} matched peptide backbone only; net charge defaults to 0.")
         else:
             residue["kind"] = classify_kind(residue)
             unmatched += 1
+            not_matched_labels.append(get_resid_label(residue))
         serials = {atom["serial"] for atom in residue["atoms"]}
         bond_pairs.update(pair for pair in candidate_pairs if pair[0] in serials and pair[1] in serials)
 
@@ -761,6 +789,8 @@ def read_pdb_result(
             backbone_only=backbone_only,
             unmatched=unmatched,
             warnings=tuple(warnings),
+            backbone_only_residues=tuple(backbone_only_labels),
+            not_matched_residues=tuple(not_matched_labels),
         ),
     )
 

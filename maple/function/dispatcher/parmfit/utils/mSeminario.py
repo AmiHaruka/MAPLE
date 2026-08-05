@@ -280,7 +280,7 @@ def _angle_scaling_factors(positions: np.ndarray, angles: list[Angle]) -> list[t
         central_map.setdefault(center, []).append((left, right, index))
         central_map.setdefault(center, []).append((right, left, index))
 
-    ordered_scalings: list[list[float]] = [[] for _ in angles]
+    ordered_scalings: list[list[tuple[int, float]]] = [[] for _ in angles]
 
     for center, entries in central_map.items():
         entries = sorted(entries, key=lambda item: item[0])
@@ -290,12 +290,12 @@ def _angle_scaling_factors(positions: np.ndarray, angles: list[Angle]) -> list[t
                 u_pa_vectors.append(_u_pa(left, center, right, positions))
             except ValueError:
                 u_pa_vectors.append(None)
-        scaling_by_entry: list[tuple[float, int]] = []
+        scaling_by_entry: list[tuple[float, int, int]] = []
 
         for idx, entry in enumerate(entries):
             left_atom = entry[0]
             if u_pa_vectors[idx] is None:
-                scaling_by_entry.append((1.0, entry[2]))
+                scaling_by_entry.append((1.0, entry[2], left_atom))
                 continue
             contributions = []
 
@@ -315,14 +315,19 @@ def _angle_scaling_factors(positions: np.ndarray, angles: list[Angle]) -> list[t
                 scaling = 1.0 + float(np.mean(contributions))
             else:
                 scaling = 1.0
-            scaling_by_entry.append((scaling, entry[2]))
+            scaling_by_entry.append((scaling, entry[2], left_atom))
 
-        for scaling, angle_index in scaling_by_entry:
-            ordered_scalings[angle_index].append(scaling)
+        for scaling, angle_index, left_atom in scaling_by_entry:
+            ordered_scalings[angle_index].append((left_atom, scaling))
 
     result: list[tuple[float, float]] = []
-    for scaling_pair in ordered_scalings:
-        if len(scaling_pair) != 2:
+    for angle, pairs in zip(angles, ordered_scalings):
+        if len(pairs) != 2:
             raise ValueError("Each angle must receive exactly two Modified Seminario scaling factors.")
-        result.append((float(scaling_pair[0]), float(scaling_pair[1])))
+        # Map each scaling back to its own bond by the outer (non-central) atom so
+        # the pair is emitted as (scale for atoms[0]-center, scale for atoms[2]-center)
+        # regardless of the atoms[0]/atoms[2] ordering.
+        by_left_atom = dict(pairs)
+        left, _center, right = angle.atoms
+        result.append((float(by_left_atom[left]), float(by_left_atom[right])))
     return result

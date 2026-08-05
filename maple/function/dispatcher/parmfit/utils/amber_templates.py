@@ -10,34 +10,30 @@ from pathlib import Path
 import re
 import shlex
 
+from ase.data import atomic_numbers, chemical_symbols
+
 from .amber_data import amber_lib_dir
 
 
-_ELEMENTS = {
-    1: "H",
-    6: "C",
-    7: "N",
-    8: "O",
-    9: "F",
-    11: "NA",
-    12: "MG",
-    15: "P",
-    16: "S",
-    17: "CL",
-    19: "K",
-    20: "CA",
-    25: "MN",
-    26: "FE",
-    27: "CO",
-    28: "NI",
-    29: "CU",
-    30: "ZN",
-    34: "SE",
-    35: "BR",
-    53: "I",
-}
-
 _SECTION_RE = re.compile(r"^!entry\.([^.]+)\.unit\.([a-z]+)")
+
+
+def _resolve_element(atomic_number: int, atom_name: str) -> str | None:
+    """Resolve an upper-case element symbol for one Amber lib atom row.
+
+    The lib record carries an atomic number, so a direct periodic-table lookup is
+    exact. A few legacy modified-nucleotide entries mark atoms with atomic number
+    -1; for those the element is taken from the leading letters of the atom name
+    and validated against the real periodic table rather than a hand-kept subset.
+    """
+    if 0 < atomic_number < len(chemical_symbols):
+        return chemical_symbols[atomic_number].upper()
+    letters = "".join(character for character in atom_name if character.isalpha())
+    for width in (2, 1):
+        candidate = letters[:width].capitalize()
+        if candidate and candidate in atomic_numbers:
+            return candidate.upper()
+    return None
 
 
 @dataclass(frozen=True)
@@ -86,9 +82,9 @@ class AmberTemplateRegistry:
         upper = str(name).strip().upper()
         aliases = {
             "HIS": ("HID", "HIE", "HIP"),
-            "HSD": ("HID",),
-            "HSE": ("HIE",),
-            "HSP": ("HIP",),
+            "ASP": ("ASP", "ASH"),
+            "GLU": ("GLU", "GLH"),
+            "LYS": ("LYS", "LYN"),
         }
         names = aliases.get(upper, (upper,))
         result: list[AmberResidueTemplate] = []
@@ -151,12 +147,12 @@ def _parse_template_file(
         for row, xyz in zip(atom_rows, positions):
             fields = shlex.split(row)
             atomic_number = int(fields[6])
-            element = _ELEMENTS.get(atomic_number)
+            element = _resolve_element(atomic_number, fields[0])
             if element is None:
-                atom_token = "".join(character for character in fields[0] if character.isalpha()).upper()
-                element = "SE" if atom_token.startswith("SE") else atom_token[:1]
-            if not element:
-                raise ValueError(f"Cannot resolve element for {filename}:{name}:{fields[0]}.")
+                raise ValueError(
+                    f"Cannot resolve element for {filename}:{name}:{fields[0]} "
+                    f"(atomic number {atomic_number}, name {fields[0]!r})."
+                )
             atoms.append(
                 AmberTemplateAtom(
                     name=fields[0],
