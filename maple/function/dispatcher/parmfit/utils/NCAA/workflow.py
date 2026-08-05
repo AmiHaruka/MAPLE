@@ -120,11 +120,12 @@ def _prepare_ncaa_models(
         if log_info is not None:
             log_info(["  [NCAA] QM reference optimization ...\n"])
         qm_atoms = model_to_atoms(representative.model, charge=config.charge, mult=config.mult)
+        # The MLIP preoptimization preserves peptide context with a frozen
+        # backbone. Relax all coordinates for a stationary-point QM Hessian.
         if config.bonded != "none":
             qm_result = qm_runner.opt_frequency(
                 qm_atoms,
                 f"{work_prefix}_reference_qm",
-                frozen_indices=frozen_indices,
             )
             qm_hessian = qm_result.hessian
             if qm_hessian is None:
@@ -133,7 +134,6 @@ def _prepare_ncaa_models(
             qm_result = qm_runner.optimize(
                 qm_atoms,
                 f"{work_prefix}_reference_qm",
-                frozen_indices=frozen_indices,
             )
         representative = NCAAConformer(
             label=representative.label,

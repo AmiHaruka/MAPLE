@@ -20,7 +20,7 @@ from .mlip_tools import (
 from .model import flatten_model_atoms, model_to_atoms
 from .mol2_tools import write_updated_mol2
 from .readparm import CorrectionParameterSet, parse_mol2
-from .runtime import parmfit_output_dir, parmfit_workdir, run_espgen, run_resp_stage
+from .runtime import parmfit_workdir, run_espgen, run_resp_stage
 from .structure import get_resid_key
 
 
@@ -267,11 +267,6 @@ def fit_molecule_charges(
     multiplicity = int(atoms.info.get("mult", 1))
     raw_method = str(config.method).strip()
     method_key = raw_method.lower()
-    workdir = (
-        parmfit_output_dir(output)
-        if method_key == "none"
-        else parmfit_workdir(output, "chargefit")
-    )
     geometry_mol2 = source_mol2
     files: dict[str, str] = {"input_mol2": source_mol2}
     stderr = ""
@@ -282,6 +277,9 @@ def fit_molecule_charges(
         method = "input"
         detail = "none"
     else:
+        # parmfit_workdir creates the directory, so only ask for it on the paths
+        # that actually write into it.
+        workdir = parmfit_workdir(output, "chargefit")
         geometry_mol2 = write_updated_mol2(
             source_mol2,
             os.path.join(workdir, f"{route}_input.mol2"),
@@ -361,13 +359,18 @@ def fit_molecule_charges(
             detail = canonical
 
     charges = validated_charges(charges, len(atoms))
-    charged_mol2 = write_updated_mol2(
-        source_mol2,
-        os.path.join(workdir, f"{route}_charged.mol2"),
-        positions=atoms.get_positions(),
-        charges=charges,
-    )
-    files["charged_mol2"] = charged_mol2
+    if method_key == "none":
+        # Nothing was fitted, and the exporters take the geometry from `atoms`,
+        # so a rewritten copy of the input would carry no information.
+        charged_mol2 = source_mol2
+    else:
+        charged_mol2 = write_updated_mol2(
+            source_mol2,
+            os.path.join(workdir, f"{route}_charged.mol2"),
+            positions=atoms.get_positions(),
+            charges=charges,
+        )
+        files["charged_mol2"] = charged_mol2
     return ChargeFitResult(
         method=method,
         charges=charges,

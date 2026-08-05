@@ -94,9 +94,10 @@ def parse_metal_abinitio_config(
         raise ValueError("chgmod must be one of 0, 1, 2, or 3.")
 
     qm = build_qm_reference_config(raw)
-    charge_theory, charge_basis = (
-        part.strip() for part in str(raw.get("chg_level", "PBE1PBE/def2SVP")).strip().split("/", 1)
-    )
+    chg_level = str(raw.get("chg_level", "PBE1PBE/def2SVP")).strip()
+    charge_theory, _sep, charge_basis = (part.strip() for part in chg_level.partition("/"))
+    if not charge_theory or not charge_basis:
+        raise ValueError(f"chg_level {chg_level!r} must use METHOD/BASIS syntax.")
 
     return MetalAbinitioConfig(
         pdb_path=pdb_path,

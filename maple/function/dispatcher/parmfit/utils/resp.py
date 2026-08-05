@@ -6,7 +6,6 @@ from copy import deepcopy
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-import re
 
 from .amber_templates import load_amber_template_registry
 from .context import find_unique_residue
@@ -90,11 +89,6 @@ def _candidate_atom_names(atom_name: str) -> list[str]:
         if alias not in names:
             names.append(alias)
     return names
-
-
-def _hydrogen_name_prefix(atom_name: str) -> str:
-    match = re.match(r"([A-Za-z]+)", atom_name)
-    return match.group(1) if match is not None else atom_name
 
 
 def _library_residue_names(resname: str, category: str) -> list[str]:
@@ -271,25 +265,25 @@ def build_stage2_equivalence_map(
     fixed_charge_indices = fixed_charge_indices or set()
     _, atoms, adjacency = _flattened_atoms_and_adjacency(model, bond_pairs=bond_pairs)
 
-    ivary: dict[int, int] = {index: 0 for index in range(1, len(atoms) + 1)}
-    for heavy_index, atom in enumerate(atoms, start=1):
-        if atom["element"] == "H":
+    # Stage 2 reads the stage-1 charges with iqopt=2. Negative ivary values
+    # retain those charges; only aliphatic CH2/CH3 groups are refitted.
+    ivary: dict[int, int] = {index: -1 for index in range(1, len(atoms) + 1)}
+    for carbon_index, atom in enumerate(atoms, start=1):
+        if atom["element"] != "C":
             continue
         hydrogens = sorted(
             neighbor
-            for neighbor in adjacency[heavy_index]
+            for neighbor in adjacency[carbon_index]
             if atoms[neighbor - 1]["element"] == "H" and neighbor not in fixed_charge_indices
         )
-        groups: dict[str, list[int]] = {}
-        for hydrogen in hydrogens:
-            prefix = _hydrogen_name_prefix(atoms[hydrogen - 1]["name"])
-            groups.setdefault(prefix, []).append(hydrogen)
-        for grouped_hydrogens in groups.values():
-            if len(grouped_hydrogens) not in {2, 3}:
-                continue
-            root = grouped_hydrogens[0]
-            for hydrogen in grouped_hydrogens[1:]:
-                ivary[hydrogen] = root
+        if len(hydrogens) not in {2, 3}:
+            continue
+        if carbon_index not in fixed_charge_indices:
+            ivary[carbon_index] = 0
+        root = hydrogens[0]
+        ivary[root] = 0
+        for hydrogen in hydrogens[1:]:
+            ivary[hydrogen] = root
     return ivary
 
 

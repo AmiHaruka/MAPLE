@@ -10,6 +10,8 @@ from pathlib import Path
 import re
 import shlex
 
+from .amber_data import amber_lib_dir
+
 
 _ELEMENTS = {
     1: "H",
@@ -103,7 +105,7 @@ class AmberTemplateRegistry:
 
 
 def _lib_dir() -> Path:
-    return Path(__file__).resolve().parents[1] / "params" / "leap" / "lib"
+    return amber_lib_dir()
 
 
 def _read_sections(path: Path) -> dict[str, dict[str, list[str]]]:

@@ -14,82 +14,80 @@ hc 1.008         0.135
 ha 1.008         0.135
 
 BOND
-c3-c3  228.89   1.535
-c3-cc  255.14   1.500
-c3-hc  345.25   1.096
-c2-ce  424.30   1.346
-cc-ce  296.31   1.453
-ce-ha  357.59   1.088
-c3-cd  253.87   1.502
-cc-nd  419.72   1.316
-cd-nd  345.93   1.371
-c -c3  234.85   1.527
-c2-ha  357.29   1.088
-cc-nc  356.03   1.363
-c -o   590.60   1.219
-cd-ce  390.21   1.370
-cd-cf  292.52   1.457
-cc-cf  404.10   1.360
-cf-ha  356.82   1.089
-cc-cc  322.02   1.427
-cd-cd  321.49   1.428
-cd-nc  417.79   1.317
-cc-cd  386.24   1.373
+c3-c3  300.90   1.538
+c3-cc  334.80   1.502
+c3-hc  330.60   1.097
+c2-ce  547.30   1.346
+cc-ce  386.90   1.454
+ce-ha  342.50   1.088
+c3-cd  334.80   1.502
+cc-nd  525.40   1.317
+cd-nd  441.10   1.369
+c -c3  313.00   1.524
+c2-ha  343.10   1.088
+cc-nc  441.10   1.369
+c -o   637.70   1.218
+cd-ce  513.00   1.366
+cd-cf  386.90   1.454
+cc-cf  513.00   1.366
+cf-ha  342.50   1.088
+cc-cc  419.80   1.428
+cd-cd  419.80   1.428
+cd-nc  525.40   1.317
+cc-cd  500.90   1.373
 
 ANGLE
-c -c3-c3   60.360     111.430
-c3-c3-hc   43.270     109.680
-c3-cc-cc   60.080     122.760
-c3-cc-cd   59.860     127.710
-ce-c2-ha   46.150     120.490
-cc-cc-ce   60.430     125.640
-cd-cc-ce   60.760     128.720
-c3-cd-cc   60.060     126.680
-c3-cd-cd   59.380     125.500
-ce-cc-nd   66.970     123.550
-cc-cc-nd   67.030     126.050
-ce-cd-nd   68.110     123.060
-cd-cd-nd   66.890     122.190
-c3-c3-cc   60.460     112.960
-c3-c -o    76.450     122.900
-c2-ce-cc   62.370     124.220
-c2-ce-ha   46.240     120.000
-c3-c3-cd   60.510     112.670
-ce-cc-nc   67.010     120.000
-cc-cc-nc   67.340     121.270
-cf-cc-nc   68.690     122.660
-c -c3-hc   43.630     108.950
-cd-cd-ce   62.880     122.800
-cd-cd-cf   59.930     127.330
-cf-cd-nc   67.600     120.760
-cc-cc-cf   61.470     129.400
-cc-cd-ce   60.140     139.920
-ce-cd-nc   67.600     120.760   same as cf-cd-nc, penalty score=  0.8
-cc-nd-cd   87.350     105.370
-cc-ce-cd   60.080     131.880
-cc-ce-ha   44.360     115.210
-cc-cc-cd   63.770     119.190
-cc-nc-cc   73.100     103.760
-cc-cc-cc   62.170     120.860
-cc-cf-cd   61.260     127.280
-cd-cf-ha   44.150     115.750
-cc-cd-cd   64.570     116.210
-cd-nc-cd   83.900     119.060
-o -c -o   104.940     130.160
-cc-c3-hc   44.040     110.360
-cd-c3-hc   43.950     110.620
-cd-cd-nc   68.460     120.700
-cd-cc-cd   64.210     122.460
-cc-cd-nc   69.140     123.820
-cd-ce-ha   46.550     115.180
-cc-cf-ha   46.980     114.390
-hc-c3-hc   35.800     107.730
-ha-c2-ha   34.660     116.660
+c -c3-c3   63.300     111.040
+c3-c3-hc   46.300     109.800
+c3-cc-cc   64.600     115.970
+c3-cc-cd   64.700     119.450
+ce-c2-ha   49.500     120.450
+cc-cc-ce   62.800     127.060
+cd-cc-ce   63.700     128.050
+c3-cd-cc   64.700     119.450
+c3-cd-cd   64.600     115.970
+ce-cc-nd   68.100     121.700
+cc-cc-nd   71.600     112.560
+ce-cd-nd   68.700     123.980
+cd-cd-nd   67.600     121.980
+c3-c3-cc   63.500     111.930
+c3-c -o    67.400     123.200
+c2-ce-cc   65.500     123.320
+c2-ce-ha   49.600     119.940
+c3-c3-cd   63.500     111.930
+ce-cc-nc   67.200     121.100
+cc-cc-nc   67.600     121.980
+cf-cc-nc   68.700     123.980
+c -c3-hc   46.900     108.770
+cd-cd-ce   65.900     122.720
+cd-cd-cf   62.800     127.060
+cf-cd-nc   68.100     121.700
+cc-cc-cf   65.900     122.720
+cc-cd-ce   63.700     128.050   same as cc-cd-cf, penalty score=  0.8
+ce-cd-nc   68.100     121.700   same as cf-cd-nc, penalty score=  0.8
+cc-nd-cd   71.800     105.490
+cc-ce-cd   63.200     130.610
+cc-ce-ha   47.500     115.440
+cc-cc-cd   68.200     114.190
+cc-nc-cc   71.000     103.760
+cc-cc-cc   67.900     110.700
+cc-cf-cd   63.200     130.610
+cd-cf-ha   47.500     115.440
+cc-cd-cd   68.200     114.190
+cd-nc-cd   69.500     117.300
+o -c -o    77.900     130.250
+cc-c3-hc   47.200     110.490
+cd-c3-hc   47.200     110.490
+cd-cd-nc   71.600     112.560
+cd-cc-cd   67.800     120.080
+cc-cd-nc   69.800     123.820
+cd-ce-ha   50.100     114.950
+cc-cf-ha   50.100     114.950
+hc-c3-hc   39.400     107.580
+ha-c2-ha   38.100     116.900
 
 DIHE
-o -c -c3-c3   1    0.200       180.000          -2.000
-o -c -c3-c3   1    0.440       180.000          -3.000
-o -c -c3-c3   1    0.680         0.000           1.000
+o -c -c3-c3   6    0.000       180.000           2.000
 c3-cc-cd-c3   4   16.000       180.000           2.000
 c3-cc-cd-cd   4   16.000       180.000           2.000
 ce-cc-cc-nc   4   16.000       180.000           2.000
@@ -101,11 +99,10 @@ c3-cd-cd-ce   4   16.000       180.000           2.000
 c3-cc-cc-nd   4   16.000       180.000           2.000
 cd-cc-cc-nd   4   16.000       180.000           2.000
 c3-c3-cc-cc   6    0.000         0.000           3.000
-c3-c3-cc-cd   1    0.157       180.000           3.000
-cc-cc-ce-c2   4    4.520       180.000          -2.000      same as c2-ce-ce-cc
-cc-cc-ce-c2   1    0.900       180.000           1.000      same as c2-ce-ce-cc, penalty score=136.0
-cd-cc-ce-c2   1    0.470       180.000           1.000      same as cd-cc-ce-ca, penalty score= 87.0
-c3-c3-cd-cc   1    0.157       180.000           3.000
+c3-c3-cc-cd   6    0.000         0.000           3.000
+cc-cc-ce-c2   4    4.000       180.000           2.000      same as X -ce-ce-X , penalty score=136.0
+cd-cc-ce-c2   4    4.000       180.000           2.000      same as X -ce-ce-X , penalty score=136.0
+c3-c3-cd-cc   6    0.000         0.000           3.000
 c3-c3-cd-cd   6    0.000         0.000           3.000
 c3-cc-cc-nc   4   16.000       180.000           2.000
 cc-cc-cc-nc   4   16.000       180.000           2.000
@@ -121,25 +118,19 @@ ce-cc-cd-c3   4   16.000       180.000           2.000
 cd-cc-cd-c3   4   16.000       180.000           2.000
 ce-cd-nd-cc   2    9.500       180.000           2.000
 cd-cd-nd-cc   2    9.500       180.000           2.000
-nd-cd-ce-cc   1    1.470       180.000           1.000      same as cc-ce-ce-n2, penalty score=249.0
-cd-cd-ce-cc   1    1.220       180.000          -2.000      same as cd-cc-ce-cc
-cd-cd-ce-cc   1    0.730       180.000          -3.000      same as cd-cc-ce-cc
-cd-cd-ce-cc   1    0.030       180.000           1.000      same as cd-cc-ce-cc, penalty score=100.0
+nd-cd-ce-cc   4   26.600       180.000           2.000      same as X -ce-cf-X , penalty score=136.0
+cd-cd-ce-cc   4   26.600       180.000           2.000      same as X -ce-cf-X , penalty score=136.0
 cc-cc-cd-c3   4   16.000       180.000           2.000
 cc-cc-cd-cd   4   16.000       180.000           2.000
 cf-cc-nc-cc   2    9.500       180.000           2.000
 cc-cc-nc-cc   2    9.500       180.000           2.000
 cc-cc-cc-cc   4   16.000       180.000           2.000
-nc-cc-cf-cd   4    4.000       180.000          -2.000      same as ca-ce-ce-n2
-nc-cc-cf-cd   1    0.750       180.000          -3.000      same as ca-ce-ce-n2
-nc-cc-cf-cd   1    0.820       180.000           1.000      same as ca-ce-ce-n2, penalty score=628.0
-cc-cc-cf-cd   1    0.120         0.000           3.000      same as cc-cd-cf-c2, penalty score=187.0
+nc-cc-cf-cd   4   26.600       180.000           2.000      same as X -ce-cf-X , penalty score=136.0
+cc-cc-cf-cd   4   26.600       180.000           2.000      same as X -ce-cf-X , penalty score=136.0
 ce-cc-cd-cd   4   16.000       180.000           2.000
 cd-cc-cd-cd   4   16.000       180.000           2.000
-cc-cd-ce-cc   1    1.220       180.000          -2.000      same as cd-cc-ce-cc
-cc-cd-ce-cc   1    0.730       180.000          -3.000      same as cd-cc-ce-cc
-cc-cd-ce-cc   1    0.030       180.000           1.000      same as cd-cc-ce-cc, penalty score=187.0
-nc-cd-ce-cc   1    1.470       180.000           1.000      same as cc-ce-ce-n2, penalty score=249.0
+cc-cd-ce-cc   4   26.600       180.000           2.000      same as X -ce-cf-X , penalty score=136.0
+nc-cd-ce-cc   4   26.600       180.000           2.000      same as X -ce-cf-X , penalty score=136.0
 c -c3-c3-cc   9    1.400         0.000           3.000
 cc-c3-c3-hc   9    1.400         0.000           3.000
 cc-cd-cd-nd   4   16.000       180.000           2.000
@@ -154,20 +145,16 @@ c -c3-c3-cd   9    1.400         0.000           3.000
 cd-c3-c3-hc   9    1.400         0.000           3.000
 ce-cc-nd-cd   2    9.500       180.000           2.000
 cc-cc-nd-cd   2    9.500       180.000           2.000
-nc-cc-ce-cd   4    4.000       180.000          -2.000      same as ca-ce-ce-n2
-nc-cc-ce-cd   1    0.750       180.000          -3.000      same as ca-ce-ce-n2
-nc-cc-ce-cd   1    0.820       180.000           1.000      same as ca-ce-ce-n2, penalty score=310.0
-cc-cc-ce-cd   1    0.470       180.000           1.000      same as cd-cc-ce-ca, penalty score=174.0
+nc-cc-ce-cd   4    4.000       180.000           2.000      same as X -ce-ce-X , penalty score=136.0
+cc-cc-ce-cd   4    4.000       180.000           2.000      same as X -ce-ce-X , penalty score=136.0
 ce-cc-nc-cc   2    9.500       180.000           2.000
-cd-cd-cf-cc   1    0.120         0.000           3.000      same as cc-cd-cf-c2, penalty score=174.0
-nc-cd-cf-cc   1    1.470       180.000           1.000      same as cc-ce-ce-n2, penalty score=527.0
-nd-cc-ce-cd   4    4.000       180.000          -2.000      same as ca-ce-ce-n2
-nd-cc-ce-cd   1    0.750       180.000          -3.000      same as ca-ce-ce-n2
-nd-cc-ce-cd   1    0.820       180.000           1.000      same as ca-ce-ce-n2, penalty score=310.0
+cd-cd-cf-cc   4    4.000       180.000           2.000      same as X -cf-cf-X , penalty score=136.0
+nc-cd-cf-cc   4    4.000       180.000           2.000      same as X -cf-cf-X , penalty score=136.0
+nd-cc-ce-cd   4    4.000       180.000           2.000      same as X -ce-ce-X , penalty score=136.0
 c3-cd-cd-nc   4   16.000       180.000           2.000
 cc-cd-cd-nc   4   16.000       180.000           2.000
 c -c3-c3-hc   9    1.400         0.000           3.000
-hc-c3-c3-hc   1    0.120         0.000           3.000
+hc-c3-c3-hc   1    0.150         0.000           3.000
 hc-c3-cc-cc   6    0.000         0.000           3.000
 hc-c3-cc-cd   6    0.000         0.000           3.000
 ha-c2-ce-ha   4   26.600       180.000           2.000
@@ -175,8 +162,9 @@ cc-cc-ce-ha   4    4.000       180.000           2.000      same as X -ce-ce-X ,
 cd-cc-ce-ha   4    4.000       180.000           2.000      same as X -ce-ce-X , penalty score=136.0
 hc-c3-cd-cc   6    0.000         0.000           3.000
 hc-c3-cd-cd   6    0.000         0.000           3.000
-o -c -c3-hc   1    4.030         0.000          -1.000
-o -c -c3-hc   1    3.660       180.000           2.000
+o -c -c3-hc   1    0.800         0.000          -1.000
+o -c -c3-hc   1    0.000         0.000          -2.000
+o -c -c3-hc   1    0.080       180.000           3.000
 nd-cc-ce-ha   4    4.000       180.000           2.000      same as X -ce-ce-X , penalty score=136.0
 nd-cd-ce-ha   4   26.600       180.000           2.000      same as X -ce-cf-X , penalty score=136.0
 cd-cd-ce-ha   4   26.600       180.000           2.000      same as X -ce-cf-X , penalty score=136.0
@@ -207,18 +195,18 @@ cc-cf-cc-nc         1.1          180.0         2.0          Using the default va
 cc-ce-cd-nc         1.1          180.0         2.0          Using the default value
 
 NONBON
-  c3          1.9069  0.1078
-  ce          1.8606  0.0988
-  nd          1.8993  0.0941
-  c2          1.8606  0.0988
-  nc          1.8993  0.0941
-  c           1.8606  0.0988
-  cf          1.8606  0.0988
-  cc          1.8606  0.0988
-  cd          1.8606  0.0988
-  o           1.7107  0.1463
-  hc          1.4593  0.0208
-  ha          1.4735  0.0161
+  c3          1.9080  0.1094
+  ce          1.9080  0.0860
+  nd          1.8240  0.1700
+  c2          1.9080  0.0860
+  nc          1.8240  0.1700
+  c           1.9080  0.0860
+  cf          1.9080  0.0860
+  cc          1.9080  0.0860
+  cd          1.9080  0.0860
+  o           1.6612  0.2100
+  hc          1.4870  0.0157
+  ha          1.4590  0.0150
 
 
 

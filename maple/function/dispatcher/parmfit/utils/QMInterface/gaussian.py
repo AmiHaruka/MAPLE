@@ -12,6 +12,7 @@ from typing import Iterable
 
 import numpy as np
 from ase import Atoms
+from ase.data import chemical_symbols
 
 from .calculator import QMReferenceConfig, QMReferenceResult
 
@@ -26,39 +27,6 @@ _TASK_SUFFIX = {
     "opt": "opt",
     "freq": "freq",
 }
-
-
-_ATOMIC_SYMBOLS = {
-    1: "H",
-    2: "He",
-    3: "Li",
-    4: "Be",
-    5: "B",
-    6: "C",
-    7: "N",
-    8: "O",
-    9: "F",
-    10: "Ne",
-    11: "Na",
-    12: "Mg",
-    13: "Al",
-    14: "Si",
-    15: "P",
-    16: "S",
-    17: "Cl",
-    18: "Ar",
-    19: "K",
-    20: "Ca",
-    26: "Fe",
-    29: "Cu",
-    30: "Zn",
-    34: "Se",
-    35: "Br",
-    53: "I",
-}
-
-
-
 
 
 def _coerce_bool(value) -> bool:
@@ -109,7 +77,7 @@ def _task_route(task: str, *, has_frozen_atoms: bool = False) -> str:
     if task == "sp":
         return ""
     if task == "opt_frequency":
-        return "Opt Freq"
+        return "Opt=ModRedundant Freq" if has_frozen_atoms else "Opt Freq"
     if task == "freq":
         return "Freq"
     if task == "gradient":
@@ -233,10 +201,13 @@ def run_gaussian_formchk(chk_path: str | os.PathLike[str], fchk_path: str | os.P
 
 
 def _symbol_from_atomic_number(atomic_number: int) -> str:
-    symbol = _ATOMIC_SYMBOLS.get(int(atomic_number))
-    if symbol is None:
+    atomic_number = int(atomic_number)
+    if atomic_number <= 0 or atomic_number >= len(chemical_symbols):
         raise ValueError(f"Unsupported atomic number in Gaussian log: {atomic_number}")
-    return symbol
+    symbol = chemical_symbols[atomic_number]
+    if not symbol:
+        raise ValueError(f"Unsupported atomic number in Gaussian log: {atomic_number}")
+    return str(symbol)
 
 
 def _parse_energy(lines: list[str]) -> float:

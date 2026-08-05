@@ -15,7 +15,7 @@ from ..amber_templates import required_template_leaprcs
 from ..chargefit import ChargeFitResult
 from ..ionparams import infer_ion_frcmod_name
 from ..model import write_model_pdb
-from ..outputparm import allocate_maple_atom_types, format_tleap_add_atom_types_lines
+from ..outputparm import allocate_maple_atom_types, format_tleap_add_atom_types
 from ..readparm import Angle, Bond, Dihedral, Improper, Nonbond, CorrectionParameterSet, FrcmodDB, Mol2Atom, Mol2Topology
 from ..runtime import parmfit_output_dir, parmfit_workdir
 from ..structure import copy_residue, covalent_cutoff, get_atom_xyz, get_resid_key, residue_sort_key, search_atom
@@ -324,7 +324,7 @@ def write_ncaa_tleap_input(
     ]
     lines[1:1] = [f"source {leaprc}\n" for leaprc in template_leaprcs or ()]
     lines.extend(
-        format_tleap_add_atom_types_lines(
+        format_tleap_add_atom_types(
             [(row.atom_name, row.element, row.old_type, row.maple_type) for row in atom_type_rows]
         )
     )

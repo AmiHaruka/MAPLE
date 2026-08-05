@@ -61,17 +61,14 @@ def copy_structure_subset(structure: dict, residues: list[dict]) -> dict:
             for pair in structure["explicit_pairs"]
             if pair[0] in structure["serial_to_atom"] and pair[1] in structure["serial_to_atom"]
         },
-        "bond_pairs": {
-            pair
-            for pair in structure.get("bond_pairs", set())
-            if pair[0] in structure["serial_to_atom"] and pair[1] in structure["serial_to_atom"]
-        },
-        "coordination_pairs": {
-            pair
-            for pair in structure.get("coordination_pairs", set())
-            if pair[0] in structure["serial_to_atom"] and pair[1] in structure["serial_to_atom"]
-        },
     }
+    for key in ("bond_pairs", "coordination_pairs"):
+        if key in structure:
+            model[key] = {
+                pair
+                for pair in structure[key]
+                if pair[0] in structure["serial_to_atom"] and pair[1] in structure["serial_to_atom"]
+            }
     return rebuild_model_index(model)
 
 
@@ -288,8 +285,8 @@ def infer_bond_pairs(model: dict, source_structure: Optional[dict] = None, bond_
     atoms = [atom for _, atom in flatten_model_atoms(model)]
     serial_to_index = {atom["serial"]: index for index, atom in enumerate(atoms, start=1)}
     if bond_policy == "auto" and len(serial_to_index) == len(atoms):
-        graph_source = source_structure if source_structure is not None and "bond_pairs" in source_structure else model
-        if "bond_pairs" in graph_source:
+        graph_source = source_structure if source_structure is not None and source_structure.get("bond_pairs") else model
+        if graph_source.get("bond_pairs"):
             bonds = [
                 tuple(sorted((serial_to_index[left], serial_to_index[right])))
                 for left, right in graph_source["bond_pairs"]

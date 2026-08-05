@@ -7,6 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 import re
 
+from ..amber_data import amber_parm_dir
 from ..ionparams import ION_UFF_LJ_FALLBACK, infer_ion_frcmod_name, infer_ion_identity
 from ..structure import ATOMIC_MASSES
 
@@ -31,7 +32,7 @@ class AmberParameterDB:
 
 
 def parm_dir() -> Path:
-    return Path(__file__).resolve().parents[2] / "params" / "leap" / "parm"
+    return amber_parm_dir()
 
 
 def canonical_pair(atom_types: tuple[str, str]) -> tuple[str, str]:

@@ -1,0 +1,22 @@
+source leaprc.gaff2
+addAtomTypes {
+    { "Z0" "C" "sp3" }
+    { "Z1" "C" "sp2" }
+    { "Z2" "C" "sp2" }
+    { "Z3" "C" "sp2" }
+    { "Z4" "C" "sp2" }
+    { "Z5" "C" "sp2" }
+    { "Z6" "C" "sp2" }
+    { "Z7" "H" "sp3" }
+    { "Z8" "H" "sp3" }
+    { "Z9" "H" "sp3" }
+    { "ZA" "H" "sp3" }
+    { "ZB" "H" "sp3" }
+    { "ZC" "H" "sp3" }
+    { "ZD" "H" "sp3" }
+    { "ZE" "H" "sp3" }
+}
+loadamberparams Toluene_maple.frcmod
+lig = loadmol2 Toluene_maple.mol2
+saveamberparm lig Toluene_maple_gas.prmtop Toluene_maple_gas.inpcrd
+quit

@@ -26,8 +26,12 @@ class Abinitio(JobABC):
         with timer("Parmfit abinitio"):
             info = ["\n", "=" * 70 + "\n", "Parmfit Abinitio".center(70) + "\n", "=" * 70 + "\n"]
             raw = dict(self.params or {})
-            pdb = raw["pdb"].strip()
-            target = raw["target"].strip()
+            pdb = str(raw.get("pdb", "")).strip()
+            target = str(raw.get("target", "")).strip()
+            if not pdb:
+                raise ValueError("parmfit(method=abinitio) requires a PDB block: PDB <path>.")
+            if not target:
+                raise ValueError("parmfit(method=abinitio) requires a target residue, e.g. target=A462.")
 
             charge = self.atoms.info.get("charge")
             mult = self.atoms.info.get("mult")

@@ -531,12 +531,10 @@ def lookup_ion_radius(*, watm: str, element: str, formal_charge: int, ion_key: s
     if not candidates:
         raise ValueError(f"No ion radius data is available for element {element!r} in water model {watm!r}.")
 
-    charge, radius = min(
+    _charge, radius = min(
         candidates,
         key=lambda item: (abs(item[0] - formal_charge), 0 if item[0] <= formal_charge else 1, abs(item[0])),
     )
-    if charge != formal_charge:
-        return float(radius)
     return float(radius)
 
 

@@ -22,7 +22,7 @@ class Parmfit(JobABC):
         self.atoms = atoms
         self.output = output
         self.params = params if params is not None else {}
-        self.method = (method or self.params.get("method") or "correction").lower()
+        self.method = (method or self.params.get("method") or ("" if self.params.get("input") else "correction")).lower()
         self.extra = extra if extra is not None else {}
 
     def run(self):
@@ -79,11 +79,11 @@ class Parmfit(JobABC):
 
         input_path = self.extra.get("input_path") if isinstance(self.extra, dict) else None
         base_dir = os.path.dirname(os.path.abspath(input_path)) if input_path else os.getcwd()
-        inline_method = str(self.params.get("method") or self.method or "abinitio").strip().lower()
+        inline_method = self.method.strip()
         config_path = ParmfitReader.resolve_path(str(config_ref), base_dir=base_dir)
         loaded = ParmfitReader(config_path)
         config_method = str(loaded.get("method", "abinitio")).strip().lower()
-        if inline_method != config_method:
+        if inline_method and inline_method != config_method:
             raise ValueError(
                 f"parmfit input config method {config_method!r} does not match inline method hint {inline_method!r}."
             )

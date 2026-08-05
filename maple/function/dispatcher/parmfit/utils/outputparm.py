@@ -19,7 +19,14 @@ _ANG_TO_NM = 0.1
 _BOX_PADDING_NM = 0.5
 _MIN_BOX_LENGTH_NM = 0.5
 _SIGMA_DENOM = 2.0 ** (1.0 / 6.0)
-_MAPLE_TYPE_LETTERS = ("Z", "U", "V", "I", "J", "K", "L", "M", "N", "P", "Q", "R", "S", "T", "W", "X", "Y", "B", "E")
+# Letters that are not element symbols come first. teLeap and ParmEd both read an
+# unfamiliar type's leading character as an element symbol, so "U0" is taken for
+# uranium and "N3" for nitrogen. The element letters stay in the pool as overflow
+# because the two-character type space is too small to give any of them up.
+_MAPLE_TYPE_LETTERS = (
+    "Z", "J", "L", "M", "Q", "R", "T", "X", "E",
+    "U", "V", "I", "K", "N", "P", "S", "W", "Y", "B",
+)
 _MAPLE_TYPE_SUFFIXES = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 _ATOMIC_FALLBACK = {
     "H": (1, 1.008),
@@ -48,7 +55,7 @@ _FF_ATOM_TYPES = {
     "C": "sp2", "C*": "sp2", "C0": "sp3", "2C": "sp3", "3C": "sp3", "C4": "sp2", "C5": "sp2", "C8": "sp3",
     "CA": "sp2", "CB": "sp2", "CC": "sp2", "CD": "sp2", "CH": "sp3", "CI": "sp3", "CJ": "sp2", 
     "CK": "sp2", "CM": "sp2", "CN": "sp2", "CO": "sp2", "CP": "sp2", "CQ": "sp2", "CR": "sp2", 
-    "CS": "sp2", "CT": "sp3", "CV": "sp2", "CW": "sp2", "CX": "sp3", "CY": "sp2", "XC": "sp3",
+    "CS": "sp2", "CT": "sp3", "CV": "sp2", "CW": "sp2", "CX": "sp3", "CY": "sp2", "CZ": "sp2", "XC": "sp3",
     "c": "sp2", "c1": "sp2", "c2": "sp2", "c3": "sp3", "c5": "sp3", "c6": "sp3",
     "ca": "sp2", "cc": "sp2", "cd": "sp2", "ce": "sp2", "cf": "sp2", "cg": "sp2", 
     "ch": "sp2", "cp": "sp2", "cq": "sp2", "cs": "sp2", "cu": "sp2", "cv": "sp2", 
@@ -71,13 +78,27 @@ _FF_ATOM_TYPES = {
     "P": "sp3", "LP": "sp3", "EP": "sp3", 
     "p2": "sp2", "p3": "sp3", "p4": "sp3", "p5": "sp3", "pb": "sp3", "pc": "sp3", "pd": "sp3", 
     "pe": "sp3", "pf": "sp3", "px": "sp3", "py": "sp3", 
-    # (Halogens & Metals)
+    # (Halogens)
     "F": "sp3", "Cl": "sp3", "Br": "sp3", "I": "sp3",
     "f": "sp3", "cl": "sp3", "br": "sp3", "i": "sp3",
-    "MG": "sp3", "CA": "sp3", "ZN": "sp3", "FE": "sp3", "CU": "sp3", "CO": "sp3", "NI": "sp3", "MN": "sp3",
-    "NA": "sp3", "K": "sp3",
-    "mg": "sp3", "ca": "sp3", "zn": "sp3", "fe": "sp3", "cu": "sp3", "co": "sp3", "ni": "sp3", "mn": "sp3",
-    "na": "sp3", "k": "sp3",
+    # (Ions) Amber spells ions "Zn2+"/"Na+"/"C0", never as a bare element symbol.
+    # Bare symbols collide with the organic types above -- "CA"/"NA"/"CO" are the
+    # ff14SB ring carbon and nitrogens and "ca"/"cu"/"ni" the gaff2 aromatic and
+    # conjugated ones -- and a repeated key in a dict literal silently keeps the
+    # last value, so spelling them that way retyped seven aromatic types as sp3.
+    "MG": "sp3", "CU": "sp3", "FE": "sp3", "Zn": "sp3",
+    "Li+": "sp3", "Na+": "sp3", "K+": "sp3", "Rb+": "sp3", "Cs+": "sp3",
+    "F-": "sp3", "Cl-": "sp3", "Br-": "sp3", "I-": "sp3",
+    "Be2+": "sp3", "Cu2+": "sp3", "Ni2+": "sp3", "Pt2+": "sp3", "Zn2+": "sp3",
+    "Co2+": "sp3", "Pd2+": "sp3", "Ag2+": "sp3", "Cr2+": "sp3", "Fe2+": "sp3",
+    "Mg2+": "sp3", "V2+": "sp3", "Mn2+": "sp3", "Hg2+": "sp3", "Cd2+": "sp3",
+    "Yb2+": "sp3", "Ca2+": "sp3", "Sn2+": "sp3", "Pb2+": "sp3", "Eu2+": "sp3",
+    "Sr2+": "sp3", "Sm2+": "sp3", "Ba2+": "sp3", "Ra2+": "sp3",
+    "Al3+": "sp3", "Ce3+": "sp3", "Cr3+": "sp3", "Dy3+": "sp3", "Er3+": "sp3",
+    "Eu3+": "sp3", "Fe3+": "sp3", "Gd3+": "sp3", "In3+": "sp3", "La3+": "sp3",
+    "Lu3+": "sp3", "Nd3+": "sp3", "Pr3+": "sp3", "Sm3+": "sp3", "Tb3+": "sp3",
+    "Tl3+": "sp3", "Tm3+": "sp3", "Y3+": "sp3",
+    "Ce4+": "sp3", "Hf4+": "sp3", "Pu4+": "sp3", "Th4+": "sp3", "U4+": "sp3", "Zr4+": "sp3",
 }
 
 # Snapshot of two-character uppercase/alnum Amber atom types observed in the
@@ -102,7 +123,7 @@ _AMBER_RESERVED_TWO_CHAR_TYPES = frozenset(
 ) | frozenset(
     atom_type
     for atom_type in _FF_ATOM_TYPES
-    if len(atom_type) == 2 and atom_type.isupper()
+    if len(atom_type) == 2 and atom_type.isupper() and atom_type.isalnum()
 )
 
 
@@ -300,7 +321,27 @@ def allocate_maple_atom_types(count: int, existing_types: set[str]) -> dict[int,
     return maple_types
 
 
-def format_tleap_add_atom_types_lines(
+def _element_from_mass(mass: float) -> str:
+    """Recover an element symbol from an atom type's mass.
+
+    Correction mol2 atoms carry no element column, so the frcmod MASS section --
+    which the export already validates for every type -- is the only per-type
+    element evidence available.
+    """
+    try:
+        from ase.data import atomic_masses, chemical_symbols  # type: ignore
+
+        table = [
+            (float(reference), chemical_symbols[number])
+            for number, reference in enumerate(atomic_masses)
+            if number and float(reference) == float(reference)
+        ]
+    except Exception:
+        table = [(reference, symbol) for symbol, (_number, reference) in _ATOMIC_FALLBACK.items()]
+    return _normalize_symbol(min(table, key=lambda item: abs(item[0] - mass))[1])
+
+
+def format_tleap_add_atom_types(
     atom_type_rows: list[tuple[str, str, str, str]],
 ) -> list[str]:
     lines = ["addAtomTypes {\n"]
@@ -310,6 +351,32 @@ def format_tleap_add_atom_types_lines(
             raise ValueError(f"Could not determine tleap hybridization for atom {atom_name} with old atom type {old_type!r}.")
         lines.append(f'    {{ "{maple_type}" "{_normalize_symbol(element)}" "{hybridization}" }}\n')
     lines.append("}\n")
+    return lines
+
+
+def format_corr_tleap(
+    atom_type_rows: list[tuple[str, str, str, str]],
+    *,
+    mol2_name: str,
+    frcmod_name: str,
+    prmtop_name: str,
+    inpcrd_name: str,
+    unit: str = "lig",
+) -> list[str]:
+    """Gas-phase tleap script for a correction export.
+
+    addAtomTypes must precede loadamberparams and loadmol2: teLeap applies the
+    table only to types it has not resolved yet, and a block placed after them is
+    ignored without an error -- every MAPLE type then lands in the topology with
+    ATOMIC_NUMBER -1, or with whatever element its leading letter suggests.
+    """
+    lines = ["source leaprc.gaff2\n"]
+    if atom_type_rows:
+        lines.extend(format_tleap_add_atom_types(atom_type_rows))
+    lines.append(f"loadamberparams {frcmod_name}\n")
+    lines.append(f"{unit} = loadmol2 {mol2_name}\n")
+    lines.append(f"saveamberparm {unit} {prmtop_name} {inpcrd_name}\n")
+    lines.append("quit\n")
     return lines
 
 
@@ -406,12 +473,14 @@ def write_gromacs_files(
 
 def write_amber_files(
     parameter_set: CorrectionParameterSet,
+    atoms: Atoms,
     input_mol2_path: str,
     output_base: str,
-) -> tuple[str, str]:
+) -> tuple[str, str, str]:
     base = os.path.splitext(output_base)[0]
     mol2_path = base + "_maple.mol2"
     frcmod_path = base + "_maple.frcmod"
+    tleap_path = base + "_maple_tleap.in"
 
     _validate_amber_export_inputs(parameter_set)
 
@@ -425,6 +494,7 @@ def write_amber_files(
     write_updated_mol2(
         input_mol2_path,
         mol2_path,
+        positions=atoms.get_positions(),
         atom_types=[
             maple_types[index]
             for index in range(1, len(parameter_set.mol2.atoms) + 1)
@@ -453,7 +523,28 @@ def write_amber_files(
     from .interface import write_refined_frcmod
 
     write_refined_frcmod(mapped, frcmod_path, mass_params=maple_mass_params, remark="REMARK MAPLE correction refined frcmod")
-    return mol2_path, frcmod_path
+
+    gas_base = os.path.basename(base) + "_maple_gas"
+    atom_type_rows = [
+        (
+            mol2_atom.name,
+            _element_from_mass(parameter_set.frcmod.mass_params[mol2_atom.atom_type]),
+            mol2_atom.atom_type,
+            maple_types[atom_index],
+        )
+        for atom_index, mol2_atom in enumerate(parameter_set.mol2.atoms, start=1)
+    ]
+    with open(tleap_path, "w") as handle:
+        handle.writelines(
+            format_corr_tleap(
+                atom_type_rows,
+                mol2_name=os.path.basename(mol2_path),
+                frcmod_name=os.path.basename(frcmod_path),
+                prmtop_name=gas_base + ".prmtop",
+                inpcrd_name=gas_base + ".inpcrd",
+            )
+        )
+    return mol2_path, frcmod_path, tleap_path
 
 
 def _validate_amber_export_inputs(parameter_set: CorrectionParameterSet) -> None:

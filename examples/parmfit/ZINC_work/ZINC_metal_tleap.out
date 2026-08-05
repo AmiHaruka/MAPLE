@@ -95,10 +95,10 @@ Checking Unit.
 
 /home/hungn/BioMed/AMBER24/ORG/bin/teLeap: Warning!
 There is a bond of 3.207 angstroms between ZN and O1S atoms:
--------  .R<ZN1 256>.A<ZN 1> and .R<MS1 257>.A<O1S 28>
+-------  .R<ZN1 256>.A<ZN 1> and .R<MS1 257>.A<O1S 15>
 
 /home/hungn/BioMed/AMBER24/ORG/bin/teLeap: Warning!
-The unperturbed charge of the unit (0.999995) is not zero.
+The unperturbed charge of the unit (0.999999) is not zero.
 
 /home/hungn/BioMed/AMBER24/ORG/bin/teLeap: Note.
 Ignoring the warnings from Unit Checking.
@@ -110,11 +110,11 @@ Building angle parameters.
 Building proper torsion parameters.
 
 /home/hungn/BioMed/AMBER24/ORG/bin/teLeap: Note.
-1-4: angle 4018 4045 duplicates bond ('triangular' bond) or angle ('square' bond)
+1-4: angle 4018 4032 duplicates bond ('triangular' bond) or angle ('square' bond)
 
 
 /home/hungn/BioMed/AMBER24/ORG/bin/teLeap: Note.
-1-4: angle 4046 4048 duplicates bond ('triangular' bond) or angle ('square' bond)
+1-4: angle 4033 4035 duplicates bond ('triangular' bond) or angle ('square' bond)
 
 Building improper torsion parameters.
  total 847 improper torsions applied
@@ -145,7 +145,7 @@ Marking per-residue atom chain types.
 
 /home/hungn/BioMed/AMBER24/ORG/bin/teLeap: Warning!
 addIons: 1st Ion & target unit have charges of the same sign:
-     unit charge = 0.999995; ion1 charge = 1;
+     unit charge = 0.999999; ion1 charge = 1;
      can't neutralize.
 1 Cl- ion required to neutralize.
 Adding 1 counter ions to "mol" using 1A grid
@@ -170,7 +170,7 @@ Checking Unit.
 
 /home/hungn/BioMed/AMBER24/ORG/bin/teLeap: Warning!
 There is a bond of 3.207 angstroms between ZN and O1S atoms:
--------  .R<ZN1 256>.A<ZN 1> and .R<MS1 257>.A<O1S 28>
+-------  .R<ZN1 256>.A<ZN 1> and .R<MS1 257>.A<O1S 15>
 
 /home/hungn/BioMed/AMBER24/ORG/bin/teLeap: Note.
 Ignoring the warning from Unit Checking.
@@ -182,11 +182,11 @@ Building angle parameters.
 Building proper torsion parameters.
 
 /home/hungn/BioMed/AMBER24/ORG/bin/teLeap: Note.
-1-4: angle 4018 4045 duplicates bond ('triangular' bond) or angle ('square' bond)
+1-4: angle 4018 4032 duplicates bond ('triangular' bond) or angle ('square' bond)
 
 
 /home/hungn/BioMed/AMBER24/ORG/bin/teLeap: Note.
-1-4: angle 4046 4048 duplicates bond ('triangular' bond) or angle ('square' bond)
+1-4: angle 4033 4035 duplicates bond ('triangular' bond) or angle ('square' bond)
 
 Building improper torsion parameters.
  total 847 improper torsions applied

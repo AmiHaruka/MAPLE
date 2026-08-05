@@ -42,6 +42,7 @@ PDB coordinates are parsed by parmfit abinitio at runtime.
                            Parmfit Abinitio                           
 ======================================================================
 Target: A262:ZN (ion)
+  PDB residue templates: matched=255, backbone_only=0, unmatched=1
   Target metal selector: A262
   add_resid: []
   cluster_cutoff: 3.00 A
@@ -83,17 +84,17 @@ Main products:
 
 Renamed atom types:
   residue      atom  old   new   charge
-  _90:HID      NE2   NB    Y1     0.029101
-  _92:HID      NE2   NB    Y2     0.010890
-  _115:HIE     ND1   NB    Y3     0.108188
-  A262:ZN      ZN    ZN    M1     0.085717
-  A862:MNS     O1S   o     Y4    -0.387940
-  A862:MNS     N3S   n2    Y5    -0.362979
+  _90:HID      NE2   NB    Y1     0.006764
+  _92:HID      NE2   NB    Y2     0.029082
+  _115:HIE     ND1   NB    Y3     0.098810
+  A262:ZN      ZN    ZN    M1     0.170101
+  A862:MNS     O1S   o     Y4    -0.459576
+  A862:MNS     N3S   n2    Y5    -0.542744
 
 Stage timing:
-  large RESP/Gaussian ESP       10m 58s   slowest
+  large RESP/Gaussian ESP       10m 33s
   Hessian + mSeminario           1m 17s
-  large optimization                11s
+  large optimization                12s
   tleap validation                   2s
   site export                        0s
   site selection/model build         0s
@@ -109,28 +110,28 @@ Tleap status:
   Check: long bond ZN-O1S = 3.207 A
 
 Warnings:
-  Environment contains potentially charged standard residues outside the site core: _5:LYS, _10:GLU, _14:LYS, _15:ASP, _20:LYS, _22:GLU, _23:ARG, _28:ASP
+  Environment contains potentially charged standard residues outside the site core: _1:TRP, _5:LYS, _10:GLU, _14:LYS, _15:ASP, _20:LYS, _22:GLU, _23:ARG
 ======================================================================
 
 
 
-Program started: 2026-07-06 18:02:30
+Program started: 2026-08-04 11:15:43
 
 ======================================================================
                       TIMING SUMMARY
 ======================================================================
-Input Reading.......................................   1.132 s  (   0.1 %)
+Input Reading.......................................   1.131 s  (   0.2 %)
   Settings Parsing....................................   1.130 s  (  99.9 %)
-  Coordinate Section Parsing..........................   0.001 s  (   0.0 %)
+  Coordinate Section Parsing..........................   0.001 s  (   0.1 %)
   Post-Processing Expansion...........................   0.000 s  (   0.0 %)
-MLP Initialization..................................   9.389 s  (   1.2 %)
-Job Dispatching..................................... 748.611 s  (  98.6 %)
-  Parmfit optimization................................ 748.601 s  ( 100.0 %)
-    Parmfit abinitio.................................... 748.512 s  ( 100.0 %)
+MLP Initialization..................................   8.762 s  (   1.2 %)
+Job Dispatching..................................... 724.534 s  (  98.7 %)
+  Parmfit optimization................................ 724.533 s  ( 100.0 %)
+    Parmfit abinitio.................................... 724.476 s  ( 100.0 %)
 ======================================================================
-Total wall time: 759.132 s
-Total CPU time: 100.250 s
+Total wall time: 734.428 s
+Total CPU time: 102.287 s
 ======================================================================
 
-Program ended: 2026-07-06 18:15:09
-TOTAL RUN TIME: 0 days 0 hours 12 minutes 39 seconds 132 msec
+Program ended: 2026-08-04 11:27:57
+TOTAL RUN TIME: 0 days 0 hours 12 minutes 14 seconds 427 msec

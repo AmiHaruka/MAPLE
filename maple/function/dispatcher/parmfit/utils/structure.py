@@ -99,19 +99,6 @@ def _bond_pair(a: int, b: int) -> tuple[int, int]:
     return (a, b) if a < b else (b, a)
 
 
-def _infer_element(name: str, element: str = "") -> str:
-    explicit = element.strip().upper()
-    if explicit:
-        return explicit
-    letters = "".join(ch for ch in name if ch.isalpha())
-    if not letters:
-        return "C"
-    token = letters.upper()
-    if len(token) >= 2 and token[:2] in COVALENT_RADII:
-        return token[:2]
-    return token[0]
-
-
 def covalent_cutoff(atom1: dict, atom2: dict, factor: float = 1.3) -> float:
     r1 = COVALENT_RADII.get(atom1["element"], 0.77)
     r2 = COVALENT_RADII.get(atom2["element"], 0.77)
@@ -142,7 +129,7 @@ def _pair_is_bonded(structure: dict, atom1: dict, atom2: dict, bond_policy: str 
     covalent = float(np.sqrt(np.dot(delta, delta))) <= cutoff
     if bond_policy == "covalent":
         return covalent
-    if "bond_pairs" in structure:
+    if structure.get("bond_pairs"):
         return pair in structure["bond_pairs"]
     return pair in structure.get("explicit_pairs", set()) or covalent
 
@@ -150,7 +137,7 @@ def _pair_is_bonded(structure: dict, atom1: dict, atom2: dict, bond_policy: str 
 def find_external_partners(structure: dict, atom: dict, selected_serials: set[int], bond_policy: str = "auto") -> list[dict]:
     pairs = structure.get("explicit_pairs", set()) if bond_policy == "record" else None
     if bond_policy == "auto":
-        pairs = structure.get("bond_pairs")
+        pairs = structure.get("bond_pairs") or None
     if pairs is None:
         pairs = {
             _bond_pair(atom["serial"], other["serial"])

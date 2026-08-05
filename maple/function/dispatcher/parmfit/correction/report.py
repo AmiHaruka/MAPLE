@@ -151,7 +151,7 @@ def has_parameter_changes(
 def correction_result_lines(config: CorrectionConfig, result: CorrectionWorkflowResult) -> list[str]:
     bonded_counts = _change_counts(result.init_parmset, result.stage0_parmset)
     torsion_counts = _change_counts(result.stage0_parmset, result.final_parmset)
-    final_counts = _change_counts(result.stage0_parmset, result.final_parmset)
+    final_counts = torsion_counts
     has_mlip_comparison = result.mlip_final_parmset is not None
     mlip_bonded_counts = (
         _change_counts(result.init_parmset, result.mlip_stage0_parmset)
@@ -182,6 +182,7 @@ def correction_result_lines(config: CorrectionConfig, result: CorrectionWorkflow
         f"  Amber frcmod: {_relative_path(result.amber.frcmod)}\n",
         f"  GROMACS top:  {_relative_path(result.gromacs.top)}\n",
         f"  GROMACS gro:  {_relative_path(result.gromacs.gro)}\n",
+        f"  Amber tleap:  {_relative_path(result.amber.tleap_in)}\n",
     ]
     if result.mlip_amber is not None:
         lines.extend(
@@ -275,6 +276,7 @@ def correction_result_lines(config: CorrectionConfig, result: CorrectionWorkflow
     else:
         lines.append("  none\n")
     lines.append("=" * RESULT_WIDTH + "\n")
+    lines.extend(_parmed_extend(result.amber))
     return lines
 
 
@@ -472,6 +474,25 @@ def _mae_rmse(reference: list[float], predicted: list[float]) -> tuple[float, fl
     mae = sum(abs(value) for value in residuals) / len(residuals)
     rmse = sqrt(sum(value * value for value in residuals) / len(residuals))
     return float(mae), float(rmse)
+
+
+def _parmed_extend(amber) -> list[str]:
+    gas = os.path.splitext(os.path.basename(amber.mol2))[0] + "_gas"
+    return [
+        "\n",
+        "=" * RESULT_WIDTH + "\n",
+        "IMPORTANT".center(RESULT_WIDTH) + "\n",
+        "=" * RESULT_WIDTH + "\n",
+        "Due to the limitations of custom atom types, the exported topology\n",
+        "must be normalized with ParmEd before use. tleap identifies hydrogens\n",
+        "by the leading character of the atom type, which MAPLE types do not\n",
+        "carry, so it writes an empty BONDS_INC_HYDROGEN section and SHAKE\n",
+        "(ntc=2) would constrain nothing. ParmEd rebuilds that section from\n",
+        "ATOMIC_NUMBER, e.g.:\n",
+        f"  tleap -f {os.path.basename(amber.tleap_in)}\n",
+        f"  parmed -p {gas}.prmtop <<< $'outparm {gas}_parmed.prmtop\\nquit'\n",
+        "=" * RESULT_WIDTH + "\n",
+    ]
 
 
 def _relative_path(path: str | None) -> str:

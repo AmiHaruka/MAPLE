@@ -313,6 +313,7 @@ def run_correction_workflow(
     with _timed_stage("export Amber", stage_timings):
         amber = export_amber(
             output,
+            atoms,
             export_config,
             final_parmset,
             use_refined_parameters=refine_enabled,
@@ -337,6 +338,7 @@ def run_correction_workflow(
         with _timed_stage("export Amber (MLIP comparison)", stage_timings):
             mlip_amber = export_amber(
                 output,
+                mlip_atoms or atoms,
                 mlip_export_config,
                 mlip_final_parmset,
                 use_refined_parameters=refine_enabled,

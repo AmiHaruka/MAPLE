@@ -15,7 +15,7 @@ from ..ionparams import infer_ion_frcmod_name
 from ..model import copy_structure_subset, flatten_model_atoms, infer_bond_pairs, rebuild_model_index, write_model_pdb
 from ..resp import lookup_standard_atom_entry, lookup_standard_residue_entry, write_resp_mol2
 from ..runtime import parmfit_output_dir
-from ..structure import ATOMIC_MASSES, copy_residue, get_resid_key, get_resid_label, residue_sort_key
+from ..structure import copy_residue, get_resid_key, get_resid_label, residue_sort_key
 from .parameters import (
     AmberParameterDB,
     TorsionParameter,
@@ -28,7 +28,10 @@ from .parameters import (
     parse_amber_frcmod,
 )
 
-_LOCAL_TYPE_LETTERS = ("Y", "Z", "U", "V", "I", "J", "K", "L", "N", "P", "Q", "R", "S", "T", "W", "X", "B", "E")
+# Non-element letters first, for the same reason as outputparm._MAPLE_TYPE_LETTERS:
+# a donor typed "Y1" reads as yttrium to anything that guesses the element from
+# the type name rather than from the addAtomTypes table this module writes.
+_LOCAL_TYPE_LETTERS = ("Z", "J", "L", "Q", "R", "T", "X", "E", "Y", "U", "V", "I", "K", "N", "P", "S", "W", "B")
 _TYPE_DIGITS = "123456789ABCDEF0"
 _WATER_REFERENCE_TYPES = {"O": "OW", "H": "HW"}
 
@@ -814,10 +817,6 @@ def _match_dihedral_with_wildcard_preference(
 
 def _write_frcmod(path: str, site_model: dict, bond_terms, angle_terms, site_typing: MetalSiteTyping) -> None:
     flattened = flatten_model_atoms(site_model)
-    element_by_index = {
-        atom_index: atom["element"]
-        for atom_index, (_, atom) in enumerate(flattened, start=1)
-    }
     cofactor_params = _load_cofactor_parameters(site_typing.cofactor_frcmods)
     cofactor_params_by_residue = _load_cofactor_parameters_by_residue(
         site_typing.cofactor_frcmod_by_residue
@@ -853,8 +852,6 @@ def _write_frcmod(path: str, site_model: dict, bond_terms, angle_terms, site_typ
             mass = (reference_params.mass.get(old_type) if reference_params is not None else None) or system_reference_params.mass.get(old_type)
             if mass is None:
                 raise _parameter_missing("MASS", (old_type,))
-        if mass is None:
-            mass = ATOMIC_MASSES.get(element_by_index[atom_index].upper(), 0.0)
         mass_lines.append(_format_mass_line(atom_type, mass))
 
     # BOND / ANGLE: fitted metal terms first, inherited same-residue terms otherwise.

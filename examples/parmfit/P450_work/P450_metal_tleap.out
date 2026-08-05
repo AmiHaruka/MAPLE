@@ -78,7 +78,7 @@ Writing pdb file: P450_metal_tleap_dry.pdb
 Checking Unit.
 
 /home/hungn/BioMed/AMBER24/ORG/bin/teLeap: Warning!
-The unperturbed charge of the unit (-11.000001) is not zero.
+The unperturbed charge of the unit (-11.000000) is not zero.
 
 /home/hungn/BioMed/AMBER24/ORG/bin/teLeap: Note.
 Ignoring the warning from Unit Checking.
@@ -143,11 +143,9 @@ Placed Na+ in mol at (-8.37, -18.38, 7.85).
 Placed Na+ in mol at (15.71, -18.62, -20.30).
 
 Done adding ions.
-
-/home/hungn/BioMed/AMBER24/ORG/bin/teLeap: Warning!
-addIons: 1st Ion & target unit have charges of the same sign:
-     unit charge = -1e-06; ion1 charge = -1;
-     can't neutralize.
+ 0.000000 0 1 0
+0 Cl- ion required to neutralize.
+Adding 0 counter ions to "mol" using 1A grid
 Writing pdb file: P450_metal_tleap_solvated.pdb
    printing CRYST1 record to PDB file with box info
 
@@ -182,4 +180,4 @@ Marking per-residue atom chain types.
  (no restraints)
 	Quit
 
-Exiting LEaP: Errors = 0; Warnings = 8; Notes = 1.
+Exiting LEaP: Errors = 0; Warnings = 7; Notes = 1.

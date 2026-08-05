@@ -189,8 +189,8 @@ def run_gaussian(gjf: str, decision: QMMethod) -> str:
 # =============================================================================
 
 def _run_cmd(cmd, cwd=None):
-    print(f"  [CMD] {cmd}")
-    r = sp.run(cmd, shell=True, capture_output=True, text=True, cwd=cwd)
+    print(f"  [CMD] {shlex.join(cmd)}")
+    r = sp.run(cmd, capture_output=True, text=True, cwd=cwd)
     if r.returncode != 0:
         print(f"    STDERR: {r.stderr[:800]}")
     return r.returncode, r.stdout, r.stderr
@@ -265,20 +265,20 @@ def run_antechamber(
 ):
     rn = cfg["residue_name"]
     output_name = f"{rn}.{output_format}"
-    cmd = (
-        f"{cfg.get('antechamber', 'antechamber')} "
-        f"-i {input_file} -fi {input_format} "
-        f"-o {output_name} -fo {output_format} "
-        f"-rn {rn} -at gaff2 "
-        f"-nc {cfg['net_charge']} "
-        f"-m {cfg.get('multiplicity', 1)} -seq n -pf y"
-    )
+    cmd = [
+        str(cfg.get("antechamber", "antechamber")),
+        "-i", str(input_file), "-fi", str(input_format),
+        "-o", output_name, "-fo", str(output_format),
+        "-rn", str(rn), "-at", "gaff2",
+        "-nc", str(cfg["net_charge"]),
+        "-m", str(cfg.get("multiplicity", 1)), "-seq", "n", "-pf", "y",
+    ]
     if charge_mode is not None:
-        cmd += f" -c {charge_mode}"
+        cmd += ["-c", str(charge_mode)]
     if charge_file is not None:
-        cmd += f" -cf {charge_file}"
+        cmd += ["-cf", str(charge_file)]
     if input_format == "gout" and charge_mode is None:
-        cmd += " -c resp -s 2"
+        cmd += ["-c", "resp", "-s", "2"]
     rc, _, err = _run_cmd(cmd, cwd=workdir)
     if rc != 0:
         raise RuntimeError(f"antechamber failed:\n{err}")
@@ -313,12 +313,14 @@ def run_prepgen(ac_file, mc_file, cfg, workdir):
     rn = cfg["residue_name"]
     out = f"{rn}.prepin"
     res = f"{rn}.res"
-    cmd = (f"{cfg.get('prepgen', 'prepgen')} "
-           f"-i {ac_file} "
-           f"-o {out} "
-           f"-m {mc_file} "
-           f"-rn {rn} "
-           f"-rf {res}")
+    cmd = [
+        str(cfg.get("prepgen", "prepgen")),
+        "-i", str(ac_file),
+        "-o", out,
+        "-m", str(mc_file),
+        "-rn", str(rn),
+        "-rf", res,
+    ]
     rc, _, err = _run_cmd(cmd, cwd=workdir)
     if rc != 0:
         raise RuntimeError(f"prepgen failed:\n{err}")
@@ -334,10 +336,12 @@ def run_prepgen(ac_file, mc_file, cfg, workdir):
 def run_parmchk2(input_file, cfg, ifmol2, workdir):
     rn = cfg["residue_name"]
     out = f"{rn}.frcmod"
-    cmd = (f"{cfg.get('parmchk2', 'parmchk2')} "
-           f"-i {input_file} -f {'mol2' if ifmol2 else 'prepi'} "
-           f"-a Y -s gaff2 "
-           f"-o {out} ")
+    cmd = [
+        str(cfg.get("parmchk2", "parmchk2")),
+        "-i", str(input_file), "-f", "mol2" if ifmol2 else "prepi",
+        "-a", "Y", "-s", "gaff2",
+        "-o", out,
+    ]
     rc, _, err = _run_cmd(cmd, cwd=workdir)
     if rc != 0:
         raise RuntimeError(f"parmchk2 failed:\n{err}")
@@ -585,10 +589,14 @@ def write_refined_frcmod(
 
     lines.extend(["\n", "DIHE\n"])
     for atom_types, terms in sorted(dihedral_params.items()):
-        for term in terms:
+        for term_index, term in enumerate(terms):
+            # AMBER uses negative PN as a continuation marker and retains |PN|.
+            periodicity = abs(float(term.period))
+            if term_index < len(terms) - 1:
+                periodicity = -periodicity
             lines.append(
                 f"{atom_types[0]:<2s}-{atom_types[1]:<2s}-{atom_types[2]:<2s}-{atom_types[3]:<2s}"
-                f"  {1:4d}  {float(term.kPhi):10.4f}  {degrees(float(term.phase)):9.3f}  {float(term.period):8.3f}\n"
+                f"  {1:4d}  {float(term.kPhi):10.4f}  {degrees(float(term.phase)):9.3f}  {periodicity:8.3f}\n"
             )
 
     lines.extend(["\n", "IMPROPER\n"])

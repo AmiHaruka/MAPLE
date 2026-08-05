@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 from ase import Atoms
 
-from ..utils.outputparm import write_amber_files, write_gromacs_files
+from ..utils.outputparm import format_corr_tleap, write_amber_files, write_gromacs_files
 from ..utils.readparm import CorrectionParameterSet
 from ..utils.runtime import parmfit_output_dir
 from ..utils.TorsionFit import TorsionWorkflowResult
@@ -29,6 +29,7 @@ class GromacsExportResult:
 class AmberExportResult:
     mol2: str
     frcmod: str
+    tleap_in: str = ""
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,7 @@ def export_gromacs(
 
 def export_amber(
     output: str,
+    atoms: Atoms,
     config: CorrectionConfig,
     parmset: CorrectionParameterSet,
     *,
@@ -89,12 +91,28 @@ def export_amber(
     if not use_refined_parameters:
         maple_mol2 = output_base + "_maple.mol2"
         maple_frcmod = output_base + "_maple.frcmod"
+        maple_tleap = output_base + "_maple_tleap.in"
         shutil.copyfile(config.mol2, maple_mol2)
         shutil.copyfile(source_frcmod, maple_frcmod)
-        return AmberExportResult(mol2=maple_mol2, frcmod=maple_frcmod)
-    maple_mol2, maple_frcmod = write_amber_files(
+        # Types are still the stock gaff2 ones here, so the script needs no
+        # addAtomTypes block -- but it is written all the same, so every Amber
+        # export ships the same set of files.
+        gas_base = os.path.basename(output_base) + "_maple_gas"
+        with open(maple_tleap, "w") as handle:
+            handle.writelines(
+                format_corr_tleap(
+                    [],
+                    mol2_name=os.path.basename(maple_mol2),
+                    frcmod_name=os.path.basename(maple_frcmod),
+                    prmtop_name=gas_base + ".prmtop",
+                    inpcrd_name=gas_base + ".inpcrd",
+                )
+            )
+        return AmberExportResult(mol2=maple_mol2, frcmod=maple_frcmod, tleap_in=maple_tleap)
+    maple_mol2, maple_frcmod, maple_tleap = write_amber_files(
         parmset,
+        atoms,
         config.mol2,
         output_base,
     )
-    return AmberExportResult(mol2=maple_mol2, frcmod=maple_frcmod)
+    return AmberExportResult(mol2=maple_mol2, frcmod=maple_frcmod, tleap_in=maple_tleap)

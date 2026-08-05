@@ -219,8 +219,11 @@ def _environment_atom_type(atom_type: str) -> str:
 
 
 def _bond_type_map(parameter_set: CorrectionParameterSet) -> dict[tuple[int, int], str]:
+    # Keyed by sequential atom index, matching mol2.adjacency and the dihedral atom
+    # tuples these maps are looked up with; mol2 atom ids are a separate space.
+    id_to_index = parameter_set.mol2.id_to_index
     return {
-        normalize_center_bond((int(bond.atom1), int(bond.atom2))): str(bond.bond_type).strip().lower()
+        normalize_center_bond((id_to_index[bond.atom1], id_to_index[bond.atom2])): str(bond.bond_type).strip().lower()
         for bond in parameter_set.mol2.bonds
     }
 
@@ -280,7 +283,9 @@ def _group_center_bond_dihedrals(
     preserve_distinct_template_k: bool = False,
 ) -> tuple[TorsionSharedGroupSpec, ...]:
     bond_types = _bond_type_map(parameter_set)
-    environment_atom_types = {int(mol2_atom.atom_id): str(mol2_atom.atom_type) for mol2_atom in parameter_set.mol2.atoms}
+    environment_atom_types = {
+        index: str(mol2_atom.atom_type) for index, mol2_atom in enumerate(parameter_set.mol2.atoms, start=1)
+    }
     grouped: "OrderedDict[object, list[tuple[int, object]]]" = OrderedDict()
     for local_index, dihedral in enumerate(dihedrals):
         atom_types = canonical_torsion_atom_types(dihedral.atom_types)
