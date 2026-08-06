@@ -7,17 +7,17 @@ addAtomTypes {
     { "Z2" "C" "sp3" }
     { "Z3" "C" "sp3" }
     { "Z4" "C" "sp2" }
-    { "Z5" "N" "sp3" }
+    { "Z5" "N" "sp2" }
     { "Z6" "C" "sp2" }
     { "Z7" "N" "sp2" }
     { "Z8" "C" "sp2" }
     { "Z9" "H" "sp3" }
     { "ZA" "H" "sp3" }
     { "ZB" "C" "sp3" }
-    { "ZC" "C" "sp3" }
-    { "ZD" "C" "sp3" }
-    { "ZE" "C" "sp3" }
-    { "ZF" "C" "sp3" }
+    { "ZC" "C" "sp2" }
+    { "ZD" "C" "sp2" }
+    { "ZE" "C" "sp2" }
+    { "ZF" "C" "sp2" }
     { "ZG" "N" "sp2" }
     { "ZH" "C" "sp2" }
     { "ZI" "C" "sp2" }
@@ -25,7 +25,7 @@ addAtomTypes {
     { "ZK" "C" "sp2" }
     { "ZL" "N" "sp2" }
     { "ZM" "C" "sp2" }
-    { "ZO" "N" "sp3" }
+    { "ZO" "N" "sp2" }
     { "ZP" "C" "sp3" }
     { "ZQ" "C" "sp3" }
     { "ZR" "C" "sp3" }
@@ -37,70 +37,70 @@ addAtomTypes {
     { "ZX" "O" "sp2" }
     { "ZY" "O" "sp3" }
     { "ZZ" "P" "sp3" }
-    { "U0" "O" "sp2" }
-    { "U6" "O" "sp2" }
-    { "U7" "O" "sp3" }
-    { "U8" "C" "sp3" }
-    { "U9" "C" "sp3" }
-    { "UA" "C" "sp3" }
-    { "UB" "O" "sp3" }
-    { "UC" "H" "sp3" }
-    { "UF" "C" "sp3" }
-    { "UG" "C" "sp3" }
-    { "UH" "N" "sp3" }
-    { "UI" "C" "sp3" }
-    { "UJ" "N" "sp2" }
-    { "UK" "C" "sp3" }
-    { "UL" "N" "sp2" }
-    { "UM" "C" "sp3" }
-    { "UO" "N" "sp2" }
-    { "UP" "H" "sp3" }
-    { "UQ" "H" "sp3" }
-    { "UR" "C" "sp3" }
-    { "US" "N" "sp2" }
-    { "UT" "C" "sp2" }
-    { "UU" "H" "sp3" }
-    { "UV" "H" "sp3" }
-    { "UW" "O" "sp3" }
-    { "UX" "H" "sp3" }
-    { "UY" "O" "sp3" }
-    { "UZ" "H" "sp3" }
-    { "V0" "H" "sp3" }
-    { "V1" "H" "sp3" }
-    { "V3" "H" "sp3" }
-    { "V4" "H" "sp3" }
-    { "V5" "H" "sp3" }
-    { "V6" "H" "sp3" }
-    { "V7" "H" "sp3" }
-    { "V8" "O" "sp3" }
-    { "V9" "H" "sp3" }
-    { "VA" "H" "sp3" }
-    { "VB" "O" "sp3" }
-    { "VC" "H" "sp3" }
-    { "VD" "H" "sp3" }
-    { "VE" "O" "sp3" }
-    { "VF" "H" "sp3" }
-    { "VG" "H" "sp3" }
-    { "VH" "H" "sp3" }
-    { "VI" "H" "sp3" }
-    { "VJ" "C" "sp3" }
-    { "VK" "C" "sp3" }
-    { "VL" "H" "sp3" }
-    { "VM" "O" "sp2" }
-    { "VN" "H" "sp3" }
-    { "VO" "O" "sp2" }
-    { "VP" "H" "sp3" }
-    { "VQ" "C" "sp3" }
-    { "VR" "H" "sp3" }
-    { "VT" "H" "sp3" }
-    { "VU" "H" "sp3" }
-    { "VV" "H" "sp3" }
-    { "VW" "H" "sp3" }
-    { "VX" "H" "sp3" }
-    { "VY" "H" "sp3" }
-    { "VZ" "H" "sp3" }
-    { "I0" "C" "sp2" }
-    { "I1" "O" "sp2" }
+    { "J0" "O" "sp2" }
+    { "J1" "O" "sp2" }
+    { "J2" "O" "sp3" }
+    { "J3" "C" "sp3" }
+    { "J4" "C" "sp3" }
+    { "J5" "C" "sp3" }
+    { "J6" "O" "sp3" }
+    { "J7" "H" "sp3" }
+    { "J8" "C" "sp3" }
+    { "J9" "C" "sp3" }
+    { "JA" "N" "sp2" }
+    { "JB" "C" "sp2" }
+    { "JC" "N" "sp2" }
+    { "JD" "C" "sp2" }
+    { "JE" "N" "sp2" }
+    { "JF" "C" "sp2" }
+    { "JG" "N" "sp2" }
+    { "JH" "H" "sp3" }
+    { "JI" "H" "sp3" }
+    { "JJ" "C" "sp2" }
+    { "JK" "N" "sp2" }
+    { "JL" "C" "sp2" }
+    { "JM" "H" "sp3" }
+    { "JN" "H" "sp3" }
+    { "JO" "O" "sp3" }
+    { "JP" "H" "sp3" }
+    { "JQ" "O" "sp3" }
+    { "JR" "H" "sp3" }
+    { "JS" "H" "sp3" }
+    { "JT" "H" "sp3" }
+    { "JU" "H" "sp3" }
+    { "JV" "H" "sp3" }
+    { "JW" "H" "sp3" }
+    { "JX" "H" "sp3" }
+    { "JY" "H" "sp3" }
+    { "JZ" "O" "sp3" }
+    { "L0" "H" "sp3" }
+    { "L1" "H" "sp3" }
+    { "L2" "O" "sp3" }
+    { "L3" "H" "sp3" }
+    { "L4" "H" "sp3" }
+    { "L5" "O" "sp3" }
+    { "L6" "H" "sp3" }
+    { "L7" "H" "sp3" }
+    { "L8" "H" "sp3" }
+    { "L9" "H" "sp3" }
+    { "LB" "C" "sp2" }
+    { "LC" "C" "sp2" }
+    { "LD" "H" "sp3" }
+    { "LE" "O" "sp2" }
+    { "LF" "H" "sp3" }
+    { "LG" "O" "sp2" }
+    { "LH" "H" "sp3" }
+    { "LK" "C" "sp3" }
+    { "LL" "H" "sp3" }
+    { "LM" "H" "sp3" }
+    { "LN" "H" "sp3" }
+    { "LO" "H" "sp3" }
+    { "LQ" "H" "sp3" }
+    { "LR" "H" "sp3" }
+    { "LS" "H" "sp3" }
+    { "LT" "H" "sp3" }
+    { "LV" "C" "sp2" }
+    { "LW" "O" "sp2" }
 }
 loadamberprep HF1_maple.prepin
 loadamberparams HF1_maple.frcmod

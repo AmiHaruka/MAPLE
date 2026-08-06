@@ -591,13 +591,16 @@ def _solve_local_problem_stage1(problem: TorsionLocalProblem, params: TorsionFit
         solve_cache=solve_cache,
         variable_phase_mask=_stage1_spectral_variable_mask(problem, initial_active_mask),
     )
-    final_solution = _solve_local_stage1_active_set_with_phases(
-        problem,
-        final_active_mask,
-        params,
-        solve_cache=solve_cache,
-        variable_phase_mask=_stage1_spectral_variable_mask(problem, final_active_mask),
-    )
+    if np.array_equal(initial_active_mask, final_active_mask):
+        final_solution = initial_solution
+    else:
+        final_solution = _solve_local_stage1_active_set_with_phases(
+            problem,
+            final_active_mask,
+            params,
+            solve_cache=solve_cache,
+            variable_phase_mask=_stage1_spectral_variable_mask(problem, final_active_mask),
+        )
     final_fitted_k = final_solution.k_values
     final_rank = final_solution.rank
     final_dropped = final_solution.dropped

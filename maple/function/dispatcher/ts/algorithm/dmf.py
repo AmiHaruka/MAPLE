@@ -2736,9 +2736,16 @@ class DirectMaxFlux(VariationalPathOpt):
             barrier = emax_interp - np.amax(self._e_ends)+self.e0
             de = min(2.0/float(nmove+1)*barrier,de)
             delta_e = de*np.arange(0.5*(nmove%2+1.0),0.5*(nmove+1.0),1.0)
-            t_de = self.interpolate_energies(delta_e=delta_e)[3]
-            t_cand_m = np.hstack([tl[tl<tmax] for tl in t_de])
-            t_cand_p = np.hstack([tl[tl>tmax] for tl in t_de])
+            # nmove==1 leaves delta_e empty (no interior contour to sample); an
+            # asymmetric barrier can also yield fewer crossings than nmove on one
+            # side. Guard the concatenations so neither degenerate case raises.
+            if delta_e.size:
+                t_de = self.interpolate_energies(delta_e=delta_e)[3]
+                t_cand_m = np.hstack([tl[tl<tmax] for tl in t_de]) if len(t_de) else np.empty(0)
+                t_cand_p = np.hstack([tl[tl>tmax] for tl in t_de]) if len(t_de) else np.empty(0)
+            else:
+                t_cand_m = np.empty(0)
+                t_cand_p = np.empty(0)
             temp_t_eval_m = t_cand_m[
                 np.argsort(np.abs(t_cand_m-tmax))[:nmove//2]]
             temp_t_eval_p = t_cand_p[
@@ -2749,9 +2756,12 @@ class DirectMaxFlux(VariationalPathOpt):
 
             alpha = ca*self._max_alpha
             t_eval = self.t_eval.copy()
-            t_eval[1:-1] = (1.0-alpha)*t_eval[1:-1] + alpha*temp_t_eval
-
-            self.set_t_eval(t_eval)
-            self.set_w_eval()
+            # Only refine the interior grid when a full-width replacement was
+            # built; otherwise leave t_eval unchanged this iteration rather than
+            # broadcasting a short array into t_eval[1:-1].
+            if temp_t_eval.size == t_eval[1:-1].size:
+                t_eval[1:-1] = (1.0-alpha)*t_eval[1:-1] + alpha*temp_t_eval
+                self.set_t_eval(t_eval)
+                self.set_w_eval()
 
             self._max_alpha *= cb

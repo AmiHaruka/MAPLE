@@ -106,6 +106,10 @@ def _inject_atom_types_and_bonds(
         residue_atoms_by_name[name]["cfmol2_charge"] = mol2_atom.charge
         residue_atoms_by_name[name]["_cfmol2_path"] = path
     residue["_cfmol2_path"] = path
+    # Tips: A cfmol2 cofactor is the coordinating non-protein ligand of the metal 
+    # site, and its charge is already carried by cmo (config.charge = metal + coordinating ligand);
+    # the cfmol2 only supplies atom types and bonds. As a coordinating (core) donor
+    # it is skipped by the large-model charge groups and must contribute 0 to infer_model_charge.
 
     atom_id_to_name = {atom.atom_id: atom.name for atom in mol2.atoms}
     bond_name_pairs: set[tuple[str, str]] = set()

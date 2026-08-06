@@ -43,6 +43,7 @@ PDB coordinates are parsed by parmfit abinitio at runtime.
 ======================================================================
 Target: _89:HIF (protein)
   PDB residue templates: matched=516, backbone_only=1, unmatched=0
+    non-standard (matched backbone only): _89:HIF (target)
   PDB target charge: _89:HIF = 0 (from your input)
   [NCAA] MLIP model preparation + reference optimization ...
   NCAA target selector: HIF89
@@ -74,7 +75,7 @@ Charge/mult: 0 1
 Charge fitting: resp
 Charge level: HF/6-31G(d)
 Target charge: 0
-Actual charge: -0.00000200
+Actual charge: 0.00000000
 Charge MOL2: MaDA_work/ncaa/MaDA_capped.mol2
 
 Main products:
@@ -84,9 +85,9 @@ Main products:
   tleap input:    MaDA_work/MaDA_ncaa_tleap.in
 
 Stage timing:
-  charge fitting                    9m 40s
-  model preparation + reference     1m 31s
-  Hessian + mSeminario              1m 15s
+  charge fitting                   10m 32s
+  Hessian + mSeminario              1m 16s
+  model preparation + reference        43s
   tleap validation                      3s
   AmberTools template build             0s
   final export                          0s
@@ -106,23 +107,23 @@ Warnings:
 
 
 
-Program started: 2026-08-04 11:57:49
+Program started: 2026-08-07 07:26:08
 
 ======================================================================
                       TIMING SUMMARY
 ======================================================================
-Input Reading.......................................   0.017 s  (   0.0 %)
-  Settings Parsing....................................   0.016 s  (  91.3 %)
-  Coordinate Section Parsing..........................   0.001 s  (   3.6 %)
+Input Reading.......................................   1.150 s  (   0.2 %)
+  Settings Parsing....................................   1.148 s  (  99.9 %)
+  Coordinate Section Parsing..........................   0.001 s  (   0.1 %)
   Post-Processing Expansion...........................   0.000 s  (   0.0 %)
-MLP Initialization..................................   8.937 s  (   1.2 %)
-Job Dispatching..................................... 751.573 s  (  98.8 %)
-  Parmfit optimization................................ 751.572 s  ( 100.0 %)
-    Parmfit abinitio.................................... 751.512 s  ( 100.0 %)
+MLP Initialization..................................   9.518 s  (   1.2 %)
+Job Dispatching..................................... 755.588 s  (  98.6 %)
+  Parmfit optimization................................ 755.569 s  ( 100.0 %)
+    Parmfit abinitio.................................... 755.480 s  ( 100.0 %)
 ======================================================================
-Total wall time: 760.527 s
-Total CPU time: 180.026 s
+Total wall time: 766.256 s
+Total CPU time: 132.517 s
 ======================================================================
 
-Program ended: 2026-08-04 12:10:30
-TOTAL RUN TIME: 0 days 0 hours 12 minutes 40 seconds 527 msec
+Program ended: 2026-08-07 07:38:55
+TOTAL RUN TIME: 0 days 0 hours 12 minutes 46 seconds 256 msec

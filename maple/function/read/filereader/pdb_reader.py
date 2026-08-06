@@ -143,7 +143,7 @@ class PDBReader:
 
         with open(path, "r", encoding="utf-8", errors="replace") as handle:
             for raw in handle:
-                line = raw.rstrip("\n").ljust(80)
+                line = raw.rstrip("\r\n").ljust(80)
                 record = line[:6].strip().upper()
 
                 if record == "MODEL":
@@ -199,7 +199,7 @@ class PDBReader:
 
 
 def _format_pdb_atom_line(line: str, xyz: np.ndarray) -> str:
-    padded = line.rstrip("\n").ljust(80)
+    padded = line.rstrip("\r\n").ljust(80)
     x, y, z = xyz
     return f"{padded[:30]}{x:8.3f}{y:8.3f}{z:8.3f}{padded[54:]}"
 
@@ -217,7 +217,7 @@ def _pdb_frame_lines(atoms: Atoms, template_lines: list[str]) -> list[str]:
     lines: list[str] = []
     atom_index = 0
     for raw in template_lines:
-        line = raw.rstrip("\n").ljust(80)
+        line = raw.rstrip("\r\n").ljust(80)
         record = line[:6].strip().upper()
         if record in _PDB_ATOM_RECORDS:
             lines.append(_format_pdb_atom_line(line, positions[atom_index]))
@@ -230,7 +230,7 @@ def _pdb_frame_lines(atoms: Atoms, template_lines: list[str]) -> list[str]:
 def write_pdb(path: str, atoms: Atoms, template_lines: list[str]) -> None:
     with open(path, "w", encoding="utf-8") as handle:
         for line in _pdb_frame_lines(atoms, template_lines):
-            handle.write(line.rstrip("\n") + "\n")
+            handle.write(line.rstrip("\r\n") + "\n")
         handle.write("END\n")
 
 
@@ -246,7 +246,7 @@ def write_pdb_model(
     if remark:
         handle.write(f"REMARK   {remark}\n")
     for line in _pdb_frame_lines(atoms, template_lines):
-        handle.write(line.rstrip("\n") + "\n")
+        handle.write(line.rstrip("\r\n") + "\n")
     handle.write("ENDMDL\n")
 
 
@@ -290,7 +290,7 @@ def _parse_conect_line(line: str) -> tuple[Optional[int], list[int]]:
 
 
 def parse_pdb_coord(line: str) -> tuple[float, float, float]:
-    padded = line.rstrip("\n").ljust(80)
+    padded = line.rstrip("\r\n").ljust(80)
     return (
         float(padded[30:38]),
         float(padded[38:46]),
@@ -362,7 +362,7 @@ def _read_pdb_records(
 
     with open(path, "r", encoding="utf-8", errors="replace") as handle:
         for raw in handle:
-            line = raw.rstrip("\n").ljust(80)
+            line = raw.rstrip("\r\n").ljust(80)
             record = line[:6].strip().upper()
 
             if record == "MODEL":

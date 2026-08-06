@@ -87,9 +87,9 @@ def detect_ncaa_chirality(residue: dict, sidechain_atom: dict | None = None) -> 
 
 def conformer_targets(chirality: str) -> list[tuple[str, float, float]]:
     if chirality == "L":
-        return [("alpha", -60.0, -40.0), ("beta", -120.0, -140.0)]
+        return [("alpha", -60.0, -40.0), ("beta", -120.0, 140.0)]
     else:  #chirality == "D"
-        return [("alpha", 60.0, 40.0), ("beta", 120.0, 140.0)]
+        return [("alpha", 60.0, 40.0), ("beta", 120.0, -140.0)]
 
 
 def _backbone_n_hydrogens(residue: dict) -> list[dict]:
