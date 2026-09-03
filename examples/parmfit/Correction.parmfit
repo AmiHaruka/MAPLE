@@ -1,0 +1,51 @@
+method=correction
+mol2=toluene_ff.mol2
+
+chg_fit=none
+chg_level=HF/6-31G(d)
+chg_route=
+
+# QM reference for correction and TorsionFit
+iqm=false
+qm_engine=g16
+opt_level=B3LYP/def2-SVP
+sp_level=B3LYP/def2-SVP
+opt_route=
+sp_route=
+qm_mode=1
+qm_compare=false
+qm_nproc=8
+qm_mem=24
+
+# Bond/angle correction
+bonded=mseminario
+vib_scale=1.0
+
+# Geometry optimization LBFGS
+memory=5
+curvature=70.0
+max_step=0.2
+max_iter=256
+write_traj=false
+traj_every=1
+verbose=1
+use_projection=false
+use_line_search=false
+bond_constraints=
+angle_constraints=
+torsion_constraints=
+
+# TorsionFit
+torsionfit=true
+torsion_bonds=
+torsion_steps=36
+backend=cgbs
+constraint_mode=projected
+stage1_weights=true
+torsion_refine_rounds=2
+torsion_refine_max_iter=10
+torsion_refine_tol=1.0e-6
+torsion_ensemble=false
+torsion_ensemble_ratio=0.3
+torsion_ensemble_weight=0.5
+report_debug=false

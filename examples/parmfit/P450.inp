@@ -1,0 +1,5 @@
+#model=uma(size=uma-s-1p1)
+#parmfit(method=abinitio,cfmol2=HEM_ff.mol2,target=A462,cmo=-1 6 3,prom=ff14sb,watm=tip3p,bonded=seminario)
+#device=gpu0
+
+PDB 4ZF6_H_renum.pdb

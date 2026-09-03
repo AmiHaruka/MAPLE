@@ -1,0 +1,38 @@
+source leaprc.protein.ff14SB
+source leaprc.gaff2
+source leaprc.water.tip3p
+addAtomTypes {
+    { "Y1" "N" "sp3" }
+    { "Y2" "N" "sp3" }
+    { "Y3" "N" "sp3" }
+    { "M1" "Zn" "sp3" }
+    { "Y4" "O" "sp3" }
+    { "Y5" "N" "sp3" }
+}
+HD1 = loadmol2 HD1.mol2
+HD2 = loadmol2 HD2.mol2
+HE1 = loadmol2 HE1.mol2
+ZN1 = loadmol2 ZN1.mol2
+MS1 = loadmol2 MS1.mol2
+loadamberparams frcmod.ions234lm_126_tip3p
+loadamberparams ZINC_metal.frcmod
+mol = loadpdb ZINC_metal_tleap.pdb
+bond mol.257.N3S mol.256.ZN
+bond mol.257.O1S mol.256.ZN
+bond mol.90.NE2 mol.256.ZN
+bond mol.92.NE2 mol.256.ZN
+bond mol.115.ND1 mol.256.ZN
+bond mol.89.C mol.90.N
+bond mol.90.C mol.91.N
+bond mol.91.C mol.92.N
+bond mol.92.C mol.93.N
+bond mol.114.C mol.115.N
+bond mol.115.C mol.116.N
+savepdb mol ZINC_metal_tleap_dry.pdb
+saveamberparm mol ZINC_metal_tleap_dry.prmtop ZINC_metal_tleap_dry.inpcrd
+solvatebox mol TIP3PBOX 10.0
+addions mol Na+ 0
+addions mol Cl- 0
+savepdb mol ZINC_metal_tleap_solvated.pdb
+saveamberparm mol ZINC_metal_tleap_solvated.prmtop ZINC_metal_tleap_solvated.inpcrd
+quit

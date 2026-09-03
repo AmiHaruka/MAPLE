@@ -1,0 +1,5 @@
+#model=uma(size=uma-s-1p1)
+#parmfit(method=abinitio,target=HIF89,rn=HF1,cmo=0 1,chg_level=HF/6-31G(d),torsionfit=false)
+#device=gpu0
+
+PDB MaDA-1.pdb

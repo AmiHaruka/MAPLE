@@ -79,7 +79,7 @@ class Dispatcher():
             # TS job allows Molecules object for methods like NEB, STRING
             if isinstance(atoms, (list, Molecules)):
                 method = commandcontrol.params.get('method')
-                if method in ['neb', 'string', 'autoneb']:
+                if method in ['neb', 'string', 'autoneb', 'dmf']:
                     # Convert Molecules to its internal list if needed
                     atoms_input = atoms.multiatoms if isinstance(atoms, Molecules) else atoms
                     ts = TransitionState(output=output, atoms=atoms_input, method=method, params=commandcontrol.params)
@@ -101,7 +101,6 @@ class Dispatcher():
                 raise NotImplementedError('For IRC job, only one Atoms object is allowed.')
             irc = IRC(output=output, atoms=atoms, method=commandcontrol.params.get('method'), params=commandcontrol.params)
             irc.run()
-
         elif jobtype == 'md':
             from .md.ensemble.nve import NVE
             from .md.ensemble.nvt import NVT
@@ -127,7 +126,17 @@ class Dispatcher():
                 raise ValueError(f"Unknown MD ensemble: '{ensemble}'")
             md.run()
             
-            
+        elif jobtype == 'parmfit':
+            from .parmfit import Parmfit
+
+            if isinstance(atoms, (list, Molecules)):
+                raise NotImplementedError('For parmfit job, only one Atoms object is allowed.')
+
+            parmfit = Parmfit(
+                output=output, atoms=atoms, method=commandcontrol.params.get('method'),
+                params=commandcontrol.params, extra=extra.get('parmfit') if extra is not None else None,
+            )
+            parmfit.run()
         else:
             try:
                 raise NotImplementedError('Job type not implemented')

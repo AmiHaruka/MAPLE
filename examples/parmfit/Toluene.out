@@ -1,0 +1,305 @@
+
+**********************************************************************
+*                                                                    *
+*                        M   A   P   L   E                           *
+*                                                                    *
+*      MAchine-learning Potential for Landscape Exploration          *
+*                                                                    *
+*                                                                    *
+*      © 2025 University of Pittsburgh. All rights reserved.         *
+*      Licensed under CC BY 4.0 for academic use.                    *
+*                                                                    *
+*      Principal Developer:  Xujian Wang                             *
+*                                                                    *
+**********************************************************************
+
+
+Parsing # commands...
+Global parameter: model = uma with options {'size': 'uma-s-1p1', 'task': 'omol'}
+Task set to 'parmfit'
+Global parameter: device = gpu0
+Parsed configuration:
+----------------------------------------
+Task: parmfit
+model          : uma(size=uma-s-1p1,task=omol)
+method         : correction
+mol2           : toluene_ff.mol2
+device         : gpu0
+
+                             Coordinates                              
+**********************************************************************
+
+Group 1 (inline)
+--------------------
+1    C              0.000000             1.520000             0.000000
+2    C              0.000000             0.000000             0.000000
+3    C              1.209000            -0.697500             0.000000
+4    C              1.209000            -2.092500             0.000000
+5    C              0.000000            -2.790000             0.000000
+6    C             -1.209000            -2.092500             0.000000
+7    C             -1.209000            -0.697500             0.000000
+8    H              1.026700             1.883300             0.000000
+9    H             -0.513400             1.883300             0.889200
+10   H             -0.513400             1.883300            -0.889200
+11   H              2.147000            -0.155900             0.000000
+12   H              2.147000            -2.634100             0.000000
+13   H              0.000000            -3.873200             0.000000
+14   H             -2.147000            -2.634100             0.000000
+15   H             -2.147000            -0.155900             0.000000
+
+[Correction] initial parameter assignment ...
+
+======================================================================
+                       Parmfit Correction Setup                       
+======================================================================
+Input mol2:        toluene_ff.mol2
+Initial frcmod:    Toluene_work/Toluene_original.frcmod
+Topology atoms:    15
+Topology bonds:    15
+Bonded refinement: mSeminario
+QM reference:     disabled
+QM compare:       disabled
+TorsionFit:        enabled
+Torsion backend:   cgbs
+Torsion constraint:projected
+Torsion ensemble:false
+Scan grid:         10.0000 deg x 36 steps
+Stage2 refine:     max_fast_cycles=3, max_iter_per_cycle=256, tol=1e-06
+Center bonds:      auto-select non-ring center bonds with proper torsions
+
+Assigned terms:
+  bonds:      15 (unmatched: 0)
+  angles:     24 (unmatched: 0)
+  dihedrals:  30 (unmatched: 0)
+  impropers:  6 (unmatched: 4)
+  nonbonds:   15 (unmatched: 0)
+======================================================================
+
+[Correction] MLIP geometry optimization ...
+[Correction] MLIP Hessian + mSeminario ...
+
+============================================================================================================
+                                       mSeminario bond/angle changes                                        
+============================================================================================================
+Display convention: left = before this stage | right = after this stage
+Only changed force-field items are shown below.
+
+
+------------------------------------------------------------------------------------------------------------
+                                                   BONDS                                                    
+------------------------------------------------------------------------------------------------------------
+(1,2)            c3-ca             k=243.910000  r=1.515000           | 	 k=259.074388  r=1.501979          
+(1,8)            c3-hc             k=345.250000  r=1.096000           | 	 k=357.882337  r=1.088539          
+(1,9)            c3-hc             k=345.250000  r=1.096000           | 	 k=352.323741  r=1.090535          
+(1,10)           c3-hc             k=345.250000  r=1.096000           | 	 k=352.349426  r=1.090523          
+(2,3)            ca-ca             k=354.250000  r=1.399000           | 	 k=386.830987  r=1.388927          
+(2,7)            ca-ca             k=354.250000  r=1.399000           | 	 k=376.420010  r=1.392691          
+(3,4)            ca-ca             k=354.250000  r=1.399000           | 	 k=402.954593  r=1.387461          
+(3,11)           ca-ha             k=360.690000  r=1.086000           | 	 k=376.035622  r=1.083513          
+(4,5)            ca-ca             k=354.250000  r=1.399000           | 	 k=403.706894  r=1.385476          
+(4,12)           ca-ha             k=360.690000  r=1.086000           | 	 k=381.224140  r=1.082164          
+(5,6)            ca-ca             k=354.250000  r=1.399000           | 	 k=395.881109  r=1.388671          
+(5,13)           ca-ha             k=360.690000  r=1.086000           | 	 k=384.190576  r=1.080904          
+(6,7)            ca-ca             k=354.250000  r=1.399000           | 	 k=407.763028  r=1.384646          
+(6,14)           ca-ha             k=360.690000  r=1.086000           | 	 k=380.520192  r=1.082374          
+(7,15)           ca-ha             k=360.690000  r=1.086000           | 	 k=374.673131  r=1.084004          
+
+------------------------------------------------------------------------------------------------------------
+                                                   ANGLES                                                   
+------------------------------------------------------------------------------------------------------------
+(2,1,8)          ca-c3-hc                k=43.610000  theta=110.6300          | 	 k=47.668332  theta=110.8772         
+(2,1,9)          ca-c3-hc                k=43.610000  theta=110.6300          | 	 k=55.477406  theta=110.9242         
+(2,1,10)         ca-c3-hc                k=43.610000  theta=110.6300          | 	 k=54.488652  theta=110.9239         
+(8,1,9)          hc-c3-hc                k=35.800000  theta=107.7300          | 	 k=32.103476  theta=108.1509         
+(8,1,10)         hc-c3-hc                k=35.800000  theta=107.7300          | 	 k=30.994772  theta=108.1513         
+(9,1,10)         hc-c3-hc                k=35.800000  theta=107.7300          | 	 k=30.172750  theta=107.6872         
+(1,2,3)          c3-ca-ca                k=60.740000  theta=120.8300          | 	 k=97.209421  theta=120.8032         
+(1,2,7)          c3-ca-ca                k=60.740000  theta=120.8300          | 	 k=97.529099  theta=120.5269         
+(3,2,7)          ca-ca-ca                k=63.670000  theta=120.0200          | 	 k=113.869495  theta=118.6699        
+(2,3,4)          ca-ca-ca                k=63.670000  theta=120.0200          | 	 k=113.742451  theta=120.8270        
+(2,3,11)         ca-ca-ha                k=44.900000  theta=119.8800          | 	 k=33.014271  theta=119.1762         
+(4,3,11)         ca-ca-ha                k=44.900000  theta=119.8800          | 	 k=33.307914  theta=119.9968         
+(3,4,5)          ca-ca-ca                k=63.670000  theta=120.0200          | 	 k=112.535899  theta=120.0285        
+(3,4,12)         ca-ca-ha                k=44.900000  theta=119.8800          | 	 k=33.878610  theta=119.8169         
+(5,4,12)         ca-ca-ha                k=44.900000  theta=119.8800          | 	 k=33.481421  theta=120.1546         
+(4,5,6)          ca-ca-ca                k=63.670000  theta=120.0200          | 	 k=107.548884  theta=119.6534        
+(4,5,13)         ca-ca-ha                k=44.900000  theta=119.8800          | 	 k=33.159563  theta=120.1689         
+(6,5,13)         ca-ca-ha                k=44.900000  theta=119.8800          | 	 k=33.197345  theta=120.1777         
+(5,6,7)          ca-ca-ca                k=63.670000  theta=120.0200          | 	 k=108.629981  theta=120.0855        
+(5,6,14)         ca-ca-ha                k=44.900000  theta=119.8800          | 	 k=33.435065  theta=119.9649         
+(7,6,14)         ca-ca-ha                k=44.900000  theta=119.8800          | 	 k=33.443696  theta=119.9496         
+(2,7,6)          ca-ca-ca                k=63.670000  theta=120.0200          | 	 k=107.459978  theta=120.7357        
+(2,7,15)         ca-ca-ha                k=44.900000  theta=119.8800          | 	 k=33.695426  theta=119.3273         
+(6,7,15)         ca-ca-ha                k=44.900000  theta=119.8800          | 	 k=33.768829  theta=119.9370         
+
+[Correction] atomic charge fitting ...
+
+[Correction] TorsionFit ...
+
+============================================================================================================
+                                        TorsionFit dihedral changes                                         
+============================================================================================================
+Display convention: left = before this stage | right = after this stage
+Only changed force-field items are shown below.
+
+
+------------------------------------------------------------------------------------------------------------
+                                                 DIHEDRALS                                                  
+------------------------------------------------------------------------------------------------------------
+(3,2,1,8)          ca-ca-c3-hc                term=1 k=0.000000  n=1.000  phase=0.0000  |  k=0.326541  n=1.000  phase=0.0094 
+(3,2,1,8)          ca-ca-c3-hc                term=2 k=NA  n=NA  phase=NA               |  k=0.339315  n=2.000  phase=-179.9940
+(3,2,1,8)          ca-ca-c3-hc                term=3 k=NA  n=NA  phase=NA               |  k=0.292195  n=3.000  phase=107.4853
+(3,2,1,8)          ca-ca-c3-hc                term=4 k=NA  n=NA  phase=NA               |  k=0.223596  n=4.000  phase=-0.1076
+(7,2,1,8)          ca-ca-c3-hc                term=1 k=0.000000  n=1.000  phase=0.0000  |  k=0.326622  n=1.000  phase=-179.9906
+(7,2,1,8)          ca-ca-c3-hc                term=2 k=NA  n=NA  phase=NA               |  k=0.339503  n=2.000  phase=-179.9940
+(7,2,1,8)          ca-ca-c3-hc                term=3 k=NA  n=NA  phase=NA               |  k=0.292359  n=3.000  phase=107.8106
+(7,2,1,8)          ca-ca-c3-hc                term=4 k=NA  n=NA  phase=NA               |  k=0.220954  n=4.000  phase=-0.1070
+(3,2,1,9)          ca-ca-c3-hc                term=1 k=0.000000  n=1.000  phase=0.0000  |  k=0.326541  n=1.000  phase=0.0094 
+(3,2,1,9)          ca-ca-c3-hc                term=2 k=NA  n=NA  phase=NA               |  k=0.339315  n=2.000  phase=-179.9940
+(3,2,1,9)          ca-ca-c3-hc                term=3 k=NA  n=NA  phase=NA               |  k=0.292195  n=3.000  phase=107.4853
+(3,2,1,9)          ca-ca-c3-hc                term=4 k=NA  n=NA  phase=NA               |  k=0.223596  n=4.000  phase=-0.1076
+(7,2,1,9)          ca-ca-c3-hc                term=1 k=0.000000  n=1.000  phase=0.0000  |  k=0.326622  n=1.000  phase=-179.9906
+(7,2,1,9)          ca-ca-c3-hc                term=2 k=NA  n=NA  phase=NA               |  k=0.339503  n=2.000  phase=-179.9940
+(7,2,1,9)          ca-ca-c3-hc                term=3 k=NA  n=NA  phase=NA               |  k=0.292359  n=3.000  phase=107.8106
+(7,2,1,9)          ca-ca-c3-hc                term=4 k=NA  n=NA  phase=NA               |  k=0.220954  n=4.000  phase=-0.1070
+(3,2,1,10)         ca-ca-c3-hc                term=1 k=0.000000  n=1.000  phase=0.0000  |  k=0.326541  n=1.000  phase=0.0094 
+(3,2,1,10)         ca-ca-c3-hc                term=2 k=NA  n=NA  phase=NA               |  k=0.339315  n=2.000  phase=-179.9940
+(3,2,1,10)         ca-ca-c3-hc                term=3 k=NA  n=NA  phase=NA               |  k=0.292195  n=3.000  phase=107.4853
+(3,2,1,10)         ca-ca-c3-hc                term=4 k=NA  n=NA  phase=NA               |  k=0.223596  n=4.000  phase=-0.1076
+(7,2,1,10)         ca-ca-c3-hc                term=1 k=0.000000  n=1.000  phase=0.0000  |  k=0.326622  n=1.000  phase=-179.9906
+(7,2,1,10)         ca-ca-c3-hc                term=2 k=NA  n=NA  phase=NA               |  k=0.339503  n=2.000  phase=-179.9940
+(7,2,1,10)         ca-ca-c3-hc                term=3 k=NA  n=NA  phase=NA               |  k=0.292359  n=3.000  phase=107.8106
+(7,2,1,10)         ca-ca-c3-hc                term=4 k=NA  n=NA  phase=NA               |  k=0.220954  n=4.000  phase=-0.1070
+
+[Correction] export GROMACS ...
+[Correction] export Amber ...
+
+======================================================================
+                      PARMFIT CORRECTION RESULT                       
+======================================================================
+Status: completed
+Input mol2: toluene_ff.mol2
+
+Main products:
+  Amber mol2:   Toluene_work/Toluene_maple.mol2
+  Amber frcmod: Toluene_work/Toluene_maple.frcmod
+  GROMACS top:  Toluene_work/Toluene_maple.top
+  GROMACS gro:  Toluene_work/Toluene_maple.gro
+  Amber tleap:  Toluene_work/Toluene_maple_tleap.in
+
+Charge fitting:
+  method:        input
+  target charge: 0
+  actual charge: -0.00099900
+  work MOL2:     toluene_ff.mol2
+  final MOL2:    Toluene_work/Toluene_maple.mol2
+
+Stage timing:
+  TorsionFit                           11s
+  Hessian + mSeminario                  5s
+  geometry optimization                 1s
+  initial parameter assignment          0s
+  export Amber                          0s
+  export GROMACS                        0s
+  charge fitting                        0s
+
+Parameter changes:
+  bonded refinement:              mSeminario
+  bonds changed by bonded refine:  15
+  angles changed by bonded refine: 24
+  dihedrals changed by TorsionFit: 6
+  other changes:                   none
+
+Torsion energy trace:
+  
+center bond (1, 2):
+    scan xyz: Toluene_work/torsionfit/Toluene_torsionfit_1-2_scan_final.xyz
+    angle_deg    MLIP_ref     orig_ref    stage0_ref    stage1_ref    stage2_ref
+       0.0036    0.014639    0.082154    0.021979    0.019651    0.019680
+      10.0036    0.015669    0.066086    0.012335    0.011301    0.010450
+      20.0036    0.018858    0.040615   -0.002190   -0.000033   -0.003296
+      30.0036    0.021841    0.025414   -0.004914    0.001381   -0.005173
+      40.0036    0.023523    0.030309    0.010172    0.020398    0.010564
+      50.0036    0.024183    0.045546    0.031034    0.044013    0.031792
+      60.0036    0.024807    0.050987    0.037958    0.051966    0.038893
+      70.0036    0.025291    0.036263    0.023137    0.036382    0.024210
+      80.0036    0.024414    0.011281   -0.001014    0.010002    0.000239
+      90.0036    0.021022   -0.003899   -0.013630   -0.005697   -0.012194
+     100.0036    0.015939    0.001180   -0.005194   -0.000396   -0.003642
+     110.0036    0.011150    0.017584    0.013794    0.016260    0.015384
+     120.0036    0.008838    0.025870    0.023322    0.024942    0.024925
+     130.0036    0.009487    0.015587    0.013176    0.015685    0.014786
+     140.0036    0.011384   -0.004158   -0.007054   -0.002237   -0.005524
+     150.0036    0.012538   -0.014270   -0.018164   -0.010372   -0.016915
+     160.0036    0.012261   -0.004987   -0.010354    0.000185   -0.009609
+     170.0036    0.011326    0.014343    0.007572    0.019908    0.007737
+     180.0036    0.011079    0.023988    0.017034    0.029821    0.016785
+     190.0036    0.011705    0.013333    0.008499    0.020342    0.008180
+     200.0036    0.011741   -0.008307   -0.008935    0.000804   -0.008979
+     210.0036    0.010314   -0.021317   -0.017409   -0.010469   -0.017003
+     220.0036    0.007345   -0.015322   -0.008985   -0.004880   -0.008163
+     230.0036    0.004668    0.001178    0.006850    0.008858    0.007961
+     240.0036    0.004170    0.009459    0.012290    0.013614    0.013596
+     250.0036    0.006004   -0.000363   -0.000191    0.002157    0.001272
+     260.0036    0.008687   -0.019073   -0.019433   -0.014604   -0.017874
+     270.0036    0.010193   -0.027933   -0.026429   -0.018383   -0.024917
+     280.0036    0.009987   -0.017563   -0.013061   -0.001982   -0.011781
+     290.0036    0.009231    0.002544    0.009695    0.022818    0.010630
+     300.0036    0.009105    0.012723    0.021543    0.035225    0.022167
+     310.0036    0.009817    0.002521    0.012196    0.024830    0.012649
+     320.0036    0.009949   -0.018777   -0.008836    0.001362   -0.008430
+     330.0036    0.008096   -0.031736   -0.022623   -0.015729   -0.022260
+     340.0036    0.004594   -0.025793   -0.018983   -0.015477   -0.018746
+     350.0036    0.001163   -0.009082   -0.005808   -0.004863   -0.005740
+     360.0036    0.000000    0.000000    0.000000    0.000000    0.000000
+    MLIP_ref vs stage2_final: MAE = 0.014581 kcal/mol, RMSE = 0.017818 kcal/mol
+
+TorsionFit:
+  state: enabled
+  center bonds: (1, 2)
+  scan files:
+    (1, 2): Toluene_work/torsionfit/Toluene_torsionfit_1-2_scan_final.xyz
+  stage1: completed
+  stage2: enabled, max_fast_cycles=3
+  fast cycles: executed=3, accepted=3, rejected=0
+  final parameters: Stage2 fast cycle 3
+
+Warnings:
+  none
+======================================================================
+
+======================================================================
+                              IMPORTANT                               
+======================================================================
+Due to the limitations of custom atom types, the exported topology
+must be normalized with ParmEd before use. tleap identifies hydrogens
+by the leading character of the atom type, which MAPLE types do not
+carry, so it writes an empty BONDS_INC_HYDROGEN section and SHAKE
+(ntc=2) would constrain nothing. ParmEd rebuilds that section from
+ATOMIC_NUMBER, e.g.:
+  tleap -f Toluene_maple_tleap.in
+  parmed -p Toluene_maple_gas.prmtop <<< $'outparm Toluene_maple_gas_parmed.prmtop\nquit'
+======================================================================
+
+
+
+Program started: 2026-08-04 23:26:17
+
+======================================================================
+                      TIMING SUMMARY
+======================================================================
+Input Reading.......................................   0.017 s  (   0.1 %)
+  Settings Parsing....................................   0.016 s  (  92.2 %)
+  Coordinate Section Parsing..........................   0.000 s  (   2.6 %)
+  Post-Processing Expansion...........................   0.000 s  (   0.0 %)
+MLP Initialization..................................   8.246 s  (  32.5 %)
+Job Dispatching.....................................  17.110 s  (  67.4 %)
+  Parmfit optimization................................  17.109 s  ( 100.0 %)
+    Parmfit correction..................................  17.066 s  (  99.7 %)
+======================================================================
+Total wall time: 25.373 s
+Total CPU time: 27.885 s
+======================================================================
+
+Program ended: 2026-08-04 23:26:43
+TOTAL RUN TIME: 0 days 0 hours 0 minutes 25 seconds 373 msec

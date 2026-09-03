@@ -1,0 +1,42 @@
+method=abinitio
+target=A462
+cmo=-1 6 3
+
+# QM reference
+iqm=false
+qm_engine=g16
+opt_level=PBE1PBE/def2SVP
+sp_level=PBE1PBE/def2SVP
+opt_route=Guess=Read
+sp_route=
+qm_mode=1
+qm_compare=false
+qm_nproc=8
+qm_mem=24
+
+# RESP charges
+resp_backend=gaussian
+chg_level=PBE1PBE/def2SVP
+chg_route=Guess=Read
+chgmod=1
+fixchg_resids=
+
+# Force field, water, ion, and bonded fitting
+prom=ff14SB
+watm=tip3p
+ionm=12_6
+bonded=mseminario
+vib_scale=1.0
+
+# MLIP geometry optimization controls
+opt_max_iter=256
+opt_max_step=0.2
+
+# Custom cofactor mol2, config-relative path
+cfmol2=HEM_ff.mol2
+
+# MetalAA site selection
+add_resid=
+set_bonded=
+cluster_cutoff=3.0
+donor_cutoff=2.7

@@ -1,16 +1,37 @@
 import re
+import os
 from difflib import get_close_matches
-from typing import Any, Dict, List, Optional
+from typing import Dict, Any, List, Optional
 
 
 class CommandControl:
     """
     Parse and validate input settings.
-    One task only: sp/opt/ts/scan/freq/irc/md.
+    One task only: sp/opt/ts/scan/freq/irc/md/parmfit.
     All other settings are global parameters.
     """
+    SUPPORTED_MODELS = {
+        "ani2x",
+        "ani1x",
+        "ani1ccx",
+        "ani1xnr",
+        "maceoff23s",
+        "maceoff23m",
+        "maceoff23l",
+        "egret",
+        "aimnet2",
+        "aimnet2nse",
+        "uma",
+        "maceomol",
+        "macepols",
+        "macepolm",
+        "macepoll",
+        "fennol",
+        "fennix-bio1s",
+        "fennix-bio1m",
+    }
 
-    SUPPORTED_TASKS = {"sp", "opt", "ts", "scan", "freq", "irc", "md"}
+    SUPPORTED_TASKS = {"sp", "opt", "ts", "scan", "freq", "irc", "md", "parmfit"}
 
     SUPPORTED_UMA_TASKS = {"omol", "omat", "oc20", "odac", "omc", "oc22", "oc25"}
     SUPPORTED_UMA_SIZES = {"uma-s-1p1", "uma-s-1p2", "uma-m-1p1"}
@@ -18,6 +39,7 @@ class CommandControl:
     UMA_DEFAULT_SIZE = "uma-s-1p1"  # keep in sync with _uma_calculator.UMA_DEFAULT_SIZE
     SUPPORTED_HESSIAN_MODES = {"analytic", "numerical"}
 
+    # Defaults assigned only when task is selected
     DEFAULTS = {
         "model": None,
         "device": None,
@@ -27,6 +49,9 @@ class CommandControl:
         "ts": {},
         "irc": {"method": "gs"},
         "scan": {},
+        "parmfit": {
+            "method": "abinitio",
+        },
         "freq": {
             "method": "mw",
             "temperature": 298.15,
@@ -70,11 +95,12 @@ class CommandControl:
     IMPLEMENTATION_MAP = {
         "opt": {"lbfgs", "rfo", "sd", "cg", "sdcg", ""},
         "scan": {"lbfgs", "rfo", "sd", "cg", "sdcg"},
-        "ts": {"prfo", "string", "neb", "dimer", "autoneb"},
+        "ts": {"prfo", "string", "neb", "dimer", "autoneb", "dmf"},
         "freq": {"mw", "nonmw", "both"},
         "sp": set(),
         "irc": {"gs", "hpc", "eulerpc", "lqa"},
         "md": {"nve", "nvt", "npt"},
+        "parmfit": {"abinitio", "correction"},
     }
     GLOBAL_PARAMS = {
         "model",
@@ -171,6 +197,7 @@ class CommandControl:
     TS_REFINE_MAP = {
         "neb": {"cineb", "nebts"},
         "string": {"cistring", "stringts"},
+        "dmf": {"prfo", "dimer"},
     }
 
     def __init__(self, params: Dict[str, Any], task: str, output_path: Optional[str] = None):

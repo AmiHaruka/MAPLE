@@ -1,0 +1,47 @@
+method=abinitio
+target=A123
+cmo=0 1
+
+# QM reference
+iqm=false
+qm_engine=g16
+opt_level=B3LYP/def2-SVP
+sp_level=B3LYP/def2-SVP
+opt_route=
+sp_route=
+qm_mode=1
+qm_compare=false
+qm_nproc=8
+qm_mem=24
+
+chg_fit=resp
+resp_backend=gaussian
+chg_level=HF/6-31G(d)
+chg_route=
+
+# Residue, force field, water, ion, and bonded fitting
+rn=MOL
+prom=ff14SB
+watm=tip3p
+ionm=hfe
+bonded=mseminario
+vib_scale=1.0
+
+# NCAA capped/charge conformer optimization controls
+opt_max_iter=256
+opt_max_step=0.2
+
+# TorsionFit
+torsionfit=true
+torsion_bonds=
+torsion_steps=36
+backend=cgbs
+constraint_mode=projected
+stage1_weights=true
+torsion_refine_rounds=2
+torsion_refine_max_iter=10
+torsion_refine_tol=1.0e-6
+torsion_ensemble=false
+torsion_ensemble_ratio=0.3
+torsion_ensemble_weight=0.5
+report_debug=false

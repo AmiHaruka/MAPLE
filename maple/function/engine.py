@@ -15,6 +15,7 @@ class engine():
     def __init__(self):
         
         self.output:str = None
+        self.input:str = None #from parmfit
         self.gpuid:int = None
         self.model:int = None
 
@@ -114,6 +115,7 @@ class engine():
         with timer("Input Reading"):
             reader = InputReader()
             self.atoms = reader(input_file_name, output_file_name)
+            self.input = reader.input #from parmfit
             self.output = reader.output
             self.device = reader.device
             self.model = reader.model
@@ -125,6 +127,8 @@ class engine():
 
             if self.jobtype == 'scan':
                 self.extra = {'scan': reader.scan_constraints}
+            elif self.jobtype == 'parmfit': #from parmfit
+                self.extra = {'parmfit': {'input_path': reader.input}} #from parmfit
             
             self.commandcontrol = reader.command_control
             
@@ -200,4 +204,6 @@ class engine():
         with timer("Job Dispatching"):
             dispatcher = Dispatcher()
             dispatcher(commandcontrol, jobtype, atoms, output, extra)
-    
+
+
+

@@ -483,6 +483,39 @@ def _write_pdb(path: Path, atoms: Atoms) -> None:
         handle.write("END\n")
 
 
+def _solvent_pdb_template_from_arrays(
+    atoms: Atoms,
+    solute_count: int,
+    solute_template: Optional[Sequence[str]] = None,
+) -> list[str]:
+    lines: list[str] = []
+    positions = atoms.get_positions()
+    symbols = atoms.get_chemical_symbols()
+    molecule_ids = atoms.arrays["maple_molecule_id"]
+    resnames = atoms.arrays["maple_resname"]
+    atom_names = atoms.arrays["maple_atom_name"]
+    serial_start = solute_count
+    if solute_template:
+        serials = [
+            int(line[6:11])
+            for line in solute_template
+            if line[:6].strip().upper() in {"ATOM", "HETATM", "HEATOM"}
+            and line[6:11].strip()
+        ]
+        if serials:
+            serial_start = max(serials)
+    for idx in range(solute_count, len(atoms)):
+        x, y, z = positions[idx]
+        resseq = int(molecule_ids[idx]) + 2
+        serial = serial_start + idx - solute_count + 1
+        lines.append(
+            f"HETATM{serial:5d} {str(atom_names[idx]):<4.4s} "
+            f"{str(resnames[idx]):>3.3s} A{resseq:4d}    "
+            f"{x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00          {symbols[idx]:>2s}"
+        )
+    return lines
+
+
 class ExplicitSolv():
     def __new__(
         cls,
@@ -1380,6 +1413,7 @@ class ExplicitSolv():
         self.log_info(lines)
 
     def _process(self):
+        solute_template = self.atoms.info.get("pdb_template")
         self.atoms.positions -= self.solute_center
 
         coords, symbols, atom_names, residue_names, tags = self._tile_template_network()
@@ -1406,6 +1440,15 @@ class ExplicitSolv():
         if solvent_symbols:
             self.atoms += Atoms(symbols=solvent_symbols, positions=solvent_positions)
         self._set_nonperiodic_metadata(solvent_tags, solvent_atom_names, solvent_res_names)
+        if solute_template:
+            self.atoms.info["pdb_template"] = (
+                list(solute_template)
+                + _solvent_pdb_template_from_arrays(
+                    self.atoms,
+                    self.solute_count,
+                    solute_template,
+                )
+            )
 
         final_count = len(final_tags)
         self._validate_final_cluster(final_count)

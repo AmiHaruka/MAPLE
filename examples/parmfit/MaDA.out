@@ -1,0 +1,129 @@
+
+**********************************************************************
+*                                                                    *
+*                        M   A   P   L   E                           *
+*                                                                    *
+*      MAchine-learning Potential for Landscape Exploration          *
+*                                                                    *
+*                                                                    *
+*      © 2025 University of Pittsburgh. All rights reserved.         *
+*      Licensed under CC BY 4.0 for academic use.                    *
+*                                                                    *
+*      Principal Developer:  Xujian Wang                             *
+*                                                                    *
+**********************************************************************
+
+
+Parsing # commands...
+Global parameter: model = uma with options {'size': 'uma-s-1p1'}
+Task set to 'parmfit'
+Global parameter: device = gpu0
+Parsed configuration:
+----------------------------------------
+Task: parmfit
+model          : uma(size=uma-s-1p1)
+method         : abinitio
+target         : HIF89
+rn             : HF1
+cmo            : 0 1
+chg_level      : HF/6-31G(d)
+torsionfit     : False
+device         : gpu0
+
+                             Coordinates                              
+**********************************************************************
+
+Group 1 (PDB File)
+Resolved PDB: /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/MaDA-1.pdb
+PDB coordinates are parsed by parmfit abinitio at runtime.
+--------------------
+
+======================================================================
+                           Parmfit Abinitio                           
+======================================================================
+Target: _89:HIF (protein)
+  PDB residue templates: matched=516, backbone_only=1, unmatched=0
+    non-standard (matched backbone only): _89:HIF (target)
+  PDB target charge: _89:HIF = 0 (from your input)
+  [NCAA] MLIP model preparation + reference optimization ...
+  NCAA target selector: HIF89
+  residue name: HF1
+  chirality: L
+  charge/mult: 0 1
+  protein model: ff14SB
+  bonded refinement: mseminario
+  charge fitting: resp
+  charge level: HF/6-31G(d)
+  [NCAA] atomic charge fitting (resp) ...
+  [NCAA] AmberTools template build ...
+  [NCAA] MLIP Hessian + mSeminario ...
+  [NCAA] TorsionFit skipped ...
+  [NCAA] writing refined templates + tleap input ...
+  [NCAA] tleap validation ...
+  [NCAA] route completed; final summary follows.
+
+======================================================================
+                       PARMFIT ABINITIO RESULT                        
+======================================================================
+Status: completed
+Route: NCAA
+Target: _89:HIF
+Residue name: HF1
+Chirality: L
+Protein model: ff14SB
+Charge/mult: 0 1
+Charge fitting: resp
+Charge level: HF/6-31G(d)
+Target charge: 0
+Actual charge: 0.00000000
+Charge MOL2: MaDA_work/ncaa/MaDA_capped.mol2
+
+Main products:
+  refined prepin: MaDA_work/HF1_maple.prepin
+  refined frcmod: MaDA_work/HF1_maple.frcmod
+  tleap PDB:      MaDA_work/MaDA_ncaa_tleap.pdb
+  tleap input:    MaDA_work/MaDA_ncaa_tleap.in
+
+Stage timing:
+  charge fitting                   10m 32s
+  Hessian + mSeminario              1m 16s
+  model preparation + reference        43s
+  tleap validation                      3s
+  AmberTools template build             0s
+  final export                          0s
+
+Next step:
+  cd MaDA_work
+  tleap -s -f MaDA_ncaa_tleap.in |tee MaDA_ncaa_tleap.out
+
+Tleap status:
+  Errors: 0
+  Warnings: 3
+  Notes: 0
+
+Warnings:
+  none
+======================================================================
+
+
+
+Program started: 2026-08-07 07:26:08
+
+======================================================================
+                      TIMING SUMMARY
+======================================================================
+Input Reading.......................................   1.150 s  (   0.2 %)
+  Settings Parsing....................................   1.148 s  (  99.9 %)
+  Coordinate Section Parsing..........................   0.001 s  (   0.1 %)
+  Post-Processing Expansion...........................   0.000 s  (   0.0 %)
+MLP Initialization..................................   9.518 s  (   1.2 %)
+Job Dispatching..................................... 755.588 s  (  98.6 %)
+  Parmfit optimization................................ 755.569 s  ( 100.0 %)
+    Parmfit abinitio.................................... 755.480 s  ( 100.0 %)
+======================================================================
+Total wall time: 766.256 s
+Total CPU time: 132.517 s
+======================================================================
+
+Program ended: 2026-08-07 07:38:55
+TOTAL RUN TIME: 0 days 0 hours 12 minutes 46 seconds 256 msec

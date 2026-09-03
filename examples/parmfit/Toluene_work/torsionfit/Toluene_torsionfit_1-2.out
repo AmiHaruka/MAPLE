@@ -1,0 +1,1965 @@
+
+----------------------------------------------------------------------
+            Scanning combination 1/37: [0.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5052              -0.0000
+1    C                0.0028               0.0031              -0.0001
+2    C                1.1966              -0.7067               0.0000
+3    C                1.1990              -2.0944               0.0000
+4    C                0.0007              -2.7897              -0.0000
+5    C               -1.1992              -2.0907               0.0000
+6    C               -1.1958              -0.7059              -0.0000
+7    H                1.0176               1.8945               0.0000
+8    H               -0.5118               1.8940               0.8806
+9    H               -0.5118               1.8941              -0.8806
+10   H                2.1343              -0.1636               0.0000
+11   H                2.1389              -2.6308              -0.0000
+12   H               -0.0002              -3.8708              -0.0000
+13   H               -2.1384              -2.6287               0.0000
+14   H               -2.1341              -0.1627               0.0000
+
+
+Energy:                 -271.534766 Convergence criteria  Is converged 
+Maximum Force:             0.001512     0.002850  Yes
+RMS Force:                 0.000517     0.001900  Yes
+Maximum Displacement:      0.000363     0.003150  Yes
+RMS Displacement:          0.000116     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 2/37: [10.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5053              -0.0000
+1    C                0.0028               0.0032              -0.0001
+2    C                1.1966              -0.7068               0.0000
+3    C                1.1991              -2.0945               0.0001
+4    C                0.0007              -2.7899               0.0000
+5    C               -1.1992              -2.0909               0.0001
+6    C               -1.1957              -0.7059               0.0000
+7    H                1.0022               1.8948              -0.1766
+8    H               -0.3511               1.8945               0.9563
+9    H               -0.6569               1.8941              -0.7781
+10   H                2.1344              -0.1637              -0.0001
+11   H                2.1390              -2.6309              -0.0000
+12   H               -0.0002              -3.8711              -0.0000
+13   H               -2.1385              -2.6287               0.0000
+14   H               -2.1341              -0.1628              -0.0001
+
+
+Energy:                 -271.534764 Convergence criteria  Is converged 
+Maximum Force:             0.001462     0.002850  Yes
+RMS Force:                 0.000516     0.001900  Yes
+Maximum Displacement:      0.000303     0.003150  Yes
+RMS Displacement:          0.000111     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 3/37: [20.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5056              -0.0000
+1    C                0.0028               0.0033              -0.0001
+2    C                1.1967              -0.7070               0.0000
+3    C                1.1992              -2.0944               0.0003
+4    C                0.0005              -2.7901               0.0000
+5    C               -1.1990              -2.0912               0.0002
+6    C               -1.1955              -0.7058               0.0001
+7    H                0.9564               1.8950              -0.3479
+8    H               -0.1797               1.8950               1.0030
+9    H               -0.7820               1.8940              -0.6520
+10   H                2.1346              -0.1638              -0.0002
+11   H                2.1390              -2.6310              -0.0001
+12   H               -0.0002              -3.8714              -0.0001
+13   H               -2.1386              -2.6287              -0.0000
+14   H               -2.1341              -0.1628              -0.0002
+
+
+Energy:                 -271.534759 Convergence criteria  Is converged 
+Maximum Force:             0.001541     0.002850  Yes
+RMS Force:                 0.000566     0.001900  Yes
+Maximum Displacement:      0.000320     0.003150  Yes
+RMS Displacement:          0.000133     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 4/37: [30.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5058              -0.0000
+1    C                0.0028               0.0034              -0.0001
+2    C                1.1969              -0.7072               0.0000
+3    C                1.1993              -2.0942               0.0004
+4    C                0.0002              -2.7903               0.0001
+5    C               -1.1989              -2.0916               0.0004
+6    C               -1.1952              -0.7056               0.0002
+7    H                0.8815               1.8953              -0.5087
+8    H               -0.0026               1.8955               1.0192
+9    H               -0.8832               1.8940              -0.5061
+10   H                2.1347              -0.1639              -0.0003
+11   H                2.1391              -2.6311              -0.0001
+12   H               -0.0003              -3.8717              -0.0002
+13   H               -2.1386              -2.6287              -0.0000
+14   H               -2.1340              -0.1629              -0.0003
+
+
+Energy:                 -271.534754 Convergence criteria  Is converged 
+Maximum Force:             0.001666     0.002850  Yes
+RMS Force:                 0.000627     0.001900  Yes
+Maximum Displacement:      0.000413     0.003150  Yes
+RMS Displacement:          0.000160     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 5/37: [40.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5059              -0.0000
+1    C                0.0028               0.0035              -0.0001
+2    C                1.1972              -0.7075               0.0000
+3    C                1.1994              -2.0939               0.0005
+4    C               -0.0001              -2.7905               0.0002
+5    C               -1.1987              -2.0921               0.0005
+6    C               -1.1949              -0.7055               0.0003
+7    H                0.7799               1.8956              -0.6540
+8    H                0.1746               1.8959               1.0044
+9    H               -0.9575               1.8940              -0.3448
+10   H                2.1349              -0.1640              -0.0004
+11   H                2.1391              -2.6312              -0.0001
+12   H               -0.0003              -3.8719              -0.0002
+13   H               -2.1387              -2.6287              -0.0001
+14   H               -2.1339              -0.1630              -0.0004
+
+
+Energy:                 -271.534752 Convergence criteria  Is converged 
+Maximum Force:             0.001794     0.002850  Yes
+RMS Force:                 0.000664     0.001900  Yes
+Maximum Displacement:      0.000468     0.003150  Yes
+RMS Displacement:          0.000176     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 6/37: [50.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5061              -0.0000
+1    C                0.0028               0.0035              -0.0001
+2    C                1.1976              -0.7077               0.0000
+3    C                1.1996              -2.0936               0.0006
+4    C               -0.0004              -2.7906               0.0002
+5    C               -1.1985              -2.0925               0.0006
+6    C               -1.1945              -0.7053               0.0004
+7    H                0.6547               1.8958              -0.7796
+8    H                0.3467               1.8964               0.9588
+9    H               -1.0026               1.8940              -0.1733
+10   H                2.1351              -0.1641              -0.0005
+11   H                2.1392              -2.6312              -0.0001
+12   H               -0.0003              -3.8721              -0.0002
+13   H               -2.1387              -2.6288              -0.0001
+14   H               -2.1337              -0.1631              -0.0005
+
+
+Energy:                 -271.534751 Convergence criteria  Is converged 
+Maximum Force:             0.001881     0.002850  Yes
+RMS Force:                 0.000665     0.001900  Yes
+Maximum Displacement:      0.000438     0.003150  Yes
+RMS Displacement:          0.000172     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 7/37: [60.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5063              -0.0000
+1    C                0.0028               0.0036              -0.0001
+2    C                1.1978              -0.7078               0.0000
+3    C                1.1997              -2.0935               0.0005
+4    C               -0.0006              -2.7908               0.0002
+5    C               -1.1984              -2.0928               0.0006
+6    C               -1.1942              -0.7053               0.0003
+7    H                0.5095               1.8961              -0.8816
+8    H                0.5082               1.8967               0.8838
+9    H               -1.0173               1.8940               0.0034
+10   H                2.1353              -0.1642              -0.0005
+11   H                2.1392              -2.6312              -0.0001
+12   H               -0.0004              -3.8723              -0.0002
+13   H               -2.1388              -2.6288              -0.0001
+14   H               -2.1336              -0.1632              -0.0005
+
+
+Energy:                 -271.534750 Convergence criteria  Is converged 
+Maximum Force:             0.001902     0.002850  Yes
+RMS Force:                 0.000648     0.001900  Yes
+Maximum Displacement:      0.000419     0.003150  Yes
+RMS Displacement:          0.000153     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 8/37: [70.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5064              -0.0000
+1    C                0.0028               0.0037              -0.0001
+2    C                1.1980              -0.7079               0.0000
+3    C                1.1997              -2.0935               0.0004
+4    C               -0.0006              -2.7910               0.0003
+5    C               -1.1983              -2.0930               0.0004
+6    C               -1.1940              -0.7053               0.0003
+7    H                0.3488               1.8963              -0.9568
+8    H                0.6541               1.8970               0.7819
+9    H               -1.0012               1.8941               0.1799
+10   H                2.1355              -0.1643              -0.0004
+11   H                2.1392              -2.6313              -0.0001
+12   H               -0.0004              -3.8725              -0.0002
+13   H               -2.1388              -2.6288              -0.0000
+14   H               -2.1334              -0.1633              -0.0004
+
+
+Energy:                 -271.534749 Convergence criteria  Is converged 
+Maximum Force:             0.001852     0.002850  Yes
+RMS Force:                 0.000636     0.001900  Yes
+Maximum Displacement:      0.000412     0.003150  Yes
+RMS Displacement:          0.000140     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 9/37: [80.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5066              -0.0000
+1    C                0.0028               0.0037              -0.0001
+2    C                1.1980              -0.7078               0.0000
+3    C                1.1997              -2.0937               0.0002
+4    C               -0.0004              -2.7911               0.0002
+5    C               -1.1983              -2.0929               0.0002
+6    C               -1.1939              -0.7055               0.0002
+7    H                0.1774               1.8964              -1.0030
+8    H                0.7800               1.8973               0.6560
+9    H               -0.9548               1.8943               0.3508
+10   H                2.1357              -0.1644              -0.0003
+11   H                2.1392              -2.6313              -0.0000
+12   H               -0.0004              -3.8727              -0.0001
+13   H               -2.1388              -2.6289               0.0000
+14   H               -2.1332              -0.1634              -0.0002
+
+
+Energy:                 -271.534750 Convergence criteria  Is converged 
+Maximum Force:             0.001957     0.002850  Yes
+RMS Force:                 0.000639     0.001900  Yes
+Maximum Displacement:      0.000437     0.003150  Yes
+RMS Displacement:          0.000145     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 10/37: [90.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5067              -0.0000
+1    C                0.0028               0.0038              -0.0001
+2    C                1.1979              -0.7076               0.0000
+3    C                1.1995              -2.0940               0.0000
+4    C               -0.0001              -2.7913               0.0002
+5    C               -1.1984              -2.0927               0.0001
+6    C               -1.1939              -0.7058               0.0000
+7    H                0.0005               1.8966              -1.0187
+8    H                0.8820               1.8975               0.5103
+9    H               -0.8796               1.8946               0.5110
+10   H                2.1359              -0.1645              -0.0001
+11   H                2.1392              -2.6313              -0.0000
+12   H               -0.0004              -3.8729              -0.0001
+13   H               -2.1389              -2.6289               0.0000
+14   H               -2.1331              -0.1634              -0.0001
+
+
+Energy:                 -271.534756 Convergence criteria  Is converged 
+Maximum Force:             0.001886     0.002850  Yes
+RMS Force:                 0.000637     0.001900  Yes
+Maximum Displacement:      0.000420     0.003150  Yes
+RMS Displacement:          0.000160     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 11/37: [100.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5069              -0.0000
+1    C                0.0028               0.0038              -0.0001
+2    C                1.1977              -0.7074               0.0000
+3    C                1.1994              -2.0944              -0.0001
+4    C                0.0002              -2.7914               0.0002
+5    C               -1.1985              -2.0925              -0.0001
+6    C               -1.1941              -0.7060              -0.0001
+7    H               -0.1764               1.8967              -1.0034
+8    H                0.9571               1.8976               0.3491
+9    H               -0.7778               1.8950               0.6559
+10   H                2.1360              -0.1646              -0.0000
+11   H                2.1393              -2.6314               0.0000
+12   H               -0.0004              -3.8731              -0.0001
+13   H               -2.1389              -2.6289               0.0001
+14   H               -2.1330              -0.1635               0.0000
+
+
+Energy:                 -271.534764 Convergence criteria  Is converged 
+Maximum Force:             0.001501     0.002850  Yes
+RMS Force:                 0.000617     0.001900  Yes
+Maximum Displacement:      0.000398     0.003150  Yes
+RMS Displacement:          0.000164     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 12/37: [110.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5070              -0.0000
+1    C                0.0028               0.0039              -0.0001
+2    C                1.1975              -0.7072               0.0000
+3    C                1.1993              -2.0948              -0.0002
+4    C                0.0006              -2.7915               0.0002
+5    C               -1.1986              -2.0922              -0.0002
+6    C               -1.1943              -0.7063              -0.0001
+7    H               -0.3480               1.8967              -0.9575
+8    H                1.0030               1.8977               0.1775
+9    H               -0.6525               1.8954               0.7810
+10   H                2.1360              -0.1648               0.0000
+11   H                2.1393              -2.6314               0.0000
+12   H               -0.0004              -3.8732              -0.0000
+13   H               -2.1389              -2.6289               0.0001
+14   H               -2.1330              -0.1636               0.0001
+
+
+Energy:                 -271.534771 Convergence criteria  Is converged 
+Maximum Force:             0.001642     0.002850  Yes
+RMS Force:                 0.000554     0.001900  Yes
+Maximum Displacement:      0.000378     0.003150  Yes
+RMS Displacement:          0.000151     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 13/37: [120.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5071              -0.0000
+1    C                0.0028               0.0039              -0.0001
+2    C                1.1973              -0.7071               0.0000
+3    C                1.1992              -2.0951              -0.0002
+4    C                0.0008              -2.7916               0.0001
+5    C               -1.1986              -2.0921              -0.0001
+6    C               -1.1945              -0.7065              -0.0001
+7    H               -0.5089               1.8967              -0.8824
+8    H                1.0184               1.8978               0.0007
+9    H               -0.5073               1.8959               0.8826
+10   H                2.1360              -0.1649               0.0000
+11   H                2.1393              -2.6315               0.0000
+12   H               -0.0004              -3.8734              -0.0000
+13   H               -2.1389              -2.6289               0.0001
+14   H               -2.1330              -0.1636               0.0001
+
+
+Energy:                 -271.534775 Convergence criteria  Is converged 
+Maximum Force:             0.001628     0.002850  Yes
+RMS Force:                 0.000480     0.001900  Yes
+Maximum Displacement:      0.000365     0.003150  Yes
+RMS Displacement:          0.000121     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 14/37: [130.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5072              -0.0000
+1    C                0.0028               0.0040              -0.0001
+2    C                1.1971              -0.7071               0.0000
+3    C                1.1992              -2.0952              -0.0000
+4    C                0.0008              -2.7918               0.0001
+5    C               -1.1986              -2.0921              -0.0000
+6    C               -1.1945              -0.7065              -0.0001
+7    H               -0.6543               1.8967              -0.7804
+8    H                1.0029               1.8979              -0.1760
+9    H               -0.3466               1.8964               0.9575
+10   H                2.1360              -0.1650              -0.0000
+11   H                2.1393              -2.6316               0.0000
+12   H               -0.0004              -3.8735              -0.0000
+13   H               -2.1389              -2.6288               0.0001
+14   H               -2.1331              -0.1637               0.0000
+
+
+Energy:                 -271.534774 Convergence criteria  Is converged 
+Maximum Force:             0.001374     0.002850  Yes
+RMS Force:                 0.000442     0.001900  Yes
+Maximum Displacement:      0.000308     0.003150  Yes
+RMS Displacement:          0.000099     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 15/37: [140.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5073              -0.0000
+1    C                0.0028               0.0040              -0.0001
+2    C                1.1971              -0.7073               0.0000
+3    C                1.1992              -2.0951               0.0001
+4    C                0.0007              -2.7919               0.0001
+5    C               -1.1985              -2.0923               0.0001
+6    C               -1.1945              -0.7065               0.0000
+7    H               -0.7797               1.8966              -0.6547
+8    H                0.9571               1.8980              -0.3473
+9    H               -0.1752               1.8969               1.0034
+10   H                2.1360              -0.1652              -0.0002
+11   H                2.1394              -2.6316              -0.0000
+12   H               -0.0004              -3.8736              -0.0001
+13   H               -2.1389              -2.6288               0.0000
+14   H               -2.1331              -0.1638              -0.0001
+
+
+Energy:                 -271.534771 Convergence criteria  Is converged 
+Maximum Force:             0.001330     0.002850  Yes
+RMS Force:                 0.000463     0.001900  Yes
+Maximum Displacement:      0.000299     0.003150  Yes
+RMS Displacement:          0.000111     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 16/37: [150.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5074              -0.0000
+1    C                0.0028               0.0040              -0.0001
+2    C                1.1973              -0.7075               0.0000
+3    C                1.1993              -2.0948               0.0003
+4    C                0.0004              -2.7920               0.0001
+5    C               -1.1983              -2.0927               0.0003
+6    C               -1.1943              -0.7063               0.0001
+7    H               -0.8813               1.8965              -0.5091
+8    H                0.8823               1.8980              -0.5079
+9    H                0.0016               1.8974               1.0189
+10   H                2.1360              -0.1653              -0.0003
+11   H                2.1394              -2.6317              -0.0001
+12   H               -0.0004              -3.8738              -0.0001
+13   H               -2.1389              -2.6288              -0.0000
+14   H               -2.1331              -0.1638              -0.0002
+
+
+Energy:                 -271.534769 Convergence criteria  Is converged 
+Maximum Force:             0.001239     0.002850  Yes
+RMS Force:                 0.000512     0.001900  Yes
+Maximum Displacement:      0.000344     0.003150  Yes
+RMS Displacement:          0.000138     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 17/37: [160.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5075              -0.0000
+1    C                0.0028               0.0041              -0.0001
+2    C                1.1975              -0.7078               0.0000
+3    C                1.1995              -2.0945               0.0004
+4    C                0.0001              -2.7921               0.0002
+5    C               -1.1982              -2.0931               0.0004
+6    C               -1.1940              -0.7061               0.0002
+7    H               -0.9561               1.8965              -0.3482
+8    H                0.7809               1.8981              -0.6532
+9    H                0.1786               1.8978               1.0034
+10   H                2.1361              -0.1654              -0.0004
+11   H                2.1394              -2.6317              -0.0001
+12   H               -0.0004              -3.8739              -0.0002
+13   H               -2.1389              -2.6288              -0.0000
+14   H               -2.1330              -0.1639              -0.0004
+
+
+Energy:                 -271.534770 Convergence criteria  Is converged 
+Maximum Force:             0.001130     0.002850  Yes
+RMS Force:                 0.000537     0.001900  Yes
+Maximum Displacement:      0.000407     0.003150  Yes
+RMS Displacement:          0.000153     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 18/37: [170.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5076              -0.0000
+1    C                0.0028               0.0041              -0.0001
+2    C                1.1978              -0.7080               0.0000
+3    C                1.1996              -2.0943               0.0005
+4    C               -0.0002              -2.7922               0.0002
+5    C               -1.1980              -2.0935               0.0005
+6    C               -1.1937              -0.7060               0.0003
+7    H               -1.0018               1.8965              -0.1767
+8    H                0.6559               1.8982              -0.7788
+9    H                0.3502               1.8983               0.9572
+10   H                2.1362              -0.1655              -0.0005
+11   H                2.1394              -2.6317              -0.0001
+12   H               -0.0004              -3.8740              -0.0002
+13   H               -2.1389              -2.6289              -0.0000
+14   H               -2.1329              -0.1640              -0.0004
+
+
+Energy:                 -271.534771 Convergence criteria  Is converged 
+Maximum Force:             0.001248     0.002850  Yes
+RMS Force:                 0.000518     0.001900  Yes
+Maximum Displacement:      0.000381     0.003150  Yes
+RMS Displacement:          0.000145     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 19/37: [180.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5076              -0.0000
+1    C                0.0028               0.0042              -0.0001
+2    C                1.1980              -0.7081               0.0000
+3    C                1.1997              -2.0941               0.0005
+4    C               -0.0004              -2.7923               0.0003
+5    C               -1.1979              -2.0937               0.0005
+6    C               -1.1934              -0.7059               0.0003
+7    H               -1.0170               1.8965              -0.0000
+8    H                0.5110               1.8983              -0.8809
+9    H                0.5112               1.8986               0.8818
+10   H                2.1364              -0.1656              -0.0005
+11   H                2.1394              -2.6317              -0.0001
+12   H               -0.0004              -3.8741              -0.0002
+13   H               -2.1389              -2.6289              -0.0000
+14   H               -2.1328              -0.1641              -0.0004
+
+
+Energy:                 -271.534771 Convergence criteria  Is converged 
+Maximum Force:             0.001222     0.002850  Yes
+RMS Force:                 0.000476     0.001900  Yes
+Maximum Displacement:      0.000280     0.003150  Yes
+RMS Displacement:          0.000120     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 20/37: [190.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5077              -0.0000
+1    C                0.0028               0.0042              -0.0001
+2    C                1.1981              -0.7082               0.0000
+3    C                1.1997              -2.0941               0.0003
+4    C               -0.0004              -2.7923               0.0003
+5    C               -1.1978              -2.0938               0.0004
+6    C               -1.1932              -0.7059               0.0002
+7    H               -1.0014               1.8966               0.1767
+8    H                0.3504               1.8984              -0.9564
+9    H                0.6566               1.8989               0.7795
+10   H                2.1365              -0.1657              -0.0004
+11   H                2.1394              -2.6317              -0.0001
+12   H               -0.0004              -3.8742              -0.0002
+13   H               -2.1389              -2.6289              -0.0000
+14   H               -2.1326              -0.1642              -0.0003
+
+
+Energy:                 -271.534770 Convergence criteria  Is converged 
+Maximum Force:             0.001222     0.002850  Yes
+RMS Force:                 0.000445     0.001900  Yes
+Maximum Displacement:      0.000277     0.003150  Yes
+RMS Displacement:          0.000101     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 21/37: [200.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5078              -0.0000
+1    C                0.0028               0.0042              -0.0001
+2    C                1.1981              -0.7081               0.0000
+3    C                1.1997              -2.0943               0.0002
+4    C               -0.0002              -2.7924               0.0002
+5    C               -1.1978              -2.0937               0.0002
+6    C               -1.1932              -0.7061               0.0001
+7    H               -0.9555               1.8967               0.3479
+8    H                0.1791               1.8984              -1.0028
+9    H                0.7820               1.8992               0.6534
+10   H                2.1367              -0.1658              -0.0003
+11   H                2.1394              -2.6317              -0.0000
+12   H               -0.0004              -3.8743              -0.0001
+13   H               -2.1389              -2.6290               0.0000
+14   H               -2.1325              -0.1643              -0.0002
+
+
+Energy:                 -271.534770 Convergence criteria  Is converged 
+Maximum Force:             0.001284     0.002850  Yes
+RMS Force:                 0.000450     0.001900  Yes
+Maximum Displacement:      0.000293     0.003150  Yes
+RMS Displacement:          0.000109     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 22/37: [210.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5079              -0.0000
+1    C                0.0028               0.0042              -0.0001
+2    C                1.1980              -0.7079               0.0000
+3    C                1.1995              -2.0946              -0.0000
+4    C                0.0001              -2.7925               0.0002
+5    C               -1.1979              -2.0935              -0.0000
+6    C               -1.1933              -0.7063              -0.0000
+7    H               -0.8805               1.8970               0.5086
+8    H                0.0022               1.8985              -1.0188
+9    H                0.8834               1.8993               0.5075
+10   H                2.1368              -0.1659              -0.0001
+11   H                2.1394              -2.6317               0.0000
+12   H               -0.0004              -3.8744              -0.0001
+13   H               -2.1389              -2.6290               0.0001
+14   H               -2.1325              -0.1643              -0.0000
+
+
+Energy:                 -271.534773 Convergence criteria  Is converged 
+Maximum Force:             0.001186     0.002850  Yes
+RMS Force:                 0.000483     0.001900  Yes
+Maximum Displacement:      0.000313     0.003150  Yes
+RMS Displacement:          0.000131     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 23/37: [220.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5080              -0.0000
+1    C                0.0028               0.0043              -0.0001
+2    C                1.1978              -0.7077               0.0000
+3    C                1.1994              -2.0950              -0.0002
+4    C                0.0005              -2.7926               0.0002
+5    C               -1.1980              -2.0932              -0.0001
+6    C               -1.1934              -0.7066              -0.0001
+7    H               -0.7789               1.8973               0.6539
+8    H               -0.1749               1.8984              -1.0037
+9    H                0.9579               1.8994               0.3463
+10   H                2.1368              -0.1660              -0.0000
+11   H                2.1394              -2.6318               0.0000
+12   H               -0.0004              -3.8745              -0.0000
+13   H               -2.1389              -2.6290               0.0001
+14   H               -2.1324              -0.1644               0.0001
+
+
+Energy:                 -271.534777 Convergence criteria  Is converged 
+Maximum Force:             0.000975     0.002850  Yes
+RMS Force:                 0.000486     0.001900  Yes
+Maximum Displacement:      0.000386     0.003150  Yes
+RMS Displacement:          0.000146     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 24/37: [230.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5080              -0.0000
+1    C                0.0028               0.0043              -0.0001
+2    C                1.1975              -0.7075               0.0000
+3    C                1.1993              -2.0953              -0.0002
+4    C                0.0008              -2.7927               0.0001
+5    C               -1.1981              -2.0929              -0.0002
+6    C               -1.1937              -0.7068              -0.0002
+7    H               -0.6536               1.8977               0.7794
+8    H               -0.3468               1.8984              -0.9580
+9    H                1.0033               1.8995               0.1747
+10   H                2.1368              -0.1661               0.0001
+11   H                2.1394              -2.6318               0.0001
+12   H               -0.0004              -3.8746               0.0000
+13   H               -2.1388              -2.6290               0.0001
+14   H               -2.1325              -0.1644               0.0001
+
+
+Energy:                 -271.534782 Convergence criteria  Is converged 
+Maximum Force:             0.001124     0.002850  Yes
+RMS Force:                 0.000463     0.001900  Yes
+Maximum Displacement:      0.000359     0.003150  Yes
+RMS Displacement:          0.000136     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 25/37: [240.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5081              -0.0000
+1    C                0.0028               0.0043              -0.0001
+2    C                1.1973              -0.7074               0.0000
+3    C                1.1992              -2.0956              -0.0002
+4    C                0.0010              -2.7927               0.0001
+5    C               -1.1982              -2.0928              -0.0002
+6    C               -1.1939              -0.7070              -0.0002
+7    H               -0.5084               1.8982               0.8814
+8    H               -0.5081               1.8983              -0.8829
+9    H                1.0182               1.8995              -0.0020
+10   H                2.1368              -0.1662               0.0001
+11   H                2.1394              -2.6319               0.0001
+12   H               -0.0004              -3.8747               0.0000
+13   H               -2.1388              -2.6289               0.0001
+14   H               -2.1325              -0.1645               0.0001
+
+
+Energy:                 -271.534782 Convergence criteria  Is converged 
+Maximum Force:             0.001203     0.002850  Yes
+RMS Force:                 0.000434     0.001900  Yes
+Maximum Displacement:      0.000272     0.003150  Yes
+RMS Displacement:          0.000113     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 26/37: [250.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5082              -0.0000
+1    C                0.0028               0.0043              -0.0001
+2    C                1.1972              -0.7074               0.0000
+3    C                1.1992              -2.0956              -0.0001
+4    C                0.0010              -2.7928               0.0001
+5    C               -1.1981              -2.0928              -0.0001
+6    C               -1.1940              -0.7070              -0.0001
+7    H               -0.3477               1.8986               0.9566
+8    H               -0.6538               1.8982              -0.7809
+9    H                1.0023               1.8995              -0.1785
+10   H                2.1367              -0.1664              -0.0000
+11   H                2.1395              -2.6319               0.0000
+12   H               -0.0004              -3.8748              -0.0000
+13   H               -2.1388              -2.6289               0.0001
+14   H               -2.1326              -0.1646               0.0001
+
+
+Energy:                 -271.534779 Convergence criteria  Is converged 
+Maximum Force:             0.001464     0.002850  Yes
+RMS Force:                 0.000439     0.001900  Yes
+Maximum Displacement:      0.000327     0.003150  Yes
+RMS Displacement:          0.000099     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 27/37: [260.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5082              -0.0000
+1    C                0.0028               0.0044              -0.0001
+2    C                1.1971              -0.7076               0.0000
+3    C                1.1992              -2.0955               0.0001
+4    C                0.0009              -2.7929               0.0001
+5    C               -1.1981              -2.0929               0.0001
+6    C               -1.1939              -0.7069               0.0000
+7    H               -0.1763               1.8991               1.0028
+8    H               -0.7795               1.8980              -0.6550
+9    H                0.9560               1.8996              -0.3495
+10   H                2.1367              -0.1665              -0.0001
+11   H                2.1395              -2.6319              -0.0000
+12   H               -0.0003              -3.8748              -0.0001
+13   H               -2.1388              -2.6289               0.0001
+14   H               -2.1326              -0.1646              -0.0001
+
+
+Energy:                 -271.534775 Convergence criteria  Is converged 
+Maximum Force:             0.001706     0.002850  Yes
+RMS Force:                 0.000482     0.001900  Yes
+Maximum Displacement:      0.000384     0.003150  Yes
+RMS Displacement:          0.000115     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 28/37: [270.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5083              -0.0000
+1    C                0.0028               0.0044              -0.0001
+2    C                1.1973              -0.7078               0.0000
+3    C                1.1993              -2.0953               0.0003
+4    C                0.0006              -2.7929               0.0001
+5    C               -1.1979              -2.0933               0.0003
+6    C               -1.1938              -0.7067               0.0001
+7    H                0.0005               1.8996               1.0184
+8    H               -0.8813               1.8979              -0.5093
+9    H                0.8810               1.8996              -0.5099
+10   H                2.1367              -0.1666              -0.0003
+11   H                2.1395              -2.6320              -0.0000
+12   H               -0.0003              -3.8749              -0.0001
+13   H               -2.1388              -2.6289               0.0000
+14   H               -2.1326              -0.1647              -0.0002
+
+
+Energy:                 -271.534773 Convergence criteria  Is converged 
+Maximum Force:             0.001623     0.002850  Yes
+RMS Force:                 0.000525     0.001900  Yes
+Maximum Displacement:      0.000365     0.003150  Yes
+RMS Displacement:          0.000140     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 29/37: [280.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5084              -0.0000
+1    C                0.0028               0.0044              -0.0001
+2    C                1.1975              -0.7080               0.0000
+3    C                1.1995              -2.0950               0.0004
+4    C                0.0003              -2.7930               0.0002
+5    C               -1.1977              -2.0936               0.0004
+6    C               -1.1935              -0.7066               0.0002
+7    H                0.1773               1.9000               1.0031
+8    H               -0.9561               1.8978              -0.3481
+9    H                0.7793               1.8997              -0.6548
+10   H                2.1367              -0.1667              -0.0004
+11   H                2.1395              -2.6320              -0.0001
+12   H               -0.0003              -3.8750              -0.0002
+13   H               -2.1387              -2.6289              -0.0000
+14   H               -2.1326              -0.1647              -0.0003
+
+
+Energy:                 -271.534773 Convergence criteria  Is converged 
+Maximum Force:             0.001238     0.002850  Yes
+RMS Force:                 0.000531     0.001900  Yes
+Maximum Displacement:      0.000383     0.003150  Yes
+RMS Displacement:          0.000152     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 30/37: [290.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5084              -0.0000
+1    C                0.0028               0.0044              -0.0001
+2    C                1.1977              -0.7083               0.0000
+3    C                1.1996              -2.0947               0.0005
+4    C               -0.0000              -2.7931               0.0002
+5    C               -1.1976              -2.0940               0.0005
+6    C               -1.1932              -0.7064               0.0003
+7    H                0.3488               1.9004               0.9572
+8    H               -1.0018               1.8977              -0.1766
+9    H                0.6541               1.8997              -0.7801
+10   H                2.1368              -0.1667              -0.0004
+11   H                2.1395              -2.6320              -0.0001
+12   H               -0.0003              -3.8750              -0.0002
+13   H               -2.1387              -2.6290              -0.0000
+14   H               -2.1325              -0.1648              -0.0004
+
+
+Energy:                 -271.534774 Convergence criteria  Is converged 
+Maximum Force:             0.001406     0.002850  Yes
+RMS Force:                 0.000490     0.001900  Yes
+Maximum Displacement:      0.000358     0.003150  Yes
+RMS Displacement:          0.000140     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 31/37: [300.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5085              -0.0000
+1    C                0.0028               0.0045              -0.0001
+2    C                1.1980              -0.7084               0.0000
+3    C                1.1997              -2.0945               0.0004
+4    C               -0.0002              -2.7931               0.0002
+5    C               -1.1975              -2.0942               0.0004
+6    C               -1.1930              -0.7063               0.0002
+7    H                0.5097               1.9007               0.8821
+8    H               -1.0171               1.8976               0.0002
+9    H                0.5090               1.8998              -0.8818
+10   H                2.1369              -0.1668              -0.0004
+11   H                2.1395              -2.6320              -0.0001
+12   H               -0.0003              -3.8751              -0.0002
+13   H               -2.1387              -2.6290              -0.0000
+14   H               -2.1324              -0.1649              -0.0004
+
+
+Energy:                 -271.534775 Convergence criteria  Is converged 
+Maximum Force:             0.001396     0.002850  Yes
+RMS Force:                 0.000428     0.001900  Yes
+Maximum Displacement:      0.000314     0.003150  Yes
+RMS Displacement:          0.000112     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 32/37: [310.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5085              -0.0000
+1    C                0.0028               0.0045              -0.0001
+2    C                1.1981              -0.7084               0.0000
+3    C                1.1997              -2.0945               0.0003
+4    C               -0.0002              -2.7932               0.0002
+5    C               -1.1974              -2.0943               0.0003
+6    C               -1.1928              -0.7063               0.0002
+7    H                0.6551               1.9010               0.7801
+8    H               -1.0015               1.8976               0.1767
+9    H                0.3484               1.8998              -0.9569
+10   H                2.1371              -0.1669              -0.0004
+11   H                2.1395              -2.6320              -0.0000
+12   H               -0.0003              -3.8752              -0.0001
+13   H               -2.1387              -2.6290               0.0000
+14   H               -2.1323              -0.1649              -0.0003
+
+
+Energy:                 -271.534773 Convergence criteria  Is converged 
+Maximum Force:             0.001110     0.002850  Yes
+RMS Force:                 0.000392     0.001900  Yes
+Maximum Displacement:      0.000250     0.003150  Yes
+RMS Displacement:          0.000090     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 33/37: [320.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5086              -0.0000
+1    C                0.0028               0.0045              -0.0001
+2    C                1.1981              -0.7083               0.0000
+3    C                1.1996              -2.0947               0.0001
+4    C               -0.0000              -2.7932               0.0002
+5    C               -1.1975              -2.0942               0.0001
+6    C               -1.1928              -0.7064               0.0001
+7    H                0.7804               1.9011               0.6545
+8    H               -0.9556               1.8977               0.3479
+9    H                0.1771               1.8999              -1.0030
+10   H                2.1372              -0.1670              -0.0002
+11   H                2.1395              -2.6320              -0.0000
+12   H               -0.0003              -3.8752              -0.0001
+13   H               -2.1387              -2.6291               0.0001
+14   H               -2.1322              -0.1650              -0.0002
+
+
+Energy:                 -271.534773 Convergence criteria  Is converged 
+Maximum Force:             0.001040     0.002850  Yes
+RMS Force:                 0.000413     0.001900  Yes
+Maximum Displacement:      0.000239     0.003150  Yes
+RMS Displacement:          0.000101     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 34/37: [330.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5087              -0.0000
+1    C                0.0028               0.0045              -0.0001
+2    C                1.1980              -0.7081               0.0000
+3    C                1.1995              -2.0950              -0.0001
+4    C                0.0003              -2.7933               0.0002
+5    C               -1.1975              -2.0940              -0.0000
+6    C               -1.1929              -0.7067              -0.0001
+7    H                0.8820               1.9013               0.5090
+8    H               -0.8808               1.8979               0.5084
+9    H                0.0003               1.8999              -1.0186
+10   H                2.1372              -0.1671              -0.0001
+11   H                2.1395              -2.6320               0.0000
+12   H               -0.0003              -3.8753              -0.0000
+13   H               -2.1387              -2.6291               0.0001
+14   H               -2.1322              -0.1651              -0.0000
+
+
+Energy:                 -271.534776 Convergence criteria  Is converged 
+Maximum Force:             0.000973     0.002850  Yes
+RMS Force:                 0.000454     0.001900  Yes
+Maximum Displacement:      0.000320     0.003150  Yes
+RMS Displacement:          0.000129     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 35/37: [340.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5087              -0.0000
+1    C                0.0028               0.0045              -0.0001
+2    C                1.1977              -0.7079               0.0000
+3    C                1.1994              -2.0953              -0.0002
+4    C                0.0006              -2.7933               0.0001
+5    C               -1.1977              -2.0937              -0.0002
+6    C               -1.1931              -0.7069              -0.0002
+7    H                0.9568               1.9013               0.3481
+8    H               -0.7793               1.8982               0.6535
+9    H               -0.1767               1.8998              -1.0032
+10   H                2.1373              -0.1671               0.0000
+11   H                2.1395              -2.6320               0.0001
+12   H               -0.0003              -3.8754               0.0000
+13   H               -2.1387              -2.6291               0.0001
+14   H               -2.1322              -0.1651               0.0001
+
+
+Energy:                 -271.534782 Convergence criteria  Is converged 
+Maximum Force:             0.001029     0.002850  Yes
+RMS Force:                 0.000476     0.001900  Yes
+Maximum Displacement:      0.000368     0.003150  Yes
+RMS Displacement:          0.000142     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 36/37: [350.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5087              -0.0000
+1    C                0.0028               0.0046              -0.0001
+2    C                1.1975              -0.7077               0.0000
+3    C                1.1992              -2.0957              -0.0003
+4    C                0.0009              -2.7934               0.0001
+5    C               -1.1978              -2.0934              -0.0003
+6    C               -1.1933              -0.7071              -0.0002
+7    H                1.0024               1.9014               0.1767
+8    H               -0.6543               1.8985               0.7790
+9    H               -0.3483               1.8997              -0.9572
+10   H                2.1372              -0.1672               0.0001
+11   H                2.1395              -2.6320               0.0001
+12   H               -0.0003              -3.8754               0.0000
+13   H               -2.1387              -2.6291               0.0001
+14   H               -2.1322              -0.1652               0.0002
+
+
+Energy:                 -271.534787 Convergence criteria  Is converged 
+Maximum Force:             0.001266     0.002850  Yes
+RMS Force:                 0.000450     0.001900  Yes
+Maximum Displacement:      0.000346     0.003150  Yes
+RMS Displacement:          0.000134     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+----------------------------------------------------------------------
+            Scanning combination 37/37: [360.00]
+
+======================================================================
+CG-BS Parameters
+======================================================================
+max_step:          0.2
+max_iter:          256
+write_traj:        False
+traj_every:        1
+verbose:           0
+alpha0:            0.2
+alpha_max:         0.8
+armijo_c1:         0.001
+beta_shrink:       0.5
+alpha_grow:        1.01
+beta_min:          0.02
+max_backtracks:    32
+bond_constraints:  0
+angle_constraints: 0
+torsion_constraints:1
+======================================================================
+
+
+                             Coordinates                              
+----------------------------------------------------------------------
+0    C                0.0010               1.5088              -0.0000
+1    C                0.0028               0.0046              -0.0001
+2    C                1.1972              -0.7076               0.0000
+3    C                1.1991              -2.0959              -0.0002
+4    C                0.0011              -2.7934               0.0001
+5    C               -1.1978              -2.0932              -0.0002
+6    C               -1.1935              -0.7073              -0.0002
+7    H                1.0177               1.9014               0.0000
+8    H               -0.5093               1.8989               0.8810
+9    H               -0.5094               1.8996              -0.8819
+10   H                2.1372              -0.1673               0.0001
+11   H                2.1395              -2.6321               0.0001
+12   H               -0.0003              -3.8755               0.0000
+13   H               -2.1387              -2.6290               0.0001
+14   H               -2.1323              -0.1652               0.0002
+
+
+Energy:                 -271.534789 Convergence criteria  Is converged 
+Maximum Force:             0.001221     0.002850  Yes
+RMS Force:                 0.000403     0.001900  Yes
+Maximum Displacement:      0.000281     0.003150  Yes
+RMS Displacement:          0.000108     0.002100  Yes
+
+CG-BS converged at iteration 1.
+Final frame written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_opt.xyz
+Complete trajectory written to /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_traj.xyz
+
+======================================================================
+Scan completed! Total points: 37Results saved to: /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/Toluene_work/torsionfit/Toluene_torsionfit_1-2_scan_final.xyz
+Energy range: -271.534789 to -271.534749 eV

@@ -1,0 +1,116 @@
+source leaprc.protein.ff14SB
+source leaprc.gaff2
+source leaprc.water.tip3p
+addAtomTypes {
+    { "Z0" "N" "sp2" }
+    { "Z1" "H" "sp3" }
+    { "Z2" "C" "sp3" }
+    { "Z3" "C" "sp3" }
+    { "Z4" "C" "sp2" }
+    { "Z5" "N" "sp2" }
+    { "Z6" "C" "sp2" }
+    { "Z7" "N" "sp2" }
+    { "Z8" "C" "sp2" }
+    { "Z9" "H" "sp3" }
+    { "ZA" "H" "sp3" }
+    { "ZB" "C" "sp3" }
+    { "ZC" "C" "sp2" }
+    { "ZD" "C" "sp2" }
+    { "ZE" "C" "sp2" }
+    { "ZF" "C" "sp2" }
+    { "ZG" "N" "sp2" }
+    { "ZH" "C" "sp2" }
+    { "ZI" "C" "sp2" }
+    { "ZJ" "N" "sp2" }
+    { "ZK" "C" "sp2" }
+    { "ZL" "N" "sp2" }
+    { "ZM" "C" "sp2" }
+    { "ZO" "N" "sp2" }
+    { "ZP" "C" "sp3" }
+    { "ZQ" "C" "sp3" }
+    { "ZR" "C" "sp3" }
+    { "ZS" "C" "sp3" }
+    { "ZT" "C" "sp3" }
+    { "ZU" "O" "sp3" }
+    { "ZV" "P" "sp3" }
+    { "ZW" "O" "sp2" }
+    { "ZX" "O" "sp2" }
+    { "ZY" "O" "sp3" }
+    { "ZZ" "P" "sp3" }
+    { "J0" "O" "sp2" }
+    { "J1" "O" "sp2" }
+    { "J2" "O" "sp3" }
+    { "J3" "C" "sp3" }
+    { "J4" "C" "sp3" }
+    { "J5" "C" "sp3" }
+    { "J6" "O" "sp3" }
+    { "J7" "H" "sp3" }
+    { "J8" "C" "sp3" }
+    { "J9" "C" "sp3" }
+    { "JA" "N" "sp2" }
+    { "JB" "C" "sp2" }
+    { "JC" "N" "sp2" }
+    { "JD" "C" "sp2" }
+    { "JE" "N" "sp2" }
+    { "JF" "C" "sp2" }
+    { "JG" "N" "sp2" }
+    { "JH" "H" "sp3" }
+    { "JI" "H" "sp3" }
+    { "JJ" "C" "sp2" }
+    { "JK" "N" "sp2" }
+    { "JL" "C" "sp2" }
+    { "JM" "H" "sp3" }
+    { "JN" "H" "sp3" }
+    { "JO" "O" "sp3" }
+    { "JP" "H" "sp3" }
+    { "JQ" "O" "sp3" }
+    { "JR" "H" "sp3" }
+    { "JS" "H" "sp3" }
+    { "JT" "H" "sp3" }
+    { "JU" "H" "sp3" }
+    { "JV" "H" "sp3" }
+    { "JW" "H" "sp3" }
+    { "JX" "H" "sp3" }
+    { "JY" "H" "sp3" }
+    { "JZ" "O" "sp3" }
+    { "L0" "H" "sp3" }
+    { "L1" "H" "sp3" }
+    { "L2" "O" "sp3" }
+    { "L3" "H" "sp3" }
+    { "L4" "H" "sp3" }
+    { "L5" "O" "sp3" }
+    { "L6" "H" "sp3" }
+    { "L7" "H" "sp3" }
+    { "L8" "H" "sp3" }
+    { "L9" "H" "sp3" }
+    { "LB" "C" "sp2" }
+    { "LC" "C" "sp2" }
+    { "LD" "H" "sp3" }
+    { "LE" "O" "sp2" }
+    { "LF" "H" "sp3" }
+    { "LG" "O" "sp2" }
+    { "LH" "H" "sp3" }
+    { "LK" "C" "sp3" }
+    { "LL" "H" "sp3" }
+    { "LM" "H" "sp3" }
+    { "LN" "H" "sp3" }
+    { "LO" "H" "sp3" }
+    { "LQ" "H" "sp3" }
+    { "LR" "H" "sp3" }
+    { "LS" "H" "sp3" }
+    { "LT" "H" "sp3" }
+    { "LV" "C" "sp2" }
+    { "LW" "O" "sp2" }
+}
+loadamberprep HF1_maple.prepin
+loadamberparams HF1_maple.frcmod
+loadamberparams frcmod.ions1lm_126_tip3p
+mol = loadpdb MaDA_ncaa_tleap.pdb
+check mol
+charge mol
+solvatebox mol TIP3PBOX 10.0
+addions mol Na+ 0
+addions mol Cl- 0
+savepdb mol MaDA_ncaa_solvated.pdb
+saveamberparm mol MaDA_ncaa.prmtop MaDA_ncaa.inpcrd
+quit

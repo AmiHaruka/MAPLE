@@ -1,0 +1,137 @@
+
+**********************************************************************
+*                                                                    *
+*                        M   A   P   L   E                           *
+*                                                                    *
+*      MAchine-learning Potential for Landscape Exploration          *
+*                                                                    *
+*                                                                    *
+*      © 2025 University of Pittsburgh. All rights reserved.         *
+*      Licensed under CC BY 4.0 for academic use.                    *
+*                                                                    *
+*      Principal Developer:  Xujian Wang                             *
+*                                                                    *
+**********************************************************************
+
+
+Parsing # commands...
+Global parameter: model = uma with options {'size': 'uma-s-1p1'}
+Task set to 'parmfit'
+Global parameter: device = gpu0
+Parsed configuration:
+----------------------------------------
+Task: parmfit
+model          : uma(size=uma-s-1p1)
+method         : abinitio
+cfmol2         : HEM_ff.mol2
+target         : A462
+cmo            : -1 6 3
+prom           : ff14sb
+watm           : tip3p
+bonded         : seminario
+device         : gpu0
+
+                             Coordinates                              
+**********************************************************************
+
+Group 1 (PDB File)
+Resolved PDB: /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/4ZF6_H_renum.pdb
+PDB coordinates are parsed by parmfit abinitio at runtime.
+--------------------
+
+======================================================================
+                           Parmfit Abinitio                           
+======================================================================
+Target: A462:FE (ion)
+  PDB residue templates: matched=460, backbone_only=0, unmatched=1
+  Target metal selector: A462
+  add_resid: []
+  cluster_cutoff: 3.00 A
+  donor_cutoff: 2.70 A
+  water model: tip3p
+  protein model: ff14SB
+  ion parameter set: 12_6
+  metal site charge/mult: -1 6
+  metal oxidation: 3
+  large model charge/mult: -2 6
+  chgmod: 1
+  fixchg_resids: []
+  QM method: PBE1PBE/def2SVP
+  [MetalAA] large-model input written.
+  [MetalAA] MLIP large-model optimization ...
+  [MetalAA] large-model RESP ...
+  [MetalAA] site files written.
+  [MetalAA] MLIP Hessian + Seminario + final frcmod ...
+  [MetalAA] final parameter files written.
+  [MetalAA] running tleap validation ...
+  [MetalAA] route completed; final summary follows.
+
+======================================================================
+                       PARMFIT ABINITIO RESULT                        
+======================================================================
+Status: completed
+Route: MetalAA
+Target: A462:FE
+Protein model: ff14SB
+Charge/mult/oxidation: -1 6 3
+Large model charge/mult: -2 6
+Core residues: _400:CYM, A461:HEM, A462:FE
+
+Main products:
+  final frcmod: P450_work/P450_metal.frcmod
+  tleap input: P450_work/P450_metal_tleap.in
+  tleap PDB:   P450_work/P450_metal_tleap.pdb
+  mol2 files:  P450_work/CM1.mol2, P450_work/HM1.mol2, P450_work/FE1.mol2
+
+Renamed atom types:
+  residue      atom  old   new   charge
+  _400:CYM     SG    SH    Y1    -0.325996
+  A461:HEM     NA    nd    Y2    -0.126273
+  A461:HEM     NB    nc    Y3    -0.180159
+  A461:HEM     ND    nd    Y4    -0.140285
+  A461:HEM     NC    nc    Y5    -0.101255
+  A462:FE      FE    FE    M1     0.422951
+
+Stage timing:
+  large RESP/Gaussian ESP       28m 11s
+  Hessian + Seminario               54s
+  large optimization                26s
+  tleap validation                   4s
+  site export                        0s
+  site selection/model build         0s
+
+Next step:
+  cd P450_work
+  tleap -s -f P450_metal_tleap.in |tee P450_metal_tleap.out
+
+Tleap status:
+  Errors: 0
+  Warnings: 7
+  Notes: 1
+
+Warnings:
+  Environment contains potentially charged standard residues outside the site core: _1:THR, _3:LYS, _4:GLU, _9:LYS, _13:GLU, _15:LYS, _23:ASP, _24:LYS
+======================================================================
+
+
+
+Program started: 2026-08-04 11:28:00
+
+======================================================================
+                      TIMING SUMMARY
+======================================================================
+Input Reading.......................................   0.017 s  (   0.0 %)
+  Settings Parsing....................................   0.016 s  (  91.1 %)
+  Coordinate Section Parsing..........................   0.001 s  (   3.3 %)
+  Post-Processing Expansion...........................   0.000 s  (   0.0 %)
+MLP Initialization..................................   9.245 s  (   0.5 %)
+Job Dispatching..................................... 1777.223 s  (  99.5 %)
+  Parmfit optimization................................ 1777.222 s  ( 100.0 %)
+    Parmfit abinitio.................................... 1777.159 s  ( 100.0 %)
+======================================================================
+Total wall time: 1786.486 s
+Total CPU time: 95.067 s
+======================================================================
+
+Program ended: 2026-08-04 11:57:47
+TOTAL RUN TIME: 0 days 0 hours 29 minutes 46 seconds 485 msec

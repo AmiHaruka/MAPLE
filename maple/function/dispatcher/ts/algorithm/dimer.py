@@ -20,6 +20,7 @@ from ase import Atoms
 
 from .logger import log_info
 from ...jobABC import JobABC
+from maple.function.read.filereader.pdb_reader import write_pdb_model, write_pdb_trajectory
 
 # =============================================================================
 # ------------------------------ Utilities ------------------------------------
@@ -51,6 +52,9 @@ def write_xyz(filename: str, images: List[Atoms], energies: Optional[List[float]
     """
     Write a multi-frame XYZ trajectory. If energies given, write in comment line.
     """
+    if images and images[0].info.get("pdb_template"):
+        write_pdb_trajectory(filename, images, energies=energies)
+        return
     with open(filename, "w") as f:
         for i, at in enumerate(images):
             pos = to_numpy_f64(at.get_positions())
@@ -70,6 +74,19 @@ def write_all_images_xyz(filename: str, atoms: Atoms, energy: Optional[float] = 
     """
     if iteration == 0 and os.path.exists(filename):
         os.remove(filename)
+    if atoms.info.get("pdb_template"):
+        remark = f"Iter {iteration}"
+        if energy is not None:
+            remark += f"  Energy = {energy:.10f}"
+        with open(filename, "a", encoding="utf-8") as f:
+            write_pdb_model(
+                f,
+                atoms,
+                atoms.info["pdb_template"],
+                model_index=iteration + 1,
+                remark=remark,
+            )
+        return
     pos = to_numpy_f64(atoms.get_positions())
     symbols = atoms.get_chemical_symbols()
     with open(filename, "a") as f:
@@ -342,8 +359,9 @@ class Dimer(JobABC):
 
         p = self.params
         base, _ = os.path.splitext(self.output)
-        traj_file = base + "_dimer_traj.xyz"
-        ts_file = base + "_dimer_ts.xyz"
+        ext = ".pdb" if self.atoms.info.get("pdb_template") else ".xyz"
+        traj_file = base + "_dimer_traj" + ext
+        ts_file = base + "_dimer_ts" + ext
         kcal_per_Eh = 627.509
 
         # ------------------ init direction & step size ------------------
@@ -516,5 +534,4 @@ class Dimer(JobABC):
             f"\nWrote Dimer trajectory to: {traj_file}\n",
             f"Wrote TS guess to:         {ts_file}\n"
         ], self.output)
-
 

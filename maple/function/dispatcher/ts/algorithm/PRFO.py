@@ -20,6 +20,7 @@ from ase import Atoms
 from .logger import log_info
 from ._pdb_compat import require_shared_pdb_writer
 from ...jobABC import JobABC
+from maple.function.read.filereader.pdb_reader import write_pdb, write_pdb_model
 
 # =============================================================================
 # ------------------------------ Utilities ------------------------------------
@@ -83,6 +84,9 @@ def write_xyz(filename: str, atoms: Atoms, energy: Optional[float] = None,
     iteration : int, optional
         Iteration number to include in comment line
     """
+    if atoms.info.get("pdb_template"):
+        write_pdb(filename, atoms, atoms.info["pdb_template"])
+        return
     pos = to_numpy_f64(atoms.get_positions())
     symbols = atoms.get_chemical_symbols()
     
@@ -123,6 +127,19 @@ def append_xyz_trajectory(filename: str, atoms: Atoms, energy: Optional[float] =
     # Remove file if first iteration
     if iteration == 0 and os.path.exists(filename):
         os.remove(filename)
+    if atoms.info.get("pdb_template"):
+        remark = f"Iteration {iteration}"
+        if energy is not None:
+            remark += f"  Energy = {energy:.10f}"
+        with open(filename, "a", encoding="utf-8") as f:
+            write_pdb_model(
+                f,
+                atoms,
+                atoms.info["pdb_template"],
+                model_index=iteration + 1,
+                remark=remark,
+            )
+        return
     
     pos = to_numpy_f64(atoms.get_positions())
     symbols = atoms.get_chemical_symbols()
