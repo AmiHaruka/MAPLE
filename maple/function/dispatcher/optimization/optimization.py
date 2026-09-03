@@ -50,7 +50,8 @@ class Optimization(JobABC):
         loaded model; it is wrapped into the batch calculator that BatchLBFGS
         drives through prepare/get_ef_gpu/step_cart_.
         """
-        from .algorithm import BatchLBFGS, LBFGSParams
+        from .algorithm.LBFGS import LBFGSParams
+        from .algorithm.blbfgs import BatchLBFGS
 
         mols = self.atoms
         if not mols.multiatoms:

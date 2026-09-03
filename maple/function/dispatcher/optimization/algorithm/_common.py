@@ -6,8 +6,6 @@ from typing import List, Optional
 import numpy as np
 from ase import Atoms
 
-from maple.function.read.filereader.pdb_reader import write_pdb_trajectory
-
 
 def write_xyz(filename: str, atoms_list: List[Atoms],
               energies: Optional[List[float]] = None,
@@ -15,6 +13,8 @@ def write_xyz(filename: str, atoms_list: List[Atoms],
               start_index: int = 0) -> None:
     """Write one or more structures in XYZ format."""
     if atoms_list and atoms_list[0].info.get("pdb_template"):
+        from maple.function.read.filereader.pdb_reader import write_pdb_trajectory
+
         write_pdb_trajectory(
             filename,
             atoms_list,

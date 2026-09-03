@@ -162,6 +162,16 @@ class _OOMCalculateMany:
 
 
 class BatchOptimizerSafetyTests(unittest.TestCase):
+    @staticmethod
+    def _pdb_atom():
+        atoms = Atoms("H", positions=[[0.0, 0.0, 0.0]])
+        atoms.info["pdb_template"] = [
+            "ATOM      1  H   MOL A   1       0.000   0.000   0.000  "
+            "1.00  0.00           H  \n",
+            "END\n",
+        ]
+        return atoms
+
     def test_constructor_rejects_invalid_parameters(self):
         invalid = (
             {"memory": 0},
@@ -461,6 +471,51 @@ class BatchOptimizerSafetyTests(unittest.TestCase):
 
             self.assertEqual(statuses, ("converged",))
             self.assertTrue((Path(tmpdir) / "job_opt.xyz").exists())
+            self.assertFalse(
+                (Path(tmpdir) / "job_opt_unconverged.xyz").exists()
+            )
+
+    def test_converged_pdb_run_uses_pdb_production_suffix(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "job.out"
+            optimizer = BatchLBFGS(
+                output=str(output),
+                device="cpu",
+                maxiter=2,
+            )
+            molecules = _Molecules(
+                [self._pdb_atom()],
+                _SyntheticBatchCalculator(stationary=True),
+            )
+
+            statuses = optimizer.run(molecules)
+
+            self.assertEqual(statuses, ("converged",))
+            self.assertTrue((Path(tmpdir) / "job_opt.pdb").exists())
+            self.assertFalse((Path(tmpdir) / "job_opt.xyz").exists())
+
+    def test_unconverged_pdb_run_uses_pdb_diagnostic_suffix(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "job.out"
+            optimizer = BatchLBFGS(
+                output=str(output),
+                device="cpu",
+                maxiter=1,
+            )
+            molecules = _Molecules(
+                [self._pdb_atom()],
+                _SyntheticBatchCalculator(),
+            )
+
+            with self.assertRaisesRegex(
+                RuntimeError,
+                r"no production _opt\.pdb",
+            ):
+                optimizer.run(molecules)
+
+            self.assertTrue(
+                (Path(tmpdir) / "job_opt_unconverged.pdb").exists()
+            )
             self.assertFalse(
                 (Path(tmpdir) / "job_opt_unconverged.xyz").exists()
             )
