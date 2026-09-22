@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import hashlib
 import importlib
 import os
+import tempfile
 import warnings
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 import torch
@@ -15,7 +18,11 @@ from ase.calculators.calculator import all_changes
 try:
     from fairchem.core import pretrained_mlip
     from fairchem.core._config import CACHE_DIR
-    from fairchem.core.calculate.ase_calculator import AtomicData, FAIRChemCalculator, UMATask
+    from fairchem.core.calculate.ase_calculator import (
+        AtomicData,
+        FAIRChemCalculator,
+        UMATask,
+    )
     try:
         from fairchem.core.datasets.atomic_data import atomicdata_list_to_batch
     except ImportError:
@@ -36,10 +43,16 @@ from .._batch_utils import (
 from ..calculator_base import (
     EV2HARTREE,
     init_implicit_solvent,
-    reject_implicit_solvent_derivatives,
     register_calculator,
+    reject_implicit_solvent_derivatives,
 )
-
+from ..electronic_state import (
+    attach_calculator_identity,
+    checkpoint_fingerprint,
+    requested_electronic_state,
+    solvation_identity_settings,
+    validate_electronic_state,
+)
 
 UMA_DEFAULT_SIZE = "uma-s-1p1"
 UMA_MODELS_MAP = {
@@ -61,6 +74,37 @@ SUPPORTED_UMA_INFERENCE = {"default", "turbo"}
 # default regardless.
 UMA_INFERENCE_SETTINGS = "default"
 UMA_CPU_INFERENCE_SETTINGS = "default"
+UMA_COMPAT_SCHEMA = "v2"
+
+
+def _omega_mapping(value, name: str) -> dict[Any, Any]:
+    plain = OmegaConf.to_container(value, resolve=True)
+    if not isinstance(plain, dict):
+        raise TypeError(f"UMA {name} must be a mapping.")
+    return dict(plain)
+
+
+def _reference_values(value) -> dict[Any, Any]:
+    mapping = _omega_mapping(value, "form-element reference data")
+    refs = mapping.get("refs")
+    if not isinstance(refs, dict):
+        raise TypeError("UMA form-element reference data must contain a 'refs' mapping.")
+    return dict(refs)
+
+
+@dataclass(frozen=True)
+class _LoadedPredictor:
+    predictor: Any
+    checkpoint_path: str
+    model_fingerprint: dict[str, str]
+    inference: str
+    reference_energies: dict[str, object | None]
+
+
+def _load_with_fingerprint(path: str, **kwargs) -> tuple[Any, dict[str, str]]:
+    """Load an immutable resolved artifact and freeze its content identity."""
+    fingerprint = checkpoint_fingerprint(path)
+    return load_predict_unit(path, **kwargs), fingerprint
 
 
 @register_calculator
@@ -144,28 +188,55 @@ class UMACalculator(FAIRChemCalculator):
 
         if checkpoint_path and os.path.isfile(checkpoint_path):
             compat_path = UMACalculator._prepare_compat_checkpoint(checkpoint, checkpoint_path)
-            return load_predict_unit(
+            predictor, fingerprint = _load_with_fingerprint(
                 compat_path,
                 inference_settings=inference_settings,
                 overrides=overrides,
                 device=device,
             )
+            return _LoadedPredictor(
+                predictor, compat_path, fingerprint, inference_settings,
+                {"atom_refs": None, "form_elem_refs": None},
+            )
 
         if checkpoint in pretrained_mlip.available_models:
-            return pretrained_mlip.get_predict_unit(
-                checkpoint,
+            resolved_path = pretrained_mlip.pretrained_checkpoint_path_from_name(checkpoint)
+            atom_refs = _omega_mapping(
+                pretrained_mlip.get_reference_energies(checkpoint, "atom_refs"),
+                "atomic reference data",
+            )
+            form_elem_refs = None
+            if checkpoint in UMA_FALLBACK_HF_MODELS:
+                form_elem_refs = _reference_values(
+                    pretrained_mlip.get_reference_energies(checkpoint, "form_elem_refs")
+                )
+            predictor, fingerprint = _load_with_fingerprint(
+                resolved_path,
                 inference_settings=inference_settings,
                 overrides=overrides,
                 device=device,
+                atom_refs=atom_refs,
+                form_elem_refs=form_elem_refs,
+            )
+            return _LoadedPredictor(
+                predictor,
+                resolved_path,
+                fingerprint,
+                inference_settings,
+                {"atom_refs": atom_refs, "form_elem_refs": form_elem_refs},
             )
 
         if os.path.isfile(checkpoint):
             compat_path = UMACalculator._prepare_compat_checkpoint(Path(checkpoint).stem, checkpoint)
-            return load_predict_unit(
+            predictor, fingerprint = _load_with_fingerprint(
                 compat_path,
                 inference_settings=inference_settings,
                 overrides=overrides,
                 device=device,
+            )
+            return _LoadedPredictor(
+                predictor, compat_path, fingerprint, inference_settings,
+                {"atom_refs": None, "form_elem_refs": None},
             )
 
         if checkpoint in UMA_FALLBACK_HF_MODELS:
@@ -176,29 +247,41 @@ class UMACalculator(FAIRChemCalculator):
                 cache_dir=CACHE_DIR,
             )
             compat_path = UMACalculator._prepare_compat_checkpoint(checkpoint, checkpoint_file)
-            atom_refs = OmegaConf.load(
-                hf_hub_download(
-                    repo_id="facebook/UMA",
-                    subfolder="references",
-                    filename="iso_atom_elem_refs.yaml",
-                    cache_dir=CACHE_DIR,
+            atom_refs = _omega_mapping(
+                OmegaConf.load(
+                    hf_hub_download(
+                        repo_id="facebook/UMA",
+                        subfolder="references",
+                        filename="iso_atom_elem_refs.yaml",
+                        cache_dir=CACHE_DIR,
+                    )
+                ),
+                "atomic reference data",
+            )
+            form_elem_refs = _reference_values(
+                OmegaConf.load(
+                    hf_hub_download(
+                        repo_id="facebook/UMA",
+                        subfolder="references",
+                        filename="form_elem_refs.yaml",
+                        cache_dir=CACHE_DIR,
+                    )
                 )
             )
-            form_elem_refs = OmegaConf.load(
-                hf_hub_download(
-                    repo_id="facebook/UMA",
-                    subfolder="references",
-                    filename="form_elem_refs.yaml",
-                    cache_dir=CACHE_DIR,
-                )
-            )["refs"]
-            return load_predict_unit(
+            predictor, fingerprint = _load_with_fingerprint(
                 compat_path,
                 inference_settings=inference_settings,
                 overrides=overrides,
                 device=device,
                 atom_refs=atom_refs,
                 form_elem_refs=form_elem_refs,
+            )
+            return _LoadedPredictor(
+                predictor,
+                compat_path,
+                fingerprint,
+                inference_settings,
+                {"atom_refs": atom_refs, "form_elem_refs": form_elem_refs},
             )
 
         raise ValueError(
@@ -210,27 +293,78 @@ class UMACalculator(FAIRChemCalculator):
     def _prepare_compat_checkpoint(checkpoint_name: str, checkpoint_path: str) -> str:
         compat_dir = Path(CACHE_DIR) / "maple_compat"
         compat_dir.mkdir(parents=True, exist_ok=True)
-        compat_path = compat_dir / f"{checkpoint_name}.pt"
+        source_path = Path(checkpoint_path)
+        with source_path.open("rb") as source:
+            source_stat = os.fstat(source.fileno())
+            source_identity = (
+                source_stat.st_dev,
+                source_stat.st_ino,
+                source_stat.st_size,
+                source_stat.st_mtime_ns,
+            )
+            digest = hashlib.sha256()
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+            final_stat = os.fstat(source.fileno())
+            if source_identity != (
+                final_stat.st_dev,
+                final_stat.st_ino,
+                final_stat.st_size,
+                final_stat.st_mtime_ns,
+            ):
+                raise RuntimeError("UMA checkpoint changed while its content identity was read.")
 
-        raw_checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-        model_config = raw_checkpoint.model_config
-        model_config.pop("model_id", None)
-        model_config.pop("supports_single_atoms", None)
+            safe_name = Path(str(checkpoint_name)).name
+            compat_path = compat_dir / (
+                f"{safe_name}-{UMA_COMPAT_SCHEMA}-{digest.hexdigest()}.pt"
+            )
+            if compat_path.is_file():
+                return str(compat_path)
 
-        backbone = model_config.get("backbone", {})
-        backbone.pop("charge_balanced_channels", None)
-        backbone.pop("composition_dropout", None)
-        dataset_mapping = backbone.pop("dataset_mapping", None)
-        if dataset_mapping is not None and "dataset_list" not in backbone:
-            backbone["dataset_list"] = list(dataset_mapping)
+            source.seek(0)
+            raw_checkpoint = torch.load(source, map_location="cpu", weights_only=False)
+            loaded_stat = os.fstat(source.fileno())
+            if source_identity != (
+                loaded_stat.st_dev,
+                loaded_stat.st_ino,
+                loaded_stat.st_size,
+                loaded_stat.st_mtime_ns,
+            ):
+                raise RuntimeError("UMA checkpoint changed while it was loaded.")
+            model_config = raw_checkpoint.model_config
+            model_config.pop("model_id", None)
+            model_config.pop("supports_single_atoms", None)
 
-        for head_config in model_config.get("heads", {}).values():
-            head_mapping = head_config.pop("dataset_mapping", None)
-            if head_mapping is not None and "dataset_names" not in head_config:
-                head_config["dataset_names"] = list(head_mapping)
+            backbone = model_config.get("backbone", {})
+            backbone.pop("charge_balanced_channels", None)
+            backbone.pop("composition_dropout", None)
+            dataset_mapping = backbone.pop("dataset_mapping", None)
+            if dataset_mapping is not None and "dataset_list" not in backbone:
+                backbone["dataset_list"] = list(dataset_mapping)
 
-        torch.save(raw_checkpoint, compat_path)
-        return str(compat_path)
+            for head_config in model_config.get("heads", {}).values():
+                head_mapping = head_config.pop("dataset_mapping", None)
+                if head_mapping is not None and "dataset_names" not in head_config:
+                    head_config["dataset_names"] = list(head_mapping)
+
+            descriptor, temp_name = tempfile.mkstemp(
+                dir=compat_dir, prefix=f".{safe_name}-", suffix=".tmp"
+            )
+            os.close(descriptor)
+            temp_path = Path(temp_name)
+            try:
+                # Passing a file object keeps the temporary pathname out of
+                # PyTorch's ZIP archive metadata, so equivalent compatibility
+                # artifacts have a stable content fingerprint across caches.
+                with temp_path.open("wb") as temp_file:
+                    torch.save(raw_checkpoint, temp_file)
+                try:
+                    os.link(temp_path, compat_path)
+                except FileExistsError:
+                    pass
+            finally:
+                temp_path.unlink(missing_ok=True)
+            return str(compat_path)
 
     def __init__(
         self,
@@ -268,13 +402,14 @@ class UMACalculator(FAIRChemCalculator):
         if not importlib.util.find_spec("fairchem"):
             raise ImportError("fairchem-core is not installed. Please install it first.")
 
-        predictor = self._build_predictor(
+        loaded = self._build_predictor(
             checkpoint,
             overrides,
             device,
             checkpoint_path=checkpoint_path,
             inference_settings=inference_settings,
         )
+        predictor = loaded.predictor
         super().__init__(predict_unit=predictor, task_name=task or "omol")
 
         self.device = torch.device(device)
@@ -284,6 +419,19 @@ class UMACalculator(FAIRChemCalculator):
         self.batch_size = batch_size
         self.path_batch_size = path_batch_size
         self._maple_inference_settings = inference_settings
+
+        attach_calculator_identity(
+            self,
+            backend=f"uma:{checkpoint}",
+            model_fingerprint=loaded.model_fingerprint,
+            relevant_settings={
+                "task": task or "omol",
+                "inference": loaded.inference,
+                "overrides": overrides or {},
+                "reference_energies": loaded.reference_energies,
+                **solvation_identity_settings(implicit, solvent),
+            },
+        )
 
         # Shared helper sets self.solvent_correction (and self.chargecalc when
         # applicable); identical contract to CalcABC.implicit_solv_init.
@@ -306,6 +454,9 @@ class UMACalculator(FAIRChemCalculator):
 
         self._task = UMATask(task)
         self._task_name = task
+        identity = getattr(self, "maple_pes_identity", None)
+        if identity is not None:
+            identity["relevant_settings"]["task"] = task
         self.implemented_properties = [
             task_obj.property for task_obj in self.predictor.dataset_to_tasks[self.task_name]
         ]
@@ -344,9 +495,21 @@ class UMACalculator(FAIRChemCalculator):
                 f"supported periodic tasks: {sorted(PERIODIC_UMA_TASKS)}."
             )
 
+    def electronic_state_settings(self) -> dict[str, str]:
+        return {"task": self.task_name}
+
+    @staticmethod
+    def validate_electronic_state_request(charge, multiplicity, settings) -> None:
+        task = settings.get("task") or "omol"
+        if task != "omol" and (charge != 0 or multiplicity != 1):
+            raise ValueError(
+                f"UMA task='{task}' does not support the requested electronic state "
+                f"(charge={charge}, mult={multiplicity}); use task='omol' for "
+                "charge/spin-dependent molecular calculations."
+            )
+
     def _validate_charge_spin_task_compatibility(self, atoms: Atoms) -> tuple[int, int]:
-        charge = self._integer_info(atoms, "charge", 0)
-        mult = self._integer_info(atoms, "mult", 1)
+        charge, mult = validate_electronic_state(atoms, self)
         has_charge = charge != 0
         has_open_shell = mult != 1
 
@@ -361,26 +524,7 @@ class UMACalculator(FAIRChemCalculator):
                 warnings.warn(message, RuntimeWarning, stacklevel=2)
             return charge, mult
 
-        if has_charge or has_open_shell:
-            raise ValueError(
-                f"UMA task='{self.task_name}' does not use charge/spin according to "
-                "FAIR-Chem's current calculator contract. Remove atoms.info['charge']/"
-                "atoms.info['mult'] or use task='omol' for molecular charged/open-shell "
-                "calculations."
-            )
-
         return charge, mult
-
-    @staticmethod
-    def _integer_info(atoms: Atoms, key: str, default: int) -> int:
-        value = atoms.info.get(key, default)
-        try:
-            numeric_value = float(value)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"UMA requires integer atoms.info['{key}']; got {value!r}.") from exc
-        if not numeric_value.is_integer():
-            raise ValueError(f"UMA requires integer atoms.info['{key}']; got {value!r}.")
-        return int(numeric_value)
 
     def get_hessian(self, atoms: Atoms, delta: float = 0.002) -> np.ndarray:
         """Numerical-only Hessian via shared finite-difference helper."""
@@ -417,8 +561,7 @@ class UMACalculator(FAIRChemCalculator):
             or any(len(at) == 1 for at in atoms_list)
             or self._maple_inference_settings == "turbo"
             or any(
-                self._integer_info(at, "charge", 0) != 0
-                or self._integer_info(at, "mult", 1) != 1
+                requested_electronic_state(at) != (0, 1)
                 for at in atoms_list
             )
         ):

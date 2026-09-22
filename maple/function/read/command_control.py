@@ -1,6 +1,7 @@
 import re
 import os
 from difflib import get_close_matches
+from math import isfinite
 from typing import Dict, Any, List, Optional
 
 
@@ -57,6 +58,8 @@ class CommandControl:
             "temperature": 298.15,
             "pressure_kpa": 101.325,
             "ilowfreq": 2,
+            "symmetry_number": 1,
+            "thermochemistry": "auto",
             "verbosity": 1,
             "treat_imag_as_real": False,
             "device": "cpu",
@@ -192,7 +195,7 @@ class CommandControl:
         ),
     }
 
-    VALIDATED_TASK_PARAMS = {"opt", "scan", "md"}
+    VALIDATED_TASK_PARAMS = {"opt", "scan", "freq", "md"}
 
     TS_REFINE_MAP = {
         "neb": {"cineb", "nebts"},
@@ -214,6 +217,7 @@ class CommandControl:
         params: Dict[str, Any] = {}
         task: Optional[str] = None
         seen_keys = set()
+        explicit_md_keys: set[str] = set()
         log_lines = ["Parsing # commands...\n"]
 
         for raw in settings_lines:
@@ -250,6 +254,7 @@ class CommandControl:
                             for kv in paren_val.split(",")
                             if "=" in kv
                         }
+                        explicit_md_keys.update(inline_md_keys)
 
                 if task == "md" and params.get("mdp"):
                     cls._load_mdp(params, inline_md_keys, output_path)
@@ -260,6 +265,8 @@ class CommandControl:
                 cls._log_error(output_path, f"Duplicate parameter: '{key}'.")
                 raise ValueError(f"Duplicate parameter: '{key}'.")
             seen_keys.add(key)
+            if task == "md" and key in cls.DEFAULTS["md"]:
+                explicit_md_keys.add(key)
 
             if paren_val is not None and assign_val is not None:
                 sub = {}
@@ -295,7 +302,7 @@ class CommandControl:
             params.update(cls.DEFAULTS.get("sp", {}))
             log_lines.append("No task specified. Defaulting to 'sp'.\n")
 
-        cls._normalize_params(params)
+        cls._normalize_params(params, explicit_md_keys if task == "md" else None)
         cls._normalize_method_flags(params, task, output_path)
         cls._validate(params, task, output_path)
         cls._log_info(output_path, log_lines)
@@ -378,13 +385,33 @@ class CommandControl:
             if key in defaults and key not in inline_keys:
                 params[key] = mdp_val
 
-        if "remove_rotation" in mdp_params and "remove_angular" not in mdp_params:
+        if ("remove_rotation" in mdp_params and "remove_angular" in mdp_params
+                and bool(mdp_params["remove_rotation"]) != bool(mdp_params["remove_angular"])):
+            raise ValueError(
+                "Conflicting MDP settings: remove_rotation and remove_angular"
+            )
+        if ("remove_rotation" in mdp_params
+                and "remove_angular" not in mdp_params
+                and "remove_angular" not in inline_keys):
             params["remove_angular"] = params["remove_rotation"]
 
     @classmethod
-    def _normalize_params(cls, params: Dict[str, Any]) -> None:
-        if "remove_angular" not in params and "remove_rotation" in params:
+    def _normalize_params(
+        cls,
+        params: Dict[str, Any],
+        explicit_md_keys: set[str] | None = None,
+    ) -> None:
+        explicit_md_keys = explicit_md_keys or set()
+        legacy_explicit = "remove_rotation" in explicit_md_keys
+        canonical_explicit = "remove_angular" in explicit_md_keys
+        if (legacy_explicit and canonical_explicit
+                and bool(params["remove_rotation"]) != bool(params["remove_angular"])):
+            raise ValueError(
+                "Conflicting MD settings: remove_rotation and remove_angular"
+            )
+        if legacy_explicit and not canonical_explicit:
             params["remove_angular"] = params["remove_rotation"]
+        params.pop("remove_rotation", None)
         if params.get("remove_angular"):
             params["remove_com"] = True
 
@@ -458,6 +485,10 @@ class CommandControl:
         if task == "md":
             allowed.update(cls.DEFAULTS["md"])
             return allowed
+        if task == "freq":
+            allowed.update(cls.DEFAULTS["freq"])
+            allowed.update({"n_freqs_to_print", "sort_ascending", "imag_tol_cm1"})
+            return allowed
 
         method = str(params.get("method") or "lbfgs").lower()
         method_params = cls.OPT_METHOD_PARAMS.get(method)
@@ -523,7 +554,7 @@ class CommandControl:
                 cls._log_error(output_path, msg)
                 raise ValueError(msg)
 
-        for key in ("randomize", "write_shell", "experimental"):
+        for key in ("randomize", "write_shell"):
             if key in solv_params and not isinstance(solv_params[key], bool):
                 msg = f"Solvation {key} must be 'true' or 'false'."
                 cls._log_error(output_path, msg)
@@ -533,94 +564,18 @@ class CommandControl:
         explicit = solv_params.get("explicit")
         implicit = solv_params.get("implicit")
 
-        if method is not None:
-            method = str(method).lower()
-            solv_params["method"] = method
-            if method != "gbsa":
-                msg = "Implicit solvation method must be 'gbsa'."
-                cls._log_error(output_path, msg)
-                raise ValueError(msg)
-
         if explicit is not None and implicit is not None:
-            msg = "Use either explicit=<solvent> or implicit=<solvent>, not both."
-            cls._log_error(output_path, msg)
-            raise ValueError(msg)
+            raise ValueError("Use either explicit=<solvent> or implicit=<solvent>, not both.")
 
-        if implicit is not None:
-            if method != "gbsa":
-                msg = "Implicit solvation requires method=gbsa."
-                cls._log_error(output_path, msg)
-                raise ValueError(msg)
-            if str(implicit).lower() in {"", "none"}:
-                msg = "Implicit solvation requires a real solvent name, not 'none'."
-                cls._log_error(output_path, msg)
-                raise ValueError(msg)
-            if solv_params.get("experimental") is not True:
-                msg = (
-                    "Implicit GB-polar/QEq solvation is experimental and "
-                    "energy-only; add experimental=true in #solv(...) to "
-                    "request it explicitly."
-                )
-                cls._log_error(output_path, msg)
-                raise ValueError(msg)
-            if task != "sp":
-                msg = (
-                    "Implicit GB-polar/QEq solvation is currently energy-only "
-                    "and may be used only with task 'sp'."
-                )
-                cls._log_error(output_path, msg)
-                raise ValueError(msg)
-            if params.get("verbose", 0) >= 1:
-                msg = (
-                    "Implicit GB-polar/QEq solvation is energy-only and supports "
-                    "only #sp(verbose=0); verbose=1 requests gradients/forces."
-                )
-                cls._log_error(output_path, msg)
-                raise ValueError(msg)
-            if "pbc" in params:
-                msg = "Implicit GB-polar/QEq solvation is non-periodic; remove #pbc."
-                cls._log_error(output_path, msg)
-                raise ValueError(msg)
+        if implicit is not None or method is not None:
+            from ..calculator.calculator_base import validate_implicit_solvent_choice
 
-            explicit_only = {
-                "radius",
-                "padding",
-                "shape",
-                "box_size",
-                "density",
-                "density_scale",
-                "number",
-                "clash_method",
-                "tolerance",
-                "vdw_scale",
-                "vdw_fallback_radius",
-                "seed",
-                "randomize",
-                "write_shell",
-                "shell_cutoff",
-                "solvent_pdb",
-                "clash_cutoff",
-                "write_cell",
-            }
-            conflicts = sorted(key for key in explicit_only if key in solv_params)
-            if conflicts:
-                msg = (
-                    "Explicit-solvent options cannot be combined with implicit "
-                    f"GB-polar solvation: {', '.join(conflicts)}."
-                )
-                cls._log_error(output_path, msg)
-                raise ValueError(msg)
-            return
-
-        if method is not None:
-            msg = "method=gbsa requires implicit=<solvent>; omit method for explicit solvent."
-            cls._log_error(output_path, msg)
-            raise ValueError(msg)
+            method = str(method or "gbsa").lower()
+            validate_implicit_solvent_choice(method, implicit)
+            raise ValueError(f"Unsupported implicit solvation method: '{method}'.")
 
         if "experimental" in solv_params:
-            msg = "experimental=true is only valid with method=gbsa, implicit=<solvent>."
-            cls._log_error(output_path, msg)
-            raise ValueError(msg)
+            raise ValueError("experimental is not an explicit-solvent option; GBSA is disabled.")
 
         if explicit is None:
             if solv_params:
@@ -819,11 +774,73 @@ class CommandControl:
                 raise ValueError(msg)
 
     @classmethod
+    def _normalize_validate_frequency(
+        cls, params: dict[str, Any], output_path: str | None
+    ) -> None:
+        from ..calculator.calculator_base import parse_bool_option
+
+        if "mode" in params:
+            params["method"] = params.pop("mode")
+        if "pressure_pa" in params:
+            pressure_pa = params.pop("pressure_pa")
+            if isinstance(pressure_pa, bool) or not isinstance(pressure_pa, (int, float)):
+                raise ValueError("FREQ pressure_pa must be numeric.")
+            params["pressure_kpa"] = pressure_pa / 1000.0
+        if "verbose" in params:
+            verbose = params.pop("verbose")
+            if (
+                "verbosity" in params
+                and params["verbosity"] != cls.DEFAULTS["freq"]["verbosity"]
+                and params["verbosity"] != verbose
+            ):
+                raise ValueError("FREQ verbose and verbosity settings conflict.")
+            params["verbosity"] = verbose
+
+        for key in ("method", "thermochemistry"):
+            if key in params and isinstance(params[key], str):
+                params[key] = params[key].strip().lower()
+        for key in ("treat_imag_as_real", "sort_ascending"):
+            if key in params:
+                params[key] = parse_bool_option(params[key], name=f"freq.{key}")
+
+        method = params.get("method")
+        if method not in cls.IMPLEMENTATION_MAP["freq"]:
+            raise ValueError("FREQ method must be one of: mw, nonmw, both.")
+        thermochemistry = params.get("thermochemistry")
+        if thermochemistry not in {"auto", "gas", "none"}:
+            raise ValueError("FREQ thermochemistry must be one of: auto, gas, none.")
+
+        ilowfreq = params.get("ilowfreq")
+        if isinstance(ilowfreq, bool) or not isinstance(ilowfreq, int) or ilowfreq not in range(4):
+            raise ValueError("FREQ ilowfreq must be one of: 0, 1, 2, 3.")
+        sigma = params.get("symmetry_number")
+        if isinstance(sigma, bool) or not isinstance(sigma, int) or sigma < 1:
+            raise ValueError("FREQ symmetry_number must be a positive integer.")
+        verbosity = params.get("verbosity")
+        if isinstance(verbosity, bool) or not isinstance(verbosity, int) or verbosity < 0:
+            raise ValueError("FREQ verbosity must be a non-negative integer.")
+
+        for key in ("temperature", "pressure_kpa"):
+            value = params.get(key)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value) or value <= 0:
+                raise ValueError(f"FREQ {key} must be a positive number.")
+        if "n_freqs_to_print" in params:
+            value = params["n_freqs_to_print"]
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError("FREQ n_freqs_to_print must be a non-negative integer.")
+        if "imag_tol_cm1" in params:
+            value = params["imag_tol_cm1"]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value) or value < 0:
+                raise ValueError("FREQ imag_tol_cm1 must be a non-negative number.")
+
+    @classmethod
     def _validate(cls, params: Dict[str, Any], task: str, output_path: Optional[str]) -> None:
         model = params.get("model")
         # Calculator names and class-declared model_options are registry-owned:
         # SetCalculator imports builtins, honors module= / MAPLE_CALCULATOR_PLUGINS,
         # and validates class OPTION_KEYS before construction.
+        if task == "freq":
+            cls._normalize_validate_frequency(params, output_path)
         cls._validate_unknown_params(params, task, output_path)
         cls._validate_solvation(params, task, output_path)
 

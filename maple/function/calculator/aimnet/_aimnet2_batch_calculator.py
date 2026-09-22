@@ -18,6 +18,7 @@ from .._batch_eval import (
     _calculator_batch_size,
     _is_cuda_oom,
 )
+from ..electronic_state import requested_electronic_state
 from ._aimnet2_calculator import (
     AIMNET2_PADDED_PER_MOLECULE_LAYOUT,
     build_aimnet2_neighbor_matrices,
@@ -255,22 +256,14 @@ class AIMNet2BatchCalc:
 
         # Per-molecule charge/multiplicity; trailing entries belong to the
         # sentinel pad molecule.
-        mults = [float(at.info.get("mult", 1.0)) for at in atoms_list]
-        if (
-            not np.all(np.isfinite(mults))
-            or any(m < 1.0 or m != np.floor(m) for m in mults)
-        ):
-            raise ValueError(
-                "AIMNet2 spin multiplicities must be finite positive integers"
-            )
+        states = [requested_electronic_state(at) for at in atoms_list]
+        charges = [charge for charge, _ in states]
+        mults = [mult for _, mult in states]
         if not self.supports_multiplicity and any(m != 1.0 for m in mults):
             raise NotImplementedError(
                 "The closed-shell AIMNet2 checkpoint only supports mult=1; "
                 "use AIMNet2-NSE for open-shell structures."
             )
-        charges = [float(at.info.get("charge", 0.0)) for at in atoms_list]
-        if not np.all(np.isfinite(charges)):
-            raise ValueError("AIMNet2 molecular charges must be finite")
         self.charge = torch.tensor(charges + [0.0], dtype=dtype, device=device)
         self.mult = torch.tensor(mults + [1.0], dtype=dtype, device=device)
 

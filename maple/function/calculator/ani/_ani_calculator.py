@@ -19,10 +19,16 @@ from .._batch_utils import (
     normalize_energy_forces_request,
     sequential_calculate_many,
 )
+from ..electronic_state import (
+    attach_calculator_identity,
+    solvation_identity_settings,
+    validate_electronic_state,
+)
 
 
 @register_calculator
 class ANICalculator(CalcABC):
+    maple_pes_identity: dict
     implemented_properties = ['energy', 'forces', 'free_energy', 'hessian']
 
     MODEL_NAMES = ('ani2x', 'ani1x', 'ani1ccx', 'ani1xnr')
@@ -90,7 +96,33 @@ class ANICalculator(CalcABC):
         self.path_batch_size = path_batch_size
         self.hessian: str = 'analytic'
 
+        attach_calculator_identity(
+            self,
+            backend=str(model).lower(),
+            checkpoint_path=model_path,
+            relevant_settings={
+                'd4': bool(d4),
+                **solvation_identity_settings(implicit, solvent),
+            },
+        )
+
         self.implicit_solv_init(implicit=implicit, solvent=solvent)
+
+    @property
+    def d4(self) -> bool:
+        return self._d4
+
+    @d4.setter
+    def d4(self, value) -> None:
+        enabled = parse_bool_option(value, name='d4')
+        if getattr(self, '_d4', None) != enabled:
+            self.reset()
+        self._d4 = enabled
+
+    def get_pes_identity(self) -> dict:
+        identity = self.maple_pes_identity
+        settings = {**identity['relevant_settings'], 'd4': bool(self.d4)}
+        return {**identity, 'relevant_settings': settings}
 
     def calculate(self, atoms=None, properties=['energy'],
                   system_changes=ase.calculators.calculator.all_changes):
@@ -152,6 +184,9 @@ class ANICalculator(CalcABC):
 
         if self.d4 or getattr(self, 'solvent_correction', None) is not None:
             return sequential_calculate_many(self, atoms_list, request, want_energy, want_forces)
+
+        for atoms in atoms_list:
+            validate_electronic_state(atoms, self)
 
         energies = np.zeros(len(atoms_list), dtype=np.float64) if want_energy else None
         forces_out = [None] * len(atoms_list) if want_forces else None
@@ -268,6 +303,7 @@ class ANICalculator(CalcABC):
 
         Returns (Hn, forces, energy) as torch tensors, consumed by Dimer-mode TS.
         """
+        validate_electronic_state(atoms, self)
         if getattr(self, 'solvent_correction', None) is not None:
             raise NotImplementedError(
                 'ANI HVP with implicit solvent is not supported; solvent HVP would be omitted.'

@@ -37,6 +37,7 @@ from .logger import log_info
 from ._pdb_compat import require_shared_pdb_writer
 from ...jobABC import JobABC
 from maple.function.read.filereader.pdb_reader import write_pdb_trajectory
+from maple.function.calculator.electronic_state import validate_path_contract
 
 
 # =============================================================================
@@ -724,6 +725,7 @@ class GSM(JobABC):
         2) Merge L + reversed R and equal-arc reparameterization to fixed n_images.
         3) Take HEI (on the reparameterized path) as TS guess and call PRFO via restart_run().
         """
+        validate_path_contract([self.atoms_R, self.atoms_P], method="String")
         def forces_info_from_array(forces):
             F = to_numpy_f64(forces)
             maxF = np.max(np.linalg.norm(F, axis=1))

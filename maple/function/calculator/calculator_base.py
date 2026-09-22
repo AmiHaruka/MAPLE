@@ -12,6 +12,7 @@ from ._batch_utils import (
     normalize_energy_forces_request,
     sequential_calculate_many,
 )
+from .electronic_state import validate_electronic_state
 
 if TYPE_CHECKING:
     import torch
@@ -97,11 +98,9 @@ def validate_implicit_solvent_choice(implicit, solvent):
     """Normalize and validate implicit-solvent selector pair."""
     implicit_norm = normalize_none_option(implicit)
     solvent_norm = normalize_none_option(solvent)
-    if implicit_norm == 'gbsa' and solvent_norm == 'none':
-        raise ValueError(
-            "implicit='gbsa' requires an explicit solvent name such as solvent='water'; "
-            "use implicit='none' to disable implicit solvent."
-        )
+    if implicit_norm == 'gbsa':
+        from .extra_correction.solvent.gbsa.gbsa import GBSA_UNAVAILABLE
+        raise NotImplementedError(GBSA_UNAVAILABLE)
     return implicit_norm, solvent_norm
 
 
@@ -305,6 +304,17 @@ class CalcABC(ase.calculators.calculator.Calculator):
     def __init__(self):
         super().__init__()
 
+    def check_state(self, atoms, tol=1e-15):
+        """Include electronic inputs, which ASE's geometry cache does not track."""
+        changes = super().check_state(atoms, tol=tol)
+        if self.atoms is not None:
+            for key, default in (('charge', 0), ('mult', 1)):
+                if not ase.calculators.calculator.equal(
+                    self.atoms.info.get(key, default), atoms.info.get(key, default)
+                ):
+                    changes.append(key)
+        return changes
+
     def _reject_unsupported_pbc(self, atoms) -> None:
         if not self.SUPPORTS_PBC:
             reject_periodic_atoms(atoms, type(self).__name__)
@@ -333,6 +343,7 @@ class CalcABC(ase.calculators.calculator.Calculator):
         system_changes=ase.calculators.calculator.all_changes,
     ):
         target_atoms = atoms if atoms is not None else getattr(self, 'atoms', None)
+        validate_electronic_state(target_atoms, self)
         self._reject_unsupported_pbc(target_atoms)
         properties = reject_implicit_solvent_derivatives(self, properties)
         super().calculate(atoms, properties, system_changes)
@@ -425,6 +436,7 @@ class CalcABC(ase.calculators.calculator.Calculator):
 
     def get_hessian(self, atoms, delta: float = 0.002):
         """Dispatch on self.hessian. Subclasses may override for backend autograd."""
+        validate_electronic_state(atoms, self)
         self._reject_unsupported_pbc(atoms)
         mode = getattr(self, 'hessian', self.SUPPORTED_HESSIAN_MODES[0])
         if mode == 'analytic':

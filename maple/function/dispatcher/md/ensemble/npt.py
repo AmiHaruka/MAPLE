@@ -5,9 +5,9 @@ Supports two combinations:
     thermostat: 'langevin' | 'v-rescale'  (default: v-rescale)
     barostat:   'berendsen' | 'c-rescale' (default: c-rescale)
 
-Recommended combination for production MLP runs:
+Default combination for MLP runs:
     thermostat=v-rescale + barostat=c-rescale
-    → both produce the correct NPT ensemble.
+    → intended for NPT sampling; validate ensemble statistics for the setup.
 
 Berendsen variants are suitable for rapid pre-equilibration but suppress
 pressure/temperature fluctuations and do not generate correct ensemble averages.
@@ -26,40 +26,54 @@ References:
     Bernetti & Bussi, J. Chem. Phys. 153, 114107 (2020).
 """
 
-import numpy as np
 from dataclasses import dataclass
-from typing import Optional
+from typing import NamedTuple, Optional
+
+import numpy as np
 from ase import Atoms
 
-from ...jobABC import JobABC
 from maple.function.timer import timer
 
-from ..integrator.velocity_verlet import VelocityVerlet
-from ..thermostat.langevin import LangevinThermostat
-from ..thermostat.vrescale import VRescaleThermostat
+from ...jobABC import JobABC
 from ..barostat.berendsen import BerendsenBarostat
 from ..barostat.crescale import CRescaleBarostat
+from ..integrator.velocity_verlet import VelocityVerlet
+from ..logger import MDLogger
+from ..rst_io import get_rng_state_hex, restore_rng_from_hex
+from ..state import validate_prepared_restart
+from ..thermostat.langevin import LangevinThermostat
+from ..thermostat.vrescale import VRescaleThermostat
 from ..utils import (
+    FS_TO_AU,
+    HA_PER_ANG_TO_AU,
     VELOCITY_REPR_LFMIDDLE_CARRIED,
     VELOCITY_REPR_STANDARD,
+    DofPolicy,
     apply_runtime_motion_projection,
-    calculate_temperature,
     calculate_kinetic_energy,
+    calculate_temperature,
     compute_instantaneous_pressure,
     describe_dof_policy,
+    enforce_active_velocities,
     get_atoms_velocity_representation,
-    get_initialization_dof_policy,
     get_n_dof_from_policy,
+    get_persistent_motion_dof_policy,
     get_runtime_dof_policy,
     initialize_velocities,
-    HA_PER_ANG_TO_AU,
     lfmiddle_carried_to_standard,
+    motion_subspace_identity,
+    normalize_remove_angular_alias,
     set_atoms_velocity_representation,
     standard_to_lfmiddle_carried,
-    FS_TO_AU,
 )
-from ..rst_io import get_rng_state_hex, restore_rng_from_hex
-from ..logger import MDLogger
+
+
+class _NPTConfiguration(NamedTuple):
+    dof_policy: DofPolicy
+    n_dof: int
+    thermostat: LangevinThermostat | VRescaleThermostat
+    barostat: BerendsenBarostat | CRescaleBarostat
+    dynamics_parameters: dict
 
 
 @dataclass
@@ -74,9 +88,9 @@ class NPTParams:
     Thermostat default: v-rescale (Bussi et al. 2007 JCP 126, 014101)
       — correct canonical ensemble; less perturbative than Langevin.
     Barostat default: c-rescale (Bernetti & Bussi 2020 JCP 153, 114107)
-      — correct isothermal-isobaric ensemble; analogue of v-rescale for pressure.
+      — stochastic volume rescaling for NPT sampling.
 
-    Recommended production combination: thermostat=v-rescale + barostat=c-rescale.
+    Default combination: thermostat=v-rescale + barostat=c-rescale.
     Berendsen variants are suitable for rapid pre-equilibration only.
     """
     # ------------------------------------------------------------------
@@ -108,8 +122,8 @@ class NPTParams:
 
     # ------------------------------------------------------------------
     # Barostat: c-rescale (default for NPT)
-    # C-rescale is the correct NPT barostat (Bernetti & Bussi 2020).
-    # Unlike Berendsen, it produces the full Gibbs (N,P,T) distribution.
+    # C-rescale implements stochastic volume rescaling (Bernetti & Bussi 2020).
+    # Validate ensemble statistics for the chosen model and simulation setup.
     # ------------------------------------------------------------------
     barostat:        str   = 'c-rescale'  # [Bernetti & Bussi 2020 JCP 153, 114107]
 
@@ -200,14 +214,13 @@ class NPT(JobABC):
 
         if atoms.calc is None:
             raise ValueError("Atoms object must have a calculator attached")
-        if not any(atoms.pbc):
-            raise ValueError(
-                "NPT ensemble requires a periodic cell (atoms.pbc must be True). "
-                "Use NVT or NVE for non-periodic systems."
-            )
-
         self.atoms = atoms
-        self.params = self._init_params(NPTParams, paras, ("md", "MD", "npt", "NPT"))
+        aliases = ("md", "MD", "npt", "NPT")
+        self.params = self._init_params(NPTParams, paras, aliases)
+        self.params.remove_angular = normalize_remove_angular_alias(
+            paras, aliases, self.params.remove_angular
+        )
+        self.params.remove_rotation = False
 
         if self.params.thermostat not in self._THERMOSTAT_CHOICES:
             raise ValueError(
@@ -220,72 +233,20 @@ class NPT(JobABC):
                 f"Choose from: {self._BAROSTAT_CHOICES}"
             )
 
-        # Warn if user set Langevin-specific params but chose v-rescale (or vice versa)
-        if self.params.thermostat == 'v-rescale' and paras and 'friction' in (paras or {}):
-            self.log_info([
-                "\n*** WARNING: 'friction' parameter was specified but thermostat is 'v-rescale'.\n"
-                "    The friction parameter is only used by the Langevin thermostat.\n"
-                "    If you intended Langevin dynamics, add: thermostat=langevin\n\n"
-            ])
-        if self.params.thermostat == 'langevin' and paras and 'tau_t' in (paras or {}):
-            self.log_info([
-                "\n*** WARNING: 'tau_t' parameter was specified but thermostat is 'langevin'.\n"
-                "    The tau_t parameter is only used by the V-rescale thermostat.\n\n"
-            ])
-
-        self._rng = (np.random.default_rng(self.params.random_seed)
-                     if self.params.random_seed is not None
-                     else np.random.default_rng())
-
-        runtime_policy = get_runtime_dof_policy(
-            atoms,
-            remove_com_every=self.params.remove_com_every,
-            remove_angular_every=self.params.remove_angular_every,
+        self._configuration_warnings = []
+        if self.params.thermostat == "v-rescale" and paras and "friction" in paras:
+            self._configuration_warnings.append(
+                "The friction parameter is ignored by the V-rescale thermostat."
+            )
+        if self.params.thermostat == "langevin" and paras and "tau_t" in paras:
+            self._configuration_warnings.append(
+                "The tau_t parameter is ignored by the Langevin thermostat."
+            )
+        self._rng = (
+            np.random.default_rng(self.params.random_seed)
+            if self.params.random_seed is not None
+            else np.random.default_rng()
         )
-        for warning in runtime_policy["warnings"]:
-            self.log_info([f"\n*** WARNING: {warning}\n"])
-        if self.params.remove_angular:
-            self.log_info(["\n*** WARNING: remove_angular is ignored for NPT/PBC systems; only initialization COM removal remains active.\n"])
-        self._runtime_n_dof = get_n_dof_from_policy(runtime_policy)
-        self._runtime_dof_description = describe_dof_policy(runtime_policy)
-
-        if self.params.thermostat == 'langevin':
-            self.thermostat = LangevinThermostat(
-                atoms,
-                temperature=self.params.temperature,
-                friction=self.params.friction,
-                timestep=self.params.timestep,
-                rng=self._rng,
-            )
-        else:  # v-rescale
-            self.thermostat = VRescaleThermostat(
-                atoms,
-                temperature=self.params.temperature,
-                tau_t=self.params.tau_t,
-                timestep=self.params.timestep,
-                rng=self._rng,
-                n_dof=self._runtime_n_dof,
-            )
-
-        if self.params.barostat == 'berendsen':
-            self.barostat = BerendsenBarostat(
-                atoms,
-                pressure=self.params.pressure,
-                tau_p=self.params.tau_p,
-                timestep=self.params.timestep,
-                compressibility=self.params.compressibility,
-            )
-        else:  # c-rescale
-            self.barostat = CRescaleBarostat(
-                atoms,
-                pressure=self.params.pressure,
-                temperature=self.params.temperature,
-                tau_p=self.params.tau_p,
-                timestep=self.params.timestep,
-                compressibility=self.params.compressibility,
-                rng=self._rng,
-            )
-
         self.logger = MDLogger(
             output_path=output,
             log_every=self.params.log_every,
@@ -295,28 +256,105 @@ class NPT(JobABC):
             debug=self.params.debug,
         )
 
+    def _build_actual_state(self, atoms: Atoms) -> _NPTConfiguration:
+        """Build candidate-state NPT components without installing them."""
+        if not any(atoms.pbc):
+            raise ValueError(
+                "NPT ensemble requires a periodic cell (atoms.pbc must be True)."
+            )
+        if self.params.thermostat == "v-rescale":
+            dof_policy = get_persistent_motion_dof_policy(
+                atoms,
+                remove_com=self.params.remove_com,
+                remove_angular=False,
+                remove_com_every=self.params.remove_com_every,
+                remove_angular_every=self.params.remove_angular_every,
+            )
+        else:
+            dof_policy = get_runtime_dof_policy(
+                atoms,
+                remove_com_every=self.params.remove_com_every,
+                remove_angular_every=self.params.remove_angular_every,
+            )
+        if dof_policy["anchored"]:
+            raise NotImplementedError("NPT cell rescaling with FixAtoms is not supported")
+        n_dof = get_n_dof_from_policy(dof_policy)
+        if self.params.thermostat == "langevin":
+            thermostat = LangevinThermostat(
+                atoms,
+                temperature=self.params.temperature,
+                friction=self.params.friction,
+                timestep=self.params.timestep,
+                rng=self._rng,
+            )
+        else:
+            thermostat = VRescaleThermostat(
+                atoms,
+                temperature=self.params.temperature,
+                tau_t=self.params.tau_t,
+                timestep=self.params.timestep,
+                rng=self._rng,
+                n_dof=n_dof,
+                dof_policy=dof_policy,
+            )
+        if self.params.barostat == "berendsen":
+            barostat = BerendsenBarostat(
+                atoms,
+                pressure=self.params.pressure,
+                tau_p=self.params.tau_p,
+                timestep=self.params.timestep,
+                compressibility=self.params.compressibility,
+            )
+        else:
+            barostat = CRescaleBarostat(
+                atoms,
+                pressure=self.params.pressure,
+                temperature=self.params.temperature,
+                tau_p=self.params.tau_p,
+                timestep=self.params.timestep,
+                compressibility=self.params.compressibility,
+                rng=self._rng,
+                n_dof=n_dof,
+            )
+        dynamics_parameters = {
+            "ensemble": "npt",
+            "timestep": float(self.params.timestep),
+            "temperature": float(self.params.temperature),
+            "thermostat": str(self.params.thermostat),
+            "barostat": str(self.params.barostat),
+            "pressure": float(self.params.pressure),
+            "tau_p": float(self.params.tau_p),
+            "compressibility": float(self.params.compressibility),
+            "remove_com_every": int(self.params.remove_com_every),
+            "remove_angular_every": int(self.params.remove_angular_every),
+            "motion_subspace": motion_subspace_identity(dof_policy),
+        }
+        if self.params.thermostat == "langevin":
+            dynamics_parameters["friction"] = float(self.params.friction)
+        else:
+            dynamics_parameters["tau_t"] = float(self.params.tau_t)
+        return _NPTConfiguration(dof_policy, n_dof, thermostat, barostat, dynamics_parameters)
+
+    def _install_actual_state(self, atoms: Atoms, configuration: _NPTConfiguration) -> None:
+        self.atoms = atoms
+        (
+            self._dof_policy,
+            self._runtime_n_dof,
+            self.thermostat,
+            self.barostat,
+            self.logger.dynamics_parameters,
+        ) = configuration
+        self._runtime_dof_description = describe_dof_policy(self._dof_policy)
+
     def _prepare_langevin_velocities(
         self,
         velocities: np.ndarray,
         representation: str,
         forces: np.ndarray,
-        source_timestep_au: Optional[float] = None,
     ) -> tuple[np.ndarray, str]:
         """Return LF-Middle carried velocities for the Langevin path."""
         if representation == VELOCITY_REPR_LFMIDDLE_CARRIED:
-            standard_velocities = lfmiddle_carried_to_standard(
-                self.atoms,
-                velocities,
-                forces,
-                source_timestep_au if source_timestep_au is not None else self.thermostat.timestep,
-            )
-            carried = standard_to_lfmiddle_carried(
-                self.atoms,
-                standard_velocities,
-                forces,
-                self.thermostat.timestep,
-            )
-            return carried, VELOCITY_REPR_LFMIDDLE_CARRIED
+            return velocities, VELOCITY_REPR_LFMIDDLE_CARRIED
         carried = standard_to_lfmiddle_carried(
             self.atoms,
             velocities,
@@ -328,100 +366,104 @@ class NPT(JobABC):
     def run(self):
         """Execute NPT simulation."""
         with timer("MD Simulation (NPT)"):
-            self._log_parameters()
-
-            if self.params.load_state:
-                if self.params.init_velocities and self.params.debug:
-                    self.log_info([
-                        "\nload_state=True: ignoring init_velocities and using coordinates/velocities from RST.\n"
-                    ])
-                result = self.logger.restart_simulation(
-                    ensemble='npt',
+            if self.params.restart or self.params.load_state:
+                prepared = self.logger.prepare_restart_candidate(
+                    self.atoms,
+                    rst_file=self.params.rst_file or None,
+                    load_state=self.params.load_state,
+                )
+                configuration = self._build_actual_state(prepared.atoms)
+                completed = validate_prepared_restart(
+                    prepared,
+                    ensemble="npt",
                     timestep=self.params.timestep,
                     n_steps=self.params.steps,
-                    temperature=self.params.temperature,
-                    atoms=self.atoms,
-                    pressure=self.params.pressure,
-                    rst_file=self.params.rst_file if self.params.rst_file else None,
-                    load_state=True,
+                    dynamics_parameters=configuration.dynamics_parameters,
                 )
-                self.atoms, velocities, step_offset = result
-                velocity_representation = self.logger.resumed_velocity_representation
-                resumed_timestep_au = (
-                    self.logger.resumed_timestep * FS_TO_AU
-                    if self.logger.resumed_timestep is not None else None
+                velocities = prepared.velocities.copy()
+                representation = prepared.checkpoint["velocity_representation"]
+                if prepared.load_state and representation == VELOCITY_REPR_LFMIDDLE_CARRIED:
+                    forces = prepared.atoms.get_forces() * HA_PER_ANG_TO_AU
+                    velocities = lfmiddle_carried_to_standard(
+                        prepared.atoms,
+                        velocities,
+                        forces,
+                        prepared.checkpoint["timestep"] * FS_TO_AU,
+                    )
+                    representation = VELOCITY_REPR_STANDARD
+                    if self.params.thermostat == "langevin":
+                        velocities = standard_to_lfmiddle_carried(
+                            prepared.atoms,
+                            velocities,
+                            forces,
+                            configuration.thermostat.timestep,
+                        )
+                        representation = VELOCITY_REPR_LFMIDDLE_CARRIED
+                velocities = enforce_active_velocities(prepared.atoms, velocities)
+                prepared = prepared.with_velocities(velocities, representation)
+                if not completed:
+                    prepared.atoms.get_forces()
+                if not prepared.load_state and prepared.checkpoint["rng_state"] is not None:
+                    restore_rng_from_hex(self._rng, prepared.checkpoint["rng_state"])
+                self._install_actual_state(prepared.atoms, configuration)
+                accepted = self.logger.consume_prepared_restart(
+                    prepared, completed=completed, dof_policy=self._dof_policy
                 )
-                if self.logger.resumed_rng_state is not None:
-                    restore_rng_from_hex(self._rng, self.logger.resumed_rng_state)
-                remaining = self.params.steps
-            elif self.params.restart:
-                if self.params.init_velocities and self.params.debug:
-                    self.log_info([
-                        "\nrestart=True: ignoring init_velocities and using coordinates/velocities from RST.\n"
-                    ])
-                result = self.logger.restart_simulation(
-                    ensemble='npt',
-                    timestep=self.params.timestep,
-                    n_steps=self.params.steps,
-                    temperature=self.params.temperature,
-                    atoms=self.atoms,
-                    pressure=self.params.pressure,
-                    rst_file=self.params.rst_file if self.params.rst_file else None,
-                    load_state=False,
-                )
-                if result is None:   # already completed
+                velocities = prepared.velocities
+                velocity_representation = representation
+                if not accepted:
+                    self.atoms.arrays["velocities"] = velocities
                     return
-                self.atoms, velocities, step_offset = result
-                velocity_representation = self.logger.resumed_velocity_representation
-                resumed_timestep_au = None
-                # Restore RNG state for deterministic continuation
-                if self.logger.resumed_rng_state is not None:
-                    restore_rng_from_hex(self._rng, self.logger.resumed_rng_state)
-                remaining = self.params.steps - step_offset
+                step_offset = prepared.step_offset
+                remaining = (
+                    self.params.steps if prepared.load_state
+                    else self.params.steps - step_offset
+                )
             else:
-                if 'velocities' in self.atoms.arrays and self.params.init_velocities:
-                    velocities = self.atoms.arrays['velocities']
+                self._install_actual_state(
+                    self.atoms, self._build_actual_state(self.atoms)
+                )
+                if "velocities" in self.atoms.arrays and self.params.init_velocities:
+                    velocities = self.atoms.arrays["velocities"].copy()
                     velocity_representation = get_atoms_velocity_representation(self.atoms)
-                    t_check = calculate_temperature(self.atoms, velocities)
-                    self.log_info([
-                        f"\nVelocities loaded from input file "
-                        f"(T = {t_check:.2f} K); skipping random initialisation.\n"
-                    ])
                 elif self.params.init_velocities:
                     velocities = self._initialize_velocities()
                     velocity_representation = VELOCITY_REPR_STANDARD
                 else:
-                    if 'velocities' not in self.atoms.arrays:
+                    if "velocities" not in self.atoms.arrays:
                         raise ValueError(
-                            "init_velocities=False, "
-                            "but no velocities found in atoms.arrays"
+                            "init_velocities=False, but no velocities found in atoms.arrays"
                         )
-                    velocities = self.atoms.arrays['velocities']
+                    velocities = self.atoms.arrays["velocities"].copy()
                     velocity_representation = get_atoms_velocity_representation(self.atoms)
-                resumed_timestep_au = None
                 step_offset = 0
-                remaining   = self.params.steps
-                source = "input_xyz" if 'velocities' in self.atoms.arrays and not self.params.init_velocities else ("input_xyz" if 'velocities' in self.atoms.arrays and self.params.init_velocities else "init_velocities")
+                remaining = self.params.steps
+                source = "input_xyz" if "velocities" in self.atoms.arrays else "init_velocities"
                 self.logger.log_debug_initial_state(
                     self.atoms,
                     velocities,
                     mode=source,
                     effective_step=step_offset,
                     velocity_representation=velocity_representation,
+                    dof_policy=self._dof_policy,
                 )
 
+            self._log_parameters()
             final_velocities, final_representation = self._run_simulation(
                 velocities,
                 velocity_representation=velocity_representation,
                 step_offset=step_offset,
                 n_steps=remaining,
-                source_timestep_au=resumed_timestep_au,
             )
-            self.atoms.arrays['velocities'] = final_velocities
+            self.atoms.arrays["velocities"] = final_velocities
             set_atoms_velocity_representation(self.atoms, final_representation)
 
     def _log_parameters(self):
         """Log NPT parameters to output."""
+        for warning in self._configuration_warnings + self._dof_policy["warnings"]:
+            self.log_info([f"\n*** WARNING: {warning}\n"])
+        if self.params.remove_angular:
+            self.log_info(["\n*** WARNING: remove_angular is ignored for NPT/PBC.\n"])
         lines = [
             "\n" + "=" * 80 + "\n",
             f"{'NPT MD PARAMETERS':^80}\n",
@@ -474,6 +516,7 @@ class NPT(JobABC):
             self.atoms,
             velocities,
             n_dof=self._runtime_n_dof,
+            dof_policy=self._dof_policy,
         )
         self.log_info([f"Initial temperature: {actual_temp:.2f} K\n"])
         return velocities
@@ -501,7 +544,6 @@ class NPT(JobABC):
                 velocities,
                 velocity_representation,
                 force_for_conversion,
-                source_timestep_au=conversion_timestep_au,
             )
         elif velocity_representation == VELOCITY_REPR_LFMIDDLE_CARRIED:
             velocities = lfmiddle_carried_to_standard(
@@ -547,7 +589,7 @@ class NPT(JobABC):
         pressure_stress_warned = False
 
         for step in range(1, n_steps + 1):
-            if is_langevin:
+            if isinstance(self.thermostat, LangevinThermostat):
                 # LFMiddle sequence with carried velocities, then barostat.
                 v = integrator.lfmiddle_full_kick(v, forces)
                 integrator.half_step_r(v)
@@ -568,10 +610,11 @@ class NPT(JobABC):
 
             # Barostat: rescale cell after the thermostat/integrator cycle.
             self.barostat.apply(v)
+            abs_step = step_offset + step
             v, _projection = apply_runtime_motion_projection(
                 self.atoms,
                 v,
-                step=step,
+                step=abs_step,
                 remove_com_every=self.params.remove_com_every,
                 remove_angular_every=self.params.remove_angular_every,
             )
@@ -583,9 +626,11 @@ class NPT(JobABC):
                 class_name=type(self.barostat).__name__,
             )
 
-            abs_step         = step_offset + step
             current_time     = abs_step * self.params.timestep
-            temperature      = calculate_temperature(self.atoms, v, n_dof=self._runtime_n_dof)
+            temperature      = calculate_temperature(
+                self.atoms, v, n_dof=self._runtime_n_dof,
+                dof_policy=self._dof_policy,
+            )
             kinetic_energy   = calculate_kinetic_energy(self.atoms, v)
             potential_energy = self.atoms.get_potential_energy()  # Ha
             volume           = self.atoms.get_volume()
@@ -604,6 +649,7 @@ class NPT(JobABC):
                     self.atoms,
                     v_sync,
                     n_dof=self._runtime_n_dof,
+                    dof_policy=self._dof_policy,
                 )
                 kinetic_energy_sync = calculate_kinetic_energy(self.atoms, v_sync)
                 total_energy_sync = kinetic_energy_sync + potential_energy

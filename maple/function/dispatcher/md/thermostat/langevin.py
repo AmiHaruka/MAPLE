@@ -29,6 +29,7 @@ from ase import Atoms
 from typing import Optional
 
 from ..utils import AMU_TO_AU, FS_TO_AU, KELVIN_TO_HARTREE
+from ....utility.active_dof import active_atom_mask
 
 
 class LangevinThermostat:
@@ -74,6 +75,9 @@ class LangevinThermostat:
         self.friction    = friction / FS_TO_AU           # 1/fs → 1/a.u.
         self.timestep    = timestep * FS_TO_AU           # fs   → a.u.
         self.masses      = atoms.get_masses() * AMU_TO_AU  # amu → a.u.
+        self.active_atoms = active_atom_mask(atoms)
+        if not np.any(self.active_atoms):
+            raise ValueError("Langevin dynamics requires at least one active atom")
         self.rng         = rng if rng is not None else np.random.default_rng()
 
         # Motion projection is handled by the ensemble-level central policy.
@@ -108,4 +112,5 @@ class LangevinThermostat:
         """
         noise = self.rng.standard_normal(velocities.shape)
         v_new = self._c1 * velocities + self._c2[:, np.newaxis] * noise
+        v_new[~self.active_atoms] = 0.0
         return v_new

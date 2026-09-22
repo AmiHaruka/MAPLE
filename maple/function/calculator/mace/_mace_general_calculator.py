@@ -22,6 +22,11 @@ from ..calculator_base import (
     register_calculator,
 )
 from ._batch_graph import build_mace_tuple_batch, energy_vector_from_output
+from ..electronic_state import (
+    attach_calculator_identity,
+    solvation_identity_settings,
+    validate_electronic_state,
+)
 from ._common import model_float_dtype, one_hot_node_attrs, radius_graph_no_pbc
 
 
@@ -128,6 +133,13 @@ class MACEModelCalculator(CalcABC):
         self.atomic_numbers = [int(z) for z in self.model.atomic_numbers]
         self.hessian = 'analytic'
 
+        attach_calculator_identity(
+            self,
+            backend=str(model).lower(),
+            checkpoint_path=model_path,
+            relevant_settings=solvation_identity_settings(implicit, solvent),
+        )
+
         self.implicit_solv_init(implicit=implicit, solvent=solvent)
 
     def calculate(self, atoms=None, properties=['energy'], system_changes=all_changes):
@@ -181,6 +193,9 @@ class MACEModelCalculator(CalcABC):
             return sequential_calculate_many(
                 self, atoms_list, request, want_energy, want_forces
             )
+
+        for atoms in atoms_list:
+            validate_electronic_state(atoms, self)
 
         inputs, counts = build_mace_tuple_batch(
             atoms_list,

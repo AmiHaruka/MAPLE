@@ -10,12 +10,17 @@ This module provides essential calculations for MD:
 """
 
 import warnings
+from typing import Optional, Tuple, TypedDict
 
 import numpy as np
 from ase import Atoms
 from ase.calculators.calculator import PropertyNotImplementedError
-from typing import Dict, Optional, Tuple
 
+from ...utility.active_dof import active_atom_mask
+from ...utility.rigid_body import (
+    is_linear_geometry,
+    project_rigid_body_velocities,
+)
 
 # ========== Physical Constants and Unit Conversions ==========
 
@@ -74,42 +79,83 @@ _VALID_VELOCITY_REPRESENTATIONS = {
 
 # ========== Core MD Calculations ==========
 
-def is_linear_molecule(atoms: Atoms, tol: float = 1e-8) -> bool:
-    """Return True if a non-periodic system is effectively linear."""
-    if any(atoms.pbc):
-        return False
 
-    n_atoms = len(atoms)
-    if n_atoms <= 1:
-        return False
-    if n_atoms == 2:
-        return True
+class DofPolicy(TypedDict):
+    atoms: Atoms
+    active_atoms: np.ndarray
+    anchored: bool
+    is_pbc: bool
+    angular_active: bool
+    linear_active: bool
+    rotational_dof_removed: int
+    warnings: list[str]
 
-    positions = atoms.get_positions()
-    masses = atoms.get_masses()
-    total_mass = np.sum(masses)
-    if total_mass <= 0:
-        return False
 
-    com = np.sum(masses[:, np.newaxis] * positions, axis=0) / total_mass
-    centered = positions - com
-    if np.linalg.matrix_rank(centered, tol=tol) <= 1:
-        return True
+def normalize_remove_angular_alias(
+    paras: dict | None,
+    aliases: tuple[str, ...],
+    default: bool,
+) -> bool:
+    """Resolve the legacy ``remove_rotation`` name at the input boundary."""
+    source = paras if isinstance(paras, dict) else {}
+    lowered = {
+        (key.lower() if isinstance(key, str) else key): value
+        for key, value in source.items()
+    }
+    for alias in aliases:
+        nested = lowered.get(alias.lower())
+        if isinstance(nested, dict):
+            lowered = {
+                (key.lower() if isinstance(key, str) else key): value
+                for key, value in nested.items()
+            }
+            break
 
-    centered_bohr = centered * ANGSTROM_TO_BOHR
-    masses_au = masses * AMU_TO_AU
-    inertia = np.zeros((3, 3))
-    for mi, ri in zip(masses_au, centered_bohr):
-        inertia += mi * (np.dot(ri, ri) * np.eye(3) - np.outer(ri, ri))
-    eigvals = np.sort(np.linalg.eigvalsh(inertia))
-    return bool(eigvals[0] < tol * max(eigvals[-1], 1.0))
+    has_legacy = "remove_rotation" in lowered
+    has_canonical = "remove_angular" in lowered
+    if (has_legacy and has_canonical
+            and bool(lowered["remove_rotation"]) != bool(lowered["remove_angular"])):
+        raise ValueError(
+            "Conflicting MD settings: remove_rotation and remove_angular"
+        )
+    if has_canonical:
+        return bool(lowered["remove_angular"])
+    if has_legacy:
+        return bool(lowered["remove_rotation"])
+    return default
+
+
+def enforce_active_velocities(
+    atoms: Atoms,
+    velocities: np.ndarray,
+    *,
+    copy: bool = True,
+) -> np.ndarray:
+    """Zero velocities belonging to frozen atoms."""
+    out = velocities.copy() if copy else velocities
+    out[~active_atom_mask(atoms)] = 0.0
+    return out
+
+def is_linear_molecule(atoms: Atoms) -> bool:
+    """Return whether the mass-weighted rigid space has two rotations."""
+    return is_linear_geometry(atoms)
+
+
+def _md_rotational_dimension(atoms: Atoms) -> int:
+    """Generic rotational dimension of an unconstrained Cartesian system.
+
+    Three or more free atoms can bend even when the starting geometry is
+    collinear. MD uses the regular shape-space dimension throughout the run,
+    not the instantaneous rank used for a stationary-geometry normal analysis.
+    """
+    return 3 if len(atoms) >= 3 else 2 if len(atoms) == 2 else 0
 
 
 def get_initialization_dof_policy(
     atoms: Atoms,
     remove_com: bool = True,
     remove_angular: bool = False,
-) -> Dict[str, object]:
+) -> DofPolicy:
     """Return initialization DOF policy for velocity generation.
 
     `remove_com` and `remove_angular` are parallel initialization settings.
@@ -117,21 +163,30 @@ def get_initialization_dof_policy(
     controls initialization-only angular projection and always includes COM
     removal first.
     """
+    active_atoms = active_atom_mask(atoms)
+    anchored = not np.all(active_atoms)
     warnings_list = []
     is_pbc = any(atoms.pbc)
-    angular_active = bool(remove_angular and not is_pbc)
+    angular_active = bool(remove_angular and not is_pbc and not anchored)
+    if anchored and (remove_com or remove_angular):
+        warnings_list.append(
+            "Global COM/angular removal is ignored for anchored systems; "
+            "FixAtoms already breaks those rigid-body symmetries."
+        )
     if remove_angular and is_pbc:
         warnings_list.append(
             "remove_angular is ignored for periodic systems because global rigid-body rotation is not well-defined under PBC."
         )
 
-    linear_active = bool(remove_com or angular_active)
+    linear_active = bool((remove_com or angular_active) and not anchored)
     rotational_removed = 0
     if angular_active:
-        rotational_removed = 2 if is_linear_molecule(atoms) else 3
+        rotational_removed = _md_rotational_dimension(atoms)
 
     return {
         "atoms": atoms,
+        "active_atoms": active_atoms,
+        "anchored": anchored,
         "is_pbc": is_pbc,
         "angular_active": angular_active,
         "linear_active": linear_active,
@@ -144,14 +199,23 @@ def get_runtime_dof_policy(
     atoms: Atoms,
     remove_com_every: int = 0,
     remove_angular_every: int = 0,
-) -> Dict[str, object]:
+) -> DofPolicy:
     """Return runtime DOF policy for temperature control and logging."""
+    active_atoms = active_atom_mask(atoms)
+    anchored = not np.all(active_atoms)
     warnings_list = []
     is_pbc = any(atoms.pbc)
     angular_requested = remove_angular_every > 0
     linear_requested = remove_com_every > 0
 
-    if is_pbc and angular_requested:
+    if anchored and (linear_requested or angular_requested):
+        warnings_list.append(
+            "Runtime COM/angular removal is ignored for anchored systems; "
+            "FixAtoms already breaks those rigid-body symmetries."
+        )
+        linear_requested = False
+        angular_requested = False
+    elif is_pbc and angular_requested:
         warnings_list.append(
             "remove_angular_every is ignored for periodic systems because global rigid-body rotation is not well-defined under PBC. remove_com_every remains an independent optional runtime COM-drift removal under PBC."
         )
@@ -161,10 +225,12 @@ def get_runtime_dof_policy(
     linear_active = bool(angular_active or linear_requested)
     rotational_removed = 0
     if angular_active:
-        rotational_removed = 2 if is_linear_molecule(atoms) else 3
+        rotational_removed = _md_rotational_dimension(atoms)
 
     return {
         "atoms": atoms,
+        "active_atoms": active_atoms,
+        "anchored": anchored,
         "is_pbc": is_pbc,
         "angular_active": angular_active,
         "linear_active": linear_active,
@@ -173,37 +239,82 @@ def get_runtime_dof_policy(
     }
 
 
-def get_n_dof_from_policy(policy: Dict[str, object], n_atoms: Optional[int] = None) -> int:
+def get_persistent_motion_dof_policy(
+    atoms: Atoms,
+    *,
+    remove_com: bool,
+    remove_angular: bool,
+    remove_com_every: int = 0,
+    remove_angular_every: int = 0,
+) -> DofPolicy:
+    """Combine conserved initialization exclusions with runtime projections."""
+    initial = get_initialization_dof_policy(atoms, remove_com, remove_angular)
+    runtime = get_runtime_dof_policy(
+        atoms,
+        remove_com_every=remove_com_every,
+        remove_angular_every=remove_angular_every,
+    )
+    angular_active = initial["angular_active"] or runtime["angular_active"]
+    runtime["angular_active"] = angular_active
+    runtime["linear_active"] = (
+        initial["linear_active"] or runtime["linear_active"] or angular_active
+    )
+    runtime["rotational_dof_removed"] = (
+        _md_rotational_dimension(atoms) if angular_active else 0
+    )
+    runtime["warnings"] = list(dict.fromkeys(initial["warnings"] + runtime["warnings"]))
+    return runtime
+
+
+def get_n_dof_from_policy(policy: DofPolicy, n_atoms: int | None = None) -> int:
     """Convert a DOF policy dictionary into an active N_dof count."""
     if n_atoms is None:
-        atoms = policy.get("atoms")
-        if atoms is None:
-            raise ValueError("n_atoms is required when policy does not include atoms")
-        n_atoms = len(atoms)
+        n_atoms = len(policy["atoms"])
 
-    n_dof = 3 * n_atoms
+    n_dof = 3 * int(np.count_nonzero(policy["active_atoms"]))
     if policy.get("linear_active", False):
         n_dof -= 3
     n_dof -= int(policy.get("rotational_dof_removed", 0))
-    return max(n_dof, 1)
+    if n_dof <= 0:
+        raise ValueError("Molecular dynamics requires at least one active Cartesian degree of freedom")
+    return n_dof
 
 
-def describe_dof_policy(policy: Dict[str, object]) -> str:
+def motion_subspace_identity(policy: DofPolicy) -> dict:
+    """Persist the effective fixed dimension and its coordinate-independent rule."""
+    return {
+        "strategy": "flexible-cartesian-v1",
+        "com_excluded": bool(policy["linear_active"]),
+        "angular_excluded": bool(policy["angular_active"]),
+        "translational_dof_removed": 3 if policy["linear_active"] else 0,
+        "rotational_dof_removed": int(policy["rotational_dof_removed"]),
+        "n_dof": get_n_dof_from_policy(policy),
+    }
+
+
+def describe_dof_policy(policy: DofPolicy) -> str:
     """Return a short human-readable DOF description for logs/summaries."""
+    if policy.get("anchored", False):
+        return f"anchored: {3 * int(np.count_nonzero(policy['active_atoms']))} active Cartesian DOF"
     if policy.get("is_pbc", False):
         if policy.get("linear_active", False):
-            return "PBC: 3N - 3 (runtime COM removal)"
+            return "PBC: 3N - 3 (COM excluded)"
         return "PBC: 3N"
 
     rotational = int(policy.get("rotational_dof_removed", 0))
     if policy.get("angular_active", False):
-        return f"isolated: 3N - 3 - {rotational} (runtime angular removal)"
+        return f"isolated: 3N - 3 - {rotational} (COM/angular excluded; fixed flexible-Cartesian DOF)"
     if policy.get("linear_active", False):
-        return "isolated: 3N - 3 (runtime COM removal)"
+        return "isolated: 3N - 3 (COM excluded)"
     return "isolated: 3N"
 
 
-def calculate_temperature(atoms: Atoms, velocities: np.ndarray, n_dof: Optional[int] = None) -> float:
+def calculate_temperature(
+    atoms: Atoms,
+    velocities: np.ndarray,
+    n_dof: int | None = None,
+    dof_policy: DofPolicy | None = None,
+) -> float:
     """
     Calculate instantaneous temperature from velocities.
 
@@ -226,19 +337,31 @@ def calculate_temperature(atoms: Atoms, velocities: np.ndarray, n_dof: Optional[
     n_dof : int, optional
         Active number of degrees of freedom. When omitted, a legacy fallback is
         used (`3N` for PBC, `3N-3` for non-PBC).
+    dof_policy : dict, optional
+        Explicit motion policy used to evaluate internal kinetic energy when
+        COM or angular motion is excluded from the reported temperature.
 
     Returns
     -------
     float
         Temperature in Kelvin
     """
-    masses = atoms.get_masses() * AMU_TO_AU  # Convert to atomic units
-    kinetic = 0.5 * np.sum(masses[:, np.newaxis] * velocities**2)
+    kinetic = calculate_kinetic_energy(atoms, velocities)
+    if dof_policy is not None and not dof_policy.get("anchored", False):
+        projected = velocities
+        if dof_policy.get("angular_active", False):
+            projected = remove_center_of_mass_motion(atoms, projected)
+            projected = remove_rigid_body_rotation(atoms, projected)
+        elif dof_policy.get("linear_active", False):
+            projected = remove_center_of_mass_motion(atoms, projected)
+        kinetic = calculate_kinetic_energy(atoms, projected)
 
     if n_dof is None:
         n_atoms = len(atoms)
-        # Backward-compatible default until all callers migrate to explicit policy.
-        if any(atoms.pbc):
+        active = active_atom_mask(atoms)
+        if not np.all(active):
+            n_dof = 3 * int(np.count_nonzero(active))
+        elif any(atoms.pbc):
             n_dof = 3 * n_atoms
         else:
             n_dof = 3 * n_atoms - 3
@@ -270,8 +393,19 @@ def calculate_kinetic_energy(atoms: Atoms, velocities: np.ndarray) -> float:
         Kinetic energy in Hartree
     """
     masses = atoms.get_masses() * AMU_TO_AU
-    kinetic = 0.5 * np.sum(masses[:, np.newaxis] * velocities**2)
+    active = active_atom_mask(atoms)
+    kinetic = 0.5 * np.sum(masses[active, np.newaxis] * velocities[active]**2)
     return kinetic
+
+
+def compute_configurational_pressure(atoms: Atoms) -> float:
+    """Return the hydrostatic configurational pressure in bar.
+
+    The calculator stress follows ASE's tensile-positive convention, so the
+    configurational pressure is the negative mean normal stress.
+    """
+    stress = atoms.get_stress(voigt=True)
+    return -float(np.mean(stress[:3])) * EV_PER_ANG3_TO_BAR
 
 
 def compute_instantaneous_pressure(
@@ -319,19 +453,17 @@ def compute_instantaneous_pressure(
     volume = atoms.get_volume()   # Å³
 
     # Kinetic contribution (in eV)
-    masses_amu = atoms.get_masses()
+    active = active_atom_mask(atoms)
+    masses_amu = atoms.get_masses()[active]
     # v in a.u. (Bohr/a.u.time) → convert to Å/fs
-    v_ang_per_fs = velocities * BOHR_TO_ANGSTROM / AU_TO_FS
+    v_ang_per_fs = velocities[active] * BOHR_TO_ANGSTROM / AU_TO_FS
     # KE in eV: 0.5 * m[amu] * v²[Å²/fs²] * (amu·Å²/fs² → eV)
     ke_ev = 0.5 * np.sum(masses_amu[:, np.newaxis] * v_ang_per_fs**2) * AMU_ANG2_PER_FS2_TO_EV
 
-    # Virial contribution from stress tensor (eV)
-    virial_ev = 0.0
+    configurational_pressure = 0.0
     new_stress_warned = stress_warned
     try:
-        stress = atoms.get_stress(voigt=True)   # eV/Å³, Voigt: xx,yy,zz,yz,xz,xy
-        # Hydrostatic virial: W = -V * (σ_xx + σ_yy + σ_zz)
-        virial_ev = -volume * (stress[0] + stress[1] + stress[2])
+        configurational_pressure = compute_configurational_pressure(atoms)
     except (PropertyNotImplementedError, RuntimeError):
         # Calculator does not support stress; fall back to ideal-gas pressure (virial = 0).
         # Warn once per barostat instance so the user is aware.
@@ -344,9 +476,8 @@ def compute_instantaneous_pressure(
             )
             new_stress_warned = True
 
-    # P = (2*KE + W) / (3*V)  in eV/Å³, then convert to bar
-    pressure_ev_ang3 = (2.0 * ke_ev + virial_ev) / (3.0 * volume)
-    return pressure_ev_ang3 * EV_PER_ANG3_TO_BAR, new_stress_warned
+    kinetic_pressure = 2.0 * ke_ev / (3.0 * volume) * EV_PER_ANG3_TO_BAR
+    return kinetic_pressure + configurational_pressure, new_stress_warned
 
 
 def initialize_velocities(
@@ -403,11 +534,19 @@ def initialize_velocities(
     if rng is None:
         rng = np.random.default_rng()
 
+    active = active_atom_mask(atoms)
+    if not np.any(active):
+        raise ValueError("Velocity initialization requires at least one active atom")
+    anchored = not np.all(active)
     if remove_angular is None:
         remove_angular = bool(remove_rotation)
     if remove_angular:
         remove_com = True
         remove_rotation = True
+    if anchored:
+        remove_com = False
+        remove_rotation = False
+        remove_angular = False
 
     kT = temperature * KELVIN_TO_HARTREE
     masses = atoms.get_masses() * AMU_TO_AU
@@ -420,54 +559,15 @@ def initialize_velocities(
     for i, mass in enumerate(masses):
         sigma = np.sqrt(kT / mass)
         velocities[i] *= sigma
+    velocities[~active] = 0.0
 
-    # Remove center of mass motion, then rescale to restore target temperature.
-    # COM removal reduces the number of active DOF by 3, which lowers the
-    # instantaneous kinetic energy below the target; rescaling corrects this.
-    # Ref: Allen & Tildesley, Computer Simulation of Liquids, 2nd ed. (2017), §3.2
-    if remove_com:
-        total_momentum = np.sum(masses[:, np.newaxis] * velocities, axis=0)
-        total_mass = np.sum(masses)
-        velocities -= total_momentum / total_mass
-
-    # Remove overall rigid-body rotation (non-PBC only).
-    #
-    # Method (Shirts 2013, §2):
-    #   1. Compute angular momentum L = Σ r_i × (m_i v_i)  in the COM frame.
-    #   2. Compute the inertia tensor I = Σ m_i (|r_i|² E − r_i ⊗ r_i).
-    #   3. Solve ω = I⁻¹ L  for the rigid-body angular velocity.
-    #   4. Subtract the rigid-rotation contribution: v_i -= ω × r_i.
-    #
-    # This is a linear projection onto the subspace orthogonal to the three
-    # infinitesimal rotation generators; internal DOF are exactly preserved.
-    if remove_rotation and not any(atoms.pbc):
-        positions_au = atoms.get_positions() * ANGSTROM_TO_BOHR  # Å → Bohr
-
-        # Step 1 — COM frame positions
-        total_mass = np.sum(masses)
-        com = np.sum(masses[:, np.newaxis] * positions_au, axis=0) / total_mass
-        r = positions_au - com  # (N, 3)
-
-        # Step 2 — Angular momentum
-        L = np.sum(
-            masses[:, np.newaxis] * np.cross(r, velocities),
-            axis=0
-        )  # (3,)
-
-        # Step 3 — Inertia tensor
-        I = np.zeros((3, 3))
-        for mi, ri in zip(masses, r):
-            I += mi * (np.dot(ri, ri) * np.eye(3) - np.outer(ri, ri))
-
-        # Step 4 — Solve for ω; use pseudoinverse to handle near-singular I
-        # (e.g. linear molecules where one principal moment is ~0)
-        try:
-            omega = np.linalg.solve(I, L)
-        except np.linalg.LinAlgError:
-            omega = np.linalg.lstsq(I, L, rcond=None)[0]
-
-        # Step 5 — Subtract rigid rotation from each atom
-        velocities -= np.cross(omega, r)  # v_i -= ω × r_i
+    if remove_com or (remove_rotation and not any(atoms.pbc)):
+        velocities = project_rigid_body_velocities(
+            atoms,
+            velocities,
+            remove_translation=bool(remove_com),
+            remove_rotation=bool(remove_rotation),
+        )
 
     # Rescale to exact target temperature using the runtime DOF policy.
     # Initialization projection (`remove_com` / `remove_angular`) and runtime
@@ -485,7 +585,7 @@ def initialize_velocities(
         n_dof = get_n_dof_from_policy(init_policy, n_atoms=n_atoms)
     else:
         n_dof = target_n_dof
-    current_ke2 = np.sum(masses[:, np.newaxis] * velocities**2)  # 2*KE
+    current_ke2 = np.sum(masses[active, np.newaxis] * velocities[active]**2)  # 2*KE
     if n_dof > 0 and current_ke2 > 0:
         actual_temp = current_ke2 / (n_dof * KELVIN_TO_HARTREE)
         velocities *= np.sqrt(temperature / actual_temp)
@@ -602,24 +702,12 @@ def remove_rigid_body_rotation(atoms: Atoms, velocities: np.ndarray) -> np.ndarr
     """Project out rigid-body rotation in the center-of-mass frame."""
     if any(atoms.pbc) or len(atoms) <= 1:
         return velocities.copy()
-
-    masses = atoms.get_masses() * AMU_TO_AU
-    positions_au = atoms.get_positions() * ANGSTROM_TO_BOHR
-    total_mass = np.sum(masses)
-    com = np.sum(masses[:, np.newaxis] * positions_au, axis=0) / total_mass
-    r = positions_au - com
-
-    L = np.sum(masses[:, np.newaxis] * np.cross(r, velocities), axis=0)
-    I = np.zeros((3, 3))
-    for mi, ri in zip(masses, r):
-        I += mi * (np.dot(ri, ri) * np.eye(3) - np.outer(ri, ri))
-
-    try:
-        omega = np.linalg.solve(I, L)
-    except np.linalg.LinAlgError:
-        omega = np.linalg.lstsq(I, L, rcond=None)[0]
-
-    return velocities - np.cross(omega, r)
+    return project_rigid_body_velocities(
+        atoms,
+        velocities,
+        remove_translation=False,
+        remove_rotation=True,
+    )
 
 
 def apply_runtime_motion_projection(
@@ -639,7 +727,11 @@ def apply_runtime_motion_projection(
     not well-defined. If an angular projection fires, it always includes COM
     removal first and therefore supersedes COM-only removal for that step.
     """
+    active = active_atom_mask(atoms)
     out = velocities.copy()
+    out[~active] = 0.0
+    if not np.all(active):
+        return out, "none"
     if any(atoms.pbc):
         if remove_com_every and step % remove_com_every == 0:
             return remove_center_of_mass_motion(atoms, out), "com"
@@ -728,7 +820,11 @@ def standard_to_lfmiddle_carried(
         Timestep in atomic units.
     """
     masses = atoms.get_masses() * AMU_TO_AU
-    return velocities - 0.5 * timestep_au * forces / masses[:, np.newaxis]
+    return enforce_active_velocities(
+        atoms,
+        velocities - 0.5 * timestep_au * forces / masses[:, np.newaxis],
+        copy=False,
+    )
 
 
 def lfmiddle_carried_to_standard(
@@ -746,7 +842,11 @@ def lfmiddle_carried_to_standard(
         v_standard = v_carried + 0.5 * (F / m) * dt
     """
     masses = atoms.get_masses() * AMU_TO_AU
-    return velocities + 0.5 * timestep_au * forces / masses[:, np.newaxis]
+    return enforce_active_velocities(
+        atoms,
+        velocities + 0.5 * timestep_au * forces / masses[:, np.newaxis],
+        copy=False,
+    )
 
 
 def scale_velocities_to_temperature(
@@ -773,6 +873,7 @@ def scale_velocities_to_temperature(
     np.ndarray
         Scaled velocities
     """
+    velocities = enforce_active_velocities(atoms, velocities)
     current_temp = calculate_temperature(atoms, velocities)
 
     if current_temp < 1e-10:  # Avoid division by zero

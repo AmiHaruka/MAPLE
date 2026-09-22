@@ -21,6 +21,11 @@ from .._batch_utils import (
 )
 from ..calculator_base import CalcABC, register_calculator
 from ..calculator_base import EV2HARTREE
+from ..electronic_state import (
+    attach_calculator_identity,
+    solvation_identity_settings,
+    validate_electronic_state,
+)
 
 
 AIMNET2_PADDED_PER_MOLECULE_LAYOUT = "padded_per_molecule_v1"
@@ -323,6 +328,16 @@ class AIMNet2Calculator(CalcABC):
 
         self._set_lrcoulomb_method(coulomb_method)
 
+        attach_calculator_identity(
+            self,
+            backend=self.model_name,
+            checkpoint_path=model_path,
+            relevant_settings={
+                'coulomb': self._coulomb_settings,
+                **solvation_identity_settings(implicit, solvent),
+            },
+        )
+
         self.implicit_solv_init(implicit=implicit, solvent=solvent)
 
     def _set_lrcoulomb_method(self, method: str, cutoff: float = 15.0, dsf_alpha: float = 0.2):
@@ -346,16 +361,42 @@ class AIMNet2Calculator(CalcABC):
 
         def _iter_lrcoulomb_mods(model):
             for name, mod in model.named_modules():
-                if name == 'lrcoulomb':
+                if name.rsplit('.', 1)[-1] == 'lrcoulomb':
                     yield mod
 
-        for mod in _iter_lrcoulomb_mods(self.model):
+        modules = list(_iter_lrcoulomb_mods(self.model))
+        if not modules:
+            raise RuntimeError(
+                "AIMNet2 checkpoint has no 'lrcoulomb' module; "
+                f"cannot select coulomb_method={method!r}."
+            )
+
+        required_attributes = ('method',)
+        if method == 'dsf':
+            required_attributes += ('dsf_rc', 'dsf_alpha')
+        for mod in modules:
+            missing = [name for name in required_attributes if not hasattr(mod, name)]
+            if missing:
+                raise RuntimeError(
+                    "AIMNet2 lrcoulomb module cannot apply "
+                    f"coulomb_method={method!r}; missing attributes: {missing}."
+                )
+
+        for mod in modules:
             mod.method = method
-            if method == 'dsf' and hasattr(mod, 'dsf_alpha'):
+            if method == 'dsf':
+                mod.dsf_rc = cutoff
                 mod.dsf_alpha = dsf_alpha
 
         self.cutoff_lr = float('inf') if method == 'simple' else float(cutoff)
         self._coulomb_method = method
+        self._coulomb_settings: dict[str, object] = {'method': method}
+        if method == 'dsf':
+            self._coulomb_settings.update(cutoff=float(cutoff), alpha=float(dsf_alpha))
+        identity = getattr(self, 'maple_pes_identity', None)
+        if identity is not None:
+            identity['relevant_settings']['coulomb'] = self._coulomb_settings
+        self.reset()
 
     def calculate(self, atoms=None, properties=['energy'], system_changes=all_changes):
         properties = self._normalize_properties(properties)
@@ -446,8 +487,9 @@ class AIMNet2Calculator(CalcABC):
         numbers = torch.tensor(numbers_np, dtype=torch.int32, device=self.device)
         mol_idx = torch.tensor(mol_idx_np, dtype=torch.int32, device=self.device)
 
-        charges = [float(at.info.get('charge', 0.0)) for at in atoms_list]
-        mults = [float(at.info.get('mult', 1.0)) for at in atoms_list]
+        states = [validate_electronic_state(at, self) for at in atoms_list]
+        charges = [charge for charge, _ in states]
+        mults = [mult for _, mult in states]
         self._validate_charge_multiplicity(charges, mults)
         nbmat, nbmat_lr = build_aimnet2_neighbor_matrices(
             coord,

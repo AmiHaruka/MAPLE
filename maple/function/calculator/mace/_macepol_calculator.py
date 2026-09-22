@@ -13,6 +13,7 @@ from .._batch_utils import (
     sequential_calculate_many,
 )
 from ..calculator_base import CalcABC, hessian_via_double_autograd, register_calculator
+from ..electronic_state import attach_calculator_identity, solvation_identity_settings
 from ._common import one_hot_node_attrs, radius_graph_no_pbc
 
 
@@ -120,6 +121,13 @@ class MACEPolCalculator(CalcABC):
         self.atomic_numbers = [int(z) for z in self.model.atomic_numbers]
         self.hessian = 'analytic'
 
+        attach_calculator_identity(
+            self,
+            backend=self.model_name,
+            checkpoint_path=model_path,
+            relevant_settings=solvation_identity_settings(implicit, solvent),
+        )
+
         self.implicit_solv_init(implicit=implicit, solvent=solvent)
 
     def _build_inputs(self, atoms, requires_grad=False):
@@ -144,9 +152,9 @@ class MACEPolCalculator(CalcABC):
         # Charge and spin from atoms.info (default: 0, singlet)
         charge = float(atoms.info.get('charge', 0))
         mult = _integer_info(atoms, 'mult', 1)
-        spin = float(mult - 1)
         total_charge = torch.tensor([charge], dtype=dtype, device=device)
-        total_spin = torch.tensor([spin], dtype=dtype, device=device)
+        # PolarMACE subtracts one internally; total_spin is the multiplicity.
+        total_spin = torch.tensor([float(mult)], dtype=dtype, device=device)
 
         # No external field for pure MLIP
         external_field = torch.zeros(N, 3, dtype=dtype, device=device)
