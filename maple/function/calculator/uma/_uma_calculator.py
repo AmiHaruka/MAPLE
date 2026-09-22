@@ -530,6 +530,9 @@ class UMACalculator(FAIRChemCalculator):
         """Numerical-only Hessian via shared finite-difference helper."""
         from .._batch_eval import FDHessianEvaluator
 
+        self._set_task_from_atoms(atoms)
+        self._validate_task_atoms_compatibility(atoms)
+        self._validate_charge_spin_task_compatibility(atoms)
         return FDHessianEvaluator(
             self,
             fd_batch_size=getattr(self, "fd_batch_size", None),

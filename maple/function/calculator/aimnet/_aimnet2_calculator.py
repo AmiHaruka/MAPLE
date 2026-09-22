@@ -120,6 +120,26 @@ def nblist_dense_padded(coord: torch.Tensor, cutoff: float) -> torch.Tensor:
     return nblist_dense_padded_multi(coord, mol_idx, cutoff)
 
 
+def _padded_neighbors_from_mask(mask: torch.Tensor) -> torch.Tensor:
+    """Pack a square neighbor mask without changing row or neighbor order."""
+    n_atoms = mask.shape[0]
+    if n_atoms == 0:
+        return torch.zeros((1, 1), dtype=torch.int32, device=mask.device)
+
+    counts = mask.sum(dim=1)
+    width = max(int(counts.max().item()), 1)
+    nbmat = torch.full(
+        (n_atoms + 1, width), n_atoms, dtype=torch.int32, device=mask.device
+    )
+    # Both masked operations traverse rows in order. Pack only int32 neighbor
+    # values, without per-edge int64 indices or a CUDA synchronization per atom.
+    indices = torch.arange(n_atoms, dtype=torch.int32, device=mask.device)
+    neighbors = torch.masked_select(indices.expand(n_atoms, n_atoms), mask)
+    slots = torch.arange(width, device=mask.device)[None, :] < counts[:, None]
+    nbmat[:n_atoms].masked_scatter_(slots, neighbors)
+    return nbmat
+
+
 def nblist_dense_padded_multi(
     coord: torch.Tensor,
     mol_idx: torch.Tensor,
@@ -133,43 +153,22 @@ def nblist_dense_padded_multi(
     """
     device = coord.device
     N = coord.shape[0]
-    if N == 0:
-        return torch.full((1, 1), 0, dtype=torch.int32, device=device)
-
     diff = coord[:, None, :] - coord[None, :, :]
     dist2 = torch.sum(diff ** 2, dim=-1)
     same = mol_idx[:, None] == mol_idx[None, :]
     eye = torch.eye(N, dtype=torch.bool, device=device)
     mask = (dist2 <= cutoff ** 2) & same & (~eye)
-    M = max(int(mask.sum(dim=1).max().item()), 1)
-
-    nbmat = torch.full((N + 1, M), N, dtype=torch.int32, device=device)
-    for i in range(N):
-        nb_i = torch.nonzero(mask[i], as_tuple=False).flatten()
-        if nb_i.numel() > 0:
-            k = min(nb_i.numel(), M)
-            nbmat[i, :k] = nb_i[:k].to(torch.int32)
-    return nbmat
+    return _padded_neighbors_from_mask(mask)
 
 
 def nblist_all_pairs_padded_multi(mol_idx: torch.Tensor) -> torch.Tensor:
     """All ordered, non-self atom pairs within each concatenated molecule."""
     device = mol_idx.device
     N = int(mol_idx.numel())
-    if N == 0:
-        return torch.full((1, 1), 0, dtype=torch.int32, device=device)
-
     same = mol_idx[:, None] == mol_idx[None, :]
     eye = torch.eye(N, dtype=torch.bool, device=device)
     mask = same & (~eye)
-    M = max(int(mask.sum(dim=1).max().item()), 1)
-
-    nbmat = torch.full((N + 1, M), N, dtype=torch.int32, device=device)
-    for i in range(N):
-        nb_i = torch.nonzero(mask[i], as_tuple=False).flatten()
-        if nb_i.numel() > 0:
-            nbmat[i, : nb_i.numel()] = nb_i.to(torch.int32)
-    return nbmat
+    return _padded_neighbors_from_mask(mask)
 
 
 def build_aimnet2_neighbor_matrices(
