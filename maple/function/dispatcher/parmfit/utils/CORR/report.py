@@ -6,7 +6,7 @@ import os
 from math import degrees, isclose, sqrt
 from typing import Optional
 
-from ..utils.readparm import Angle, Bond, CorrectionParameterSet, Dihedral, FourierTerm, Improper, Nonbond
+from ..readparm import Angle, Bond, CorrectionParameterSet, Dihedral, FourierTerm, Improper, Nonbond
 from .artifacts import CorrectionWorkflowResult
 from .config import CorrectionConfig
 
@@ -65,9 +65,9 @@ def summary_lines(
         f"Scan grid:         {torsion.torsion_step_deg:.4f} deg x {torsion.torsion_steps} steps\n",
         f"Stage2 refine:     max_fast_cycles={torsion.refine_rounds}, max_iter_per_cycle={torsion.refine_max_iter}, tol={torsion.refine_tol:.6g}\n",
         (
-            "Center bonds:      auto-select non-ring center bonds with proper torsions\n"
-            if torsion.center_bonds is None
-            else f"Center bonds:      {list(torsion.center_bonds)}\n"
+            "Torsion bonds:      auto-select non-ring torsion bonds with proper torsions\n"
+            if torsion.torsion_bonds is None
+            else f"Torsion bonds:      {list(torsion.torsion_bonds)}\n"
         ),
         "\n",
         "Assigned terms:\n",
@@ -204,10 +204,14 @@ def correction_result_lines(config: CorrectionConfig, result: CorrectionWorkflow
                 f"  Amber frcmod: {_relative_path(result.mlip_amber.frcmod)}\n",
             ]
         )
-    if result.charge_result is not None:
+    if result.charge_result is not None and result.charge_result.method != "input":
         lines.extend(["\n", "Charge fitting:\n"])
         lines.extend(_charge_result_lines(result.charge_result, result.amber.mol2))
-    if result.mlip_charge_result is not None and result.mlip_amber is not None:
+    if (
+        result.mlip_charge_result is not None
+        and result.mlip_charge_result.method != "input"
+        and result.mlip_amber is not None
+    ):
         lines.extend(["\n", "Charge fitting (MLIP comparison):\n"])
         lines.extend(
             _charge_result_lines(
@@ -253,19 +257,19 @@ def correction_result_lines(config: CorrectionConfig, result: CorrectionWorkflow
     lines.extend(["\n", "TorsionFit:\n"])
     if not config.torsion.enabled:
         lines.append("  state: disabled by parmfit(torsionfit=false)\n")
-    elif not result.torsion.center_bonds:
-        lines.append("  state: no fittable center bonds\n")
+    elif not result.torsion.torsion_bonds:
+        lines.append("  state: no fittable torsion bonds\n")
     else:
         lines.append("  state: enabled\n")
-        lines.append(f"  center bonds: {_format_center_bonds(result.torsion.center_bonds)}\n")
+        lines.append(f"  torsion bonds: {_format_torsion_bonds(result.torsion.torsion_bonds)}\n")
         if result.torsion.scan_xyz:
             lines.append("  scan files:\n")
-            for center_bond, path in sorted(result.torsion.scan_xyz.items()):
-                lines.append(f"    {center_bond}: {_relative_path(path)}\n")
+            for torsion_bond, path in sorted(result.torsion.scan_xyz.items()):
+                lines.append(f"    {torsion_bond}: {_relative_path(path)}\n")
         if result.mlip_torsion is not None and result.mlip_torsion.scan_xyz:
             lines.append("  MLIP comparison scan files:\n")
-            for center_bond, path in sorted(result.mlip_torsion.scan_xyz.items()):
-                lines.append(f"    {center_bond}: {_relative_path(path)}\n")
+            for torsion_bond, path in sorted(result.mlip_torsion.scan_xyz.items()):
+                lines.append(f"    {torsion_bond}: {_relative_path(path)}\n")
     lines.extend(_torsion_refine_round_lines(config, result))
     lines.extend(_stage2_debug_lines(config, result))
 
@@ -314,9 +318,9 @@ def _torsion_refine_round_lines(config: CorrectionConfig, result: CorrectionWork
             "  stage2: not run\n",
             f"  final parameters: {stage0_label}\n",
         ]
-    if not result.torsion.center_bonds:
+    if not result.torsion.torsion_bonds:
         return [
-            "  stage1: not run because no fittable center bonds\n",
+            "  stage1: not run because no fittable torsion bonds\n",
             "  stage2: not run\n",
             f"  final parameters: {stage0_label}\n",
         ]
@@ -392,8 +396,8 @@ def _torsion_energy_trace_lines(config: CorrectionConfig, result: CorrectionWork
     lines = ["\n", "Torsion energy trace:\n"]
     if not config.torsion.enabled:
         return lines + ["  disabled by parmfit(torsionfit=false)\n"]
-    if not result.torsion.center_bonds:
-        return lines + ["  no fittable center bonds\n"]
+    if not result.torsion.torsion_bonds:
+        return lines + ["  no fittable torsion bonds\n"]
 
     ref_label = "QM_ref" if getattr(config.qm, "iqm", False) else "MLIP_ref"
     wrote_table = _append_torsion_trace(lines, result.torsion, ref_label=ref_label)
@@ -443,7 +447,7 @@ def _torsion_fit_report_energy_trace_lines(report, *, ref_label: str) -> list[st
         row_count = min(row_count, len(stage2_ref))
 
     lines = [
-        f"  \ncenter bond {report.center_bond}:\n",
+        f"  \ntorsion bond {report.torsion_bond}:\n",
         f"    scan xyz: {_relative_path(getattr(report, 'scan_source_path', None))}\n",
         f"    angle_deg    {ref_label:<8s}     orig_ref    stage0_ref    stage1_ref    stage2_ref\n",
     ]
@@ -515,10 +519,10 @@ def _format_duration(seconds: float) -> str:
     return f"{secs:d}s"
 
 
-def _format_center_bonds(center_bonds: list[tuple[int, int]]) -> str:
-    if not center_bonds:
+def _format_torsion_bonds(torsion_bonds: list[tuple[int, int]]) -> str:
+    if not torsion_bonds:
         return "none"
-    return ", ".join(str(tuple(center_bond)) for center_bond in center_bonds)
+    return ", ".join(str(tuple(torsion_bond)) for torsion_bond in torsion_bonds)
 
 
 def _dedupe_warnings(warnings: list[str]) -> list[str]:
@@ -573,7 +577,7 @@ def _section_change_count(
     if section == "dihedrals":
         return _torsion_change_count(original_parmset.dihedrals, corrected_parmset.dihedrals)
     if section == "impropers":
-        return _torsion_change_count(original_parmset.impropers, corrected_parmset.impropers)
+        return _improper_change_count(original_parmset.impropers, corrected_parmset.impropers)
     if section == "nonbonds":
         return _nonbond_change_count(original_parmset.nonbonds, corrected_parmset.nonbonds)
     raise ValueError(f"Unknown correction parameter section: {section}")
@@ -589,19 +593,28 @@ def _angle_change_count(old_angles: list[Angle], new_angles: list[Angle]) -> int
     return sum(1 for old_angle, new_angle in zip(old_angles, new_angles) if _angle_changed(old_angle, new_angle))
 
 
+def _terms_changed(old_terms: list[FourierTerm], new_terms: list[FourierTerm]) -> bool:
+    n_terms = max(len(old_terms), len(new_terms), 1)
+    for term_index in range(n_terms):
+        old_term = old_terms[term_index] if term_index < len(old_terms) else None
+        new_term = new_terms[term_index] if term_index < len(new_terms) else None
+        if _term_changed(old_term, new_term):
+            return True
+    return False
+
+
 def _torsion_change_count(old_items: list[Dihedral] | list[Improper], new_items: list[Dihedral] | list[Improper]) -> int:
     _validate_paired_lengths("torsions", old_items, new_items)
+    return sum(1 for old_item, new_item in zip(old_items, new_items) if _terms_changed(old_item.terms, new_item.terms))
+
+
+def _improper_change_count(old_impropers: list[Improper], new_impropers: list[Improper]) -> int:
+    # radical fitting can append instances, so impropers pair by quartet instead of position
+    old_by_atoms = {improper.atoms: improper for improper in old_impropers}
     count = 0
-    for old_item, new_item in zip(old_items, new_items):
-        n_terms = max(len(old_item.terms), len(new_item.terms), 1)
-        changed = False
-        for term_index in range(n_terms):
-            old_term = old_item.terms[term_index] if term_index < len(old_item.terms) else None
-            new_term = new_item.terms[term_index] if term_index < len(new_item.terms) else None
-            if _term_changed(old_term, new_term):
-                changed = True
-                break
-        if changed:
+    for improper in new_impropers:
+        old = old_by_atoms.get(improper.atoms)
+        if old is None or _terms_changed(old.terms, improper.terms):
             count += 1
     return count
 
@@ -773,9 +786,22 @@ def _dihedral_lines(old_dihedrals: list[Dihedral], new_dihedrals: list[Dihedral]
 
 
 def _improper_lines(old_impropers: list[Improper], new_impropers: list[Improper]) -> list[str]:
-    _validate_paired_lengths("impropers", old_impropers, new_impropers)
+    # pair by quartet: radical fitting can append instances beyond the baseline
+    old_by_atoms = {improper.atoms: improper for improper in old_impropers}
     rows: list[str] = []
-    for old_improper, new_improper in zip(old_impropers, new_impropers):
+    for new_improper in new_impropers:
+        old_improper = old_by_atoms.get(new_improper.atoms)
+        if old_improper is None:
+            for term_index, term in enumerate(new_improper.terms, start=1):
+                label = (
+                    f"{_format_atoms(new_improper.atoms):<18} "
+                    f"{_format_types(new_improper.atom_types):<26} "
+                    f"term={term_index:<2} new"
+                )
+                rows.append(
+                    f"{label}{'-':<34} |  {_format_term_side(term):<34}\n"
+                )
+            continue
         n_terms = max(len(old_improper.terms), len(new_improper.terms), 1)
         for term_index in range(n_terms):
             old_term = old_improper.terms[term_index] if term_index < len(old_improper.terms) else None

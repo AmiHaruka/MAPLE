@@ -6,7 +6,7 @@ import re
 
 
 # Radii are extracted from MCPB's IonLJParaDict and stored locally.
-ION_LJ_BY_WATM: dict[str, dict[str, float]] = {
+ION_LJ_BY_WAT_FF: dict[str, dict[str, float]] = {
     "tip3p": {
         "Li1": 1.315,
         "Na1": 1.465,
@@ -517,8 +517,8 @@ def infer_ion_identity(residue: dict | str) -> tuple[str, int, str]:
     return element, formal_charge, key
 
 
-def lookup_ion_radius(*, watm: str, element: str, formal_charge: int, ion_key: str | None = None) -> float:
-    table = ION_LJ_BY_WATM[watm]
+def lookup_ion_radius(*, wat_ff: str, element: str, formal_charge: int, ion_key: str | None = None) -> float:
+    table = ION_LJ_BY_WAT_FF[wat_ff]
     if ion_key is not None:
         if ion_key in table:
             return float(table[ion_key])
@@ -529,7 +529,7 @@ def lookup_ion_radius(*, watm: str, element: str, formal_charge: int, ion_key: s
         if key_element == element:
             candidates.append((charge, float(radius)))
     if not candidates:
-        raise ValueError(f"No ion radius data is available for element {element!r} in water model {watm!r}.")
+        raise ValueError(f"No ion radius data is available for element {element!r} in water ff {wat_ff!r}.")
 
     _charge, radius = min(
         candidates,
@@ -538,7 +538,7 @@ def lookup_ion_radius(*, watm: str, element: str, formal_charge: int, ion_key: s
     return float(radius)
 
 
-def collect_gaussian_readradii_entries(model: dict, *, watm: str | None = None) -> list[tuple[str, float]]:
+def collect_gaussian_readradii_entries(model: dict, *, wat_ff: str | None = None) -> list[tuple[str, float]]:
     ion_residues = [residue for residue in model["residues"] if residue.get("kind") == "ion"]
     if not ion_residues:
         return []
@@ -546,7 +546,7 @@ def collect_gaussian_readradii_entries(model: dict, *, watm: str | None = None) 
     for residue in ion_residues:
         element, formal_charge, ion_key = infer_ion_identity(residue)
         radius = lookup_ion_radius(
-            watm=watm,
+            wat_ff=wat_ff,
             element=element,
             formal_charge=formal_charge,
             ion_key=ion_key,
@@ -555,10 +555,10 @@ def collect_gaussian_readradii_entries(model: dict, *, watm: str | None = None) 
     return entries
 
 
-def infer_ion_frcmod_name(*, watm: str, ionm: str, residue: dict | str) -> str:
+def infer_ion_frcmod_name(*, wat_ff: str, ion_ff: str, residue: dict | str) -> str:
     _element, formal_charge, _ion_key = infer_ion_identity(residue)
 
-    if watm in {"tip3p", "spce", "tip4pew"}:
+    if wat_ff in {"tip3p", "spce", "tip4pew"}:
         if formal_charge in {-1, 1}:
             prefix = "frcmod.ions1lm_"
         elif formal_charge in {2, 3, 4}:
@@ -569,10 +569,10 @@ def infer_ion_frcmod_name(*, watm: str, ionm: str, residue: dict | str) -> str:
         prefix = "frcmod.ionslm_"
 
     suffix = {
-        "hfe": f"hfe_{watm}",
-        "cm": f"126_{watm}",
-        "12_6": f"126_{watm}",
-        "iod": "iod" if prefix == "frcmod.ions1lm_" else f"iod_{watm}",
-        "12_6_4": f"1264_{watm}",
-    }[ionm]
+        "hfe": f"hfe_{wat_ff}",
+        "cm": f"126_{wat_ff}",
+        "12_6": f"126_{wat_ff}",
+        "iod": "iod" if prefix == "frcmod.ions1lm_" else f"iod_{wat_ff}",
+        "12_6_4": f"1264_{wat_ff}",
+    }[ion_ff]
     return prefix + suffix

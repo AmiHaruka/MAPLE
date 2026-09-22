@@ -3,88 +3,84 @@
 from __future__ import annotations
 
 from collections import deque
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from ..mechanics import build_mm_topology_cache
-from ..readparm import CorrectionParameterSet, Dihedral, FourierTerm
+from ..readparm import CorrectionParameterSet, Dihedral, FourierTerm, Improper
 
 if TYPE_CHECKING:
     from .config import TorsionFitParams
     from .records import TorsionFitReport
 
 
-_ROTATABLE_MOL2_BOND_TYPES = {"1", "1.0", "s", "single"}
 
 
-def normalize_center_bond(center_bond: tuple[int, int]) -> tuple[int, int]:
-    i, j = int(center_bond[0]), int(center_bond[1])
+def normalize_torsion_bond(torsion_bond: tuple[int, int]) -> tuple[int, int]:
+    i, j = int(torsion_bond[0]), int(torsion_bond[1])
     return (i, j) if i < j else (j, i)
 
 
-def _mol2_bond_type_by_center_bond(parameter_set: CorrectionParameterSet) -> dict[tuple[int, int], str]:
-    id_to_index = parameter_set.mol2.id_to_index
-    bond_types: dict[tuple[int, int], str] = {}
-    for bond in parameter_set.mol2.bonds:
-        bond_types[normalize_center_bond((id_to_index[bond.atom1], id_to_index[bond.atom2]))] = str(bond.bond_type)
-    return bond_types
+def _bond_type_map(paramset: CorrectionParameterSet) -> dict[tuple[int, int], str]:
+    # mol2 single bonds are type "1"; antechamber emits canonical types
+    # ("1"/"2"/"3"/"ar"/"am"), so no alias or case handling is needed.
+    id_to_index = paramset.mol2.id_to_index
+    return {
+        normalize_torsion_bond((id_to_index[bond.atom1], id_to_index[bond.atom2])): str(bond.bond_type)
+        for bond in paramset.mol2.bonds
+    }
 
 
-def _is_rotatable_mol2_bond_type(bond_type: str | None) -> bool:
-    if bond_type is None:
-        return False
-    return bond_type.strip().lower() in _ROTATABLE_MOL2_BOND_TYPES
-
-
-def _center_bond_dihedral_indices(
-    parameter_set: CorrectionParameterSet,
-    center_bond: tuple[int, int],
+def _torsion_bond_dihedral_indices(
+    paramset: CorrectionParameterSet,
+    torsion_bond: tuple[int, int],
 ) -> list[int]:
-    center = normalize_center_bond(center_bond)
+    center = normalize_torsion_bond(torsion_bond)
     return sorted(
         [
             index
-            for index, dihedral in enumerate(parameter_set.dihedrals)
-            if normalize_center_bond((dihedral.atoms[1], dihedral.atoms[2])) == center
+            for index, dihedral in enumerate(paramset.dihedrals)
+            if normalize_torsion_bond((dihedral.atoms[1], dihedral.atoms[2])) == center
         ],
-        key=lambda index: parameter_set.dihedrals[index].atoms,
+        key=lambda index: paramset.dihedrals[index].atoms,
     )
 
 
-def center_bond_dihedrals(
-    parameter_set: CorrectionParameterSet,
-    center_bond: tuple[int, int],
+def torsion_bond_dihedrals(
+    paramset: CorrectionParameterSet,
+    torsion_bond: tuple[int, int],
     topology_cache=None,
 ) -> list[Dihedral]:
-    return [parameter_set.dihedrals[index] for index in _center_bond_dihedral_indices(parameter_set, center_bond)]
+    return [paramset.dihedrals[index] for index in _torsion_bond_dihedral_indices(paramset, torsion_bond)]
 
 
-def representative_dihedral_for_center_bond(
-    parameter_set: CorrectionParameterSet,
-    center_bond: tuple[int, int],
+def representative_dihedral_for_torsion_bond(
+    paramset: CorrectionParameterSet,
+    torsion_bond: tuple[int, int],
     topology_cache=None,
 ) -> Dihedral:
-    dihedrals = center_bond_dihedrals(parameter_set, center_bond, topology_cache=topology_cache)
+    dihedrals = torsion_bond_dihedrals(paramset, torsion_bond, topology_cache=topology_cache)
     if not dihedrals:
-        raise ValueError(f"No proper dihedrals found for center bond {normalize_center_bond(center_bond)}.")
+        raise ValueError(f"No proper dihedrals found for torsion bond {normalize_torsion_bond(torsion_bond)}.")
     return dihedrals[0]
 
 
-def center_bond_group_atoms(
-    parameter_set: CorrectionParameterSet,
-    center_bond: tuple[int, int],
+def torsion_bond_group_atoms(
+    paramset: CorrectionParameterSet,
+    torsion_bond: tuple[int, int],
     topology_cache=None,
 ) -> tuple[int, ...]:
     atoms = {
         atom
-        for dihedral in center_bond_dihedrals(parameter_set, center_bond, topology_cache=topology_cache)
+        for dihedral in torsion_bond_dihedrals(paramset, torsion_bond, topology_cache=topology_cache)
         for atom in dihedral.atoms
     }
     return tuple(sorted(atoms))
 
 
-def is_ring_center_bond(parameter_set: CorrectionParameterSet, center_bond: tuple[int, int]) -> bool:
-    start, end = normalize_center_bond(center_bond)
-    adjacency = parameter_set.mol2.adjacency
+def is_ring_bond(paramset: CorrectionParameterSet, torsion_bond: tuple[int, int]) -> bool:
+    start, end = normalize_torsion_bond(torsion_bond)
+    adjacency = paramset.mol2.adjacency
     if end not in adjacency.get(start, set()):
         return False
 
@@ -104,47 +100,47 @@ def is_ring_center_bond(parameter_set: CorrectionParameterSet, center_bond: tupl
     return False
 
 
-def enumerate_fittable_center_bonds(
-    parameter_set: CorrectionParameterSet,
+def enumerate_fittable_torsion_bonds(
+    paramset: CorrectionParameterSet,
     topology_cache=None,
     include_ring: bool = False,
 ) -> list[tuple[int, int]]:
-    cache = topology_cache if topology_cache is not None else build_mm_topology_cache(parameter_set)
-    bond_types = _mol2_bond_type_by_center_bond(parameter_set)
-    center_bonds: list[tuple[int, int]] = []
-    for center_bond in sorted(cache.proper_by_center_bond):
-        if not cache.proper_by_center_bond[center_bond]:
+    cache = topology_cache if topology_cache is not None else build_mm_topology_cache(paramset)
+    bond_types = _bond_type_map(paramset)
+    torsion_bonds: list[tuple[int, int]] = []
+    for torsion_bond in sorted(cache.proper_by_torsion_bond):
+        if not cache.proper_by_torsion_bond[torsion_bond]:
             continue
-        if not _is_rotatable_mol2_bond_type(bond_types.get(center_bond)):
+        if bond_types.get(torsion_bond) != "1":
             continue
-        if not include_ring and is_ring_center_bond(parameter_set, center_bond):
+        if not include_ring and is_ring_bond(paramset, torsion_bond):
             continue
-        center_bonds.append(center_bond)
-    return center_bonds
+        torsion_bonds.append(torsion_bond)
+    return torsion_bonds
 
 
-def resolve_torsion_center_bonds(
-    parameter_set: CorrectionParameterSet,
+def resolve_torsion_bonds(
+    paramset: CorrectionParameterSet,
     params: TorsionFitParams,
     topology_cache=None,
 ) -> tuple[list[tuple[int, int]], list[str]]:
     warnings: list[str] = []
-    if params.center_bonds is None:
-        cache = topology_cache if topology_cache is not None else build_mm_topology_cache(parameter_set)
-        return enumerate_fittable_center_bonds(parameter_set, topology_cache=cache, include_ring=False), warnings
+    if params.torsion_bonds is None:
+        cache = topology_cache if topology_cache is not None else build_mm_topology_cache(paramset)
+        return enumerate_fittable_torsion_bonds(paramset, topology_cache=cache, include_ring=False), warnings
 
-    bond_types = _mol2_bond_type_by_center_bond(parameter_set)
-    center_bonds = [normalize_center_bond(bond) for bond in params.center_bonds]
-    for center_bond in center_bonds:
-        bond_type = bond_types.get(center_bond)
-        if not _is_rotatable_mol2_bond_type(bond_type):
+    bond_types = _bond_type_map(paramset)
+    torsion_bonds = [normalize_torsion_bond(bond) for bond in params.torsion_bonds]
+    for torsion_bond in torsion_bonds:
+        bond_type = bond_types.get(torsion_bond)
+        if bond_type != "1":
             display_type = "missing" if bond_type is None else str(bond_type)
-            raise ValueError(f"Explicit torsion center bond {center_bond} is not rotatable: mol2 bond_type={display_type}.")
-        if is_ring_center_bond(parameter_set, center_bond):
+            raise ValueError(f"Explicit torsion bond {torsion_bond} is not rotatable: mol2 bond_type={display_type}.")
+        if is_ring_bond(paramset, torsion_bond):
             warnings.append(
-                f"Explicit torsion center bond {center_bond} is ring-internal; running anyway."
+                f"Explicit torsion bond {torsion_bond} is ring-internal; running anyway."
             )
-    return center_bonds, warnings
+    return torsion_bonds, warnings
 
 
 def _clone_terms(dihedrals: list[Dihedral]) -> list[list[FourierTerm]]:
@@ -164,40 +160,52 @@ def _validate_fit_targets(dihedrals: list[Dihedral]) -> None:
             raise ValueError(f"Target dihedral {dihedral.atoms} has no torsion terms to fit.")
 
 
-def apply_center_bond_terms(
-    parameter_set: CorrectionParameterSet,
-    center_bond: tuple[int, int],
+def apply_torsion_bond_terms(
+    paramset: CorrectionParameterSet,
+    torsion_bond: tuple[int, int],
     fitted_terms: list[list[FourierTerm]],
 ) -> CorrectionParameterSet:
-    center = normalize_center_bond(center_bond)
-    target_indices = _center_bond_dihedral_indices(parameter_set, center)
+    center = normalize_torsion_bond(torsion_bond)
+    target_indices = _torsion_bond_dihedral_indices(paramset, center)
     if len(target_indices) != len(fitted_terms):
         raise ValueError(
-            "The supplied parameter set does not match the fitted torsion terms for the requested center bond."
+            "The supplied parameter set does not match the fitted torsion terms for the requested torsion bond."
         )
 
-    dihedrals = list(parameter_set.dihedrals)
+    dihedrals = list(paramset.dihedrals)
     for fit_index, dihedral_index in enumerate(target_indices):
-        dihedral = parameter_set.dihedrals[dihedral_index]
+        dihedral = paramset.dihedrals[dihedral_index]
         dihedrals[dihedral_index] = Dihedral(
             atoms=dihedral.atoms,
             atom_types=dihedral.atom_types,
             terms=[FourierTerm(term.kPhi, term.period, term.phase) for term in fitted_terms[fit_index]],
         )
 
-    return CorrectionParameterSet(
-        mol2=parameter_set.mol2,
-        frcmod=parameter_set.frcmod,
-        bonds=parameter_set.bonds,
-        angles=parameter_set.angles,
-        dihedrals=dihedrals,
-        impropers=parameter_set.impropers,
-        nonbonds=parameter_set.nonbonds,
-        unmatched_bonds=parameter_set.unmatched_bonds,
-        unmatched_angles=parameter_set.unmatched_angles,
-        unmatched_dihedrals=parameter_set.unmatched_dihedrals,
-        unmatched_impropers=parameter_set.unmatched_impropers,
-        unmatched_nonbonds=parameter_set.unmatched_nonbonds,
-    )
-def apply_fitted_torsion(result: "TorsionFitReport", parameter_set: CorrectionParameterSet) -> CorrectionParameterSet:
-    return apply_center_bond_terms(parameter_set, result.center_bond, result.terms.fitted_terms)
+    return replace(paramset, dihedrals=dihedrals)
+
+
+def apply_fitted_torsion(result: "TorsionFitReport", paramset: CorrectionParameterSet) -> CorrectionParameterSet:
+    return apply_torsion_bond_terms(paramset, result.torsion_bond, result.terms.fitted_terms)
+
+def apply_fitted_improper(result: "TorsionFitReport", paramset: CorrectionParameterSet) -> CorrectionParameterSet:
+    """Replace terms on the center's matched instances; append the transient target when none exist."""
+    target = result.target_instances[0]
+    center = target.atoms[2]
+    fitted_terms = [FourierTerm(term.kPhi, term.period, term.phase) for term in result.terms.fitted_terms[0]]
+    impropers = list(paramset.impropers)
+    replaced = False
+    for index, improper in enumerate(impropers):
+        if improper.atoms[2] != center:
+            continue
+        impropers[index] = Improper(
+            atoms=improper.atoms,
+            atom_types=improper.atom_types,
+            terms=[FourierTerm(term.kPhi, term.period, term.phase) for term in fitted_terms],
+            refit=True,
+        )
+        replaced = True
+    if not replaced:
+        impropers.append(
+            Improper(atoms=target.atoms, atom_types=target.atom_types, terms=fitted_terms, refit=True)
+        )
+    return replace(paramset, impropers=impropers)

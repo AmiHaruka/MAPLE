@@ -10,15 +10,16 @@ from typing import Callable
 import numpy as np
 from ase import Atoms
 
-from ..mechanics import build_mm_topology_cache, evaluate_mm_energy
+from ..mechanics import build_mm_topology_cache, dihedral_radians, evaluate_mm_energy
 from ..readparm import CorrectionParameterSet
-from ..runtime import copy_thresholds, parmfit_work_prefix
 from ..Scan import run_silent_scan
+from ..Scan.optimizer import CGBS, _get_potential_energy
+from ..runtime import copy_thresholds, parmfit_work_prefix, parmfit_workdir
 from ..QMInterface.calculator import QMExternalCalculator
 from .topology import (
-    normalize_center_bond,
-    representative_dihedral_for_center_bond,
-    resolve_torsion_center_bonds,
+    normalize_torsion_bond,
+    representative_dihedral_for_torsion_bond,
+    resolve_torsion_bonds,
 )
 from .fit import run_loss_mode
 from .records import TorsionScanData, TorsionScanRuntime, TorsionWorkflowResult
@@ -31,16 +32,18 @@ from .report import format_torsion_stage1_lines, format_torsion_stage2_lines
 _LOSS_MODE_MM_ORIG_FILTER_KCAL = 50.0
 
 
-def _scan_output_paths(output: str, center_bond: tuple[int, int]) -> tuple[str, str]:
-    center = normalize_center_bond(center_bond)
-    prefix = f"{parmfit_work_prefix(output, 'torsionfit')}_torsionfit_{center[0]}-{center[1]}"
+def _scan_output_paths(output: str, torsion_bond: tuple[int, int], workflow: str = "torsionfit") -> tuple[str, str]:
+    center = normalize_torsion_bond(torsion_bond)
+    prefix = f"{parmfit_work_prefix(output, workflow)}_torsionfit_{center[0]}-{center[1]}"
     return prefix + ".out", prefix + "_scan_final.xyz"
 
 
-def _qm_scan_output_paths(output: str, center_bond: tuple[int, int], qm_mode: int) -> tuple[str, str]:
-    center = normalize_center_bond(center_bond)
+def _qm_scan_output_paths(
+    output: str, torsion_bond: tuple[int, int], qm_mode: int, workflow: str = "torsionfit"
+) -> tuple[str, str]:
+    center = normalize_torsion_bond(torsion_bond)
     tag = "mode3_qm_torsionfit" if int(qm_mode) == 3 else "qm_torsionfit"
-    prefix = f"{parmfit_work_prefix(output, 'torsionfit')}_{tag}_{center[0]}-{center[1]}"
+    prefix = f"{parmfit_work_prefix(output, workflow)}_{tag}_{center[0]}-{center[1]}"
     return prefix + ".out", prefix + "_scan_final.xyz"
 
 
@@ -86,15 +89,16 @@ def _read_cached_scan_if_valid(
     return scan_data
 
 
-def _run_center_bond_scan(
+def _run_torsion_bond_scan(
     atoms: Atoms,
     output: str,
     params: TorsionFitParams,
     runtime: TorsionScanRuntime,
-    center_bond: tuple[int, int],
+    torsion_bond: tuple[int, int],
     representative_dihedral: tuple[int, int, int, int],
+    workflow: str = "torsionfit",
 ) -> str:
-    scan_output, _ = _scan_output_paths(output, center_bond)
+    scan_output, _ = _scan_output_paths(output, torsion_bond, workflow)
     result = run_silent_scan(
         output=scan_output,
         atoms=atoms,
@@ -104,6 +108,132 @@ def _run_center_bond_scan(
         constraint_mode=runtime.constraint_mode,
     )
     return result.xyz_path
+
+
+def _improper_steps_per_side(params: TorsionFitParams) -> int:
+    # the +90/-90 protocol is 360/4 per side; require exact divisibility so the
+    # scan range named in reports and cache validation is the range actually scanned
+    if int(params.torsion_steps) % 4 != 0:
+        raise ValueError(
+            f"torsion_steps must be divisible by 4 for the improper +/-90 deg protocol, got {params.torsion_steps}."
+        )
+    return int(params.torsion_steps) // 4
+
+
+def _expected_improper_scan_angles(
+    atoms: Atoms,
+    params: TorsionFitParams,
+    quartet: tuple[int, int, int, int],
+) -> np.ndarray:
+    positions = np.asarray(atoms.get_positions(), dtype=float)
+    initial_angle = float(np.degrees(dihedral_radians(positions, *quartet)))
+    step = float(params.torsion_step_deg)
+    steps = _improper_steps_per_side(params)
+    return np.asarray(
+        [initial_angle - step * idx for idx in range(steps, 0, -1)]
+        + [initial_angle]
+        + [initial_angle + step * idx for idx in range(1, steps + 1)],
+        dtype=float,
+    )
+
+
+def _read_cached_improper_scan_if_valid(
+    scan_xyz: str,
+    atoms: Atoms,
+    params: TorsionFitParams,
+    quartet: tuple[int, int, int, int],
+) -> TorsionScanData | None:
+    if not os.path.isfile(scan_xyz):
+        return None
+    try:
+        scan_data = read_scan_xyz(scan_xyz)
+    except Exception:
+        return None
+
+    expected_count = 2 * _improper_steps_per_side(params) + 1
+    if len(scan_data.frames) != expected_count:
+        return None
+
+    expected_symbols = atoms.get_chemical_symbols()
+    for frame in scan_data.frames:
+        if len(frame) != len(expected_symbols) or frame.get_chemical_symbols() != expected_symbols:
+            return None
+
+    expected_angles = _expected_improper_scan_angles(atoms, params, quartet)
+    cached_angles = np.asarray(scan_data.angles_deg, dtype=float)
+    if cached_angles.shape != expected_angles.shape:
+        return None
+    # engine headers record unwrapped ramp targets while the parmfit-convention
+    # anchor wraps to (-180, 180]; compare modulo 360
+    angle_diff = (cached_angles - expected_angles + 180.0) % 360.0 - 180.0
+    if not np.allclose(angle_diff, 0.0, rtol=0.0, atol=1.0e-2):
+        return None
+    return scan_data
+
+
+def _run_improper_scan(
+    atoms: Atoms,
+    output: str,
+    params: TorsionFitParams,
+    runtime: TorsionScanRuntime,
+    quartet: tuple[int, int, int, int],
+    workflow: str = "torsionfit",
+) -> str:
+    """Scan one improper +/-90 deg: exact set_dihedral per point, then a projected
+    CGBS relaxation. No ASE FixInternals: its adjust_positions diverges on rigid
+    ring centers, while the force projection is well defined for any quartet."""
+    center = quartet[2]
+    _, scan_xyz = _scan_output_paths(output, (center, center), workflow)
+    steps = _improper_steps_per_side(params)
+    idx = tuple(atom - 1 for atom in quartet)
+    stem = os.path.splitext(scan_xyz)[0]
+    initial = float(atoms.get_dihedral(*idx))
+
+    frames: list[tuple[float, float, np.ndarray]] = []
+    symbols = atoms.get_chemical_symbols()
+    for direction in (-1, +1):
+        # both branches start from the same optimized structure; the shared
+        # planar point is kept once (from the positive branch)
+        scan_atoms = atoms.copy()
+        scan_atoms.calc = atoms.calc
+        copy_thresholds(atoms, scan_atoms)
+        point_range = range(1, steps + 1) if direction < 0 else range(0, steps + 1)
+        for i in point_range:
+            target = initial + direction * params.torsion_step_deg * i
+            scan_atoms.set_dihedral(*idx, target)
+            scan_atoms = _relax_improper_point(scan_atoms, quartet, runtime, f"{stem}_{'neg' if direction < 0 else 'pos'}")
+            frames.append(
+                (
+                    target,
+                    float(_get_potential_energy(scan_atoms)),
+                    np.asarray(scan_atoms.get_positions(), dtype=float).copy(),
+                )
+            )
+
+    merged_frames = list(reversed(frames[:steps])) + frames[steps:]
+    return _write_improper_scan_xyz(scan_xyz, merged_frames, symbols)
+
+
+def _relax_improper_point(atoms: Atoms, quartet: tuple[int, int, int, int], runtime: TorsionScanRuntime, log_stem: str) -> Atoms:
+    paras = {
+        "max_iter": int(runtime.max_iter),
+        "max_step": float(runtime.max_step),
+        "write_traj": False,
+        "verbose": 0,
+        "torsion_constraints": [tuple(quartet)],
+    }
+    optimizer = CGBS(atoms, output=log_stem + ".out", paras={"opt": paras})
+    return optimizer.run()
+
+
+def _write_improper_scan_xyz(path: str, frames, symbols) -> str:
+    with open(path, "w", encoding="utf-8") as handle:
+        for index, (angle, energy, positions) in enumerate(frames, start=1):
+            handle.write(f"{len(symbols)}\n")
+            handle.write(f"Scanning combination {index}/{len(frames)}: [{float(angle):.4f}]  Energy = {float(energy):.10f}\n")
+            for symbol, (x_coord, y_coord, z_coord) in zip(symbols, positions):
+                handle.write(f"{symbol:2s} {x_coord: .10f} {y_coord: .10f} {z_coord: .10f}\n")
+    return path
 
 
 def _scan_has_qm(path: str, qm_mode: int | None = None) -> bool:
@@ -163,15 +293,19 @@ def _apply_qm_scan(
     scan_data: TorsionScanData,
     scan_xyz: str,
     output: str,
-    center_bond: tuple[int, int],
+    torsion_bond: tuple[int, int],
     representative_dihedral: tuple[int, int, int, int],
     qm_runner,
     qm_mode: int,
     use_sp: bool,
+    workflow: str = "torsionfit",
 ) -> TorsionScanData:
-    center = normalize_center_bond(center_bond)
-    work_prefix = Path(parmfit_work_prefix(output, "qm"))
-    work_dir = work_prefix.parent / "opt" / f"{work_prefix.name}_qm_torsionfit_{center[0]}-{center[1]}"
+    center = normalize_torsion_bond(torsion_bond)
+    work_dir = (
+        Path(parmfit_workdir(output, workflow))
+        / "opt"
+        / f"{Path(output).stem}_qm_torsionfit_{center[0]}-{center[1]}"
+    )
     qm_frames: list[Atoms] = []
     qm_energies: list[float] = []
     angles = np.asarray(scan_data.angles_deg, dtype=float)
@@ -230,18 +364,22 @@ def _run_qm_projected_scan(
     output: str,
     params: TorsionFitParams,
     runtime: TorsionScanRuntime,
-    center_bond: tuple[int, int],
+    torsion_bond: tuple[int, int],
     representative_dihedral: tuple[int, int, int, int],
     qm_runner,
     use_sp: bool,
+    workflow: str = "torsionfit",
 ) -> str:
-    center = normalize_center_bond(center_bond)
-    scan_output, scan_xyz = _qm_scan_output_paths(output, center_bond, 3)
+    center = normalize_torsion_bond(torsion_bond)
+    scan_output, scan_xyz = _qm_scan_output_paths(output, torsion_bond, 3, workflow)
     scan_atoms = atoms.copy()
     scan_atoms.info = dict(atoms.info)
     copy_thresholds(atoms, scan_atoms)
-    work_prefix = Path(parmfit_work_prefix(output, "qm"))
-    qm_work_dir = work_prefix.parent / "opt" / f"{work_prefix.name}_mode3_qm_torsionfit_{center[0]}-{center[1]}"
+    qm_work_dir = (
+        Path(parmfit_workdir(output, workflow))
+        / "opt"
+        / f"{Path(output).stem}_mode3_qm_torsionfit_{center[0]}-{center[1]}"
+    )
     scan_atoms.calc = QMExternalCalculator(
         qm_runner,
         work_dir=qm_work_dir,
@@ -302,13 +440,13 @@ def _filtered_scan_data(scan_data: TorsionScanData, keep_mask: np.ndarray) -> To
 
 def _filter_loss_mode_scan_points(
     scan_data: TorsionScanData,
-    original_parameter_set: CorrectionParameterSet,
-    center_bond: tuple[int, int],
+    original_paramset: CorrectionParameterSet,
+    torsion_bond: tuple[int, int],
     *,
     topology_cache=None,
 ) -> tuple[TorsionScanData, str | None, np.ndarray]:
     mm_orig_total = np.asarray(
-        [evaluate_mm_energy(atoms, original_parameter_set, topology_cache=topology_cache).total for atoms in scan_data.frames],
+        [evaluate_mm_energy(atoms, original_paramset, topology_cache=topology_cache).total for atoms in scan_data.frames],
         dtype=float,
     )
     mm_orig_filter_rel = mm_orig_total - float(np.min(mm_orig_total))
@@ -322,7 +460,7 @@ def _filter_loss_mode_scan_points(
     filtered_mm_orig_total = mm_orig_total[keep_mask]
     mm_orig_report_rel = filtered_mm_orig_total - filtered_mm_orig_total[int(filtered.ref_idx)]
     warning = (
-        f"loss scan filter: center bond {normalize_center_bond(center_bond)} dropped "
+        f"loss scan filter: torsion bond {normalize_torsion_bond(torsion_bond)} dropped "
         f"{int(np.count_nonzero(~keep_mask))} point(s) with MM_orig_rel > {_LOSS_MODE_MM_ORIG_FILTER_KCAL:.1f} "
         f"at angles [{', '.join(f'{float(angle):.4f}' for angle in dropped_angles)}]"
     )
@@ -333,69 +471,124 @@ def run_torsion_workflow(
     *,
     atoms: Atoms,
     output: str,
-    parameter_set: CorrectionParameterSet,
-    original_parameter_set: CorrectionParameterSet | None = None,
+    paramset: CorrectionParameterSet,
+    original_paramset: CorrectionParameterSet | None = None,
     params: TorsionFitParams,
     runtime: TorsionScanRuntime,
-    center_bond_filter: Callable[[tuple[int, int]], bool] | None = None,
+    torsion_bond_filter: Callable[[tuple[int, int]], bool] | None = None,
+    improper_targets: list | None = None,
+    radical_centers: tuple[int, ...] = (),
     mobile_atoms=None,
     qm_runner=None,
     log_info: Callable[[list[str]], None] | None = None,
+    workflow: str = "torsionfit",
 ) -> TorsionWorkflowResult:
-    base_parameter_set = deepcopy(parameter_set)
-    original_parameter_set = deepcopy(original_parameter_set) if original_parameter_set is not None else deepcopy(base_parameter_set)
+    improper_targets = list(improper_targets or [])
+    improper_map = {(target.atoms[2], target.atoms[2]): target for target in improper_targets}
+    base_paramset = deepcopy(paramset)
+    original_paramset = deepcopy(original_paramset) if original_paramset is not None else deepcopy(base_paramset)
     if not params.enabled:
         if log_info is not None:
             log_info(format_torsion_stage1_lines(params, []))
             log_info(["\n[Stage 2] Running stage-2 global torsion refinement...\n"])
             log_info(format_torsion_stage2_lines(params, []))
         return TorsionWorkflowResult(
-            stage1_parameter_set=None,
-            final_parameter_set=deepcopy(base_parameter_set),
+            stage1_paramset=None,
+            final_paramset=deepcopy(base_paramset),
         )
 
-    topology_cache = build_mm_topology_cache(base_parameter_set)
-    center_bonds, warnings = resolve_torsion_center_bonds(
-        base_parameter_set,
+    topology_cache = build_mm_topology_cache(base_paramset)
+    torsion_bonds, warnings = resolve_torsion_bonds(
+        base_paramset,
         params,
         topology_cache=topology_cache,
     )
-    if center_bond_filter is not None:
-        center_bonds = [bond for bond in center_bonds if center_bond_filter(normalize_center_bond(bond))]
-    if not center_bonds:
-        empty_result = deepcopy(base_parameter_set)
+    if torsion_bond_filter is not None:
+        torsion_bonds = [bond for bond in torsion_bonds if torsion_bond_filter(normalize_torsion_bond(bond))]
+    if not torsion_bonds and not improper_map:
+        empty_result = deepcopy(base_paramset)
         if log_info is not None:
-            log_info(format_torsion_stage1_lines(params, warnings, has_center_bonds=False))
+            log_info(format_torsion_stage1_lines(params, warnings, has_torsion_bonds=False))
             log_info(["\n[Stage 2] Running stage-2 global torsion refinement...\n"])
-            log_info(format_torsion_stage2_lines(params, [], has_center_bonds=False))
+            log_info(format_torsion_stage2_lines(params, [], has_torsion_bonds=False))
         return TorsionWorkflowResult(
-            stage1_parameter_set=empty_result,
-            final_parameter_set=deepcopy(empty_result),
-            center_bonds=[],
+            stage1_paramset=empty_result,
+            final_paramset=deepcopy(empty_result),
+            torsion_bonds=[],
             warnings=warnings,
         )
 
     scan_data_map = {}
     scan_xyz_map: dict[tuple[int, int], str] = {}
     scan_mm_orig_rel_map: dict[tuple[int, int], np.ndarray] = {}
-    original_topology_cache = build_mm_topology_cache(original_parameter_set)
+    original_topology_cache = build_mm_topology_cache(original_paramset)
+    qm_config = getattr(qm_runner, "config", None) if qm_runner is not None else None
+    qm_mode = int(getattr(qm_config, "qm_mode", 1)) if qm_config is not None else None
+    use_sp = bool(
+        qm_config is not None
+        and str(getattr(qm_config, "sp_level", "")).strip()
+        != str(getattr(qm_config, "opt_level", "")).strip()
+    )
 
-    for center_bond in center_bonds:
-        representative = representative_dihedral_for_center_bond(
-            base_parameter_set,
-            center_bond,
+    scan_targets = [(normalize_torsion_bond(torsion_bond), None) for torsion_bond in torsion_bonds]
+    scan_targets += list(improper_map.items())
+    for center_key, improper_target in scan_targets:
+        if center_key[0] == center_key[1]:
+            if qm_runner is not None and int(qm_mode) in {2, 3}:
+                raise ValueError(
+                    f"QM mode {int(qm_mode)} is not supported for improper torsion scans; use qm_mode=1."
+                )
+            _, mlip_scan_xyz = _scan_output_paths(output, center_key, workflow)
+            scan_data = _read_cached_improper_scan_if_valid(mlip_scan_xyz, atoms, params, improper_target.atoms)
+            if scan_data is not None and _scan_has_qm(mlip_scan_xyz):
+                scan_data = None
+            if scan_data is not None:
+                scan_xyz = mlip_scan_xyz
+                if log_info is not None:
+                    log_info([f"reuse existing improper scan xyz: {scan_xyz}\n"])
+            else:
+                scan_xyz = _run_improper_scan(atoms, output, params, runtime, improper_target.atoms, workflow)
+                scan_data = read_scan_xyz(scan_xyz)
+            if qm_runner is not None and int(qm_mode) == 1:
+                _, qm_scan_xyz = _qm_scan_output_paths(output, center_key, 1, workflow)
+                qm_scan_data = _read_cached_improper_scan_if_valid(qm_scan_xyz, atoms, params, improper_target.atoms)
+                if qm_scan_data is not None and not _scan_has_qm(qm_scan_xyz, 1):
+                    qm_scan_data = None
+                if qm_scan_data is None:
+                    qm_scan_data = _apply_qm_scan(
+                        scan_data=scan_data,
+                        scan_xyz=qm_scan_xyz,
+                        output=output,
+                        torsion_bond=center_key,
+                        representative_dihedral=improper_target.atoms,
+                        qm_runner=qm_runner,
+                        qm_mode=1,
+                        use_sp=use_sp,
+                        workflow=workflow,
+                    )
+                scan_data = qm_scan_data
+                scan_xyz = qm_scan_xyz
+            scan_data, warning, mm_orig_rel = _filter_loss_mode_scan_points(
+                scan_data,
+                original_paramset,
+                center_key,
+                topology_cache=original_topology_cache,
+            )
+            if warning is not None:
+                warnings.append(warning)
+            scan_data_map[center_key] = scan_data
+            scan_xyz_map[center_key] = scan_xyz
+            scan_mm_orig_rel_map[center_key] = np.asarray(mm_orig_rel, dtype=float)
+            continue
+        torsion_bond = center_key
+        representative = representative_dihedral_for_torsion_bond(
+            base_paramset,
+            torsion_bond,
             topology_cache=topology_cache,
         )
-        _, mlip_scan_xyz = _scan_output_paths(output, center_bond)
-        qm_config = getattr(qm_runner, "config", None) if qm_runner is not None else None
-        qm_mode = int(getattr(qm_config, "qm_mode", 2)) if qm_config is not None else None
-        use_sp = bool(
-            qm_config is not None
-            and str(getattr(qm_config, "sp_level", "")).strip()
-            != str(getattr(qm_config, "opt_level", "")).strip()
-        )
+        _, mlip_scan_xyz = _scan_output_paths(output, torsion_bond, workflow)
         if qm_runner is not None and int(qm_mode) == 3:
-            _, scan_xyz = _qm_scan_output_paths(output, center_bond, 3)
+            _, scan_xyz = _qm_scan_output_paths(output, torsion_bond, 3, workflow)
             scan_data = _read_cached_scan_if_valid(scan_xyz, atoms, params, representative.atoms)
             if scan_data is not None and not _scan_has_qm(scan_xyz, 3):
                 scan_data = None
@@ -408,10 +601,11 @@ def run_torsion_workflow(
                     output,
                     params,
                     runtime,
-                    center_bond,
+                    torsion_bond,
                     representative.atoms,
                     qm_runner,
                     use_sp,
+                    workflow,
                 )
                 scan_data = read_scan_xyz(scan_xyz)
         else:
@@ -423,17 +617,18 @@ def run_torsion_workflow(
                 if log_info is not None:
                     log_info([f"reuse existing torsion scan xyz: {scan_xyz}\n"])
             else:
-                scan_xyz = _run_center_bond_scan(
+                scan_xyz = _run_torsion_bond_scan(
                     atoms,
                     output,
                     params,
                     runtime,
-                    center_bond,
+                    torsion_bond,
                     representative.atoms,
+                    workflow,
                 )
                 scan_data = read_scan_xyz(scan_xyz)
         if qm_runner is not None and int(qm_mode) in {1, 2}:
-            _, qm_scan_xyz = _qm_scan_output_paths(output, center_bond, int(qm_mode))
+            _, qm_scan_xyz = _qm_scan_output_paths(output, torsion_bond, int(qm_mode), workflow)
             qm_scan_data = _read_cached_scan_if_valid(qm_scan_xyz, atoms, params, representative.atoms)
             if qm_scan_data is not None and not _scan_has_qm(qm_scan_xyz, qm_mode):
                 qm_scan_data = None
@@ -442,37 +637,39 @@ def run_torsion_workflow(
                     scan_data=scan_data,
                     scan_xyz=qm_scan_xyz,
                     output=output,
-                    center_bond=center_bond,
+                    torsion_bond=torsion_bond,
                     representative_dihedral=representative.atoms,
                     qm_runner=qm_runner,
                     qm_mode=int(qm_mode),
                     use_sp=use_sp,
+                    workflow=workflow,
                 )
             scan_data = qm_scan_data
             scan_xyz = qm_scan_xyz
         scan_data, warning, mm_orig_rel = _filter_loss_mode_scan_points(
             scan_data,
-            original_parameter_set,
-            center_bond,
+            original_paramset,
+            torsion_bond,
             topology_cache=original_topology_cache,
         )
         if warning is not None:
             warnings.append(warning)
-        scan_data_map[normalize_center_bond(center_bond)] = scan_data
-        scan_xyz_map[normalize_center_bond(center_bond)] = scan_xyz
-        scan_mm_orig_rel_map[normalize_center_bond(center_bond)] = np.asarray(mm_orig_rel, dtype=float)
+        scan_data_map[center_key] = scan_data
+        scan_xyz_map[center_key] = scan_xyz
+        scan_mm_orig_rel_map[center_key] = np.asarray(mm_orig_rel, dtype=float)
 
     ensemble_result = None
     if params.torsion_ensemble:
         ensemble_result = build_torsion_local_ensemble(
             atoms=atoms,
-            parameter_set=base_parameter_set,
-            center_bonds=center_bonds,
+            paramset=base_paramset,
+            torsion_bonds=torsion_bonds,
             scan_data_map=scan_data_map,
             params=params,
             output=output,
             mobile_atoms=mobile_atoms,
             log_info=log_info,
+            workflow=workflow,
         )
         warnings.extend(ensemble_result.warnings)
 
@@ -480,14 +677,16 @@ def run_torsion_workflow(
         log_info(format_torsion_stage1_lines(params, warnings))
 
     loss_kwargs = {
-        "base_parameter_set": base_parameter_set,
-        "original_parameter_set": original_parameter_set,
-        "center_bonds": center_bonds,
+        "base_paramset": base_paramset,
+        "original_paramset": original_paramset,
+        "torsion_bonds": torsion_bonds + list(improper_map),
         "scan_data_map": scan_data_map,
         "scan_xyz_map": scan_xyz_map,
         "scan_mm_orig_rel_map": scan_mm_orig_rel_map,
         "params": params,
         "topology_cache": topology_cache,
+        "improper_targets": improper_map,
+        "radical_centers": tuple(radical_centers),
         "log_info": log_info,
     }
     if ensemble_result is not None:
@@ -495,7 +694,7 @@ def run_torsion_workflow(
     result = run_loss_mode(**loss_kwargs)
 
     result.warnings = list(warnings)
-    result.center_bonds = [normalize_center_bond(bond) for bond in center_bonds]
+    result.torsion_bonds = [normalize_torsion_bond(bond) for bond in torsion_bonds] + list(improper_map)
     result.scan_xyz = dict(scan_xyz_map)
     result.ensemble_xyz = dict(ensemble_result.xyz_paths) if ensemble_result is not None else {}
     return result

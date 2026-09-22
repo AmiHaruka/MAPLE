@@ -6,7 +6,7 @@ USER_CHARGES
 
 
 @<TRIPOS>ATOM
-      1 FE      -7.4500    0.9743   28.2618 M1        1 FE1      0.422951
+      1 FE      -7.4162    0.9511   28.2903 M1        1 FE1      2.694124
 @<TRIPOS>BOND
 @<TRIPOS>SUBSTRUCTURE
      1 FE1         1 TEMP              0 ****  ****    0 ROOT

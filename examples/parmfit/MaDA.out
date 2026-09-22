@@ -22,35 +22,32 @@ Parsed configuration:
 ----------------------------------------
 Task: parmfit
 model          : uma(size=uma-s-1p1)
-method         : abinitio
-target         : HIF89
-rn             : HF1
-cmo            : 0 1
-chg_level      : HF/6-31G(d)
-torsionfit     : False
+method         : ncaa
+input          : MaDA.in
 device         : gpu0
 
                              Coordinates                              
 **********************************************************************
 
 Group 1 (PDB File)
-Resolved PDB: /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/MaDA-1.pdb
-PDB coordinates are parsed by parmfit abinitio at runtime.
+Resolved PDB: /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/MaDA.pdb
+PDB coordinates are parsed by the parmfit route at runtime.
 --------------------
 
 ======================================================================
-                           Parmfit Abinitio                           
+                             Parmfit NCAA                             
 ======================================================================
 Target: _89:HIF (protein)
   PDB residue templates: matched=516, backbone_only=1, unmatched=0
     non-standard (matched backbone only): _89:HIF (target)
+    template overrides (renamed): _10:CYM (CYX->CYM), _74:CYM (CYX->CYM)
   PDB target charge: _89:HIF = 0 (from your input)
   [NCAA] MLIP model preparation + reference optimization ...
   NCAA target selector: HIF89
   residue name: HF1
   chirality: L
-  charge/mult: 0 1
-  protein model: ff14SB
+  net charge / spin multiplicity: 0 1
+  protein ff: ff14SB
   bonded refinement: mseminario
   charge fitting: resp
   charge level: HF/6-31G(d)
@@ -63,20 +60,20 @@ Target: _89:HIF (protein)
   [NCAA] route completed; final summary follows.
 
 ======================================================================
-                       PARMFIT ABINITIO RESULT                        
+                         PARMFIT NCAA RESULT                          
 ======================================================================
 Status: completed
 Route: NCAA
 Target: _89:HIF
 Residue name: HF1
 Chirality: L
-Protein model: ff14SB
-Charge/mult: 0 1
+Protein ff: ff14SB
+Res charge/spin-multi: 0 1
 Charge fitting: resp
 Charge level: HF/6-31G(d)
 Target charge: 0
-Actual charge: 0.00000000
-Charge MOL2: MaDA_work/ncaa/MaDA_capped.mol2
+Actual charge: 0.00000100
+Charge MOL2: MaDA_work/ncaa/HIF89/MaDA_capped.mol2
 
 Main products:
   refined prepin: MaDA_work/HF1_maple.prepin
@@ -85,10 +82,10 @@ Main products:
   tleap input:    MaDA_work/MaDA_ncaa_tleap.in
 
 Stage timing:
-  charge fitting                   10m 32s
-  Hessian + mSeminario              1m 16s
-  model preparation + reference        43s
-  tleap validation                      3s
+  charge fitting                   12m 53s
+  Hessian + mSeminario              1m 19s
+  model preparation + reference        47s
+  tleap validation                      6s
   AmberTools template build             0s
   final export                          0s
 
@@ -107,23 +104,23 @@ Warnings:
 
 
 
-Program started: 2026-08-07 07:26:08
+Program started: 2026-09-23 04:35:56
 
 ======================================================================
                       TIMING SUMMARY
 ======================================================================
-Input Reading.......................................   1.150 s  (   0.2 %)
-  Settings Parsing....................................   1.148 s  (  99.9 %)
-  Coordinate Section Parsing..........................   0.001 s  (   0.1 %)
+Input Reading.......................................   1.139 s  (   0.1 %)
+  Settings Parsing....................................   1.137 s  (  99.9 %)
+  Coordinate Section Parsing..........................   0.001 s  (   0.0 %)
   Post-Processing Expansion...........................   0.000 s  (   0.0 %)
-MLP Initialization..................................   9.518 s  (   1.2 %)
-Job Dispatching..................................... 755.588 s  (  98.6 %)
-  Parmfit optimization................................ 755.569 s  ( 100.0 %)
-    Parmfit abinitio.................................... 755.480 s  ( 100.0 %)
+MLP Initialization..................................  10.063 s  (   1.1 %)
+Job Dispatching..................................... 907.531 s  (  98.8 %)
+  Parmfit optimization................................ 907.529 s  ( 100.0 %)
+    Parmfit NCAA........................................ 907.471 s  ( 100.0 %)
 ======================================================================
-Total wall time: 766.256 s
-Total CPU time: 132.517 s
+Total wall time: 918.732 s
+Total CPU time: 142.572 s
 ======================================================================
 
-Program ended: 2026-08-07 07:38:55
-TOTAL RUN TIME: 0 days 0 hours 12 minutes 46 seconds 256 msec
+Program ended: 2026-09-23 04:51:15
+TOTAL RUN TIME: 0 days 0 hours 15 minutes 18 seconds 731 msec

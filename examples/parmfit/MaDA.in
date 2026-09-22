@@ -1,0 +1,8 @@
+# NCAA route settings; declare method=ncaa in #parmfit(...) and reference this file via input=
+# Only non-default entries are listed; the generated parmfitrun.in shows every resolved value.
+
+ncaa_resids=HIF89
+ncaa_charges=0
+ncaa_resnames=HF1
+chg_level=HF/6-31G(d)
+torsionfit=false

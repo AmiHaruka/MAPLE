@@ -12,8 +12,7 @@ import shutil
 
 from .. import interface
 from ..amber_templates import required_template_leaprcs
-from ..chargefit import ChargeFitResult
-from ..ionparams import infer_ion_frcmod_name
+from ..chgfit import ChargeFitResult
 from ..model import write_model_pdb
 from ..outputparm import allocate_maple_atom_types, format_tleap_add_atom_types
 from ..readparm import Angle, Bond, Dihedral, Improper, Nonbond, CorrectionParameterSet, FrcmodDB, Mol2Atom, Mol2Topology
@@ -72,9 +71,7 @@ class NCAAArtifacts:
 
 @dataclass(frozen=True)
 class NCAAAmberBuildBundle:
-    workdir: str
     final_dir: str
-    interface_cfg: dict[str, object]
     mainchain_path: str
     typed_mol2_result: object
     antechamber_result: object
@@ -87,7 +84,6 @@ class AtomTypeRow(NamedTuple):
     element: str
     old_type: str
     maple_type: str
-    resp_charge: float
 
 
 @dataclass(frozen=True)
@@ -120,13 +116,14 @@ def _run_ambertools_build(
     charged_residue: dict,
     charge_result: ChargeFitResult,
     config: NCAAAbinitioConfig,
+    work_dir: str = "ncaa",
 ) -> NCAAAmberBuildBundle:
-    workdir = parmfit_workdir(output, "ncaa")
+    workdir = parmfit_workdir(output, work_dir)
     final_dir = parmfit_output_dir(output)
     interface_cfg = {
         "residue_name": config.rn,
-        "net_charge": config.charge,
-        "multiplicity": config.mult,
+        "net_charge": config.res_charge,
+        "multiplicity": config.res_spin_multi,
     }
     source_mol2 = os.path.basename(charge_result.work_mol2)
     target_chg = os.path.basename(charge_result.files["target_chg"])
@@ -163,7 +160,7 @@ def _run_ambertools_build(
         head="N",
         tail="C",
         mainchain=infer_mainchain_names(charged_residue),
-        charge=config.charge,
+        charge=config.res_charge,
         extra_omit_names=infer_terminal_omit_names(charged_residue),
     )
 
@@ -180,9 +177,7 @@ def _run_ambertools_build(
         workdir,
     )
     return NCAAAmberBuildBundle(
-        workdir=workdir,
         final_dir=final_dir,
-        interface_cfg=interface_cfg,
         mainchain_path=mainchain_path,
         typed_mol2_result=typed_mol2_result,
         antechamber_result=antechamber_result,
@@ -222,6 +217,7 @@ def build_ncaa_amber_artifacts(
     charged_residue: dict,
     charge_result: ChargeFitResult,
     config: NCAAAbinitioConfig,
+    work_dir: str = "ncaa",
 ) -> NCAAAmberArtifacts:
     build = _run_ambertools_build(
         output=output,
@@ -229,6 +225,7 @@ def build_ncaa_amber_artifacts(
         charged_residue=charged_residue,
         charge_result=charge_result,
         config=config,
+        work_dir=work_dir,
     )
     return _materialize_amber_artifacts(
         build=build,
@@ -252,8 +249,9 @@ def export_ncaa_artifacts(
     atom_type_rows: list[AtomTypeRow],
     structure: dict,
     target_residue: dict,
+    work_dir: str = "ncaa",
 ) -> NCAAArtifacts:
-    workdir = parmfit_workdir(output, "ncaa")
+    workdir = parmfit_workdir(output, work_dir)
     base = os.path.splitext(os.path.basename(output))[0]
     artifacts = NCAAArtifacts(
         amber=amber,
@@ -280,10 +278,9 @@ def export_ncaa_artifacts(
         atom_type_rows=atom_type_rows,
         prepared_pdb_name=os.path.basename(artifacts.tleap_pdb),
         base=base,
-        prom=config.prom,
-        watm=config.watm,
-        ionm=config.ionm,
-        template_leaprcs=required_template_leaprcs(structure["residues"], config.prom),
+        pro_ff=config.pro_ff,
+        wat_ff=config.wat_ff,
+        template_leaprcs=required_template_leaprcs(structure["residues"], config.pro_ff),
     )
     return artifacts
 
@@ -293,12 +290,15 @@ def write_ncaa_tleap_pdb(
     *,
     structure: dict,
     target_residue: dict,
-    rn: str,
+    rn: str = "",
+    rename_map: dict | None = None,
 ) -> str:
-    target_key = get_resid_key(target_residue)
+    if rename_map is None:
+        rename_map = {get_resid_key(target_residue): rn}
     residues = []
     for new_resseq, residue in enumerate(sorted(structure["residues"], key=residue_sort_key), start=1):
-        copied = copy_residue(residue, resname=rn) if get_resid_key(residue) == target_key else copy_residue(residue)
+        new_name = rename_map.get(get_resid_key(residue))
+        copied = copy_residue(residue, resname=new_name) if new_name is not None else copy_residue(residue)
         copied["resseq"] = new_resseq
         residues.append(copied)
     write_model_pdb(path, {"name": "ncaa_tleap_model", "residues": residues})
@@ -312,31 +312,39 @@ def write_ncaa_tleap_input(
     atom_type_rows: list["AtomTypeRow"],
     prepared_pdb_name: str,
     base: str,
-    prom: str = "ff14SB",
-    watm: str = "tip3p",
-    ionm: str = "12_6",
+    pro_ff: str = "ff14SB",
+    wat_ff: str = "tip3p",
     template_leaprcs: list[str] | None = None,
+    extra_templates: list[NCAAAmberArtifacts] | None = None,
+    extra_type_rows: list["AtomTypeRow"] | None = None,
 ) -> None:
+    all_type_rows = list(extra_type_rows or ()) + list(atom_type_rows)
     lines = [
-        f"source leaprc.protein.{prom}\n",
+        f"source leaprc.protein.{pro_ff}\n",
         "source leaprc.gaff2\n",
-        f"source leaprc.water.{watm}\n",
+        f"source leaprc.water.{wat_ff}\n",
     ]
     lines[1:1] = [f"source {leaprc}\n" for leaprc in template_leaprcs or ()]
     lines.extend(
         format_tleap_add_atom_types(
-            [(row.atom_name, row.element, row.old_type, row.maple_type) for row in atom_type_rows]
+            [(row.atom_name, row.element, row.old_type, row.maple_type) for row in all_type_rows]
         )
     )
+    for template in extra_templates or ():
+        lines.extend(
+            [
+                f"loadamberprep {os.path.basename(template.refined_prepin)}\n",
+                f"loadamberparams {os.path.basename(template.refined_frcmod)}\n",
+            ]
+        )
     lines.extend(
         [
             f"loadamberprep {os.path.basename(amber.refined_prepin)}\n",
             f"loadamberparams {os.path.basename(amber.refined_frcmod)}\n",
-            f"loadamberparams {infer_ion_frcmod_name(watm=watm, ionm=ionm, residue='Na')}\n",
             f"mol = loadpdb {prepared_pdb_name}\n",
             "check mol\n",
             "charge mol\n",
-            f"solvatebox mol {'SPCBOX' if watm == 'spce' else watm.upper() + 'BOX'} 10.0\n",
+            f"solvatebox mol {'SPCBOX' if wat_ff == 'spce' else wat_ff.upper() + 'BOX'} 10.0\n",
             "addions mol Na+ 0\n",
             "addions mol Cl- 0\n",
             f"savepdb mol {base}_ncaa_solvated.pdb\n",
@@ -422,7 +430,7 @@ def _build_maple_residue_mapping(
     amber: NCAAAmberArtifacts,
     representative_model: dict,
     charged_residue: dict,
-    parameter_set: CorrectionParameterSet,
+    paramset: CorrectionParameterSet,
 ) -> _MapleResidueMapping:
     with open(amber.prepin, "r", encoding="utf-8", errors="replace") as handle:
         prepin_lines = handle.readlines()
@@ -451,8 +459,19 @@ def _build_maple_residue_mapping(
         name_to_global_index[atom["name"]] = global_index
         name_to_global_index[prepin_name_by_key[str(atom["name"]).strip().upper()]] = global_index
 
-    existing_types = {atom.atom_type for atom in parameter_set.mol2.atoms}
-    maple_types = allocate_maple_atom_types(len(prepin_atom_rows), existing_types)
+    injected_maple_types = {
+        str(atom["name"]).strip().upper(): atom["maple_type"]
+        for atom in residue_atoms
+        if "maple_type" in atom
+    }
+    if injected_maple_types:
+        maple_types = {
+            local_index: injected_maple_types[str(parts[1]).strip().upper()]
+            for local_index, (_, parts) in enumerate(prepin_atom_rows, start=1)
+        }
+    else:
+        existing_types = {atom.atom_type for atom in paramset.mol2.atoms}
+        maple_types = allocate_maple_atom_types(len(prepin_atom_rows), existing_types)
     global_to_local_index: dict[int, int] = {}
     global_to_maple_type: dict[int, str] = {}
     maple_mass_params: dict[str, float] = {}
@@ -464,8 +483,7 @@ def _build_maple_residue_mapping(
         global_index = name_to_global_index[name]
         residue_atom = residue_atom_by_key[str(name).strip().upper()]
         canonical_name = residue_atom["name"]
-        old_type = parameter_set.nonbonds[global_index - 1].atom_type
-        resp_charge = float(parameter_set.nonbonds[global_index - 1].charge)
+        old_type = paramset.nonbonds[global_index - 1].atom_type
         maple_type = maple_types[local_index]
         prepin_lines[line_index] = _replace_prepin_atom_fields(
             prepin_lines[line_index],
@@ -474,11 +492,11 @@ def _build_maple_residue_mapping(
         )
         canonical_prepin_atom_names.append(canonical_name)
         atom_type_rows.append(
-            AtomTypeRow(canonical_name, residue_atom["element"], old_type, maple_type, resp_charge)
+            AtomTypeRow(canonical_name, residue_atom["element"], old_type, maple_type)
         )
         global_to_local_index[global_index] = local_index
         global_to_maple_type[global_index] = maple_type
-        maple_mass_params[maple_type] = parameter_set.frcmod.mass_params[old_type]
+        maple_mass_params[maple_type] = paramset.frcmod.mass_params[old_type]
 
     return _MapleResidueMapping(
         prepin_lines=prepin_lines,
@@ -491,8 +509,8 @@ def _build_maple_residue_mapping(
     )
 
 
-def _build_residue_parameter_set(
-    parameter_set: CorrectionParameterSet,
+def _build_residue_paramset(
+    paramset: CorrectionParameterSet,
     mapping: _MapleResidueMapping,
 ) -> CorrectionParameterSet:
     residue_indices = set(mapping.global_to_local_index)
@@ -501,7 +519,7 @@ def _build_residue_parameter_set(
             atom_id=local_index,
             name=name,
             atom_type=mapping.global_to_maple_type[mapping.name_to_global_index[name]],
-            charge=parameter_set.nonbonds[mapping.name_to_global_index[name] - 1].charge,
+            charge=paramset.nonbonds[mapping.name_to_global_index[name] - 1].charge,
         )
         for local_index, name in enumerate(mapping.prepin_atom_names, start=1)
     ]
@@ -509,9 +527,9 @@ def _build_residue_parameter_set(
         Nonbond(
             atom=mapping.global_to_local_index[global_index],
             atom_type=mapping.global_to_maple_type[global_index],
-            charge=parameter_set.nonbonds[global_index - 1].charge,
-            rmin_half=parameter_set.nonbonds[global_index - 1].rmin_half,
-            epsilon=parameter_set.nonbonds[global_index - 1].epsilon,
+            charge=paramset.nonbonds[global_index - 1].charge,
+            rmin_half=paramset.nonbonds[global_index - 1].rmin_half,
+            epsilon=paramset.nonbonds[global_index - 1].epsilon,
         )
         for global_index in sorted(mapping.global_to_local_index, key=mapping.global_to_local_index.get)
     ]
@@ -522,7 +540,7 @@ def _build_residue_parameter_set(
             kBond=bond.kBond,
             rEq=bond.rEq,
         )
-        for bond in parameter_set.bonds
+        for bond in paramset.bonds
         if set(bond.atoms).issubset(residue_indices)
     ]
     residue_angles = [
@@ -532,7 +550,7 @@ def _build_residue_parameter_set(
             kTheta=angle.kTheta,
             thetaEq=angle.thetaEq,
         )
-        for angle in parameter_set.angles
+        for angle in paramset.angles
         if set(angle.atoms).issubset(residue_indices)
     ]
     residue_dihedrals = [
@@ -541,7 +559,7 @@ def _build_residue_parameter_set(
             atom_types=tuple(mapping.global_to_maple_type[index] for index in dihedral.atoms),
             terms=list(dihedral.terms),
         )
-        for dihedral in parameter_set.dihedrals
+        for dihedral in paramset.dihedrals
         if set(dihedral.atoms).issubset(residue_indices)
     ]
     residue_impropers = [
@@ -550,7 +568,7 @@ def _build_residue_parameter_set(
             atom_types=tuple(mapping.global_to_maple_type[index] for index in improper.atoms),
             terms=list(improper.terms),
         )
-        for improper in parameter_set.impropers
+        for improper in paramset.impropers
         if set(improper.atoms).issubset(residue_indices)
     ]
     return CorrectionParameterSet(
@@ -579,23 +597,23 @@ def write_ncaa_amber_files(
     amber: NCAAAmberArtifacts,
     representative_model: dict,
     charged_residue: dict,
-    final_parameter_set: CorrectionParameterSet,
+    final_paramset: CorrectionParameterSet,
     structure: dict,
     target_residue: dict,
-    prom: str = "ff14SB",
+    pro_ff: str = "ff14SB",
 ) -> list[AtomTypeRow]:
     mapping = _build_maple_residue_mapping(
         amber=amber,
         representative_model=representative_model,
         charged_residue=charged_residue,
-        parameter_set=final_parameter_set,
+        paramset=final_paramset,
     )
     with open(amber.refined_prepin, "w", encoding="utf-8") as handle:
         handle.writelines(mapping.prepin_lines)
 
-    residue_parameter_set = _build_residue_parameter_set(final_parameter_set, mapping)
+    residue_paramset = _build_residue_paramset(final_paramset, mapping)
     interface.write_refined_frcmod(
-        residue_parameter_set,
+        residue_paramset,
         amber.refined_frcmod,
         mass_params=mapping.maple_mass_params,
         remark="REMARK MAPLE ncaa refined frcmod",
@@ -606,7 +624,7 @@ def write_ncaa_amber_files(
         global_to_maple_type=mapping.global_to_maple_type,
         structure=structure,
         target_residue=target_residue,
-        prom=prom,
+        pro_ff=pro_ff,
     )
     _insert_frcmod_section_lines(
         amber.refined_frcmod,
@@ -717,10 +735,12 @@ def _next_peptide_residue(structure: dict, target_residue: dict) -> dict | None:
     return None
 
 
-def _prom_boundary_type(structure: dict, residue: dict, atom_name: str, *, prom: str = "ff14SB") -> str:
+def _pro_ff_boundary_type(structure: dict, residue: dict, atom_name: str, *, pro_ff: str = "ff14SB") -> str:
     atom = search_atom(residue, atom_name)
     if atom is None:
         raise ValueError(f"Could not find atom {atom_name!r} in NCAA boundary residue.")
+    if "maple_type" in atom:
+        return atom["maple_type"]
     is_n_terminal = _previous_peptide_residue(structure, residue) is None
     is_c_terminal = _next_peptide_residue(structure, residue) is None
     if atom_name == "N":
@@ -728,7 +748,7 @@ def _prom_boundary_type(structure: dict, residue: dict, atom_name: str, *, prom:
     if atom_name == "CA":
         if is_n_terminal or is_c_terminal:
             return "CX"
-        return "XC" if prom == "ff19SB" else "CX"
+        return "XC" if pro_ff == "ff19SB" else "CX"
     if atom_name == "C":
         return "C"
     if atom_name in {"O", "OXT"}:
@@ -758,7 +778,7 @@ def _target_ca_neighbor_names(
     return names
 
 
-def _next_n_substituent_types(structure: dict, next_residue: dict, *, prom: str) -> list[str]:
+def _next_n_substituent_types(structure: dict, next_residue: dict, *, pro_ff: str) -> list[str]:
     if next_residue.get("resname") == "PRO":
         atom_names = ["CA", "CD"]
     else:
@@ -766,7 +786,7 @@ def _next_n_substituent_types(structure: dict, next_residue: dict, *, prom: str)
     types: list[str] = []
     for atom_name in atom_names:
         if search_atom(next_residue, atom_name) is not None:
-            types.append(_prom_boundary_type(structure, next_residue, atom_name, prom=prom))
+            types.append(_pro_ff_boundary_type(structure, next_residue, atom_name, pro_ff=pro_ff))
     return _dedupe_lines(types)
 
 
@@ -804,7 +824,7 @@ def _generate_maple_crossterms(
     global_to_maple_type: dict[int, str],
     structure: dict,
     target_residue: dict,
-    prom: str = "ff14SB",
+    pro_ff: str = "ff14SB",
 ) -> dict[str, list[str]]:
     residue_atoms, local_index_by_name, adjacency = build_residue_local_adjacency(residue)
 
@@ -846,10 +866,10 @@ def _generate_maple_crossterms(
 
     # Head-side peptide boundary.
     if previous_residue is not None:
-        note = f"{prom}/gaff2 peptide boundary"
-        prev_ca_type = _prom_boundary_type(structure, previous_residue, "CA", prom=prom)
-        prev_c_type = _prom_boundary_type(structure, previous_residue, "C", prom=prom)
-        prev_o_type = _prom_boundary_type(structure, previous_residue, "O", prom=prom)
+        note = f"{pro_ff}/gaff2 peptide boundary"
+        prev_ca_type = _pro_ff_boundary_type(structure, previous_residue, "CA", pro_ff=pro_ff)
+        prev_c_type = _pro_ff_boundary_type(structure, previous_residue, "C", pro_ff=pro_ff)
+        prev_o_type = _pro_ff_boundary_type(structure, previous_residue, "O", pro_ff=pro_ff)
         bond_lines.append(_fmt_bond(prev_c_type, n_maple, 490.0, 1.3350, note))
         angle_lines.extend(
             [
@@ -871,9 +891,9 @@ def _generate_maple_crossterms(
 
     # Tail-side peptide boundary.
     if next_residue is not None:
-        note = f"{prom}/gaff2 peptide boundary"
-        next_n_type = _prom_boundary_type(structure, next_residue, "N", prom=prom)
-        next_substituent_types = _next_n_substituent_types(structure, next_residue, prom=prom)
+        note = f"{pro_ff}/gaff2 peptide boundary"
+        next_n_type = _pro_ff_boundary_type(structure, next_residue, "N", pro_ff=pro_ff)
+        next_substituent_types = _next_n_substituent_types(structure, next_residue, pro_ff=pro_ff)
         bond_lines.append(_fmt_bond(c_maple, next_n_type, 490.0, 1.3350, note))
         angle_lines.extend(
             [
@@ -910,10 +930,11 @@ def build_ncaa_export_bundle(
     representative_model: dict,
     charged_residue: dict,
     conformers: list[NCAAConformer],
-    final_parameter_set: CorrectionParameterSet,
+    final_paramset: CorrectionParameterSet,
     config: NCAAAbinitioConfig,
     structure: dict,
     target_residue: dict,
+    work_dir: str = "ncaa",
 ) -> NCAAExportBundle:
     use_refined_parameters = _uses_refined_parameters(config)
     if use_refined_parameters:
@@ -921,10 +942,10 @@ def build_ncaa_export_bundle(
             amber=amber,
             representative_model=representative_model,
             charged_residue=charged_residue,
-            final_parameter_set=final_parameter_set,
+            final_paramset=final_paramset,
             structure=structure,
             target_residue=target_residue,
-            prom=config.prom,
+            pro_ff=config.pro_ff,
         )
     else:
         atom_type_rows: list[AtomTypeRow] = []
@@ -938,6 +959,7 @@ def build_ncaa_export_bundle(
         atom_type_rows=atom_type_rows,
         structure=structure,
         target_residue=target_residue,
+        work_dir=work_dir,
     )
     return NCAAExportBundle(
         amber=selected_amber,

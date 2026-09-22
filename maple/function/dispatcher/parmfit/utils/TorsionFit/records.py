@@ -82,9 +82,9 @@ class TorsionSharedGroupSpec:
 
 @dataclass(frozen=True)
 class TorsionLocalProblem:
-    center_bond: tuple[int, int]
+    torsion_bond: tuple[int, int]
     scan_data: TorsionScanData
-    target_dihedrals: list[Dihedral]
+    target_instances: list[Dihedral]
     representative_dihedral: tuple[int, int, int, int]
     basis: np.ndarray
     qm_rel: np.ndarray
@@ -125,7 +125,7 @@ class TorsionObjectiveEvaluation:
 @dataclass(frozen=True)
 class TorsionObjectiveTarget:
     label: str
-    center_bond: tuple[int, int]
+    torsion_bond: tuple[int, int]
     qm_rel: np.ndarray
     constant_rel: np.ndarray
     cos_basis: np.ndarray
@@ -136,8 +136,8 @@ class TorsionObjectiveTarget:
 
 @dataclass(frozen=True)
 class TorsionGlobalProblem:
-    stage0_parameter_set: CorrectionParameterSet
-    center_bonds: tuple[tuple[int, int], ...]
+    stage0_paramset: CorrectionParameterSet
+    torsion_bonds: tuple[tuple[int, int], ...]
     scan_map: dict[tuple[int, int], TorsionScanData]
     term_paths: tuple[tuple[int, int], ...]
     block_slices: dict[tuple[int, int], tuple[int, int]]
@@ -151,7 +151,7 @@ class TorsionGlobalProblem:
     centered_sin_basis_map: dict[tuple[int, int], np.ndarray] = field(default_factory=dict)
     constant_rel_map: dict[tuple[int, int], np.ndarray] = field(default_factory=dict)
     grouped: bool = False
-    reference_parameter_set: CorrectionParameterSet | None = None
+    reference_paramset: CorrectionParameterSet | None = None
     prior_weights: np.ndarray | None = None
     shared_groups_map: dict[tuple[int, int], tuple[TorsionSharedGroupSpec, ...]] = field(default_factory=dict)
     prior_weight: float = 1.0
@@ -266,8 +266,8 @@ def _aligned_delta_kphi(
 
 @dataclass
 class TorsionFitReport:
-    center_bond: tuple[int, int]
-    target_dihedrals: list[Dihedral]
+    torsion_bond: tuple[int, int]
+    target_instances: list[Dihedral]
     representative_dihedral: tuple[int, int, int, int]
     scan_source_path: str
     terms: TorsionFitTerms
@@ -300,8 +300,8 @@ class TorsionFitReport:
             max_abs_error=float(np.max(np.abs(residual_after))) if residual_after.size else 0.0,
         )
         return TorsionFitReport(
-            center_bond=self.center_bond,
-            target_dihedrals=deepcopy(self.target_dihedrals),
+            torsion_bond=self.torsion_bond,
+            target_instances=deepcopy(self.target_instances),
             representative_dihedral=self.representative_dihedral,
             scan_source_path=self.scan_source_path,
             terms=terms,
@@ -329,11 +329,11 @@ class TorsionRefineCycle:
 
 @dataclass
 class TorsionWorkflowResult:
-    stage1_parameter_set: CorrectionParameterSet | None
-    final_parameter_set: CorrectionParameterSet
+    stage1_paramset: CorrectionParameterSet | None
+    final_paramset: CorrectionParameterSet
     refine_cycles: list[TorsionRefineCycle] = field(default_factory=list)
     scan_xyz: dict[tuple[int, int], str] = field(default_factory=dict)
-    center_bonds: list[tuple[int, int]] = field(default_factory=list)
+    torsion_bonds: list[tuple[int, int]] = field(default_factory=list)
     fit_reports: list[TorsionFitReport] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     stage1_diagnostics: dict[str, Any] = field(default_factory=dict)

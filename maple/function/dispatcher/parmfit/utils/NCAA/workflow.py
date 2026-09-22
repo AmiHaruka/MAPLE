@@ -9,7 +9,7 @@ from time import perf_counter
 from typing import Callable
 
 from .. import interface
-from ..chargefit import (
+from ..chgfit import (
     ChargeFitResult,
     apply_model_charges,
     fit_multiconformer_charges,
@@ -19,17 +19,19 @@ from ..Seminario import apply_seminario
 from ..mSeminario import apply_mseminario
 from ..model import infer_bond_pairs, model_to_atoms, update_model_from_atoms
 from ..QMInterface import build_qm_reference_runner
-from ..readparm import CorrectionParameterSet, build_correction_parameter_set
+from ..readparm import CorrectionParameterSet, Improper, build_correction_paramset
 from ..runtime import (
     copy_thresholds,
     get_cartesian_hessian,
     parmfit_work_prefix,
 )
 from ..structure import copy_residue
+from dataclasses import replace as _dc_replace
+
 from ..TorsionFit import TorsionScanRuntime, TorsionWorkflowResult, run_torsion_workflow
 from .artifacts import NCAAArtifacts, build_ncaa_amber_artifacts, build_ncaa_export_bundle
 from .config import NCAAAbinitioConfig
-from .models import NCAAConformer, NCAAIdentity, build_capped_ncaa_model, build_charge_conformers, build_ncaa_center_bond_filter, build_ncaa_sidechain_relax_indices, identity_ncaa, optimize_capped_confs, warn_capped_proton_transfer
+from .models import NCAAConformer, NCAAIdentity, build_capped_ncaa_model, build_charge_conformers, build_ncaa_torsion_bond_filter, build_ncaa_sidechain_relax_indices, identity_ncaa, optimize_capped_confs, warn_capped_proton_transfer
 from .report import format_ncaa_final_lines, format_ncaa_start_lines
 
 
@@ -47,13 +49,14 @@ class NCAAWorkflowResult:
     identity: NCAAIdentity
     representative: NCAAConformer
     conformers: list[NCAAConformer]
-    parameter_set: CorrectionParameterSet
+    paramset: CorrectionParameterSet
     torsion: TorsionWorkflowResult
     artifacts: NCAAArtifacts
     charge_result: ChargeFitResult
     representative_model: dict
     residue_model: dict
     stage_timings: list[tuple[str, float]] = field(default_factory=list)
+    atom_type_rows: list = field(default_factory=list)
 
     @property
     def chirality(self) -> str:
@@ -86,6 +89,7 @@ def _prepare_ncaa_models(
     config: NCAAAbinitioConfig,
     qm_runner=None,
     log_info: Callable[[list], None] | None = None,
+    work_dir: str = "ncaa",
 ) -> NCAAModelBundle:
     identity = identity_ncaa(target_residue)
     prev_residue, next_residue = find_prev_next_peptide_residues(structure, target_residue)
@@ -95,8 +99,8 @@ def _prepare_ncaa_models(
         prev_residue=prev_residue,
         next_residue=next_residue,
     )
-    capped_model["charge"] = config.charge
-    capped_model["mult"] = config.mult
+    capped_model["charge"] = config.res_charge
+    capped_model["mult"] = config.res_spin_multi
     sidechain_relax_indices = build_ncaa_sidechain_relax_indices(capped_model)
     sidechain_relax_set = set(sidechain_relax_indices)
     atom_count = sum(len(residue["atoms"]) for residue in capped_model["residues"])
@@ -105,7 +109,7 @@ def _prepare_ncaa_models(
         for index in range(1, atom_count + 1)
         if index not in sidechain_relax_set
     )
-    work_prefix = parmfit_work_prefix(output, "ncaa")
+    work_prefix = parmfit_work_prefix(output, work_dir)
     representative = optimize_capped_confs(
         capped_model,
         source_atoms=source_atoms,
@@ -119,7 +123,7 @@ def _prepare_ncaa_models(
     if qm_runner is not None and needs_qm_reference:
         if log_info is not None:
             log_info(["  [NCAA] QM reference optimization ...\n"])
-        qm_atoms = model_to_atoms(representative.model, charge=config.charge, mult=config.mult)
+        qm_atoms = model_to_atoms(representative.model, charge=config.res_charge, mult=config.res_spin_multi)
         # The MLIP preoptimization preserves peptide context with a frozen
         # backbone. Relax all coordinates for a stationary-point QM Hessian.
         if config.bonded != "none":
@@ -159,6 +163,22 @@ def _prepare_ncaa_models(
         qm_hessian=qm_hessian,
     )
 
+def _to_capped_model_indices(params, representative_model: dict):
+    """Convert residue-local torsion bond indices to capped-model flattened indices.
+
+    User-facing torsion-bonds numbers are 1-based serial-order indices into the
+    NCAA residue's own atoms. The capped model prepends ACE atoms, so the offset
+    is simply the ACE atom count.
+    """
+    if params.torsion_bonds is None:
+        return params
+    ace_count = int(representative_model["segment_sizes"]["ace"])
+    converted = tuple(
+        (left + ace_count, right + ace_count) for left, right in params.torsion_bonds
+    )
+    return _dc_replace(params, torsion_bonds=converted)
+
+
 def _refine_ncaa_parameters(
     *,
     output: str,
@@ -171,6 +191,7 @@ def _refine_ncaa_parameters(
     stage_timings: list[tuple[str, float]],
     qm_hessian=None,
     qm_runner=None,
+    work_dir: str = "ncaa",
 ) -> tuple[CorrectionParameterSet, TorsionWorkflowResult]:
     representative_atoms = model_to_atoms(
         representative_model,
@@ -186,7 +207,7 @@ def _refine_ncaa_parameters(
     with _timed_stage(stage_timings, stage_label):
         if bonded_enabled or torsion_enabled:
             interface.patch_frcmod_crossterms(frcmod_path)
-        stage0_result = build_correction_parameter_set(representative_atoms, typed_mol2_path, frcmod_path)
+        stage0_result = build_correction_paramset(representative_atoms, typed_mol2_path, frcmod_path, config.torsion.p_thresh)
 
         if bonded_enabled:
             apply_bonded = apply_seminario if config.bonded == "seminario" else apply_mseminario
@@ -195,7 +216,7 @@ def _refine_ncaa_parameters(
             elif qm_runner is not None:
                 qm_freq = qm_runner.opt_frequency(
                     representative_atoms,
-                    f"{parmfit_work_prefix(output, 'qm')}_ncaa_reference",
+                    f"{parmfit_work_prefix(output, f'{work_dir}/qm')}_reference",
                 )
                 if qm_freq.hessian is None:
                     raise ValueError("QM opt-frequency job did not provide a Cartesian Hessian.")
@@ -212,11 +233,30 @@ def _refine_ncaa_parameters(
 
     if torsion_enabled:
         with _timed_stage(stage_timings, "TorsionFit"):
+            improper_targets = [improper for improper in stage0_result.impropers if improper.refit]
+            improper_lines = [f"  improper refit: {imp.atom_types} {imp.atoms}" for imp in improper_targets]
+            for center in config.torsion.radical_center or ():
+                neighbors = stage0_result.mol2.adjacency.get(center, set())
+                if len(neighbors) != 3:
+                    improper_lines.append(f"  radical center {center} ignored (coordination != 3)")
+                    continue
+                matched = [improper for improper in stage0_result.impropers if improper.atoms[2] == center]
+                if matched:
+                    matched[0].refit = True
+                    if matched[0] not in improper_targets:
+                        improper_targets.append(matched[0])
+                        improper_lines.append(f"  improper refit (radical): {matched[0].atom_types} {matched[0].atoms}")
+                    continue
+                trio = sorted(neighbors)
+                quartet = (trio[0], trio[1], center, trio[2])
+                types = tuple(stage0_result.mol2.atoms[atom - 1].atom_type for atom in quartet)
+                improper_targets.append(Improper(atoms=quartet, atom_types=types, terms=[], refit=True))
+                improper_lines.append(f"  improper refit (radical): {types} {quartet}")
             torsion_kwargs = {
                 "atoms": representative_atoms,
                 "output": output,
-                "parameter_set": stage0_result,
-                "params": config.torsion,
+                "paramset": stage0_result,
+                "params": _to_capped_model_indices(config.torsion, representative_model),
                 "runtime": TorsionScanRuntime(
                     max_iter=config.opt_max_iter,
                     memory=int(max(config.qm.qm_mem, 1)),
@@ -225,18 +265,24 @@ def _refine_ncaa_parameters(
                     backend=config.torsion.backend,
                     constraint_mode=config.torsion.constraint_mode,
                 ),
-                "center_bond_filter": build_ncaa_center_bond_filter(representative_model),
+                "torsion_bond_filter": build_ncaa_torsion_bond_filter(representative_model),
                 "mobile_atoms": sidechain_relax_indices,
             }
+            if improper_targets:
+                torsion_kwargs["improper_targets"] = improper_targets
+                torsion_kwargs["radical_centers"] = config.torsion.radical_center or ()
             if qm_runner is not None:
                 torsion_kwargs["qm_runner"] = qm_runner
+            # work_dir is the NCAA stage path (ncaa/{tag}); the torsion scans are
+            # the TorsionFit stage's output and live under its own stage directory.
+            torsion_kwargs["workflow"] = work_dir.replace("ncaa/", "torsionfit/", 1) if work_dir.startswith("ncaa/") else "torsionfit"
             torsion = run_torsion_workflow(**torsion_kwargs)
     else:
         torsion = TorsionWorkflowResult(
-            stage1_parameter_set=None,
-            final_parameter_set=stage0_result,
+            stage1_paramset=None,
+            final_paramset=stage0_result,
         )
-    return torsion.final_parameter_set, torsion
+    return torsion.final_paramset, torsion
 
 
 def run_ncaa_abinitio(
@@ -247,6 +293,8 @@ def run_ncaa_abinitio(
     target_residue: dict,
     config: NCAAAbinitioConfig,
     log_info: Callable[[list], None],
+    work_dir: str = "ncaa",
+    tleap_validation: bool = True,
 ) -> NCAAWorkflowResult:
     stage_timings: list[tuple[str, float]] = []
     qm_runner = build_qm_reference_runner(config.qm)
@@ -260,6 +308,7 @@ def run_ncaa_abinitio(
             config=config,
             qm_runner=qm_runner,
             log_info=log_info,
+            work_dir=work_dir,
         )
     log_info(
         format_ncaa_start_lines(
@@ -289,12 +338,13 @@ def run_ncaa_abinitio(
             representative_model=prepared.representative.model,
             residue_key=prepared.identity.residue_key,
             bond_pairs=infer_bond_pairs(prepared.representative.model),
-            total_charge=config.charge,
-            multiplicity=config.mult,
+            total_charge=config.res_charge,
+            multiplicity=config.res_spin_multi,
             config=config.charge_fit,
             source_atoms=source_atoms,
-            prom=config.prom,
+            pro_ff=config.pro_ff,
             wfn_path=resp_wfn,
+            workflow=work_dir,
         )
     representative_model = apply_model_charges(
         prepared.representative.model,
@@ -315,6 +365,7 @@ def run_ncaa_abinitio(
             charged_residue=charged_residue,
             charge_result=charge_result,
             config=config,
+            work_dir=work_dir,
         )
     if config.bonded == "none":
         log_info(["  [NCAA] bond/angle skipped ...\n"])
@@ -325,11 +376,11 @@ def run_ncaa_abinitio(
     if config.torsion.enabled:
         log_info(["  [NCAA] TorsionFit ...\n"])
         if qm_runner is not None:
-            qm_mode = int(getattr(config.qm, "qm_mode", 2))
+            qm_mode = int(getattr(config.qm, "qm_mode", 1))
             log_info([f"  [NCAA] Using QM reference data for TorsionFit (mode={qm_mode}) ...\n"])
     else:
         log_info(["  [NCAA] TorsionFit skipped ...\n"])
-    parameter_set, torsion = _refine_ncaa_parameters(
+    paramset, torsion = _refine_ncaa_parameters(
         output=output,
         source_atoms=source_atoms,
         representative_model=representative_model,
@@ -340,6 +391,7 @@ def run_ncaa_abinitio(
         stage_timings=stage_timings,
         qm_hessian=prepared.qm_hessian,
         qm_runner=qm_runner,
+        work_dir=work_dir,
     )
     log_info(["  [NCAA] writing refined templates + tleap input ...\n"])
     with _timed_stage(stage_timings, "final export"):
@@ -349,18 +401,20 @@ def run_ncaa_abinitio(
             representative_model=representative_model,
             charged_residue=charged_residue,
             conformers=prepared.conformers,
-            final_parameter_set=parameter_set,
+            final_paramset=paramset,
             config=config,
             structure=structure,
             target_residue=target_residue,
+            work_dir=work_dir,
         )
 
-    log_info(["  [NCAA] tleap validation ...\n"])
-    with _timed_stage(stage_timings, "tleap validation"):
-        interface.run_tleap(
-            export_bundle.artifacts.tleap_input,
-            workdir=os.path.dirname(export_bundle.artifacts.tleap_input) or ".",
-        )
+    if tleap_validation:
+        log_info(["  [NCAA] tleap validation ...\n"])
+        with _timed_stage(stage_timings, "tleap validation"):
+            interface.run_tleap(
+                export_bundle.artifacts.tleap_input,
+                workdir=os.path.dirname(export_bundle.artifacts.tleap_input) or ".",
+            )
 
     log_info(
         format_ncaa_final_lines(
@@ -374,11 +428,12 @@ def run_ncaa_abinitio(
         identity=prepared.identity,
         representative=prepared.representative,
         conformers=prepared.conformers,
-        parameter_set=parameter_set,
+        paramset=paramset,
         torsion=torsion,
         artifacts=export_bundle.artifacts,
         charge_result=charge_result,
         representative_model=representative_model,
         residue_model=residue_model,
         stage_timings=list(stage_timings),
+        atom_type_rows=list(export_bundle.atom_type_rows),
     )

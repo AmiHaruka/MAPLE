@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 from scipy.optimize import minimize
@@ -29,7 +29,7 @@ _STAGE2_NONFINITE_LOSS = 1.0e30
 
 @dataclass(frozen=True)
 class _Stage2ScanCache:
-    center_bond: tuple[int, int]
+    torsion_bond: tuple[int, int]
     row_slice: slice
     qm_rel: np.ndarray
     constant_rel: np.ndarray
@@ -43,7 +43,7 @@ class _Stage2ScanCache:
 @dataclass(frozen=True)
 class _Stage2ExtraTargetCache:
     label: str
-    center_bond: tuple[int, int]
+    torsion_bond: tuple[int, int]
     row_slice: slice
     qm_rel: np.ndarray
     constant_rel: np.ndarray
@@ -58,7 +58,7 @@ class _Stage2ExtraTargetCache:
 
 @dataclass(frozen=True)
 class _Stage2ObjectiveCache:
-    center_bonds: tuple[tuple[int, int], ...]
+    torsion_bonds: tuple[tuple[int, int], ...]
     n_terms: int
     qm_rel: np.ndarray
     constant_rel: np.ndarray
@@ -123,25 +123,25 @@ def _build_stage2_objective_cache(problem: TorsionGlobalProblem) -> _Stage2Objec
     scan_caches: dict[tuple[int, int], _Stage2ScanCache] = {}
     offset = 0
 
-    for center_bond in problem.center_bonds:
-        qm_rel = np.asarray(problem.qm_rel_map[center_bond], dtype=float)
-        constant_rel = np.asarray(problem.constant_rel_map.get(center_bond, np.zeros_like(qm_rel)), dtype=float)
-        cos_basis = np.asarray(problem.centered_cos_basis_map[center_bond], dtype=float)
-        sin_basis = np.asarray(problem.centered_sin_basis_map[center_bond], dtype=float)
+    for torsion_bond in problem.torsion_bonds:
+        qm_rel = np.asarray(problem.qm_rel_map[torsion_bond], dtype=float)
+        constant_rel = np.asarray(problem.constant_rel_map.get(torsion_bond, np.zeros_like(qm_rel)), dtype=float)
+        cos_basis = np.asarray(problem.centered_cos_basis_map[torsion_bond], dtype=float)
+        sin_basis = np.asarray(problem.centered_sin_basis_map[torsion_bond], dtype=float)
         if cos_basis.shape != (qm_rel.size, n_terms):
-            raise ValueError(f"centered cos basis for center bond {center_bond} has shape {cos_basis.shape}, expected {(qm_rel.size, n_terms)}.")
+            raise ValueError(f"centered cos basis for torsion bond {torsion_bond} has shape {cos_basis.shape}, expected {(qm_rel.size, n_terms)}.")
         if sin_basis.shape != (qm_rel.size, n_terms):
-            raise ValueError(f"centered sin basis for center bond {center_bond} has shape {sin_basis.shape}, expected {(qm_rel.size, n_terms)}.")
+            raise ValueError(f"centered sin basis for torsion bond {torsion_bond} has shape {sin_basis.shape}, expected {(qm_rel.size, n_terms)}.")
         if constant_rel.shape != qm_rel.shape:
-            raise ValueError(f"constant relative profile for center bond {center_bond} must match qm_rel shape.")
+            raise ValueError(f"constant relative profile for torsion bond {torsion_bond} must match qm_rel shape.")
 
         target_like = qm_rel - constant_rel
         profile_scale = _profile_fit_scale(qm_rel, target_like)
         weights = _scan_energy_weights(qm_rel)
         weight_sum = float(np.sum(weights))
         row_slice = slice(offset, offset + qm_rel.size)
-        scan_caches[center_bond] = _Stage2ScanCache(
-            center_bond=center_bond,
+        scan_caches[torsion_bond] = _Stage2ScanCache(
+            torsion_bond=torsion_bond,
             row_slice=row_slice,
             qm_rel=qm_rel,
             constant_rel=constant_rel,
@@ -162,7 +162,7 @@ def _build_stage2_objective_cache(problem: TorsionGlobalProblem) -> _Stage2Objec
         target_weight = float(target.weight)
         if target_weight <= 0.0:
             continue
-        center_bond = (int(target.center_bond[0]), int(target.center_bond[1]))
+        torsion_bond = (int(target.torsion_bond[0]), int(target.torsion_bond[1]))
         qm_rel = np.asarray(target.qm_rel, dtype=float)
         constant_rel = np.asarray(target.constant_rel, dtype=float)
         cos_basis = np.asarray(target.cos_basis, dtype=float)
@@ -181,7 +181,7 @@ def _build_stage2_objective_cache(problem: TorsionGlobalProblem) -> _Stage2Objec
         extra_target_caches.append(
             _Stage2ExtraTargetCache(
                 label=str(target.label),
-                center_bond=center_bond,
+                torsion_bond=torsion_bond,
                 row_slice=row_slice,
                 qm_rel=qm_rel,
                 constant_rel=constant_rel,
@@ -206,7 +206,7 @@ def _build_stage2_objective_cache(problem: TorsionGlobalProblem) -> _Stage2Objec
         prior_weights = prior_weights / max(float(np.mean(prior_weights)), 1.0e-12)
 
     return _Stage2ObjectiveCache(
-        center_bonds=tuple(problem.center_bonds),
+        torsion_bonds=tuple(problem.torsion_bonds),
         n_terms=n_terms,
         qm_rel=np.concatenate(qm_blocks) if qm_blocks else np.zeros(0, dtype=float),
         constant_rel=np.concatenate(constant_blocks) if constant_blocks else np.zeros(0, dtype=float),
@@ -226,16 +226,17 @@ def _stage2_cached_mm_values(
     cos_coeff, sin_coeff = _coefficients_from_delta(problem, vector)
     return cache.constant_rel + (cache.cos_basis @ cos_coeff) + (cache.sin_basis @ sin_coeff)
 
-def _parameter_set_from_delta(problem: TorsionGlobalProblem, delta_vector: np.ndarray) -> CorrectionParameterSet:
+def _paramset_from_delta(problem: TorsionGlobalProblem, delta_vector: np.ndarray) -> CorrectionParameterSet:
     k_caps = _stage2_k_caps(problem, delta_vector, np.ones(len(problem.term_paths), dtype=bool))
     capped_vector = _stage2_project_vector_to_k_caps(problem, delta_vector, k_caps)
     k_values, phase_values = _split_global_vector(problem, capped_vector)
 
     if problem.grouped:
-        reference_parameter_set = problem.reference_parameter_set if problem.reference_parameter_set is not None else problem.stage0_parameter_set
-        dihedrals = list(reference_parameter_set.dihedrals)
-        for center_bond in problem.center_bonds:
-            for group in problem.shared_groups_map.get(center_bond, ()):
+        reference_paramset = problem.reference_paramset if problem.reference_paramset is not None else problem.stage0_paramset
+        dihedrals = list(reference_paramset.dihedrals)
+        impropers = list(reference_paramset.impropers)
+        for torsion_bond in problem.torsion_bonds:
+            for group in problem.shared_groups_map.get(torsion_bond, ()):
                 shared_term_map: dict[int, FourierTerm] = {}
                 for slot_index in group.slot_indices:
                     shared_term_map[int(problem.period_orig[slot_index])] = FourierTerm(
@@ -243,33 +244,33 @@ def _parameter_set_from_delta(problem: TorsionGlobalProblem, delta_vector: np.nd
                         period=float(problem.period_orig[slot_index]),
                         phase=float(phase_values[slot_index]),
                     )
+                if group.improper:
+                    for index, improper in enumerate(impropers):
+                        if improper.atoms[2] != torsion_bond[0]:
+                            continue
+                        impropers[index] = type(improper)(
+                            atoms=improper.atoms,
+                            atom_types=improper.atom_types,
+                            terms=_merge_template_and_frozen_terms(
+                                improper.terms, shared_term_map, cap=float(np.inf)
+                            ),
+                            refit=True,
+                        )
+                    continue
                 for dihedral_index in group.dihedral_indices:
-                    dihedral = reference_parameter_set.dihedrals[dihedral_index]
+                    dihedral = reference_paramset.dihedrals[dihedral_index]
                     dihedrals[dihedral_index] = type(dihedral)(
                         atoms=dihedral.atoms,
                         atom_types=dihedral.atom_types,
                         terms=_merge_template_and_frozen_terms(dihedral.terms, shared_term_map),
                     )
 
-        return CorrectionParameterSet(
-            mol2=reference_parameter_set.mol2,
-            frcmod=reference_parameter_set.frcmod,
-            bonds=reference_parameter_set.bonds,
-            angles=reference_parameter_set.angles,
-            dihedrals=dihedrals,
-            impropers=reference_parameter_set.impropers,
-            nonbonds=reference_parameter_set.nonbonds,
-            unmatched_bonds=reference_parameter_set.unmatched_bonds,
-            unmatched_angles=reference_parameter_set.unmatched_angles,
-            unmatched_dihedrals=reference_parameter_set.unmatched_dihedrals,
-            unmatched_impropers=reference_parameter_set.unmatched_impropers,
-            unmatched_nonbonds=reference_parameter_set.unmatched_nonbonds,
-        )
+        return replace(reference_paramset, dihedrals=dihedrals, impropers=impropers)
 
     replacements: dict[int, list[FourierTerm]] = {}
     for global_index, (dihedral_index, term_index) in enumerate(problem.term_paths):
         if dihedral_index not in replacements:
-            dihedral = problem.stage0_parameter_set.dihedrals[dihedral_index]
+            dihedral = problem.stage0_paramset.dihedrals[dihedral_index]
             replacements[dihedral_index] = [FourierTerm(term.kPhi, term.period, term.phase) for term in dihedral.terms]
         replacements[dihedral_index][term_index] = FourierTerm(
             kPhi=float(k_values[global_index]),
@@ -277,32 +278,19 @@ def _parameter_set_from_delta(problem: TorsionGlobalProblem, delta_vector: np.nd
             phase=float(phase_values[global_index]),
         )
 
-    dihedrals = list(problem.stage0_parameter_set.dihedrals)
+    dihedrals = list(problem.stage0_paramset.dihedrals)
     for dihedral_index, terms in replacements.items():
-        dihedral = problem.stage0_parameter_set.dihedrals[dihedral_index]
+        dihedral = problem.stage0_paramset.dihedrals[dihedral_index]
         dihedrals[dihedral_index] = type(dihedral)(
             atoms=dihedral.atoms,
             atom_types=dihedral.atom_types,
             terms=terms,
         )
 
-    return CorrectionParameterSet(
-        mol2=problem.stage0_parameter_set.mol2,
-        frcmod=problem.stage0_parameter_set.frcmod,
-        bonds=problem.stage0_parameter_set.bonds,
-        angles=problem.stage0_parameter_set.angles,
-        dihedrals=dihedrals,
-        impropers=problem.stage0_parameter_set.impropers,
-        nonbonds=problem.stage0_parameter_set.nonbonds,
-        unmatched_bonds=problem.stage0_parameter_set.unmatched_bonds,
-        unmatched_angles=problem.stage0_parameter_set.unmatched_angles,
-        unmatched_dihedrals=problem.stage0_parameter_set.unmatched_dihedrals,
-        unmatched_impropers=problem.stage0_parameter_set.unmatched_impropers,
-        unmatched_nonbonds=problem.stage0_parameter_set.unmatched_nonbonds,
-    )
+    return replace(problem.stage0_paramset, dihedrals=dihedrals)
 
 def apply_global_delta(problem: TorsionGlobalProblem, delta_vector: np.ndarray) -> CorrectionParameterSet:
-    return _parameter_set_from_delta(problem, np.asarray(delta_vector, dtype=float))
+    return _paramset_from_delta(problem, np.asarray(delta_vector, dtype=float))
 
 
 # -----------------------------------------------------------------------------
@@ -318,15 +306,15 @@ def _global_mm_rel_map(
     if cache is not None:
         stacked = _stage2_cached_mm_values(problem, vector, cache)
         return {
-            center_bond: stacked[scan_cache.row_slice].copy()
-            for center_bond, scan_cache in cache.scan_caches.items()
+            torsion_bond: stacked[scan_cache.row_slice].copy()
+            for torsion_bond, scan_cache in cache.scan_caches.items()
         }
     cos_coeff, sin_coeff = _coefficients_from_delta(problem, vector)
     mm_rel_map: dict[tuple[int, int], np.ndarray] = {}
-    for center_bond in problem.center_bonds:
-        cos_basis = np.asarray(problem.centered_cos_basis_map[center_bond], dtype=float)
-        sin_basis = np.asarray(problem.centered_sin_basis_map[center_bond], dtype=float)
-        mm_rel_map[center_bond] = problem.constant_rel_map[center_bond] + (cos_basis @ cos_coeff) + (sin_basis @ sin_coeff)
+    for torsion_bond in problem.torsion_bonds:
+        cos_basis = np.asarray(problem.centered_cos_basis_map[torsion_bond], dtype=float)
+        sin_basis = np.asarray(problem.centered_sin_basis_map[torsion_bond], dtype=float)
+        mm_rel_map[torsion_bond] = problem.constant_rel_map[torsion_bond] + (cos_basis @ cos_coeff) + (sin_basis @ sin_coeff)
     return mm_rel_map
 
 def _stage2_prior_loss(
@@ -376,8 +364,8 @@ def _stage2_data_evaluation_and_gradient_weights(
     residual_gradient_weights = np.zeros_like(stacked_residual)
     n_scans = max(len(cache.scan_caches), 1)
 
-    for center_bond in cache.center_bonds:
-        scan_cache = cache.scan_caches[center_bond]
+    for torsion_bond in cache.torsion_bonds:
+        scan_cache = cache.scan_caches[torsion_bond]
         mm_rel = stacked_mm_rel[scan_cache.row_slice]
         qm_rel = scan_cache.qm_rel
         offset = _stage2_weighted_offset(qm_rel, mm_rel, scan_cache.weights) if mean_shift else 0.0
@@ -389,8 +377,8 @@ def _stage2_data_evaluation_and_gradient_weights(
             profile_scale=scan_cache.profile_scale,
             weights=scan_cache.weights,
         )
-        per_scan_rmse[center_bond] = float(np.sqrt(np.mean(residual**2))) if residual.size else 0.0
-        per_scan_data_loss[center_bond] = float(loss_metrics["data_loss"])
+        per_scan_rmse[torsion_bond] = float(np.sqrt(np.mean(residual**2))) if residual.size else 0.0
+        per_scan_data_loss[torsion_bond] = float(loss_metrics["data_loss"])
         stacked_residual[scan_cache.row_slice] = residual
         if scan_cache.weight_sum > 0.0:
             residual_gradient_weights[scan_cache.row_slice] = (
@@ -555,6 +543,12 @@ def _stage2_k_caps(
 ) -> np.ndarray:
     del vector_init, active_mask, cache
     caps = np.full(len(problem.term_paths), _FITTED_TERM_MAX_K, dtype=float)
+    for torsion_bond, groups in problem.shared_groups_map.items():
+        if not torsion_bond[0] == torsion_bond[1]:
+            continue
+        for group in groups:
+            for slot_index in group.slot_indices:
+                caps[slot_index] = np.inf
     return caps
 
 def _stage2_project_vector_to_k_caps(
@@ -859,8 +853,8 @@ def refine_torsion_scans_global(
         total_loss_after=final_eval.total_loss,
         global_rmse_before=before_eval.global_rmse,
         global_rmse_after=final_eval.global_rmse,
-        accepted_blocks=len(problem.center_bonds) if accepted else 0,
-        rejected_blocks=0 if accepted else len(problem.center_bonds),
+        accepted_blocks=len(problem.torsion_bonds) if accepted else 0,
+        rejected_blocks=0 if accepted else len(problem.torsion_bonds),
         per_scan_rmse_before=dict(before_eval.per_scan_rmse),
         per_scan_rmse_after=dict(final_eval.per_scan_rmse),
         data_loss_before=before_eval.data_loss,

@@ -20,15 +20,15 @@ def format_torsion_fit_report(report: TorsionFitReport) -> list[str]:
         "=" * 92 + "\n",
         "Parmfit Torsion Scan Fit".center(92) + "\n",
         "=" * 92 + "\n",
-        f"Center bond: {report.center_bond}\n",
+        f"Torsion bond: {report.torsion_bond}\n",
         f"Representative dihedral: {report.representative_dihedral}\n",
         f"Scan xyz: {report.scan_source_path}\n",
-        f"Target proper count: {len(report.target_dihedrals)}\n",
+        f"Target proper count: {len(report.target_instances)}\n",
         "\n",
         "Target proper order:\n",
     ]
 
-    for index, dihedral in enumerate(report.target_dihedrals, start=1):
+    for index, dihedral in enumerate(report.target_instances, start=1):
         lines.append(f"  {index:>2d}. atoms={dihedral.atoms} types={dihedral.atom_types}\n")
 
     if terms.shared_groups:
@@ -72,9 +72,9 @@ def format_torsion_fit_report(report: TorsionFitReport) -> list[str]:
     else:
         lines.append("\nStage-1 delta initializer:\n")
         delta_str = ", ".join(f"{value:.6f}" for value in terms.delta_kphi)
-        lines.append(f"  group={tuple(range(1, len(report.target_dihedrals) + 1))} delta_kPhi=[{delta_str}]\n")
+        lines.append(f"  group={tuple(range(1, len(report.target_instances) + 1))} delta_kPhi=[{delta_str}]\n")
 
-        lines.append("\nStage-1 fitted kPhi per proper:\n")
+        lines.append("\nStage-1 fitted kPhi per term:\n")
         for index, (old_terms, new_terms) in enumerate(zip(terms.original_terms, terms.fitted_terms), start=1):
             for term_index, (old_term, new_term) in enumerate(zip(old_terms, new_terms), start=1):
                 lines.append(
@@ -178,8 +178,8 @@ def format_torsion_final_point_table(report: TorsionFitReport) -> list[str]:
         "=" * 92 + "\n",
         "Parmfit Torsion Stage-2 Final Fit".center(92) + "\n",
         "=" * 92 + "\n",
-        f"Center bond: {report.center_bond}\n",
-        f"Representative dihedral: {report.representative_dihedral}\n",
+        f"Improper center: {report.torsion_bond[0]}\n" if report.torsion_bond[0] == report.torsion_bond[1] else f"Torsion bond: {report.torsion_bond}\n",
+        f"Improper quartet: {report.representative_dihedral}\n" if report.torsion_bond[0] == report.torsion_bond[1] else f"Representative dihedral: {report.representative_dihedral}\n",
         f"Scan xyz: {report.scan_source_path}\n",
         "\n",
         "Relative scan point table:\n",
@@ -216,7 +216,7 @@ def format_torsion_stage1_lines(
     params: TorsionFitParams,
     warnings: list[str],
     *,
-    has_center_bonds: bool = True,
+    has_torsion_bonds: bool = True,
 ) -> list[str]:
     lines = ["\n"]
     if not params.enabled:
@@ -226,8 +226,8 @@ def format_torsion_stage1_lines(
         lines.append("warnings:\n")
         for warning in warnings:
             lines.append(f"  - {warning}\n")
-    if not has_center_bonds:
-        lines.append("torsion state:   no eligible center bonds were selected\n")
+    if not has_torsion_bonds:
+        lines.append("torsion state:   no eligible torsion bonds were selected\n")
     return lines
 
 
@@ -235,7 +235,7 @@ def format_torsion_stage2_lines(
     params: TorsionFitParams,
     refine_reports: list[TorsionRefineCycle],
     *,
-    has_center_bonds: bool = True,
+    has_torsion_bonds: bool = True,
 ) -> list[str]:
     lines = ["\n"]
     if not params.enabled:
@@ -244,8 +244,8 @@ def format_torsion_stage2_lines(
     if params.refine_rounds <= 0:
         lines.append("refine state:     not requested\n")
         return lines
-    if not has_center_bonds:
-        lines.append("refine state:     no eligible center bonds were selected in stage 1\n")
+    if not has_torsion_bonds:
+        lines.append("refine state:     no eligible torsion bonds were selected in stage 1\n")
         return lines
     if not refine_reports:
         lines.append("refine state:     no fast cycles were executed\n")
@@ -254,11 +254,6 @@ def format_torsion_stage2_lines(
         for cycle in refine_reports:
             if cycle.cycle == 1 or cycle.cycle == len(refine_reports) or (cycle.cycle - 1) % 20 == 0:
                 selected_cycles.append(cycle)
-        best_round = max(int(cycle.diagnostics.get("best_round", 0)) for cycle in refine_reports)
-        if best_round > 0:
-            for cycle in refine_reports:
-                if cycle.cycle == best_round and cycle not in selected_cycles:
-                    selected_cycles.append(cycle)
         selected_cycles.sort(key=lambda cycle: cycle.cycle)
         for cycle in selected_cycles:
             lines.extend(format_torsion_refine_cycle(cycle))
@@ -276,10 +271,10 @@ def format_torsion_refine_cycle(report: TorsionRefineCycle) -> list[str]:
     )
     lines = [headline + "\n"]
     lines.append("  per-scan RMSE:\n")
-    for center_bond in report.per_scan_rmse_before:
+    for torsion_bond in report.per_scan_rmse_before:
         lines.append(
-            f"    {center_bond}: {report.per_scan_rmse_before[center_bond]:.6f} -> "
-            f"{report.per_scan_rmse_after[center_bond]:.6f}\n"
+            f"    {torsion_bond}: {report.per_scan_rmse_before[torsion_bond]:.6f} -> "
+            f"{report.per_scan_rmse_after[torsion_bond]:.6f}\n"
         )
     if diagnostics:
         lines.append(

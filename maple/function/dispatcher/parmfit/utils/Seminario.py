@@ -1,12 +1,12 @@
-"""Usage: fit bond and angle parameters with the Seminario method."""
+"""Usage: fit bond, angle, and improper parameters with the Seminario method."""
 
 from itertools import product
-from math import acos
+from math import acos, pi
 
 import numpy as np
 from ase import Atoms
 
-from .readparm import Angle, Bond
+from .readparm import Angle, Bond, FourierTerm, Improper
 
 
 HARTREE_TO_KCAL_MOL = 627.509474
@@ -19,10 +19,12 @@ def apply_seminario(
     bonds: list[Bond],
     angles: list[Angle],
     vibrational_scaling: float = 1.0,
-) -> tuple[list[Bond], list[Angle]]:
+    impropers: list[Improper] | None = None,
+) -> tuple[list[Bond], list[Angle], list[Improper]]:
     """
-    Fill bond and angle instances using the original Seminario method.
+    Fill bond, angle, and improper instances using the Seminario method.
     """
+    impropers = [] if impropers is None else impropers
     hessian_input = np.asarray(hessian_cart, dtype=float)
     expected_shape = (3 * len(atoms), 3 * len(atoms))
     if hessian_input.shape != expected_shape:
@@ -33,7 +35,7 @@ def apply_seminario(
     hessian = hessian_input * HARTREE_TO_KCAL_MOL
     positions = np.asarray(atoms.get_positions(), dtype=float)
     scaling_sq = float(vibrational_scaling) ** 2
-    eig_cache = _build_block_eigen_cache(hessian, bonds, angles)
+    eig_cache = _build_block_eigen_cache(hessian, bonds, angles, impropers)
 
     for bond in bonds:
         i, j = bond.atoms
@@ -48,13 +50,25 @@ def apply_seminario(
         k_theta = _angle_force_constant(i, j, k, positions, eig_cache)
         angle.kTheta = max(float(np.real(k_theta * 0.5) * scaling_sq), 0.0)
 
-    return bonds, angles
+    for improper in impropers:
+        i, j, k, l = improper.atoms
+        k_phi = _improper_force_constant(i, j, k, l, positions, eig_cache)
+        improper.terms = [
+            FourierTerm(
+                kPhi=max(k_phi * scaling_sq, 0.0),
+                period=2.0,
+                phase=pi,
+            )
+        ]
+
+    return bonds, angles, impropers
 
 
 def _build_block_eigen_cache(
     hessian: np.ndarray,
     bonds: list[Bond],
     angles: list[Angle],
+    impropers: list[Improper],
 ) -> dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]:
     pairs: set[tuple[int, int]] = set()
     for bond in bonds:
@@ -65,6 +79,11 @@ def _build_block_eigen_cache(
         i, j, k = angle.atoms
         pairs.add((i, j))
         pairs.add((k, j))
+    for improper in impropers:
+        i, j, center, l = improper.atoms
+        pairs.add((center, i))
+        pairs.add((center, j))
+        pairs.add((center, l))
 
     cache: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
     for i, j in pairs:
@@ -88,6 +107,17 @@ def _angle_value(positions: np.ndarray, i: int, j: int, k: int) -> float:
     u_jk = _unit_vector(positions[k - 1] - positions[j - 1])
     cosine = float(np.clip(np.dot(u_ji, u_jk), -1.0, 1.0))
     return float(acos(cosine))
+
+
+def _improper_value(positions: np.ndarray, i: int, j: int, k: int, l: int) -> float:
+    b0 = positions[j - 1] - positions[i - 1]
+    b1 = positions[k - 1] - positions[j - 1]
+    b2 = positions[l - 1] - positions[k - 1]
+    u_jk = _unit_vector(b1)
+    u_pa = _unit_vector(b0 - np.dot(b0, u_jk) * u_jk)
+    u_pc = _unit_vector(b2 - np.dot(b2, u_jk) * u_jk)
+    angle = float(np.arctan2(np.dot(np.cross(u_jk, u_pa), u_pc), np.dot(u_pa, u_pc)))
+    return ((angle + 2.0 * pi) % (2.0 * pi)) - pi
 
 
 def _unit_vector(vector: np.ndarray) -> np.ndarray:
@@ -213,6 +243,36 @@ def _angle_force_constant_linear(
     if not k_values:
         raise ValueError("Failed to construct a valid normal for a linear angle.")
     return complex(np.mean(k_values))
+
+
+def _improper_force_constant(
+    atom_a: int,
+    atom_b: int,
+    atom_c: int,
+    atom_d: int,
+    positions: np.ndarray,
+    eig_cache: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]],
+) -> float:
+    v_ab = positions[atom_b - 1] - positions[atom_a - 1]
+    v_ad = positions[atom_d - 1] - positions[atom_a - 1]
+    u_n = _unit_vector(np.cross(v_ab, v_ad))
+
+    total = 0.0 + 0.0j
+    for outer in (atom_a, atom_b, atom_d):
+        eigenvalues, eigenvectors = eig_cache[(atom_c, outer)]
+        total += _seminario_sum(u_n, eigenvalues, eigenvectors)
+    k_h = float(np.real(total * 0.5))
+
+    eps = 1.0e-4
+    displaced = positions.copy()
+    displaced[atom_c - 1] = positions[atom_c - 1] + eps * u_n
+    phi_plus = _improper_value(displaced, atom_a, atom_b, atom_c, atom_d)
+    displaced[atom_c - 1] = positions[atom_c - 1] - eps * u_n
+    phi_minus = _improper_value(displaced, atom_a, atom_b, atom_c, atom_d)
+    # a planar reference can sit on the +/-pi branch cut, so re-wrap the difference
+    slope = (((phi_plus - phi_minus + pi) % (2.0 * pi)) - pi) / (2.0 * eps)
+    # K(1 - cos 2phi) ~ 2 K phi^2 must reproduce k_h h^2 at the reference
+    return k_h / (2.0 * slope * slope)
 
 
 def _seminario_sum(vector: np.ndarray, eigenvalues: np.ndarray, eigenvectors: np.ndarray) -> complex:

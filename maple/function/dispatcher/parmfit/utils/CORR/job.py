@@ -6,9 +6,10 @@ from typing import Optional
 
 from ase import Atoms
 
-from ...jobABC import JobABC
-from ..utils.readparm import CorrectionParameterSet
-from ..utils.TorsionFit import run_torsion_workflow
+from ....jobABC import JobABC
+from ...runconfig import as_tracked, write_parmfit_run
+from ..readparm import CorrectionParameterSet
+from ..TorsionFit import run_torsion_workflow
 from .artifacts import CorrectionWorkflowResult
 from .config import CorrectionConfig, build_correction_config
 from .workflow import run_correction_workflow
@@ -23,7 +24,14 @@ class Correction(JobABC):
     def __init__(self, output: str, atoms: Atoms, params: Optional[dict] = None):
         super().__init__(output)
         self.atoms = atoms
-        self.params = build_correction_config(params if isinstance(params, dict) else {})
+        tracker = as_tracked(params if isinstance(params, dict) else {})
+        self.params = build_correction_config(tracker)
+        write_parmfit_run(
+            output,
+            "correction",
+            tracker,
+            warn=lambda message: self.log_info([f"WARNING: {message}\n"]),
+        )
         self.workflow_result: CorrectionWorkflowResult | None = None
 
     @property

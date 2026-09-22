@@ -570,15 +570,15 @@ def warn_capped_proton_transfer(conformers: list[NCAAConformer]) -> None:
             )
 
 
-def build_ncaa_center_bond_filter(representative_model: dict):
+def build_ncaa_torsion_bond_filter(representative_model: dict):
     residue_indices, backbone_indices, r_group_indices, _mobile_indices = _ncaa_residue_r_group_indices(representative_model)
 
-    def keep(center_bond: tuple[int, int]) -> bool:
+    def keep(torsion_bond: tuple[int, int]) -> bool:
         return (
-            center_bond[0] in residue_indices
-            and center_bond[1] in residue_indices
-            and not (center_bond[0] in backbone_indices and center_bond[1] in backbone_indices)
-            and (center_bond[0] in r_group_indices or center_bond[1] in r_group_indices)
+            torsion_bond[0] in residue_indices
+            and torsion_bond[1] in residue_indices
+            and not (torsion_bond[0] in backbone_indices and torsion_bond[1] in backbone_indices)
+            and (torsion_bond[0] in r_group_indices or torsion_bond[1] in r_group_indices)
         )
 
     return keep

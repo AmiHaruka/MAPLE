@@ -5,7 +5,7 @@ __all__ = ["Correction"]
 
 def __getattr__(name: str):
     if name == "Correction":
-        from .correction import Correction
+        from .job import Correction
 
         return Correction
     raise AttributeError(name)

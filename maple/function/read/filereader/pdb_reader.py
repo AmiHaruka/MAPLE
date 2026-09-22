@@ -329,6 +329,7 @@ class PDBReadDiagnostics:
     warnings: tuple[str, ...] = field(default_factory=tuple)
     backbone_only_residues: tuple[str, ...] = field(default_factory=tuple)
     not_matched_residues: tuple[str, ...] = field(default_factory=tuple)
+    renamed_residues: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -656,10 +657,13 @@ def read_pdb_result(
     keep_altloc: str = "A",
     model: Optional[int] = None,
     *,
-    prom: str = "ff14SB",
+    pro_ff: str = "ff14SB",
     altloc_selectors: list[str] | None = None,
 ) -> PDBReadResult:
-    from maple.function.dispatcher.parmfit.utils.amber_templates import load_amber_template_registry
+    from maple.function.dispatcher.parmfit.utils.amber_templates import (
+        EXPLICIT_STATE_NAMES,
+        load_amber_template_registry,
+    )
     from maple.function.dispatcher.parmfit.utils.residue_matcher import (
         apply_template_match,
         match_residue_template,
@@ -674,7 +678,7 @@ def read_pdb_result(
         altloc_selectors=altloc_selectors,
     )
     candidate_pairs, coordination_pairs = _candidate_pairs(structure)
-    registry = load_amber_template_registry(prom)
+    registry = load_amber_template_registry(pro_ff)
 
     disulfide_serials: set[int] = set()
     for pair in candidate_pairs:
@@ -695,6 +699,7 @@ def read_pdb_result(
     warnings: list[str] = []
     backbone_only_labels: list[str] = []
     not_matched_labels: list[str] = []
+    renamed_labels: list[str] = []
     pending: list[dict] = []
 
     for residue in structure["residues"]:
@@ -715,6 +720,9 @@ def read_pdb_result(
         if match is not None:
             bond_pairs.update(apply_template_match(residue, match))
             matched += 1
+            source = str(residue.get("source_resname", residue["resname"])).strip().upper()
+            if source in EXPLICIT_STATE_NAMES and source != residue["resname"].strip().upper():
+                renamed_labels.append(f"{get_resid_label(residue)} ({source}->{residue['resname']})")
             continue
         pending.append(residue)
 
@@ -791,6 +799,7 @@ def read_pdb_result(
             warnings=tuple(warnings),
             backbone_only_residues=tuple(backbone_only_labels),
             not_matched_residues=tuple(not_matched_labels),
+            renamed_residues=tuple(renamed_labels),
         ),
     )
 
@@ -800,13 +809,13 @@ def read_pdb(
     keep_altloc: str = "A",
     model: Optional[int] = None,
     *,
-    prom: str = "ff14SB",
+    pro_ff: str = "ff14SB",
     altloc_selectors: list[str] | None = None,
 ) -> dict:
     return read_pdb_result(
         path,
         keep_altloc=keep_altloc,
         model=model,
-        prom=prom,
+        pro_ff=pro_ff,
         altloc_selectors=altloc_selectors,
     ).structure

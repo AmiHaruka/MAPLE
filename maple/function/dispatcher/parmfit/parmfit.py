@@ -28,17 +28,24 @@ class Parmfit(JobABC):
     def run(self):
         with timer("Parmfit optimization"):
             self._load_external_config()
+            if not self.method:
+                raise ValueError("parmfit requires method=corr|ncaa|metalaa in #parmfit(...) when input=<config> is used.")
             self._normalize_paths()
 
-            if self.method == "abinitio":
-                self._apply_cmo(use_oxy=True, info_fallback=False)
-                from .abinitio import Abinitio
+            if self.method.lower() == "ncaa":
+                from .utils.NCAA import NCAA
 
-                parmfit = Abinitio(output=self.output, atoms=self.atoms, params=self.params)
+                parmfit = NCAA(output=self.output, atoms=self.atoms, params=self.params)
                 return parmfit.run()
-            elif self.method == "correction":
-                self._apply_cmo(use_oxy=False, info_fallback=True)
-                from .correction import Correction
+            elif self.method.lower() == "metalaa":
+                from .utils.MetalAA import MetalAA
+
+                parmfit = MetalAA(output=self.output, atoms=self.atoms, params=self.params)
+                return parmfit.run()
+            elif self.method.lower() in ("correction", "corr"):
+                # Old setting
+                #self._apply_cmo(use_oxy=False, info_fallback=True)
+                from .utils.CORR import Correction
 
                 parmfit = Correction(output=self.output, atoms=self.atoms, params=self.params)
                 return parmfit.run()
@@ -51,7 +58,7 @@ class Parmfit(JobABC):
 #####################
 
     def _apply_cmo(self, *, use_oxy: bool, info_fallback: bool) -> None:
-        explicit = self.params.get("cmo")
+        explicit = self.params.get("cmo") or None
         if explicit is None:
             charge = int(self.atoms.info.get("charge", 0)) if info_fallback else 0
             mult = int(self.atoms.info.get("mult", 1)) if info_fallback else 1
@@ -79,14 +86,8 @@ class Parmfit(JobABC):
 
         input_path = self.extra.get("input_path") if isinstance(self.extra, dict) else None
         base_dir = os.path.dirname(os.path.abspath(input_path)) if input_path else os.getcwd()
-        inline_method = self.method.strip()
         config_path = ParmfitReader.resolve_path(str(config_ref), base_dir=base_dir)
         loaded = ParmfitReader(config_path)
-        config_method = str(loaded.get("method", "abinitio")).strip().lower()
-        if inline_method and inline_method != config_method:
-            raise ValueError(
-                f"parmfit input config method {config_method!r} does not match inline method hint {inline_method!r}."
-            )
 
         runtime_params = {}
         if "pdb" in self.params:
@@ -94,7 +95,6 @@ class Parmfit(JobABC):
         self.params = dict(loaded)
         self.params.update(runtime_params)
         self.params.pop("input", None)
-        self.method = config_method
 
     def _input_base_dir(self) -> str:
         input_path = self.extra.get("input_path") if isinstance(self.extra, dict) else None
@@ -109,7 +109,7 @@ class Parmfit(JobABC):
         normalized = path if os.path.isabs(path) else os.path.join(self._input_base_dir(), path)
         normalized = os.path.abspath(normalized)
         if not os.path.isfile(normalized):
-            if self.method == "correction":
+            if self.method in ("correction", "corr"):
                 raise ValueError(
                     f"parmfit(method=correction) requires the following file inputs: {key} "
                     f"(not found: {path})"
@@ -118,7 +118,7 @@ class Parmfit(JobABC):
         self.params[key] = normalized
 
     def _normalize_paths(self) -> None:
-        if self.method == "correction":
+        if self.method in ("correction", "corr"):
             mol2_path = self.params.get("mol2")
             if not mol2_path:
                 raise ValueError(
@@ -127,8 +127,9 @@ class Parmfit(JobABC):
             self._resolve_input_file("mol2")
             return
 
-        if self.method == "abinitio":
+        if self.method in ("ncaa", "metalaa"):
             pdb_path = self.params.get("pdb")
             if not pdb_path:
-                raise ValueError("parmfit(method=abinitio) requires a PDB block: PDB <path>.")
+                raise ValueError("parmfit(method=ncaa/metalaa) requires a PDB block: PDB <path>.")
             self._resolve_input_file("pdb")
+

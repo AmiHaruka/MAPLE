@@ -22,41 +22,39 @@ Parsed configuration:
 ----------------------------------------
 Task: parmfit
 model          : uma(size=uma-s-1p1)
-method         : abinitio
-cfmol2         : HEM_ff.mol2
-target         : A462
-cmo            : -1 6 3
-prom           : ff14sb
-watm           : tip3p
-bonded         : seminario
+method         : metalaa
+input          : P450.in
 device         : gpu0
 
                              Coordinates                              
 **********************************************************************
 
 Group 1 (PDB File)
-Resolved PDB: /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/4ZF6_H_renum.pdb
-PDB coordinates are parsed by parmfit abinitio at runtime.
+Resolved PDB: /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/4ZF6.pdb
+PDB coordinates are parsed by the parmfit route at runtime.
 --------------------
 
 ======================================================================
-                           Parmfit Abinitio                           
+                           Parmfit MetalAA                            
 ======================================================================
 Target: A462:FE (ion)
   PDB residue templates: matched=460, backbone_only=0, unmatched=1
-  Target metal selector: A462
+    not matched (seemingly not protein): A461:HEM
+    declare them via lig_resids (or ncaa_resids) to build parameters as small molecules
+  ions_resid: A462
   add_resid: []
   cluster_cutoff: 3.00 A
   donor_cutoff: 2.70 A
-  water model: tip3p
-  protein model: ff14SB
-  ion parameter set: 12_6
-  metal site charge/mult: -1 6
-  metal oxidation: 3
+  water ff: tip3p
+  protein ff: ff14SB
+  ion ff: 12_6
+  ions_charge: 3
+  ions_mult: 6
+  ncaa_resids: []
   large model charge/mult: -2 6
   chgmod: 1
   fixchg_resids: []
-  QM method: PBE1PBE/def2SVP
+  QM method: PBE1PBE/def2SV
   [MetalAA] large-model input written.
   [MetalAA] MLIP large-model optimization ...
   [MetalAA] large-model RESP ...
@@ -67,13 +65,13 @@ Target: A462:FE (ion)
   [MetalAA] route completed; final summary follows.
 
 ======================================================================
-                       PARMFIT ABINITIO RESULT                        
+                        PARMFIT METALAA RESULT                        
 ======================================================================
 Status: completed
 Route: MetalAA
 Target: A462:FE
-Protein model: ff14SB
-Charge/mult/oxidation: -1 6 3
+Protein ff: ff14SB
+Ions charge: 3
 Large model charge/mult: -2 6
 Core residues: _400:CYM, A461:HEM, A462:FE
 
@@ -85,20 +83,23 @@ Main products:
 
 Renamed atom types:
   residue      atom  old   new   charge
-  _400:CYM     SG    SH    Y1    -0.325996
-  A461:HEM     NA    nd    Y2    -0.126273
-  A461:HEM     NB    nc    Y3    -0.180159
-  A461:HEM     ND    nd    Y4    -0.140285
-  A461:HEM     NC    nc    Y5    -0.101255
-  A462:FE      FE    FE    M1     0.422951
+  _400:CYM     SG    SH    Z1    -0.728065
+  A461:HEM     NA    nc    Z2    -1.118188
+  A461:HEM     NB    nd    Z3    -0.938542
+  A461:HEM     ND    nc    Z4    -1.907202
+  A461:HEM     NC    nd    Z5    -0.846972
+  A462:FE      FE    FE    M1     2.694124
 
 Stage timing:
-  large RESP/Gaussian ESP       28m 11s
-  Hessian + Seminario               54s
-  large optimization                26s
-  tleap validation                   4s
-  site export                        0s
-  site selection/model build         0s
+  large RESP/Gaussian ESP    21m 50s
+  lig building                2m 59s
+  Hessian + Seminario            57s
+  large optimization             15s
+  tleap validation                4s
+  site export                     0s
+  model build                     0s
+  site selection                  0s
+  ncaa building                   0s
 
 Next step:
   cd P450_work
@@ -106,7 +107,7 @@ Next step:
 
 Tleap status:
   Errors: 0
-  Warnings: 7
+  Warnings: 8
   Notes: 1
 
 Warnings:
@@ -115,23 +116,23 @@ Warnings:
 
 
 
-Program started: 2026-08-04 11:28:00
+Program started: 2026-09-23 05:26:33
 
 ======================================================================
                       TIMING SUMMARY
 ======================================================================
-Input Reading.......................................   0.017 s  (   0.0 %)
-  Settings Parsing....................................   0.016 s  (  91.1 %)
-  Coordinate Section Parsing..........................   0.001 s  (   3.3 %)
+Input Reading.......................................   1.341 s  (   0.1 %)
+  Settings Parsing....................................   1.340 s  (  99.9 %)
+  Coordinate Section Parsing..........................   0.001 s  (   0.0 %)
   Post-Processing Expansion...........................   0.000 s  (   0.0 %)
-MLP Initialization..................................   9.245 s  (   0.5 %)
-Job Dispatching..................................... 1777.223 s  (  99.5 %)
-  Parmfit optimization................................ 1777.222 s  ( 100.0 %)
-    Parmfit abinitio.................................... 1777.159 s  ( 100.0 %)
+MLP Initialization..................................   8.982 s  (   0.6 %)
+Job Dispatching..................................... 1565.909 s  (  99.3 %)
+  Parmfit optimization................................ 1565.908 s  ( 100.0 %)
+    Parmfit MetalAA..................................... 1565.847 s  ( 100.0 %)
 ======================================================================
-Total wall time: 1786.486 s
-Total CPU time: 95.067 s
+Total wall time: 1576.233 s
+Total CPU time: 86.997 s
 ======================================================================
 
-Program ended: 2026-08-04 11:57:47
-TOTAL RUN TIME: 0 days 0 hours 29 minutes 46 seconds 485 msec
+Program ended: 2026-09-23 05:52:49
+TOTAL RUN TIME: 0 days 0 hours 26 minutes 16 seconds 232 msec

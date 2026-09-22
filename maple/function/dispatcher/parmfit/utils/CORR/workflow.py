@@ -9,15 +9,15 @@ from typing import Callable
 
 from ase import Atoms
 
-from ..utils.Seminario import apply_seminario
-from ..utils.mSeminario import apply_mseminario
-from ..utils.chargefit import apply_atomic_charges, fit_molecule_charges
-from ..utils.QMInterface import build_qm_reference_runner
-from ..utils.mlip_tools import release_charge_calculator_cache
-from ..utils.readparm import CorrectionParameterSet
-from ..utils.runtime import get_cartesian_hessian, parmfit_work_prefix, run_silent_lbfgs
-from ..utils.Scan.optimizer import LBFGS
-from ..utils.TorsionFit import TorsionScanRuntime, TorsionWorkflowResult, run_torsion_workflow
+from ..Seminario import apply_seminario
+from ..mSeminario import apply_mseminario
+from ..chgfit import apply_atomic_charges, fit_molecule_charges
+from ..QMInterface import build_qm_reference_runner
+from ..mlip_tools import release_charge_calculator_cache
+from ..readparm import CorrectionParameterSet, Improper
+from ..runtime import get_cartesian_hessian, parmfit_work_prefix, run_silent_lbfgs
+from ..Scan.optimizer import LBFGS
+from ..TorsionFit import TorsionScanRuntime, TorsionWorkflowResult, run_torsion_workflow
 from .artifacts import CorrectionWorkflowResult, export_amber, export_gromacs
 from .config import CorrectionConfig
 from .parameters import build_init_parmset
@@ -170,8 +170,10 @@ def run_correction_workflow(
         )
 
     calculator_cache: dict = {}
+    charge_fit_configured = config.charge_fit.method != "none"
     try:
-        log_info(stage_lines("\n[Correction] atomic charge fitting ..."))
+        if charge_fit_configured:
+            log_info(stage_lines("\n[Correction] atomic charge fitting ..."))
         with _timed_stage("charge fitting", stage_timings):
             charge_result = fit_molecule_charges(
                 output=output,
@@ -196,7 +198,8 @@ def run_correction_workflow(
         mlip_baseline_parmset = None
         if qm_compare_enabled:
             mlip_charge_atoms = mlip_atoms or atoms
-            log_info(stage_lines("[Correction] atomic charge fitting (MLIP comparison) ..."))
+            if charge_fit_configured:
+                log_info(stage_lines("[Correction] atomic charge fitting (MLIP comparison) ..."))
             with _timed_stage("charge fitting (MLIP comparison)", stage_timings):
                 mlip_charge_result = fit_molecule_charges(
                     output=output,
@@ -224,6 +227,33 @@ def run_correction_workflow(
             ),
         )
 
+    improper_targets = [improper for improper in stage0_parmset.impropers if improper.refit]
+    improper_lines = [f"  improper refit: {imp.atom_types} {imp.atoms}" for imp in improper_targets]
+    for center in config.torsion.radical_center or ():
+        neighbors = stage0_parmset.mol2.adjacency.get(center, set())
+        if len(neighbors) != 3:
+            improper_lines.append(f"  radical center {center} ignored (coordination != 3)")
+            continue
+        matched = [improper for improper in stage0_parmset.impropers if improper.atoms[2] == center]
+        if matched:
+            matched[0].refit = True
+            if matched[0] not in improper_targets:
+                improper_targets.append(matched[0])
+                improper_lines.append(f"  improper refit (radical): {matched[0].atom_types} {matched[0].atoms}")
+            continue
+        trio = sorted(neighbors)
+        quartet = (trio[0], trio[1], center, trio[2])
+        types = tuple(stage0_parmset.mol2.atoms[atom - 1].atom_type for atom in quartet)
+        improper_targets.append(Improper(atoms=quartet, atom_types=types, terms=[], refit=True))
+        improper_lines.append(f"  improper refit (radical): {types} {quartet}")
+    if int(atoms.info.get("mult", 1)) > 1 and not config.torsion.radical_center:
+        improper_lines.append(
+            "  open-shell system detected; radical_center is not set, radical-specific improper refinement is not enabled."
+        )
+    if improper_lines:
+        log_info(stage_lines("\n[Correction] TorsionFit improper target selection ..."))
+        log_info([f"improper refit targets: {len(improper_targets)}\n"] + improper_lines)
+
     mlip_torsion = None
     mlip_final_parmset = None
     if torsion_enabled:
@@ -235,13 +265,13 @@ def run_correction_workflow(
                 mlip_torsion = torsion_workflow_fn(
                     atoms=mlip_torsion_atoms,
                     output=output,
-                    parameter_set=mlip_stage0_parmset or deepcopy(init_parmset),
-                    original_parameter_set=mlip_baseline_parmset or init_parmset,
+                    paramset=mlip_stage0_parmset or deepcopy(init_parmset),
+                    original_paramset=mlip_baseline_parmset or init_parmset,
                     params=config.torsion,
                     runtime=build_torsion_runtime(config),
                     log_info=None,
                 )
-            mlip_final_parmset = deepcopy(mlip_torsion.final_parameter_set)
+            mlip_final_parmset = deepcopy(mlip_torsion.final_paramset)
             log_info(
                 parameter_change_lines(
                     "TorsionFit dihedral changes (MLIP)",
@@ -252,42 +282,48 @@ def run_correction_workflow(
             )
         log_info(stage_lines("\n[Correction] TorsionFit ..."))
         if qm_runner is not None:
-            qm_mode = int(getattr(config.qm, "qm_mode", 2))
+            qm_mode = int(getattr(config.qm, "qm_mode", 1))
             log_info(stage_lines(f"[Correction] Using QM reference data for TorsionFit (mode={qm_mode}) ..."))
         with _timed_stage("TorsionFit", stage_timings):
             torsion_kwargs = {
                 "atoms": atoms,
                 "output": output,
-                "parameter_set": stage0_parmset,
-                "original_parameter_set": route_baseline_parmset,
+                "paramset": stage0_parmset,
+                "original_paramset": route_baseline_parmset,
                 "params": config.torsion,
                 "runtime": build_torsion_runtime(config),
                 "log_info": None,
             }
+            if improper_targets:
+                torsion_kwargs["improper_targets"] = improper_targets
+                torsion_kwargs["radical_centers"] = config.torsion.radical_center or ()
             if qm_runner is not None:
                 torsion_kwargs["qm_runner"] = qm_runner
             torsion = torsion_workflow_fn(**torsion_kwargs)
-        final_parmset = deepcopy(torsion.final_parameter_set)
+        final_parmset = deepcopy(torsion.final_paramset)
         log_info(
             parameter_change_lines(
-                "TorsionFit dihedral changes" + (" (QM)" if qm_compare_enabled else ""),
+                "TorsionFit torsion changes" + (" (QM)" if qm_compare_enabled else ""),
                 stage0_parmset,
                 final_parmset,
-                sections=("dihedrals",),
+                sections=("dihedrals", "impropers"),
             )
         )
     else:
         torsion = TorsionWorkflowResult(
-            stage1_parameter_set=None,
-            final_parameter_set=stage0_parmset,
+            stage1_paramset=None,
+            final_paramset=stage0_parmset,
         )
         final_parmset = stage0_parmset
         if qm_compare_enabled:
             mlip_torsion = TorsionWorkflowResult(
-                stage1_parameter_set=None,
-                final_parameter_set=mlip_stage0_parmset or deepcopy(init_parmset),
+                stage1_paramset=None,
+                final_paramset=mlip_stage0_parmset or deepcopy(init_parmset),
             )
-            mlip_final_parmset = mlip_torsion.final_parameter_set
+            mlip_final_parmset = mlip_torsion.final_paramset
+
+    if improper_targets and not torsion_enabled:
+        log_info(stage_lines("[TorsionFit] improper refit targets detected -> skipped because torsionfit=False."))
 
     if has_parameter_changes(
         route_baseline_parmset,

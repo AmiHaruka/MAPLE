@@ -7,13 +7,16 @@ import re
 from typing import Any, Optional
 
 
-_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
 
 
 def _auto_cast(value: str) -> Any:
     lowered = value.lower()
     if lowered in {"true", "false"}:
         return lowered == "true"
+    if "_" in value:
+        # Underscored value tokens like 12_6 in ion_ff=12_6 are identifiers, not Python numeric literals.
+        return value
     try:
         return int(value)
     except Exception:
@@ -27,12 +30,14 @@ def _auto_cast(value: str) -> Any:
 
 def _strip_inline_comment(line: str) -> str:
     text = line.strip()
-    if not text or text.startswith(("#", ";")):
+    if not text:
         return ""
-    for index, char in enumerate(text):
-        if char in {"#", ";"} and (index == 0 or text[index - 1].isspace()):
-            return text[:index].rstrip()
-    return text
+    # '#' is the only comment character; ';' stays available inside values
+    # (e.g. torsion_bonds=22-25;3-8 per-residue groups).
+    index = text.find("#")
+    if index < 0:
+        return text
+    return text[:index].rstrip()
 
 
 def _resolve_file_path(path: str, base_dir: str, *, label: str) -> str:
@@ -70,7 +75,6 @@ class ParmfitReader:
         "ensemble",
     }
     PATH_KEYS = {"mol2"}
-    MULTI_PATH_KEYS = {"cfmol2"}
 
     def __new__(cls, file_path: str, base_dir: Optional[str] = None) -> dict[str, Any]:
         resolved = cls.resolve_path(file_path, base_dir=base_dir)
@@ -89,7 +93,7 @@ class ParmfitReader:
 
     @classmethod
     def _read_params(cls, path: str) -> dict[str, Any]:
-        params: dict[str, Any] = {"method": "abinitio"}
+        params: dict[str, Any] = {}
         seen: set[str] = set()
         base_dir = os.path.dirname(os.path.abspath(path))
 
@@ -108,6 +112,8 @@ class ParmfitReader:
                 if key in seen:
                     raise ValueError(f"Duplicate parmfit config key {key!r} at {path}:{lineno}.")
                 seen.add(key)
+                if key == "method":
+                    raise ValueError("Do not set 'method=' in a parmfit config file; declare it in #parmfit(method=...).")
                 if key == "pdb":
                     raise ValueError("Do not set 'pdb=' in parmfit input config. Provide the structure as a PDB <path> block.")
                 if key == "input":
@@ -119,9 +125,6 @@ class ParmfitReader:
 
                 if key in cls.PATH_KEYS:
                     params[key] = _resolve_file_path(value, base_dir, label=key)
-                elif key in cls.MULTI_PATH_KEYS:
-                    entries = value.replace(",", " ").split()
-                    params[key] = " ".join(_resolve_file_path(entry, base_dir, label=key) for entry in entries)
                 else:
                     params[key] = _auto_cast(value)
 

@@ -11,13 +11,18 @@ from typing import Callable, Optional
 import numpy as np
 
 from .. import interface
+from ..chgfit import build_charge_fit_config, fit_multiconformer_charges, run_resp_pipeline, write_resp_mol2
+from ..context import find_unique_residue
+from ..NCAA.build_service import build_residue_parameters
 from ..Seminario import apply_seminario
 from ..mSeminario import apply_mseminario
 from ..model import build_bond_angle_terms, flatten_model_atoms, infer_bond_pairs, model_to_atoms, update_model_from_atoms
+from ..mlip_tools import resolve_charge_model_class
 from ..QMInterface import build_qm_reference_runner
-from ..runtime import copy_thresholds, get_cartesian_hessian, optimize_model_geometry, parmfit_work_prefix, run_resp_pipeline
+from ..runtime import copy_thresholds, get_cartesian_hessian, optimize_model_geometry, parmfit_work_prefix, parmfit_workdir
 from ..structure import (
     METAL_SITE_DONOR_ELEMENTS,
+    copy_residue,
     get_atom_xyz,
     get_resid_key,
     get_resid_label,
@@ -25,7 +30,11 @@ from ..structure import (
 )
 from .charges import infer_model_charge, project_resp_charges_onto_site_model, residue_net_charge
 from .config import MetalAbinitioConfig
-from .recognize import MetalSiteSelection, apply_cfmol2_templates, build_cofactor_orig_frcmods, find_metal_site_core
+from .recognize import (
+    MetalSiteSelection,
+    find_metal_site_core,
+    inject_ligand_typed_mol2,
+)
 from .artifacts import MetalArtifacts, MetalSiteTyping, plan_metal_artifacts, write_large_pdb, write_site_frcmod, write_site_model_files
 from .models import MetalModelBundle, build_metal_model_bundle, build_metal_site_model
 from .report import format_metal_final_lines, format_metal_start_lines
@@ -77,12 +86,11 @@ class _OptimizedCore:
 class _RespProblem:
     bond_pairs: list[tuple[int, int]]
     charge_groups: list[tuple[list[int], float]]
+    fixed_charges: dict[int, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
 class _SiteExport:
-    site_pdb_path: str
-    site_mol2_path: str
     site_typing: MetalSiteTyping
 
 
@@ -124,7 +132,7 @@ def _bond_pairs_from_names(
             left_index = index_by_name[left_name]
             right_index = index_by_name[right_name]
         except KeyError as exc:
-            raise ValueError(f"{label} cfmol2 bond references unknown atom {exc.args[0]!r}.") from exc
+            raise ValueError(f"{label} ligand bond references unknown atom {exc.args[0]!r}.") from exc
         pairs.add(tuple(sorted((left_index, right_index))))
     return sorted(pairs)
 
@@ -201,29 +209,214 @@ def _external_residue_labels(structure: dict, managed_keys: set[tuple[str, int, 
     return labels
 
 
-def _prepare_metal_large_model(structure: dict, config: MetalAbinitioConfig) -> tuple[MetalSiteSelection, MetalModelBundle]:
-    selection = find_metal_site_core(
-        structure,
-        target_residue=config.target_residue,
-        add_resid=config.add_resid,
-        set_bonded=config.set_bonded,
-        donor_cutoff=config.donor_cutoff,
+def _resolve_ncaa_net_charges(config: MetalAbinitioConfig) -> list[int]:
+    # All declared components carry explicit charges; the site total is derivable.
+    return list(config.ncaa_charges)
+
+
+def _is_antechamber_charge_method(method: str, *, output: str, device=None) -> bool:
+    name = str(method).strip()
+    if name.lower() == "resp":
+        return False
+    try:
+        resolve_charge_model_class(name, device=device, output=output)
+    except ValueError:
+        return True
+    return False
+
+
+def _run_lig_building(structure: dict, config: MetalAbinitioConfig, *, output: str, source_atoms) -> dict:
+    """Stage 1: build typed, charged parameters for every declared ligand."""
+    if not config.lig_resids:
+        return {}
+    lig_charge_fit = build_charge_fit_config(
+        {
+            "chg_fit": config.lig_chgfit,
+            "chg_level": config.lig_chglevel,
+            "chg_route": config.lig_chgroute,
+            "resp_backend": "gaussian",
+            "qm_nproc": config.resp.qm.nproc,
+            "qm_mem": config.resp.qm.mem,
+        },
+        default_method=config.lig_chgfit,
+        default_level=config.lig_chglevel,
+        default_nproc=config.resp.qm.nproc,
+        default_mem=config.resp.qm.mem,
     )
+    builds: dict = {}
+    device = getattr(getattr(source_atoms, "calc", None), "device", None)
+    for index, selector in enumerate(config.lig_resids):
+        residue = find_unique_residue(structure, selector, label="ligand residue")
+        tag = f"{residue['resname'].upper()}{residue['resseq']}"
+        net_charge = config.lig_charges[index]
+        multiplicity = config.lig_mults[index] if index < len(config.lig_mults) else 1
+        model = {
+            "name": "lig_bare_model",
+            "target_key": get_resid_key(residue),
+            "charge": net_charge,
+            "residues": [copy_residue(residue, resname=tag)],
+        }
+        workdir = parmfit_workdir(output, f"lig/{tag}")
+        bond_pairs = infer_bond_pairs(model)
+        meta = {"residue_name": tag, "net_charge": net_charge, "multiplicity": multiplicity}
+        if _is_antechamber_charge_method(config.lig_chgfit, output=output, device=device):
+            input_mol2 = os.path.join(workdir, f"{tag}_input.mol2")
+            write_resp_mol2(input_mol2, model, bond_pairs, pro_ff=config.pro_ff)
+            typed_result = interface.run_antechamber(
+                os.path.basename(input_mol2),
+                meta,
+                workdir,
+                input_format="mol2",
+                output_format="mol2",
+                charge_mode=str(config.lig_chgfit).strip(),
+            )
+        else:
+            charge_result = fit_multiconformer_charges(
+                output=output,
+                conformers=[(tag, model)],
+                representative_model=model,
+                residue_key=get_resid_key(residue),
+                bond_pairs=bond_pairs,
+                total_charge=net_charge,
+                multiplicity=multiplicity,
+                config=lig_charge_fit,
+                source_atoms=source_atoms,
+                pro_ff=config.pro_ff,
+                workflow=f"lig/{tag}",
+            )
+            typed_result = interface.run_antechamber(
+                os.path.basename(charge_result.work_mol2),
+                meta,
+                workdir,
+                input_format="mol2",
+                output_format="mol2",
+                charge_mode="rc",
+                charge_file=os.path.basename(charge_result.files["target_chg"]),
+            )
+        typed_mol2_path = typed_result.ac_path
+        atom_charges = inject_ligand_typed_mol2(structure, residue, typed_mol2_path)
+        residue["net_charge"] = net_charge
+        parmchk_result = interface.run_parmchk2(
+            os.path.basename(typed_mol2_path),
+            {"residue_name": tag},
+            True,
+            workdir,
+        )
+        builds[get_resid_key(residue)] = {
+            "rn": tag,
+            "typed_mol2_path": typed_mol2_path,
+            "frcmod_path": parmchk_result.frcmod_path,
+            "atom_types": {
+                atom["name"]: atom.get("atom_type", "")
+                for atom in residue["atoms"]
+                if atom.get("atom_type")
+            },
+            "atom_charges": atom_charges,
+        }
+    return builds
+
+
+def _resolve_participant_net_charges(
+    structure: dict,
+    config: MetalAbinitioConfig,
+    selection: MetalSiteSelection,
+) -> dict:
+    """Assign declared ligand net charges and validate the declared site charge."""
+    lig_residues = [find_unique_residue(structure, selector, label="ligand residue") for selector in config.lig_resids]
+    declared = list(config.lig_charges)
+    lig_net_charges: dict = {}
+    for index, residue in enumerate(lig_residues):
+        charge = float(declared[index])
+        residue["net_charge"] = charge
+        lig_net_charges[get_resid_key(residue)] = charge
+    return lig_net_charges
+
+
+def _run_ncaa_building(
+    structure: dict,
+    config: MetalAbinitioConfig,
+    *,
+    output: str,
+    source_atoms,
+) -> tuple[dict, dict]:
+    if not config.ncaa_resids:
+        return {}, {}
+    net_charges = _resolve_ncaa_net_charges(config)
+    charge_fit = build_charge_fit_config(
+        {
+            "chg_fit": config.ncaa_chgfit,
+            "chg_level": config.ncaa_chglevel,
+            "chg_route": config.ncaa_chgroute,
+            "resp_backend": "gaussian",
+            "qm_nproc": config.resp.qm.nproc,
+            "qm_mem": config.resp.qm.mem,
+        },
+        default_method=config.ncaa_chgfit,
+        default_level=config.ncaa_chglevel,
+        default_nproc=config.resp.qm.nproc,
+        default_mem=config.resp.qm.mem,
+    )
+    builds: dict = {}
+    frozen_charges: dict = {}
+    for index, selector in enumerate(config.ncaa_resids):
+        residue = find_unique_residue(structure, selector, label="ncaa residue")
+        if residue.get("_ligand_mol2"):
+            continue
+        tag = f"{residue['resname'].upper()}{residue['resseq']}"
+        rn = config.ncaa_resnames[index] if index < len(config.ncaa_resnames) else tag
+        result = build_residue_parameters(
+            structure,
+            residue,
+            output=output,
+            rn=rn,
+            net_charge=net_charges[index],
+            multiplicity=config.ncaa_mults[index] if index < len(config.ncaa_mults) else 1,
+            charge_fit=charge_fit,
+            source_atoms=source_atoms,
+            pro_ff=config.pro_ff,
+            tag=tag,
+            opt_max_iter=config.opt_max_iter,
+            opt_max_step=config.opt_max_step,
+        )
+        for atom in residue["atoms"]:
+            if atom["name"] in result.atom_types:
+                atom["atom_type"] = result.atom_types[atom["name"]]
+        residue["_ligand_mol2"] = result.typed_mol2_path
+        residue["net_charge"] = net_charges[index]
+        builds[get_resid_key(residue)] = {
+            "rn": result.rn,
+            "typed_mol2_path": result.typed_mol2_path,
+            "frcmod_path": result.frcmod_path,
+            "atom_types": dict(result.atom_types),
+            "atom_charges": dict(result.atom_charges),
+        }
+        frozen_charges[get_resid_key(residue)] = dict(result.atom_charges)
+    return builds, frozen_charges
+
+
+def _build_metal_model_bundle(
+    structure: dict,
+    config: MetalAbinitioConfig,
+    *,
+    selection: MetalSiteSelection,
+) -> MetalModelBundle:
     bundle = build_metal_model_bundle(
         structure,
-        target=config.target,
+        ion_resid=config.ion_resid,
         add_resid=config.add_resid,
         cluster_cutoff=config.cluster_cutoff,
         donor_cutoff=config.donor_cutoff,
         selection=selection,
     )
-    metal_formal_charge = config.oxy if config.oxy is not None else config.charge
+    metal_formal_charge = config.ion_charges
     _annotate_target_ion_formal_charge(bundle.large_model, bundle.large_model.get("target_key"), metal_formal_charge)
-    bundle.large_charge = infer_model_charge(config.charge, bundle.large_model)
-    bundle.large_mult = config.mult
+    # The base carries only the metal; every other residue contributes through its
+    # own net_charge (declared lig/ncaa charges, template charges, environment).
+    bundle.large_charge = infer_model_charge(config.ion_charges, bundle.large_model)
+    bundle.large_mult = config.ion_mult
     bundle.large_model["charge"] = bundle.large_charge
     bundle.large_model["mult"] = bundle.large_mult
-    return selection, bundle
+    return bundle
 
 
 def _reselect_optimized_core(
@@ -240,6 +433,7 @@ def _reselect_optimized_core(
     metal_atom = _single_atom_residue_atom(target_residue, label="MetalAA target metal residue")
     metal_xyz = get_atom_xyz(metal_atom)
     manual_core_keys = {get_resid_key(residue) for residue in selection.manual_core_residues}
+    manual_core_keys |= {get_resid_key(residue) for residue in selection.ncaa_residues}
     donor_atoms: dict[tuple[str, int, str], list[str]] = {}
     auto_core_keys: set[tuple[str, int, str]] = set()
     if config.set_bonded:
@@ -260,7 +454,7 @@ def _reselect_optimized_core(
             residue_key = get_resid_key(residue)
             if residue_key == target_key or residue.get("kind") in {"ion", "cap", "small_model"}:
                 continue
-            typed_nonprotein = residue.get("kind") in {"ligand", "cofactor"} and bool(residue.get("_cfmol2_path"))
+            typed_nonprotein = residue.get("kind") in {"ligand", "cofactor"} and bool(residue.get("_ligand_mol2"))
             if residue.get("kind") != "protein" and residue_key not in manual_core_keys and not typed_nonprotein:
                 continue
             donor_names: list[str] = []
@@ -302,6 +496,8 @@ def _reselect_optimized_core(
         donor_atoms=donor_atoms,
         warnings=list(selection.warnings),
         donor_cutoff=config.donor_cutoff,
+        ncaa_residues=selection.ncaa_residues,
+        ncaa_resnames=dict(selection.ncaa_resnames),
     )
     bundle.selection = updated_selection
     bundle.large_model["core_keys"] = [get_resid_key(residue) for residue in core_residues]
@@ -316,7 +512,13 @@ def _reselect_optimized_core(
     )
 
 
-def _build_large_resp_problem(bundle: MetalModelBundle, core: _OptimizedCore) -> _RespProblem:
+def _build_large_resp_problem(
+    bundle: MetalModelBundle,
+    core: _OptimizedCore,
+    *,
+    ncaa_frozen_charges: dict | None = None,
+    ligand_net_charges: dict | None = None,
+) -> _RespProblem:
     flattened_large = flatten_model_atoms(bundle.large_model)
     index_by_residue_atom = {
         (get_resid_key(residue), atom["name"]): atom_index
@@ -325,6 +527,14 @@ def _build_large_resp_problem(bundle: MetalModelBundle, core: _OptimizedCore) ->
     large_entries_by_residue = _atom_entries_by_residue(bundle.large_model)
     core_keys = {get_resid_key(residue) for residue in core.core_residues}
     charge_groups: list[tuple[list[int], float]] = []
+    # Coordinating declared ligands sit inside the core, so their declared net charge
+    # is enforced as a group constraint — this is what makes each exported ligand
+    # mol2 carry exactly its declared charge.
+    for residue_key, net_charge in (ligand_net_charges or {}).items():
+        if residue_key not in core_keys:
+            continue
+        atom_indices = [atom_index for atom_index, _atom in large_entries_by_residue[residue_key]]
+        charge_groups.append((atom_indices, float(net_charge)))
     for residue in sorted(bundle.large_model["residues"], key=residue_sort_key):
         residue_key = get_resid_key(residue)
         if residue_key in core_keys:
@@ -357,7 +567,7 @@ def _build_large_resp_problem(bundle: MetalModelBundle, core: _OptimizedCore) ->
     large_bond_pairs_set: set[tuple[int, int]] = set()
     typed_cofactor_atom_indices: set[int] = set()
     for residue in bundle.large_model["residues"]:
-        name_pairs = residue.get("_cfmol2_bond_name_pairs")
+        name_pairs = residue.get("_ligand_bond_pairs")
         if not name_pairs:
             continue
         entries = large_entries_by_residue[get_resid_key(residue)]
@@ -377,9 +587,19 @@ def _build_large_resp_problem(bundle: MetalModelBundle, core: _OptimizedCore) ->
             continue
         large_bond_pairs_set.add(pair)
     large_bond_pairs_set.update(donor_metal_pairs)
+    fixed_charges: dict[int, float] = {}
+    for residue_key, charges in (ncaa_frozen_charges or {}).items():
+        for atom_name, charge in charges.items():
+            atom_index = index_by_residue_atom.get((residue_key, atom_name))
+            if atom_index is None:
+                raise ValueError(
+                    f"NCAA frozen-charge atom {residue_key}:{atom_name} is absent from the large model."
+                )
+            fixed_charges[atom_index] = float(charge)
     return _RespProblem(
         bond_pairs=sorted(large_bond_pairs_set),
         charge_groups=charge_groups,
+        fixed_charges=fixed_charges,
     )
 
 
@@ -397,10 +617,10 @@ def _export_metal_site_model(
         core.core_residues,
         donor_atoms=core.donor_atoms,
     )
-    metal_formal_charge = config.oxy if config.oxy is not None else config.charge
+    metal_formal_charge = config.ion_charges
     _annotate_target_ion_formal_charge(bundle.site_model, bundle.site_model.get("target_key"), metal_formal_charge)
     bundle.site_model, charge_warnings = project_resp_charges_onto_site_model(bundle.site_model, resp_result.model)
-    site_charge = infer_model_charge(config.charge, bundle.site_model)
+    site_charge = infer_model_charge(config.ion_charges, bundle.site_model)
     resp_charge_sum = sum(
         float(atom.get("charge", 0.0))
         for residue in bundle.site_model["residues"]
@@ -412,26 +632,23 @@ def _export_metal_site_model(
             f"integer target {site_charge:d}."
         )
     bundle.site_model["charge"] = site_charge
-    bundle.site_model["mult"] = config.mult
+    bundle.site_model["mult"] = config.ion_mult
     bundle.site_model["warnings"] = list(bundle.large_model.get("warnings", [])) + charge_warnings
     artifacts.files["gaussian_input"] = resp_result.files["gaussian_input"]
     artifacts.resp_files.clear()
     artifacts.resp_files.update(resp_result.resp_files)
-    site_pdb_path, site_mol2_path, site_typing = write_site_model_files(
+    _, _, site_typing = write_site_model_files(
         artifacts,
         structure=structure,
         site_model=bundle.site_model,
-        watm=config.watm,
-        ionm=config.ionm,
-        prom=config.prom,
+        wat_ff=config.wat_ff,
+        ion_ff=config.ion_ff,
+        pro_ff=config.pro_ff,
         cofactor_frcmods=artifacts.cofactor_frcmods,
         cofactor_frcmod_by_residue=artifacts.cofactor_frcmod_by_residue,
+        resname_overrides=core.selection.ncaa_resnames,
     )
-    return _SiteExport(
-        site_pdb_path=site_pdb_path,
-        site_mol2_path=site_mol2_path,
-        site_typing=site_typing,
-    )
+    return _SiteExport(site_typing=site_typing)
 
 
 def _export_metal_bonded_frcmod(
@@ -511,14 +728,31 @@ def run_metal_abinitio(
     stage_timings: list[tuple[str, float]] = []
     qm_runner = build_qm_reference_runner(config.qm)
     artifacts = plan_metal_artifacts(output)
-    cofactor_templates = apply_cfmol2_templates(structure, config.cfmol2)
-    cofactor_frcmod_by_residue = build_cofactor_orig_frcmods(output, cofactor_templates)
+    with _timed_stage(stage_timings, "ligand building"):
+        lig_builds = _run_lig_building(structure, config, output=output, source_atoms=source_atoms)
+    artifacts.lig_builds.update(lig_builds)
+    with _timed_stage(stage_timings, "ncaa building"):
+        ncaa_builds, ncaa_frozen_charges = _run_ncaa_building(structure, config, output=output, source_atoms=source_atoms)
+    artifacts.ncaa_builds.update(ncaa_builds)
+    with _timed_stage(stage_timings, "site selection"):
+        selection = find_metal_site_core(
+            structure,
+            target_residue=config.target_residue,
+            add_resid=config.add_resid,
+            ncaa_resids=config.ncaa_resids,
+            ncaa_resnames=config.ncaa_resnames,
+            set_bonded=config.set_bonded,
+            donor_cutoff=config.donor_cutoff,
+        )
+        lig_net_charges = _resolve_participant_net_charges(structure, config, selection)
+    with _timed_stage(stage_timings, "model build"):
+        bundle = _build_metal_model_bundle(structure, config, selection=selection)
+    cofactor_frcmod_by_residue = {key: build["frcmod_path"] for key, build in lig_builds.items()}
+    cofactor_frcmod_by_residue.update({key: build["frcmod_path"] for key, build in ncaa_builds.items()})
     artifacts.cofactor_frcmod_by_residue.clear()
     artifacts.cofactor_frcmod_by_residue.update(cofactor_frcmod_by_residue)
     artifacts.cofactor_frcmods.clear()
     artifacts.cofactor_frcmods.extend(cofactor_frcmod_by_residue.values())
-    with _timed_stage(stage_timings, "site selection/model build"):
-        selection, bundle = _prepare_metal_large_model(structure, config)
 
     log_info(format_metal_start_lines(config, large_charge=bundle.large_charge, large_mult=bundle.large_mult))
     write_large_pdb(artifacts, bundle.large_model, optimized=False)
@@ -526,7 +760,7 @@ def run_metal_abinitio(
     qm_large_hessian = None
 
     log_info(["  [MetalAA] MLIP large-model optimization ...\n"])
-    with _timed_stage(stage_timings, "large optimization"):
+    with _timed_stage(stage_timings, "model optimization"):
         bundle.large_model = optimize_model_geometry(
             bundle.large_model,
             output=output,
@@ -543,7 +777,7 @@ def run_metal_abinitio(
             if qm_large_hessian is None:
                 raise ValueError("QM opt-frequency job did not provide a Cartesian Hessian.")
             bundle.large_model = update_model_from_atoms(bundle.large_model, qm_result.atoms)
-    metal_formal_charge = config.oxy if config.oxy is not None else config.charge
+    metal_formal_charge = config.ion_charges
     _annotate_target_ion_formal_charge(bundle.large_model, bundle.large_model.get("target_key"), metal_formal_charge)
     write_large_pdb(artifacts, bundle.large_model, optimized=True)
 
@@ -553,7 +787,12 @@ def run_metal_abinitio(
         config=config,
     )
     selection = core.selection
-    resp_problem = _build_large_resp_problem(bundle, core)
+    resp_problem = _build_large_resp_problem(
+        bundle,
+        core,
+        ncaa_frozen_charges=ncaa_frozen_charges,
+        ligand_net_charges=lig_net_charges,
+    )
 
     log_info(["  [MetalAA] large-model RESP ...\n"])
     resp_wfn = None
@@ -566,7 +805,7 @@ def run_metal_abinitio(
         if config.resp.qm.theory == opt_theory and config.resp.qm.basis == opt_basis:
             resp_wfn = getattr(qm_runner, "last_wfn_path", None)
     with _timed_stage(stage_timings, "large RESP"):
-        with _timed_stage(stage_timings, "large RESP/Gaussian ESP"):
+        with _timed_stage(stage_timings, "RESP fitting"):
             resp_result = run_resp_pipeline(
                 output=output,
                 model=bundle.large_model,
@@ -577,10 +816,11 @@ def run_metal_abinitio(
                 fixchg_resids=config.resp.fixchg_resids,
                 qm=config.resp.qm,
                 label="metal_large_resp",
-                watm=config.watm,
-                prom=config.prom,
+                wat_ff=config.wat_ff,
+                pro_ff=config.pro_ff,
                 charge_groups=resp_problem.charge_groups,
                 wfn_path=resp_wfn,
+                fixed_charges=resp_problem.fixed_charges,
             )
 
     with _timed_stage(stage_timings, "site export"):

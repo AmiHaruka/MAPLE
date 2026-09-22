@@ -20,6 +20,7 @@ from .records import (
     TorsionLocalProblem,
     TorsionScanData,
     TorsionSharedGroupReport,
+    TorsionSharedGroupSpec,
 )
 from .basis import (
     _build_group_spec,
@@ -90,9 +91,10 @@ def _local_project_coefficients_to_fitted_cap(
     cos_coeff: np.ndarray,
     sin_coeff: np.ndarray,
     active_mask: np.ndarray,
+    cap: float = _FITTED_TERM_MAX_K,
 ) -> tuple[np.ndarray, np.ndarray, int]:
     caps = np.full_like(np.asarray(cos_coeff, dtype=float), np.inf, dtype=float)
-    caps[np.asarray(active_mask, dtype=bool)] = _FITTED_TERM_MAX_K
+    caps[np.asarray(active_mask, dtype=bool)] = cap
     return _project_coefficients_to_k_caps(cos_coeff, sin_coeff, caps)
 
 def _cap_k_value(k_value: float, cap: float = _FITTED_TERM_MAX_K) -> float:
@@ -101,21 +103,31 @@ def _cap_k_value(k_value: float, cap: float = _FITTED_TERM_MAX_K) -> float:
         return value
     return float(np.copysign(float(cap), value))
 
-def _cap_fitted_fourier_term(term: FourierTerm) -> FourierTerm:
+def _cap_fitted_fourier_term(term: FourierTerm, cap: float = _FITTED_TERM_MAX_K) -> FourierTerm:
     return FourierTerm(
-        kPhi=_cap_k_value(float(term.kPhi)),
+        kPhi=_cap_k_value(float(term.kPhi), cap=cap),
         period=float(term.period),
         phase=float(term.phase),
     )
 
-def _cap_local_fitted_k_values(k_values: np.ndarray, active_mask: np.ndarray) -> tuple[np.ndarray, int]:
+def _cap_local_fitted_k_values(
+    k_values: np.ndarray,
+    active_mask: np.ndarray,
+    cap: float = _FITTED_TERM_MAX_K,
+) -> tuple[np.ndarray, int]:
     capped = np.asarray(k_values, dtype=float).reshape(-1).copy()
     active = np.asarray(active_mask, dtype=bool).reshape(-1)
-    over_cap = active & (np.abs(capped) > _FITTED_TERM_MAX_K)
+    over_cap = active & (np.abs(capped) > cap)
     if not np.any(over_cap):
         return capped, 0
-    capped[over_cap] = np.sign(capped[over_cap]) * _FITTED_TERM_MAX_K
+    capped[over_cap] = np.sign(capped[over_cap]) * cap
     return capped, int(np.count_nonzero(over_cap))
+
+def _problem_term_cap(problem: TorsionLocalProblem) -> float:
+    # impropers reach GAFF-grade magnitudes (10.5 kcal/mol) and must not be clipped
+    if any(group.improper for group in problem.shared_groups):
+        return float(np.inf)
+    return _FITTED_TERM_MAX_K
 
 def _template_slot_key(period: float, phase: float) -> int | None:
     del phase
@@ -139,33 +151,34 @@ def _group_active_slot_labels(group, active_mask: np.ndarray) -> list[str]:
 def _merge_template_and_frozen_terms(
     original_terms: list[FourierTerm],
     shared_term_map: dict[int, FourierTerm],
+    cap: float = _FITTED_TERM_MAX_K,
 ) -> list[FourierTerm]:
     merged_terms: list[FourierTerm] = []
     seen_template_slots: set[int] = set()
     for term in original_terms:
         slot_key = _template_slot_key(term.period, term.phase)
         if slot_key is None:
-            merged_terms.append(_cap_fitted_fourier_term(term))
+            merged_terms.append(_cap_fitted_fourier_term(term, cap=cap))
             continue
         if slot_key in shared_term_map and slot_key not in seen_template_slots:
             shared_term = shared_term_map[slot_key]
-            merged_terms.append(_cap_fitted_fourier_term(shared_term))
+            merged_terms.append(_cap_fitted_fourier_term(shared_term, cap=cap))
             seen_template_slots.add(slot_key)
         elif slot_key not in seen_template_slots:
-            merged_terms.append(_cap_fitted_fourier_term(term))
+            merged_terms.append(_cap_fitted_fourier_term(term, cap=cap))
             seen_template_slots.add(slot_key)
     for slot_key in sorted(shared_term_map):
         if slot_key in seen_template_slots:
             continue
         shared_term = shared_term_map[slot_key]
-        merged_terms.append(_cap_fitted_fourier_term(shared_term))
+        merged_terms.append(_cap_fitted_fourier_term(shared_term, cap=cap))
     return merged_terms
 
 def _group_frozen_non_template_slot_labels(problem: TorsionLocalProblem, group) -> tuple[str, ...]:
     labels: list[str] = []
     seen: set[str] = set()
     for local_index in group.dihedral_indices:
-        for term in problem.target_dihedrals[local_index].terms:
+        for term in problem.target_instances[local_index].terms:
             if _template_slot_key(term.period, term.phase) is not None:
                 continue
             label = _format_slot_label(term.period, term.phase)
@@ -248,15 +261,15 @@ def _relative_profile(scan_data: TorsionScanData, total_values: np.ndarray) -> n
     totals = np.asarray(total_values, dtype=float)
     return totals - totals[int(scan_data.ref_idx)]
 
-def _parameter_set_relative_profile(
+def _paramset_relative_profile(
     scan_data: TorsionScanData,
-    parameter_set: CorrectionParameterSet,
+    paramset: CorrectionParameterSet,
     *,
     topology_cache=None,
 ) -> np.ndarray:
-    cache = topology_cache if topology_cache is not None else build_mm_topology_cache(parameter_set)
+    cache = topology_cache if topology_cache is not None else build_mm_topology_cache(paramset)
     totals = np.asarray(
-        [evaluate_mm_energy(atoms, parameter_set, topology_cache=cache).total for atoms in scan_data.frames],
+        [evaluate_mm_energy(atoms, paramset, topology_cache=cache).total for atoms in scan_data.frames],
         dtype=float,
     )
     return _relative_profile(scan_data, totals)
@@ -394,7 +407,9 @@ def _solve_local_stage1_active_set_with_phases(
     full_sin[fixed_indices] = fixed_k * np.sin(fixed_phase)
     full_cos[variable_indices] = variable_cos
     full_sin[variable_indices] = variable_sin
-    full_cos, full_sin, _capped_count = _local_project_coefficients_to_fitted_cap(full_cos, full_sin, active_mask)
+    full_cos, full_sin, _capped_count = _local_project_coefficients_to_fitted_cap(
+        full_cos, full_sin, active_mask, cap=_problem_term_cap(problem)
+    )
     k_values, phase_values = _local_k_phase_from_coefficients(full_cos, full_sin, phase_orig)
     solution = _LocalStage1Solution(
         k_values=k_values,
@@ -449,8 +464,9 @@ def _shared_group_terms_from_slots(
     active_mask: np.ndarray,
     phase_values: np.ndarray | None = None,
 ) -> tuple[list[list[FourierTerm]], dict[str, tuple[int, int]]]:
-    fitted_terms: list[list[FourierTerm]] = [[] for _ in problem.target_dihedrals]
+    fitted_terms: list[list[FourierTerm]] = [[] for _ in problem.target_instances]
     diagnostics: dict[str, tuple[int, int]] = {}
+    term_cap = _problem_term_cap(problem)
     phase_array = _local_phase_orig(problem) if phase_values is None else np.asarray(phase_values, dtype=float)
     for group in problem.shared_groups:
         shared_term_map = {
@@ -463,20 +479,20 @@ def _shared_group_terms_from_slots(
             if active_mask[slot_index]
         }
         for local_index in group.dihedral_indices:
-            original_terms = problem.target_dihedrals[local_index].terms
-            fitted_terms[local_index] = _merge_template_and_frozen_terms(original_terms, shared_term_map)
+            original_terms = problem.target_instances[local_index].terms
+            fitted_terms[local_index] = _merge_template_and_frozen_terms(original_terms, shared_term_map, cap=term_cap)
     return fitted_terms, diagnostics
 
 def _rebuild_local_problem(problem: TorsionLocalProblem, shared_groups) -> TorsionLocalProblem:
-    cos_basis, sin_basis = _group_slot_coefficient_basis(problem.scan_data, problem.target_dihedrals, tuple(shared_groups))
+    cos_basis, sin_basis = _group_slot_coefficient_basis(problem.scan_data, problem.target_instances, tuple(shared_groups))
     phase_orig = np.asarray([phase for group in shared_groups for phase in group.slot_phases], dtype=float)
     basis = (cos_basis * np.cos(phase_orig)[np.newaxis, :]) + (sin_basis * np.sin(phase_orig)[np.newaxis, :])
-    k_orig, scales, prior_weights = _group_slot_initial_values(problem.target_dihedrals, tuple(shared_groups))
+    k_orig, scales, prior_weights = _group_slot_initial_values(problem.target_instances, tuple(shared_groups))
     active_mask = np.ones(sum(len(group.slot_indices) for group in shared_groups), dtype=bool)
     return TorsionLocalProblem(
-        center_bond=problem.center_bond,
+        torsion_bond=problem.torsion_bond,
         scan_data=problem.scan_data,
-        target_dihedrals=problem.target_dihedrals,
+        target_instances=problem.target_instances,
         representative_dihedral=problem.representative_dihedral,
         basis=basis,
         qm_rel=np.asarray(problem.qm_rel, dtype=float).copy(),
@@ -507,14 +523,14 @@ def _methyl_like_family_splits(group) -> tuple[tuple[int, tuple[int, ...]], ...]
         for outer_atom, members in sorted(grouped_members.items())
     )
 
-def _dihedral_phi_matrix(scan_data: TorsionScanData, target_dihedrals, local_indices: tuple[int, ...]) -> np.ndarray:
+def _dihedral_phi_matrix(scan_data: TorsionScanData, target_instances, local_indices: tuple[int, ...]) -> np.ndarray:
     matrix = np.zeros((len(scan_data.frames), len(local_indices)), dtype=float)
     for frame_index, atoms in enumerate(scan_data.frames):
         positions = atoms.get_positions()
         for column_index, local_index in enumerate(local_indices):
             matrix[frame_index, column_index] = dihedral_radians(
                 positions,
-                *target_dihedrals[int(local_index)].atoms,
+                *target_instances[int(local_index)].atoms,
             )
     return matrix
 
@@ -540,7 +556,7 @@ def _spectral_slots_for_groups(
 
     selected_by_label: dict[str, list[object]] = {group.label: [] for group in groups}
     for group in groups:
-        path_phi = _dihedral_phi_matrix(problem.scan_data, problem.target_dihedrals, tuple(group.dihedral_indices))
+        path_phi = _dihedral_phi_matrix(problem.scan_data, problem.target_instances, tuple(group.dihedral_indices))
         ranked_slots = rank_shared_group_spectral_slots(
             label=group.label,
             representative_phi_values=representative_phi,
@@ -560,6 +576,11 @@ def _spectral_slots_for_groups(
     }
 
 def _rebuild_groups_with_spectral_slots(problem: TorsionLocalProblem, groups) -> tuple[tuple[object, ...], bool]:
+    # improper groups carry their own period policy (radical {1,2} / conventional {2}) with
+    # canonical phases; the proper spectral rebuild would both drop the improper flag and
+    # reintroduce the full canonical period universe
+    if all(group.improper for group in groups):
+        return tuple(groups), False
     spectral_by_label = _spectral_slots_for_groups(problem, groups)
     if not spectral_by_label:
         return tuple(groups), False
@@ -567,7 +588,7 @@ def _rebuild_groups_with_spectral_slots(problem: TorsionLocalProblem, groups) ->
     slot_offset = 0
     for group in groups:
         members = [
-            (local_index, problem.target_dihedrals[local_index])
+            (local_index, problem.target_instances[local_index])
             for local_index in group.dihedral_indices
         ]
         rebuilt_group, slot_offset = _build_group_spec(
@@ -656,6 +677,22 @@ def _solve_local_problem_stage1(problem: TorsionLocalProblem, params: TorsionFit
     delta = final_fitted_k - problem.k_orig
     return delta, final_active_mask, diagnostics
 
+def _renumber_group_spec(group: TorsionSharedGroupSpec, slot_offset: int) -> TorsionSharedGroupSpec:
+    return TorsionSharedGroupSpec(
+        label=group.label,
+        atom_types=group.atom_types,
+        improper=group.improper,
+        dihedral_indices=group.dihedral_indices,
+        instances=group.instances,
+        slot_indices=tuple(slot_offset + local for local in group.slot_indices),
+        slot_periods=group.slot_periods,
+        slot_phases=group.slot_phases,
+        existing_slot_mask=group.existing_slot_mask,
+        slot_sources=group.slot_sources,
+        slot_coherences=group.slot_coherences,
+    )
+
+
 def local_fit_solver(
     problem: TorsionLocalProblem,
     params: TorsionFitParams | None = None,
@@ -668,8 +705,14 @@ def local_fit_solver(
     for group in problem.shared_groups:
         family_splits = _methyl_like_family_splits(group)
         if family_splits is None:
+            if group.improper:
+                # improper groups arrive with their own period policy; the proper
+                # rebuild would drop the flag and widen the period universe
+                replacement_groups.append(_renumber_group_spec(group, slot_offset))
+                slot_offset += len(group.slot_indices)
+                continue
             members = [
-                (local_index, problem.target_dihedrals[local_index])
+                (local_index, problem.target_instances[local_index])
                 for local_index in group.dihedral_indices
             ]
             rebuilt_group, slot_offset = _build_group_spec(
@@ -684,7 +727,7 @@ def local_fit_solver(
         base_label = "-".join(group.atom_types)
         for outer_atom, member_indices in family_splits:
             members = [
-                (local_index, problem.target_dihedrals[local_index])
+                (local_index, problem.target_instances[local_index])
                 for local_index in member_indices
             ]
             rebuilt_group, slot_offset = _build_group_spec(
@@ -719,13 +762,13 @@ def _local_fitted_terms(
 
 def _center_torsion_relative_profile(
     scan_data: TorsionScanData,
-    target_dihedrals,
+    target_instances,
     fitted_terms: list[list[FourierTerm]],
 ) -> np.ndarray:
     torsion_total = np.zeros(len(scan_data.frames), dtype=float)
     for frame_index, atoms in enumerate(scan_data.frames):
         positions = atoms.get_positions()
-        for dihedral, terms in zip(target_dihedrals, fitted_terms):
+        for dihedral, terms in zip(target_instances, fitted_terms):
             if not terms:
                 continue
             phi = dihedral_radians(positions, *dihedral.atoms)
@@ -747,13 +790,14 @@ def _build_fit_report(
     diagnostics: dict[str, tuple[int, int]] | None = None,
     topology_cache=None,
     *,
-    original_parameter_set: CorrectionParameterSet | None = None,
-    stage0_parameter_set: CorrectionParameterSet | None = None,
+    original_paramset: CorrectionParameterSet | None = None,
+    stage0_paramset: CorrectionParameterSet | None = None,
     mm_stage2_rel: np.ndarray | None = None,
     mm_orig_rel_override: np.ndarray | None = None,
     mm_stage0_rel_override: np.ndarray | None = None,
 ) -> TorsionFitReport:
     diagnostics = diagnostics or {}
+    term_cap = _problem_term_cap(problem)
     stage1_diagnostics = diagnostics.get("_stage1", {}) if isinstance(diagnostics, dict) else {}
     phase_values_raw = stage1_diagnostics.get("phase_values") if isinstance(stage1_diagnostics, dict) else None
     fitted_phase_values = (
@@ -764,13 +808,14 @@ def _build_fit_report(
     fitted_vector, capped_count = _cap_local_fitted_k_values(
         problem.k_orig + np.asarray(delta_kphi, dtype=float),
         active_mask,
+        cap=term_cap,
     )
     delta_kphi = fitted_vector - problem.k_orig
     fitted_terms = _local_fitted_terms(problem, delta_kphi, active_mask, fitted_phase_values)
     residual_before = _local_solution_residual(problem, problem.k_orig, _local_phase_orig(problem)).copy()
     fitted_center_torsion_rel = _center_torsion_relative_profile(
         problem.scan_data,
-        problem.target_dihedrals,
+        problem.target_instances,
         fitted_terms,
     )
     mm_refit_rel = problem.mm_base_rel + fitted_center_torsion_rel
@@ -780,16 +825,16 @@ def _build_fit_report(
         np.asarray(mm_orig_rel_override, dtype=float)
         if mm_orig_rel_override is not None
         else
-        _parameter_set_relative_profile(problem.scan_data, original_parameter_set, topology_cache=build_mm_topology_cache(original_parameter_set))
-        if original_parameter_set is not None
+        _paramset_relative_profile(problem.scan_data, original_paramset, topology_cache=build_mm_topology_cache(original_paramset))
+        if original_paramset is not None
         else problem.orig_mm_rel.copy()
     )
     mm_stage0_rel = (
         np.asarray(mm_stage0_rel_override, dtype=float)
         if mm_stage0_rel_override is not None
         else
-        _parameter_set_relative_profile(problem.scan_data, stage0_parameter_set, topology_cache=build_mm_topology_cache(stage0_parameter_set))
-        if stage0_parameter_set is not None
+        _paramset_relative_profile(problem.scan_data, stage0_paramset, topology_cache=build_mm_topology_cache(stage0_paramset))
+        if stage0_paramset is not None
         else problem.orig_mm_rel.copy()
     )
     shared_groups = []
@@ -806,7 +851,7 @@ def _build_fit_report(
         ]
         fitted_group_terms = [
                 FourierTerm(
-                    kPhi=_cap_k_value(float(fitted_vector[slot_index])),
+                    kPhi=_cap_k_value(float(fitted_vector[slot_index]), cap=term_cap),
                     period=float(slot_period),
                     phase=float(fitted_phase_values[slot_index]),
                 )
@@ -828,7 +873,7 @@ def _build_fit_report(
             TorsionSharedGroupReport(
                 label=group.label,
                 atom_types=group.atom_types,
-                improper=False,
+                improper=group.improper,
                 instances=list(group.instances),
                 original_terms=original_terms,
                 fitted_terms=fitted_group_terms,
@@ -840,12 +885,12 @@ def _build_fit_report(
             )
         )
     return TorsionFitReport(
-        center_bond=problem.center_bond,
-        target_dihedrals=[deepcopy(dihedral) for dihedral in problem.target_dihedrals],
+        torsion_bond=problem.torsion_bond,
+        target_instances=[deepcopy(dihedral) for dihedral in problem.target_instances],
         representative_dihedral=problem.representative_dihedral,
         scan_source_path=problem.scan_data.source_path,
         terms=TorsionFitTerms(
-            original_terms=_clone_terms(problem.target_dihedrals),
+            original_terms=_clone_terms(problem.target_instances),
             fitted_terms=fitted_terms,
             delta_kphi=np.asarray(delta_kphi, dtype=float).copy(),
             shared_groups=shared_groups,

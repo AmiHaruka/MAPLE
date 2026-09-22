@@ -471,9 +471,9 @@ class InputReader():
                 all_pdb = all(t.upper().startswith("PDB ") for t in tokens)
                 any_pdb = any(t.upper().startswith("PDB ") for t in tokens)
 
-                if self.jobtype == "parmfit" and str(self.command_control.params.get("method", "")).lower() == "abinitio" :
-                    if len(blocks) != 1 or len(tokens) != 1 or not all_pdb:
-                        raise ValueError("parmfit(method=abinitio) requires exactly one PDB file reference block: PDB <path>.")
+                if self.jobtype == "parmfit" and all_pdb:
+                    if len(blocks) != 1 or len(tokens) != 1:
+                        raise ValueError("parmfit requires exactly one PDB file reference block: PDB <path>.")
                     parts = tokens[0].split(maxsplit=1)
                     if len(parts) != 2:
                         raise ValueError(f"Invalid PDB reference line: '{tokens[0]}'")
@@ -487,7 +487,7 @@ class InputReader():
                     group_counter += 1
                     info_message.append(f"\nGroup {group_counter} (PDB File)\n")
                     info_message.append(f"Resolved PDB: {resolved}\n")
-                    info_message.append("PDB coordinates are parsed by parmfit abinitio at runtime.\n")
+                    info_message.append("PDB coordinates are parsed by the parmfit route at runtime.\n")
                     info_message.append('-' * 20 + '\n')
                     continue
 

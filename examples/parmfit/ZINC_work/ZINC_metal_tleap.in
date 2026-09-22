@@ -2,12 +2,12 @@ source leaprc.protein.ff14SB
 source leaprc.gaff2
 source leaprc.water.tip3p
 addAtomTypes {
-    { "Y1" "N" "sp3" }
-    { "Y2" "N" "sp3" }
-    { "Y3" "N" "sp3" }
+    { "Z1" "N" "sp3" }
+    { "Z2" "N" "sp3" }
+    { "Z3" "N" "sp3" }
     { "M1" "Zn" "sp3" }
-    { "Y4" "O" "sp3" }
-    { "Y5" "N" "sp3" }
+    { "Z4" "O" "sp3" }
+    { "Z5" "N" "sp3" }
 }
 HD1 = loadmol2 HD1.mol2
 HD2 = loadmol2 HD2.mol2

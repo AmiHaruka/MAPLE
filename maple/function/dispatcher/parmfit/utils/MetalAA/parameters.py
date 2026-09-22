@@ -257,19 +257,19 @@ def parse_amber_frcmod(path: Path) -> AmberParameterDB:
 
 @lru_cache(maxsize=32)
 def load_parameters(
-    prom: str = "ff14SB",
-    watm: str | None = None,
+    pro_ff: str = "ff14SB",
+    wat_ff: str | None = None,
 ) -> AmberParameterDB:
     base = parm_dir()
-    dat_file = "parm19.dat" if prom == "ff19SB" else "parm10.dat"
-    frcmod_file = f"frcmod.{prom}"
+    dat_file = "parm19.dat" if pro_ff == "ff19SB" else "parm10.dat"
+    frcmod_file = f"frcmod.{pro_ff}"
     db = AmberParameterDB()
     files_and_parsers = [(dat_file, parse_amber_dat), (frcmod_file, parse_amber_frcmod)]
-    if watm is not None:
+    if wat_ff is not None:
         files_and_parsers.extend(
             [
                 ("gaff2.dat", parse_amber_dat),
-                (f"frcmod.{watm}", parse_amber_frcmod),
+                (f"frcmod.{wat_ff}", parse_amber_frcmod),
             ]
         )
     for filename, parser in files_and_parsers:
@@ -333,9 +333,9 @@ def amber_ion_atom_type(element: str, formal_charge: int) -> str:
     return f"{normalized}{abs(charge)}{suffix}"
 
 
-def lookup_ion_lj_from_frcmod(*, watm: str, ionm: str, residue: dict | str) -> tuple[str, str, float, tuple[float, float]]:
+def lookup_ion_lj_from_frcmod(*, wat_ff: str, ion_ff: str, residue: dict | str) -> tuple[str, str, float, tuple[float, float]]:
     element, formal_charge, ion_key = infer_ion_identity(residue)
-    frcmod_name = infer_ion_frcmod_name(watm=watm, ionm=ionm, residue=residue)
+    frcmod_name = infer_ion_frcmod_name(wat_ff=wat_ff, ion_ff=ion_ff, residue=residue)
     amber_type = amber_ion_atom_type(element, formal_charge)
     path = parm_dir() / frcmod_name
     if path.exists():
