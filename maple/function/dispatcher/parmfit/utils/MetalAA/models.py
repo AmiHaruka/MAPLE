@@ -40,7 +40,7 @@ def build_metal_site_model(
 
 def build_metal_large_model(
     structure: dict,
-    ion_resid: str,
+    ion_resids: str,
     add_resid: Optional[list[str]] = None,
     cluster_cutoff: float = 3.0,
     donor_cutoff: float = 2.7,
@@ -49,7 +49,7 @@ def build_metal_large_model(
 ) -> dict:
     selection = core or find_metal_site_core(
         structure,
-        target=ion_resid,
+        target=ion_resids,
         add_resid=add_resid,
         donor_cutoff=donor_cutoff,
         bond_policy=bond_policy,
@@ -80,7 +80,7 @@ def build_metal_large_model(
 def build_metal_model_bundle(
     structure: dict,
     *,
-    ion_resid: str,
+    ion_resids: str,
     add_resid: Optional[list[str]] = None,
     cluster_cutoff: float = 3.0,
     donor_cutoff: float = 2.7,
@@ -89,7 +89,7 @@ def build_metal_model_bundle(
 ) -> MetalModelBundle:
     resolved_selection = selection or find_metal_site_core(
         structure,
-        target=ion_resid,
+        target=ion_resids,
         add_resid=add_resid,
         donor_cutoff=donor_cutoff,
         bond_policy=bond_policy,
@@ -98,7 +98,7 @@ def build_metal_model_bundle(
         selection=resolved_selection,
         large_model=build_metal_large_model(
             structure,
-            ion_resid=ion_resid,
+            ion_resids=ion_resids,
             add_resid=add_resid,
             cluster_cutoff=cluster_cutoff,
             donor_cutoff=donor_cutoff,

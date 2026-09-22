@@ -18,9 +18,9 @@ SUPPORTED_BONDED_METHODS = ("mseminario", "seminario")
 @dataclass(frozen=True)
 class MetalAbinitioConfig:
     pdb_path: str
-    ion_resid: str
+    ion_resids: str
     ion_charges: int
-    ion_mult: int
+    ion_mults: int
     target_residue: dict
     resp: RespConfig
     qm: QMReferenceConfig = field(default_factory=QMReferenceConfig)
@@ -74,7 +74,7 @@ def parse_metal_abinitio_config(
     raw: dict | None,
     *,
     pdb_path: str,
-    ion_resid: str,
+    ion_resids: str,
     target_residue: dict,
 ) -> MetalAbinitioConfig:
 
@@ -116,7 +116,7 @@ def parse_metal_abinitio_config(
         raise ValueError(f"chg_level {chg_level!r} must use METHOD/BASIS syntax.")
 
     ion_charges = int(raw.get("ion_charges", 0))
-    ion_mult = int(raw.get("ion_mult", 1))
+    ion_mults = int(raw.get("ion_mults", 1))
     chg_route = str(raw.get("chg_route", "")).strip()
     fixchg_resids = _split_entries(raw.get("fixchg_resids", ""))
     add_resid = _split_entries(raw.get("add_resid", ""))
@@ -168,9 +168,9 @@ def parse_metal_abinitio_config(
 
     return MetalAbinitioConfig(
         pdb_path=pdb_path,
-        ion_resid=ion_resid,
+        ion_resids=ion_resids,
         ion_charges=ion_charges,
-        ion_mult=ion_mult,
+        ion_mults=ion_mults,
         ncaa_resids=ncaa_resids,
         ncaa_charges=ncaa_charges,
         ncaa_resnames=ncaa_resnames,

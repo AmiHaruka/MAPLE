@@ -41,15 +41,15 @@ Target: A462:FE (ion)
   PDB residue templates: matched=460, backbone_only=0, unmatched=1
     not matched (seemingly not protein): A461:HEM
     declare them via lig_resids (or ncaa_resids) to build parameters as small molecules
-  ions_resid: A462
+  ion_resids: A462
   add_resid: []
   cluster_cutoff: 3.00 A
   donor_cutoff: 2.70 A
   water ff: tip3p
   protein ff: ff14SB
   ion ff: 12_6
-  ions_charge: 3
-  ions_mult: 6
+  ion_charges: 3
+  ion_mults: 6
   ncaa_resids: []
   large model charge/mult: -2 6
   chgmod: 1

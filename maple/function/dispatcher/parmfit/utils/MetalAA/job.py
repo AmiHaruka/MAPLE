@@ -34,11 +34,11 @@ class MetalAA(JobABC):
             info = ["\n", "=" * 70 + "\n", "Parmfit MetalAA".center(70) + "\n", "=" * 70 + "\n"]
             raw = as_tracked(self.params)
             pdb = str(raw.get("pdb", "")).strip()
-            target = str(raw.get("ion_resid", "")).strip()
+            target = str(raw.get("ion_resids", "")).strip()
             if not pdb:
                 raise ValueError("parmfit(method=metalaa) requires a PDB block: PDB <path>.")
             if not target:
-                raise ValueError("parmfit(method=metalaa) requires an ion residue selector, e.g. ion_resid=A301.")
+                raise ValueError("parmfit(method=metalaa) requires an ion residue selector, e.g. ion_resids=A301.")
 
             altloc_selectors = [
                 target,
@@ -69,7 +69,7 @@ class MetalAA(JobABC):
             config = parse_metal_abinitio_config(
                 raw,
                 pdb_path=pdb,
-                ion_resid=target,
+                ion_resids=target,
                 target_residue=target_residue,
             )
             write_parmfit_run(

@@ -402,7 +402,7 @@ def _build_metal_model_bundle(
 ) -> MetalModelBundle:
     bundle = build_metal_model_bundle(
         structure,
-        ion_resid=config.ion_resid,
+        ion_resids=config.ion_resids,
         add_resid=config.add_resid,
         cluster_cutoff=config.cluster_cutoff,
         donor_cutoff=config.donor_cutoff,
@@ -413,7 +413,7 @@ def _build_metal_model_bundle(
     # The base carries only the metal; every other residue contributes through its
     # own net_charge (declared lig/ncaa charges, template charges, environment).
     bundle.large_charge = infer_model_charge(config.ion_charges, bundle.large_model)
-    bundle.large_mult = config.ion_mult
+    bundle.large_mult = config.ion_mults
     bundle.large_model["charge"] = bundle.large_charge
     bundle.large_model["mult"] = bundle.large_mult
     return bundle
@@ -632,7 +632,7 @@ def _export_metal_site_model(
             f"integer target {site_charge:d}."
         )
     bundle.site_model["charge"] = site_charge
-    bundle.site_model["mult"] = config.ion_mult
+    bundle.site_model["mult"] = config.ion_mults
     bundle.site_model["warnings"] = list(bundle.large_model.get("warnings", [])) + charge_warnings
     artifacts.files["gaussian_input"] = resp_result.files["gaussian_input"]
     artifacts.resp_files.clear()

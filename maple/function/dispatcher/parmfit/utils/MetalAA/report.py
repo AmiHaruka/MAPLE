@@ -21,7 +21,7 @@ def format_metal_start_lines(
     large_mult: int,
 ) -> list[str]:
     return [
-        f"  ion_resid: {config.ion_resid}\n",
+        f"  ion_resids: {config.ion_resids}\n",
         f"  add_resid: {config.add_resid}\n",
         f"  cluster_cutoff: {config.cluster_cutoff:.2f} A\n",
         f"  donor_cutoff: {config.donor_cutoff:.2f} A\n",
@@ -29,7 +29,7 @@ def format_metal_start_lines(
         f"  protein ff: {config.pro_ff}\n",
         f"  ion ff: {config.ion_ff}\n",
         f"  ion_charges: {config.ion_charges}\n",
-        f"  ion_mult: {config.ion_mult}\n",
+        f"  ion_mults: {config.ion_mults}\n",
         f"  ncaa_resids: {config.ncaa_resids}\n",
         f"  large model charge/mult: {large_charge} {large_mult}\n",
         f"  chgmod: {config.resp.chgmod}\n",

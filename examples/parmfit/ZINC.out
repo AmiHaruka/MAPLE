@@ -41,15 +41,15 @@ Target: A262:ZN (ion)
   PDB residue templates: matched=255, backbone_only=0, unmatched=1
     not matched (seemingly not protein): A862:MNS
     declare them via lig_resids (or ncaa_resids) to build parameters as small molecules
-  ions_resid: A262
+  ions_resids: A262
   add_resid: []
   cluster_cutoff: 3.00 A
   donor_cutoff: 2.70 A
   water ff: tip3p
   protein ff: ff14SB
   ion ff: 12_6
-  ions_charge: 2
-  ions_mult: 1
+  ion_charges: 2
+  ion_mults: 1
   ncaa_resids: []
   large model charge/mult: 1 1
   chgmod: 1
