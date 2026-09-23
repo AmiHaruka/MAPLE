@@ -77,8 +77,8 @@ class BatchScanAndSPTests(unittest.TestCase):
                 output=str(Path(tmpdir) / "sp.out"),
                 atoms=[],
             )
-            lines = list(sp._trajectory_result_lines([], None))
-            text = "".join(lines)
+            sp.run()
+            text = (Path(tmpdir) / "sp.out").read_text()
             self.assertIn("Total frames processed: 0", text)
             self.assertIn("No structures to summarize", text)
 
@@ -102,10 +102,11 @@ class BatchScanAndSPTests(unittest.TestCase):
                 atoms=frames,
                 paras={"verbose": 1},
             )
-            energies, forces = sp._trajectory_energy_forces()
-
-            np.testing.assert_allclose(energies, [0.0, 1.0])
-            self.assertEqual(len(forces), 2)
+            sp.run()
+            text = (Path(tmpdir) / "sp.out").read_text()
+            self.assertIn("Energy: 0.0000000000 Hartree", text)
+            self.assertIn("Energy: 1.0000000000 Hartree", text)
+            self.assertEqual(text.count("Gradients (Hartree/Angstrom):"), 2)
             self.assertIs(calc.atoms, original_atoms)
             self.assertIs(calc.results, original_results)
             np.testing.assert_allclose(calc.results["forces"], 4.0)

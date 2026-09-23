@@ -489,18 +489,18 @@ class GSM(JobABC):
 
         lb = LBFGSDriver(m=5, curvature=70.0, maxstep=0.1)
         x = pos.copy()
-        E, g = energy_and_grad(x)
+        _, g = energy_and_grad(x)
         k = 0
         while k < max_iter and not lb.should_stop(g, fmax_th=gtol, frms_th=gtol*0.5):
             p = lb.two_loop(g)            # descent direction in subspace
             p = proj_perp(p)              # safety: ensure perpendicular
             p = lb.step_limit(p)
             x_new = x + p
-            E_new, g_new = energy_and_grad(x_new)
+            _, g_new = energy_and_grad(x_new)
             s = x_new - x
             y = g_new - g
             lb.update(s, y)
-            x, E, g = x_new, E_new, g_new
+            x, g = x_new, g_new
             k += 1
         img.set_positions(x.reshape(-1,3))
 
@@ -651,15 +651,12 @@ class GSM(JobABC):
         # Dump STRING-TS files
         ext = ".pdb" if images_ts and images_ts[0].info.get("pdb_template") else ".xyz"
         stringts_mep = base_prefix + "_stringts_mep" + ext
-        stringts_ts  = base_prefix + "_stringts_ts" + ext
         write_xyz(stringts_mep, images_ts, energies=Es_path)
         write_xyz(
             stringts_candidate,
-                [ts_candidate],
-                energies=[E_TS],
-            )
-        # Preserve PR57's legacy symbol without emitting a certified TS.
-        del stringts_ts
+            [ts_candidate],
+            energies=[E_TS],
+        )
 
         # Pretty-print TS coordinates
         def atoms_to_xyz_lines(atoms: Atoms) -> List[str]:

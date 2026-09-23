@@ -5,6 +5,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 from ase import Atoms
+from ase.constraints import FixAtoms, FixCartesian
 
 from ._common import (
     compute_metrics,
@@ -74,6 +75,16 @@ class RFO(JobABC):
         Writes <base>_opt_traj.xyz during accepted steps and <base>_opt.xyz on finish.
         Returns the optimized Atoms object.
         """
+        for constraint in getattr(self.atoms, "constraints", ()):
+            if not isinstance(constraint, (FixAtoms, FixCartesian)):
+                raise NotImplementedError(
+                    "RFO supports only FixAtoms/FixCartesian constraints; got "
+                    f"{type(constraint).__name__}. A raw Cartesian Hessian is "
+                    "not a constrained RFO Hessian. For a relaxed scan, "
+                    "explicitly choose #scan(method=lbfgs,mode=relaxed), or "
+                    "use mode=rigid; constrained RFO is not implemented."
+                )
+
         value = self.params.fd_batch_size
         if value is None:
             return self._run_optimization()

@@ -8,7 +8,6 @@ NEB implementation with:
 - ORCA-style dynamic spring constants
 """
 from __future__ import annotations
-from lib2to3.pgen2 import driver
 import os
 import sys
 import math
@@ -1123,16 +1122,12 @@ class NEB(JobABC):
             Es.insert(hei + 1, E_TS)
 
             nebts_mep = base + "_nebts_mep" + ext
-            nebts_ts = base + "_nebts_ts" + ext
             write_xyz(nebts_mep, images, energies=Es)
             write_xyz(
                 nebts_candidate,
                 [ts_candidate],
                 energies=[E_TS],
             )
-            # Preserve PR57's legacy symbol without emitting a certified TS.
-            del nebts_ts
-
             log_info([
                 "\n---------------------------------------------------------------\n",
                 "                      PATH SUMMARY FOR NEB-TS             \n",

@@ -17,6 +17,8 @@ from ...calculator._batch_utils import preserve_calculator_state
 from ..jobABC import JobABC
 from maple.function.timer import timer
 
+_AUTO_TRAJECTORY_WINDOW = 32
+
 @dataclass
 class SPParams:
     """Parameters for Single Point calculation."""
@@ -105,24 +107,16 @@ class SinglePoint(JobABC):
         lines.append("=" * 80 + "\n")
         return lines
 
-    def _trajectory_energy_forces(self):
-        """Evaluate trajectory frames with a batch path when it is safe.
-
-        SP trajectories are independent structures, so they are a natural batch
-        workload.  Mixed/no calculator inputs keep the original sequential ASE
-        behavior.
-        """
+    def _trajectory_chunks(self, stack: ExitStack):
+        """Yield validated E/F for bounded, output-ordered frame windows."""
         calc = shared_calculator(self.atoms)
         if (
             calc is None
             or not supports_batch_calculation(calc)
             or structures_have_constraints(self.atoms)
         ):
-            energies = []
-            forces = [] if self.verbose >= 1 else None
-            calculators = []
             seen_calculators = set()
-            for atoms_frame in self.atoms:
+            for start, atoms_frame in enumerate(self.atoms):
                 frame_calc = getattr(atoms_frame, "calc", None)
                 if frame_calc is None:
                     raise ValueError(
@@ -131,42 +125,50 @@ class SinglePoint(JobABC):
                 calc_id = id(frame_calc)
                 if calc_id not in seen_calculators:
                     seen_calculators.add(calc_id)
-                    calculators.append(frame_calc)
-
-            with ExitStack() as stack:
-                for frame_calc in calculators:
                     stack.enter_context(preserve_calculator_state(frame_calc))
-                for atoms_frame in self.atoms:
-                    frame_calc = atoms_frame.calc
-                    if forces is None:
-                        energy = float(atoms_frame.get_potential_energy())
-                        if not math.isfinite(energy):
-                            raise FloatingPointError(
-                                "Single-point trajectory returned a non-finite energy"
-                            )
-                        energies.append(energy)
-                    else:
-                        energy, force = energy_forces_one(
-                            frame_calc,
-                            atoms_frame,
-                            force_consistent=False,
+                if self.verbose >= 1:
+                    energy, force = energy_forces_one(
+                        frame_calc, atoms_frame, force_consistent=False,
+                    )
+                    yield start, [atoms_frame], [energy], [force]
+                else:
+                    energy = float(atoms_frame.get_potential_energy())
+                    if not math.isfinite(energy):
+                        raise FloatingPointError(
+                            "Single-point trajectory returned a non-finite energy"
                         )
-                        energies.append(energy)
-                        forces.append(force)
-            return energies, forces
+                    yield start, [atoms_frame], [energy], None
+            return
 
+        batch_size = getattr(calc, "path_batch_size", None)
         if self.verbose >= 1:
-            energies, forces = PathEvaluator(
-                calc,
-                batch_size=getattr(calc, "path_batch_size", None),
-            ).energy_forces(self.atoms)
-            return [float(e) for e in energies], forces
+            evaluator = PathEvaluator(calc, batch_size=batch_size)
+        else:
+            evaluator = EnergyEvaluator(calc, batch_size=batch_size)
+        window = evaluator.batch_size
+        if window == "auto":
+            # Keep the host-side result buffer finite even when CUDA has room
+            # for the entire trajectory. The evaluator can still split/back off
+            # further according to the existing native batch policy.
+            caps = [
+                value for value in (
+                    getattr(calc, "auto_path_batch_cap", None),
+                    getattr(calc, "auto_batch_hard_cap", None),
+                )
+                if isinstance(value, int) and not isinstance(value, bool) and value > 0
+            ]
+            window = min([_AUTO_TRAJECTORY_WINDOW, *caps])
+        elif window == "all":
+            window = max(1, len(self.atoms))
 
-        energies = EnergyEvaluator(
-            calc,
-            batch_size=getattr(calc, "path_batch_size", None),
-        ).energies(self.atoms)
-        return [float(e) for e in energies], None
+        for start in range(0, len(self.atoms), window):
+            frames = self.atoms[start:start + window]
+            if self.verbose >= 1:
+                energies, forces = evaluator.energy_forces(frames)
+            else:
+                energies = evaluator.energies(frames)
+                forces = None
+            yield start, frames, energies, forces
 
     def _run_trajectory(self):
         """Process multiple independent structures."""
@@ -177,48 +179,37 @@ class SinglePoint(JobABC):
                 "=" * 80 + "\n",
             ])
 
-            energies_hartree, forces_list = self._trajectory_energy_forces()
-            self.log_info(
-                self._trajectory_result_lines(energies_hartree, forces_list)
-            )
+            processed = 0
+            energy_min = math.inf
+            energy_max = -math.inf
+            with ExitStack() as stack:
+                for start, frames, energies, forces in self._trajectory_chunks(stack):
+                    lines = []
+                    for offset, (atoms_frame, energy) in enumerate(
+                        zip(frames, energies)
+                    ):
+                        force = None if forces is None else forces[offset]
+                        lines.extend(self._trajectory_frame_lines(
+                            start + offset + 1, atoms_frame, float(energy), force,
+                        ))
+                    self.log_info(lines)
+                    processed += len(frames)
+                    if len(energies):
+                        energy_min = min(energy_min, min(energies))
+                        energy_max = max(energy_max, max(energies))
+            self.log_info(self._trajectory_summary_lines(
+                processed, energy_min, energy_max,
+            ))
 
-    def _trajectory_result_lines(
-        self,
-        energies_hartree: List[float],
-        forces_list=None,
+    def _trajectory_summary_lines(
+        self, count: int, energy_min: float, energy_max: float,
     ) -> Iterator[str]:
-        """Yield trajectory results in output order for one streamed write."""
-        if len(energies_hartree) != len(self.atoms):
-            raise ValueError(
-                "Single-point trajectory energy count does not match the "
-                f"number of frames: {len(energies_hartree)} != {len(self.atoms)}"
-            )
-        if forces_list is not None and len(forces_list) != len(self.atoms):
-            raise ValueError(
-                "Single-point trajectory force count does not match the "
-                f"number of frames: {len(forces_list)} != {len(self.atoms)}"
-            )
-
-        for idx, (atoms_frame, energy_hartree) in enumerate(
-            zip(self.atoms, energies_hartree),
-            start=1,
-        ):
-            forces = None if forces_list is None else forces_list[idx - 1]
-            yield from self._trajectory_frame_lines(
-                idx,
-                atoms_frame,
-                energy_hartree,
-                forces=forces,
-            )
-
         yield f"\n{' SUMMARY ':=^80}\n"
-        yield f"Total frames processed: {len(self.atoms)}\n"
-        if not energies_hartree:
+        yield f"Total frames processed: {count}\n"
+        if not count:
             yield "No structures to summarize.\n"
             yield "=" * 80 + "\n"
             return
-        energy_min = min(energies_hartree)
-        energy_max = max(energies_hartree)
         yield (
             f"Energy range: {energy_min:.10f} to "
             f"{energy_max:.10f} Hartree\n"

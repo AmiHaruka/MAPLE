@@ -91,9 +91,10 @@ PBC boundary:
 
 ### Batch acceleration contract
 
-Batching is an optional evaluation-layer acceleration. It does not change the
-model, energy/force units, path equations, convergence thresholds, or
-single-structure calculator behavior.
+The batch evaluators preserve the selected model, interaction rules, and
+energy/force units. Batch and single evaluations are not guaranteed to be
+bitwise identical. This branch also changes some optimization, Hessian, and
+transition-state contracts; it is not a transparent scheduling-only update.
 
 - Native batching is used only when all structures share one calculator,
   carry no unsupported constraints/PBC/solvent state, and the backend declares
@@ -139,6 +140,42 @@ contract when the calculator does not declare one: use
 invariant PES, or `rigid_symmetry=cartesian_external` for a laboratory-frame
 potential. The same option is forwarded to `nebts` refinement; unknown
 symmetry fails closed rather than guessing from geometry.
+
+### Changed scientific and output contracts
+
+- PRFO uses a restricted-step P-RFO update rather than the earlier dual-shift
+  step. A geometry candidate now requires converged forces, exactly one
+  significant negative **physical-space** Hessian mode (internal for a free
+  molecule, full Cartesian for a laboratory-frame PES), resolved physical
+  curvature,
+  and a small *unrestricted current-point* Newton correction in Cartesian
+  coordinates. A small previous or trust-limited step alone is not a proximity
+  test. These checks do not replace independent frequency and IRC validation.
+- `rigid_symmetry=auto` rejects calculators without an explicit
+  `rigid_body_invariant` capability. No packaged backend currently declares
+  this capability; even bundled AIMNet2 checkpoints did not pass the frozen
+  E/F/H covariance screen for automatic admission. Existing PRFO and TS
+  refinement inputs therefore need a scientifically justified explicit
+  `rigid_symmetry` setting until their backend is admitted. Unknown or
+  laboratory-frame potentials must not be assumed to be free molecules.
+- `get_hessian()` defaults to `constraint_mode='fixed_cartesian'`. It supports
+  `FixAtoms` and `FixCartesian` but rejects nonlinear `FixInternals` rather than
+  return a misleading Cartesian matrix. `raw_cartesian` is an explicit
+  unconstrained derivative, **not** a constrained RFO Hessian. Relaxed RFO
+  scans are unsupported; use an explicit `#scan(method=lbfgs,mode=relaxed)`
+  input or a rigid scan. The former RFO methanol-scan output is retained only
+  as a historical artifact under `examples/scan/rfo/`.
+- Numerical Hessians retain a hard default antisymmetry diagnostic. Its
+  dimensionless scaled residual is `max|H-Hᵀ| / max(1, max|H|)`, with H
+  expressed in Hartree/Å² and the scale floor equal to 1 Hartree/Å². A small
+  residual does not prove accuracy. There is no automatic float32 threshold
+  relaxation. Inspect step-size and reference-curvature evidence before using
+  the explicit warning/ignore policies.
+- PRFO and refinements write `_prfo_ts_candidate`, `_nebts_ts_candidate`, or
+  `_stringts_ts_candidate` instead of the former `_ts` filenames. No success
+  alias is written. Single-point trajectories flush completed frame windows in
+  input order; on a later failure the valid prefix remains in the output,
+  without a success summary.
 
 ## Quick Start
 

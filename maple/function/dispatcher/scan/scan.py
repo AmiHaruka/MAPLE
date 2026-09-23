@@ -563,6 +563,13 @@ class Scan(JobABC):
 
     def run_scan(self):
         """Main scan entry point."""
+        if self.mode == "relaxed" and self.method == "rfo":
+            raise NotImplementedError(
+                "Relaxed RFO scans create FixInternals constraints, but a "
+                "constrained RFO Hessian is not implemented. Use "
+                "#scan(method=lbfgs,mode=relaxed) explicitly, or mode=rigid."
+            )
+
         scan_values = self._generate_scan_values()
         dim = len(scan_values)
 

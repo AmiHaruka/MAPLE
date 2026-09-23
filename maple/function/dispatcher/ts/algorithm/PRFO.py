@@ -695,6 +695,44 @@ class PRFO(JobABC):
 
     def _resolve_coordinate_space(self, atoms: Atoms) -> str:
         return _resolve_prfo_coordinate_space(atoms, self.params.rigid_symmetry)
+
+    def _candidate_proximity(
+        self,
+        eigenvalues: np.ndarray,
+        eigenvectors: np.ndarray,
+        mode_gradient: np.ndarray,
+        physical_basis: np.ndarray,
+        inverse_sqrt_mass: np.ndarray,
+    ) -> tuple[bool, str]:
+        """Check the current unrestricted correction, never a clipped step."""
+        if np.any(np.abs(eigenvalues) <= self.params.inertia_threshold):
+            return False, (
+                "Force/inertia criteria passed, but a physical Hessian mode "
+                "remains unresolved."
+            )
+        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+            correction = inverse_sqrt_mass * (
+                physical_basis @ (
+                    eigenvectors @ (-mode_gradient / eigenvalues)
+                )
+            )
+        if not np.all(np.isfinite(correction)):
+            return False, (
+                "Force/inertia criteria passed, but the current unrestricted "
+                "correction is non-finite."
+            )
+        max_correction = float(np.max(np.abs(correction)))
+        rms_correction = float(np.sqrt(np.mean(correction * correction)))
+        if (
+            max_correction <= self.params.dp_max_th
+            and rms_correction <= self.params.dp_rms_th
+        ):
+            return True, ""
+        return False, (
+            "Force/inertia criteria passed, but the current unrestricted "
+            "Cartesian correction is too large: "
+            f"max={max_correction:.6e} Å, rms={rms_correction:.6e} Å."
+        )
     
     def atoms_to_xyz(self, atoms: Atoms) -> str:
         """Convert Atoms object to XYZ format string."""
@@ -844,7 +882,11 @@ class PRFO(JobABC):
                 f"{self.params.f_rms_th:>12.6f}                Yes\n"
             )
         
-        # Displacement convergence
+        # Previous accepted-step displacement is useful for diagnostics; the
+        # candidate gate tests the unrestricted correction at the current point.
+        info_message.append(
+            "Previous-step displacement (diagnostic, not candidate criterion):\n"
+        )
         if atoms.max_dp > self.params.dp_max_th:
             info_message.append(
                 f"Maximum Displacement:  {atoms.max_dp:>12.6f} "
@@ -972,7 +1014,8 @@ class PRFO(JobABC):
             f"Force convergence thresholds: "
             f"f_max={self.params.f_max_th:.6f}, "
             f"f_rms={self.params.f_rms_th:.6f}\n",
-            f"Displacement diagnostics (not success criteria): "
+            f"Last-step displacement diagnostics; current unrestricted Newton "
+            f"correction is a candidate criterion: "
             f"dp_max={self.params.dp_max_th:.6f}, "
             f"dp_rms={self.params.dp_rms_th:.6f}\n",
             f"Coordinate-space contract: {self._coordinate_space}\n",
@@ -1138,26 +1181,35 @@ class PRFO(JobABC):
                 np.count_nonzero(w_physical < -self.params.inertia_threshold)
             )
 
+            proximity_detail = None
             if forces_converged:
                 if negative_modes == 1:
+                    near_stationary, proximity_detail = self._candidate_proximity(
+                        w_physical, V_physical, gp_physical, basis, D,
+                    )
+                    if near_stationary:
+                        return self._terminal_result(
+                            status=PRFOStatus.GEOMETRY_CONVERGED,
+                            iteration=iteration,
+                            energy=E_old,
+                            negative_modes=negative_modes,
+                            detail=(
+                                "Forces, current physical correction, "
+                                "and first-order inertia converged."
+                            ),
+                        )
+                else:
                     return self._terminal_result(
-                        status=PRFOStatus.GEOMETRY_CONVERGED,
+                        status=PRFOStatus.FAILED_WRONG_INERTIA,
                         iteration=iteration,
                         energy=E_old,
                         negative_modes=negative_modes,
-                        detail="Forces and first-order inertia converged.",
+                        detail=(
+                            "Geometry converged but the mass-weighted physical "
+                            "Hessian has "
+                            f"{negative_modes} significant negative modes; expected 1."
+                        ),
                     )
-                return self._terminal_result(
-                    status=PRFOStatus.FAILED_WRONG_INERTIA,
-                    iteration=iteration,
-                    energy=E_old,
-                    negative_modes=negative_modes,
-                    detail=(
-                        "Geometry converged but the mass-weighted physical "
-                        "Hessian has "
-                        f"{negative_modes} significant negative modes; expected 1."
-                    ),
-                )
 
             if iteration >= self.params.max_iter:
                 return self._terminal_result(
@@ -1165,9 +1217,9 @@ class PRFO(JobABC):
                     iteration=iteration,
                     energy=E_old,
                     negative_modes=negative_modes,
-                    detail=(
+                    detail=proximity_detail or (
                         "PRFO exhausted its accepted-step budget before force "
-                        "and first-order-inertia convergence."
+                        "or current-correction and first-order-inertia convergence."
                     ),
                 )
 

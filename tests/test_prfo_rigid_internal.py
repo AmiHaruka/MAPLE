@@ -136,6 +136,40 @@ def _internal_negative_modes(atoms):
 
 
 class PRFORigidInternalTests(unittest.TestCase):
+    def test_soft_internal_saddle_far_from_stationary_is_not_force_only_candidate(self):
+        # Keep the two stiff pair distances fixed while stretching the soft
+        # reaction-coordinate bond by 0.2 Å. Its force is tiny, but geometry
+        # is not near the saddle and a current physical step remains large.
+        bond = _DISTANCES[0] + 0.2
+        other = _DISTANCES[2]
+        opposite = _DISTANCES[1]
+        x = (other**2 + bond**2 - opposite**2) / (2.0 * bond)
+        y = np.sqrt(other**2 - x**2)
+        positions = np.array([[0.0, 0.0, 0.0], [bond, 0.0, 0.0], [x, y, 0.0]])
+        atoms = _atoms(positions, [-1.0e-5, 1.0, 1.0])
+        self.assertLess(float(np.max(np.abs(atoms.get_forces()))), 9.5e-3)
+        self.assertEqual(_internal_negative_modes(atoms), 1)
+
+        with tempfile.TemporaryDirectory() as directory:
+            for trust_radius in (0.2, 1.0e-3):
+                with self.subTest(trust_radius=trust_radius):
+                    result = PRFO(
+                        output=str(Path(directory) / f"soft-far-{trust_radius}.out"),
+                        atoms=atoms,
+                        paras={"max_iter": 0, "trust_radius": trust_radius},
+                    ).run_result()
+                    self.assertNotEqual(result.status, PRFOStatus.GEOMETRY_CONVERGED)
+                    self.assertEqual(result.iterations, 0)
+
+    def test_exact_soft_saddle_can_converge_when_local_correction_is_zero(self):
+        atoms = _atoms(_REFERENCE, [-1.0e-5, 1.0, 1.0])
+        with tempfile.TemporaryDirectory() as directory:
+            result = PRFO(
+                output=str(Path(directory) / "exact-soft.out"), atoms=atoms,
+                paras={"max_iter": 0},
+            ).run_result()
+        self.assertEqual(result.status, PRFOStatus.GEOMETRY_CONVERGED)
+
     def test_near_minimum_is_not_false_saddle_candidate(self):
         atoms = _atoms(_NEAR_MINIMUM, [1.0, 1.0, 1.0])
         self.assertLess(float(np.max(np.abs(atoms.get_forces()))), 9.5e-3)

@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import ast
 import gc
+import subprocess
+import sys
 import weakref
+from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
@@ -16,7 +20,54 @@ from maple.function.calculator._batch_eval import (
     _copy_with_positions,
 )
 from maple.function.calculator.calculator_base import CalcABC
-from maple.function.calculator.uma._uma_calculator import UMACalculator
+
+
+def test_cpu_hessian_contracts_collect_without_optional_fairchem():
+    """An optional UMA dependency must not hide the backend-independent tests."""
+    repo_root = Path(__file__).resolve().parents[1]
+    probe = """
+import sys
+import pytest
+
+sys.modules["fairchem"] = None
+raise SystemExit(pytest.main([
+    "-q",
+    "tests/test_fd_hessian_semantics_streaming.py::"
+    "test_public_numerical_hessian_requires_explicit_raw_request_for_nonlinear_constraint",
+    "tests/test_fd_hessian_semantics_streaming.py::"
+    "test_uma_public_numerical_entry_forwards_explicit_raw_mode",
+]))
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "1 passed, 1 skipped" in result.stdout
+
+
+def test_neb_imports_do_not_require_removed_lib2to3_module():
+    """Keep TS source importable on Python 3.13 without loading model stacks."""
+    repo_root = Path(__file__).resolve().parents[1]
+    source = (repo_root / "maple/function/dispatcher/ts/algorithm/neb.py").read_text()
+    tree = ast.parse(source)
+    removed_imports = [
+        node
+        for node in ast.walk(tree)
+        if (
+            isinstance(node, ast.ImportFrom)
+            and node.module is not None
+            and node.module.split(".", 1)[0] == "lib2to3"
+        )
+        or (
+            isinstance(node, ast.Import)
+            and any(alias.name.split(".", 1)[0] == "lib2to3" for alias in node.names)
+        )
+    ]
+    assert not removed_imports
 
 
 class _PolynomialCalculator(CalcABC):
@@ -183,6 +234,9 @@ def test_out_of_range_fixed_atom_index_fails_before_hessian_work(index):
 
 
 def test_uma_public_numerical_entry_forwards_explicit_raw_mode():
+    pytest.importorskip("fairchem.core")
+    from maple.function.calculator.uma._uma_calculator import UMACalculator
+
     class _UMAProtocol(_PolynomialCalculator):
         def _set_task_from_atoms(self, atoms):
             return None

@@ -295,20 +295,40 @@ class BatchPRFO:
                 physical_mask = self._arange_n[None, :] < self._P_vec[:, None]
                 negative = ((w < -INERTIA_THRESHOLD) & physical_mask).sum(1)
                 significant = ((w.abs() > INERTIA_THRESHOLD) & physical_mask).sum(1)
+                candidate, max_dp, rms_dp = self._candidate_proximity(
+                    w, V, gp, atoms_list,
+                    force_done & (negative == 1) & (significant == self._P_vec),
+                )
                 no_mode = significant == 0
                 exhausted = iterations >= self.max_outer_iter
-                terminal = force_done | exhausted | no_mode
+                wrong_inertia = force_done & (negative != 1)
+                terminal = candidate | wrong_inertia | exhausted | no_mode
                 for local in terminal.nonzero(as_tuple=False).flatten().tolist():
-                    if bool(force_done[local]):
-                        status = (PRFOStatus.GEOMETRY_CONVERGED
-                                  if int(negative[local]) == 1
-                                  else PRFOStatus.FAILED_WRONG_INERTIA)
-                        detail = ("Forces and first-order inertia converged."
-                                  if status is PRFOStatus.GEOMETRY_CONVERGED else
-                                  f"Geometry converged with {int(negative[local])} significant negative modes; expected 1.")
+                    if bool(candidate[local]):
+                        status = PRFOStatus.GEOMETRY_CONVERGED
+                        detail = (
+                            "Forces, resolved first-order inertia, and unrestricted "
+                            "current-point correction converged."
+                        )
+                    elif bool(wrong_inertia[local]):
+                        status = PRFOStatus.FAILED_WRONG_INERTIA
+                        detail = (
+                            f"Geometry converged with {int(negative[local])} "
+                            "significant negative modes; expected 1."
+                        )
                     elif bool(exhausted[local]):
                         status = PRFOStatus.FAILED_MAXITER
                         detail = "BatchPRFO exhausted its accepted-step budget."
+                        if bool(force_done[local]):
+                            if int(significant[local]) != int(self._P_vec[local]):
+                                detail += " An unresolved physical curvature prevents a candidate."
+                            else:
+                                detail += (
+                                    " Current-point unrestricted correction prevents "
+                                    "a candidate "
+                                    f"(max={float(max_dp[local]):.6g}, "
+                                    f"rms={float(rms_dp[local]):.6g} Angstrom)."
+                                )
                     else:
                         status = PRFOStatus.FAILED_MODE_TRACKING
                         detail = "No significant physical Hessian mode is available for tracking."
@@ -405,7 +425,10 @@ class BatchPRFO:
         masses = np.asarray(atoms.get_masses(), dtype=np.float64)
         if not np.all(np.isfinite(masses)) or np.any(masses <= 0.0):
             return PRFOStatus.FAILED_HESSIAN, "Atomic masses must be finite and positive."
-        for name, default in (("f_max_th", 2e-3), ("f_rms_th", 1e-3)):
+        for name, default in (
+            ("f_max_th", 2e-3), ("f_rms_th", 1e-3),
+            ("dp_max_th", 1.8e-3), ("dp_rms_th", 1.2e-3),
+        ):
             try:
                 _finite_positive_real(getattr(atoms, name, default))
             except ValueError:
@@ -550,6 +573,50 @@ class BatchPRFO:
         g_mw = self._D * g_cart
         H_mw = self._D.unsqueeze(-1) * H * self._D.unsqueeze(-2)
         return H_mw, g_mw
+
+    def _candidate_proximity(self, w, V, gp, atoms_list, eligible):
+        """Test the unrestricted Newton correction in the current physical space.
+
+        A trust-clipped or previous step can be tiny far from a soft-mode
+        stationary point.  Only fully resolved first-order rows are eligible;
+        the eigensystem, internal basis and mass scaling are exactly those used
+        for this iteration's mode tracking and step construction.
+        """
+        if not bool(eligible.any()):
+            zeros = torch.zeros(gp.shape[0], dtype=DTYPE, device=self.device)
+            return eligible, zeros, zeros
+        correction_mw = torch.zeros_like(gp)
+        for length, width, members in self._physical_groups():
+            selected = members[eligible[members]]
+            if selected.numel() == 0:
+                continue
+            spectral = -gp[selected, :width] / w[selected, :width]
+            local = torch.bmm(
+                V[selected, :width, :width], spectral.unsqueeze(-1)
+            ).squeeze(-1)
+            basis = self._group_basis(length, width, selected)
+            if basis is not None:
+                local = torch.bmm(basis, local.unsqueeze(-1)).squeeze(-1)
+            correction_mw[selected, :length] = local
+
+        correction_cart = self._D * correction_mw
+        max_dp = correction_cart.abs().amax(dim=1)
+        rms_dp = torch.sqrt(
+            correction_cart.square().sum(dim=1) / self._L_vec.to(DTYPE)
+        )
+        max_threshold = torch.tensor(
+            [_finite_positive_real(getattr(at, "dp_max_th", 1.8e-3))
+             for at in atoms_list], dtype=DTYPE, device=self.device,
+        )
+        rms_threshold = torch.tensor(
+            [_finite_positive_real(getattr(at, "dp_rms_th", 1.2e-3))
+             for at in atoms_list], dtype=DTYPE, device=self.device,
+        )
+        converged = (
+            eligible & torch.isfinite(max_dp) & torch.isfinite(rms_dp)
+            & (max_dp <= max_threshold) & (rms_dp <= rms_threshold)
+        )
+        return converged, max_dp, rms_dp
 
     def _eigh_and_track_modes(self, H_mw, g_mw):
         batch, width = g_mw.shape

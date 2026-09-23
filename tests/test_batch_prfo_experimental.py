@@ -46,6 +46,16 @@ _TRIATOMIC_NEAR_MINIMUM = np.array([
 ], dtype=np.float64)
 
 
+def _soft_saddle_bond_displacement(shift):
+    """Move one pair while preserving the other two reference distances."""
+    bond = _TRIATOMIC_DISTANCES[0] + shift
+    other = _TRIATOMIC_DISTANCES[2]
+    opposite = _TRIATOMIC_DISTANCES[1]
+    x = (other**2 + bond**2 - opposite**2) / (2.0 * bond)
+    y = np.sqrt(other**2 - x**2)
+    return Atoms("H3", positions=[[0, 0, 0], [bond, 0, 0], [x, y, 0]])
+
+
 class _SyntheticFP64Adapter:
     """Minimal existing BatchPRFO calculator protocol for CPU state tests."""
 
@@ -511,6 +521,84 @@ class BatchPRFOExperimentalTests(unittest.TestCase):
         )
         self.assertIs(result.status, PRFOStatus.GEOMETRY_CONVERGED)
         self.assertEqual(result.negative_modes, 1)
+
+    def test_soft_internal_saddle_far_from_stationary_is_not_batch_candidate(self):
+        atoms = _soft_saddle_bond_displacement(0.2)
+        atoms.set_masses([1.0, 1.0, 1.0])
+        adapter = _DistanceTriatomicAdapter([-1.0e-5, 1.0, 1.0])
+        optimizer = self._optimizer(max_outer_iter=0, rigid_symmetry="free_molecule")
+
+        (result,) = optimizer._run_experimental(
+            SimpleNamespace(multiatoms=[atoms], calc=adapter)
+        )
+
+        self.assertIs(result.status, PRFOStatus.FAILED_MAXITER)
+        self.assertEqual(result.iterations, 0)
+        self.assertEqual(result.negative_modes, 1)
+        self.assertIn("unrestricted correction", result.detail)
+
+    def test_soft_internal_saddle_at_or_near_stationary_is_batch_candidate(self):
+        for shift in (0.0, 1.0e-4):
+            with self.subTest(shift=shift):
+                atoms = _soft_saddle_bond_displacement(shift)
+                atoms.set_masses([1.0, 1.0, 1.0])
+                adapter = _DistanceTriatomicAdapter([-1.0e-5, 1.0, 1.0])
+
+                (result,) = self._optimizer(
+                    max_outer_iter=0, rigid_symmetry="free_molecule"
+                )._run_experimental(
+                    SimpleNamespace(multiatoms=[atoms], calc=adapter)
+                )
+
+                self.assertIs(result.status, PRFOStatus.GEOMETRY_CONVERGED)
+                self.assertEqual(result.negative_modes, 1)
+
+    def test_unresolved_internal_mode_prevents_batch_candidate(self):
+        atoms = Atoms("H3", positions=_TRIATOMIC_REFERENCE.copy())
+        adapter = _DistanceTriatomicAdapter([-1.0e-5, 1.0e-8, 1.0])
+
+        (result,) = self._optimizer(
+            max_outer_iter=0, rigid_symmetry="free_molecule"
+        )._run_experimental(
+            SimpleNamespace(multiatoms=[atoms], calc=adapter)
+        )
+
+        self.assertIs(result.status, PRFOStatus.FAILED_MAXITER)
+        self.assertEqual(result.negative_modes, 1)
+        self.assertIn("unresolved physical curvature", result.detail)
+
+    def test_ragged_soft_member_does_not_inherit_stationary_peers_candidate(self):
+        class RaggedSoftAdapter(_RaggedShrinkingAdapter):
+            def _values(self):
+                energies, forces, hessians = super()._values()
+                start = 0
+                for index, atoms in enumerate(self._atoms):
+                    if atoms.info["label"] == "soft":
+                        displacement = self.coord[start, 0] - 0.2
+                        energies[index] = -0.5e-5 * displacement**2
+                        forces[index, 0] = 1.0e-5 * displacement
+                        hessians[index, 0, 0] = -1.0e-5
+                    start += len(atoms)
+                return energies, forces, hessians
+
+        stationary = self._one_atom()
+        stationary.info["label"] = "stationary"
+        soft = Atoms("H2", positions=[[0, 0, 0], [0.7, 0, 0]])
+        soft.info["label"] = "soft"
+        for members in ([stationary, soft], [soft, stationary]):
+            with self.subTest(first=members[0].info["label"]):
+                results = self._optimizer(max_outer_iter=0)._run_experimental(
+                    SimpleNamespace(multiatoms=members, calc=RaggedSoftAdapter())
+                )
+                by_label = {
+                    atoms.info["label"]: result
+                    for atoms, result in zip(members, results)
+                }
+                self.assertIs(
+                    by_label["stationary"].status, PRFOStatus.GEOMETRY_CONVERGED
+                )
+                self.assertIs(by_label["soft"].status, PRFOStatus.FAILED_MAXITER)
+                self.assertEqual(by_label["soft"].negative_modes, 1)
 
     def test_unknown_batch_backend_symmetry_fails_before_prepare(self):
         adapter = _SyntheticFP64Adapter()
@@ -1293,8 +1381,8 @@ class BatchPRFOExperimentalTests(unittest.TestCase):
                     results[0].atoms.get_positions(), original_positions
                 )
 
-    def test_invalid_member_force_thresholds_fail_before_prepare(self):
-        for attribute in ("f_max_th", "f_rms_th"):
+    def test_invalid_member_convergence_thresholds_fail_before_prepare(self):
+        for attribute in ("f_max_th", "f_rms_th", "dp_max_th", "dp_rms_th"):
             for value in (
                 0.0, -1.0, float("nan"), float("inf"),
                 "loose", "0.002", True, np.bool_(True), np.bool_(False),
