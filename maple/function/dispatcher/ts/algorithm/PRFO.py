@@ -12,6 +12,7 @@ import os
 import sys
 from dataclasses import dataclass
 from enum import Enum
+from numbers import Real
 from typing import Optional
 
 import numpy as np
@@ -21,6 +22,19 @@ from .logger import log_info
 from ._pdb_compat import require_shared_pdb_writer
 from ...jobABC import JobABC
 from maple.function.read.filereader.pdb_reader import write_pdb, write_pdb_model
+from maple.function.utility.rigid_body import mass_weighted_rigid_basis
+
+
+def _finite_positive_real(value) -> float:
+    """Accept only finite positive real scalars, never booleans or strings."""
+    if isinstance(value, (bool, np.bool_)) or not isinstance(
+        value, (Real, np.integer, np.floating)
+    ):
+        raise ValueError("expected a real scalar")
+    result = float(value)
+    if not np.isfinite(result) or result <= 0.0:
+        raise ValueError("expected a finite positive real scalar")
+    return result
 
 # =============================================================================
 # ------------------------------ Utilities ------------------------------------
@@ -356,6 +370,74 @@ def calculate_Hessian(atoms: Atoms):
     H = calc.get_hessian(atoms)
     return to_numpy_f64(H)
 
+
+def _rigid_internal_complement(atoms: Atoms) -> np.ndarray:
+    """Orthonormal MW internal coordinates for a free, non-periodic molecule.
+
+    The rigid rank is geometry dependent (three translations plus two or
+    three rotations), so it must not be replaced with an unconditional six-DOF
+    subtraction.  Complete QR of the existing orthonormal rigid basis supplies
+    its complement without forming an ill-conditioned explicit projector.
+    """
+    rigid = mass_weighted_rigid_basis(atoms)
+    n_dof = 3 * len(atoms)
+    if rigid.ndim != 2 or rigid.shape[0] != n_dof:
+        raise ValueError("Rigid-body basis has an invalid shape")
+    if rigid.shape[1] >= n_dof:
+        raise NotImplementedError(
+            "Free-molecule PRFO requires at least one internal degree of freedom"
+        )
+    complete_basis = np.linalg.qr(rigid, mode="complete")[0]
+    return complete_basis[:, rigid.shape[1]:]
+
+
+def _resolve_prfo_coordinate_space(
+    atoms: Atoms, requested: str, calculator=None
+) -> str:
+    """Resolve one shared scalar/batch TS symmetry contract, failing closed.
+
+    Geometry does not prove rigid invariance: a laboratory-frame field can
+    break it. Unknown backends require an explicit assertion by the caller.
+    """
+    requested = str(requested).lower()
+    if requested not in {"auto", "free_molecule", "cartesian_external"}:
+        raise ValueError(
+            "PRFO rigid_symmetry must be 'auto', 'free_molecule', or "
+            "'cartesian_external'"
+        )
+    if np.any(atoms.get_pbc()):
+        raise NotImplementedError(
+            "PRFO periodic TS search has no validated symmetry/curvature "
+            "contract and fails closed."
+        )
+    backend = atoms.calc if calculator is None else calculator
+    capability = getattr(backend, "rigid_body_invariant", None)
+    if capability is not None and not isinstance(capability, (bool, np.bool_)):
+        raise TypeError("Calculator rigid_body_invariant must be boolean")
+    declared = None if capability is None else bool(capability)
+    if requested == "auto":
+        if declared is None:
+            raise NotImplementedError(
+                "PRFO cannot infer rigid-body symmetry from this calculator. "
+                "Set paras={'prfo': {'rigid_symmetry': 'free_molecule'}} "
+                "only for a free rigid-invariant PES, or use "
+                "'cartesian_external' for an explicitly laboratory-frame "
+                "PES; unknown symmetry fails closed."
+            )
+        requested = "free_molecule" if declared else "cartesian_external"
+    elif declared is False and requested == "free_molecule":
+        raise ValueError(
+            "Calculator is not rigid-body invariant; free-molecule "
+            "projection would change its physical problem."
+        )
+    elif declared is True and requested == "cartesian_external":
+        raise ValueError(
+            "Calculator is rigid-body invariant; cartesian_external "
+            "could mistake rigid curvature for an internal TS mode."
+        )
+    return requested
+
+
 def _bfgs_update(H: np.ndarray, s: np.ndarray, y: np.ndarray) -> np.ndarray:
     """BFGS update of Hessian approximation."""
     H = to_numpy_f64(H)
@@ -442,6 +524,7 @@ class PRFOParams:
     hessian_update: str = "bofill"         # Working Hessian update: bofill or bfgs
     inertia_threshold: float = 1e-6        # Significant negative MW Hessian mode
     stagnation_threshold: float = 1e-12    # Zero-step / no-progress threshold
+    rigid_symmetry: str = "auto"            # free_molecule | cartesian_external | auto
     
     # Convergence thresholds (should be set from atoms object)
     f_max_th: float = 9.5e-3               # Maximum force threshold (Eh/Angstrom)
@@ -466,6 +549,13 @@ class PRFOStatus(str, Enum):
 
 @dataclass(frozen=True)
 class PRFOResult:
+    """A geometry candidate is not a frequency/IRC-verified TS.
+
+    ``negative_modes`` counts the selected physical space: internal modes for
+    a rigid-invariant free molecule, full Cartesian modes for an explicitly
+    non-invariant laboratory-frame problem.
+    """
+
     atoms: Atoms
     status: PRFOStatus
     iterations: int
@@ -529,6 +619,12 @@ class PRFO(JobABC):
             if hasattr(atoms, attr):
                 setattr(self.params, attr, getattr(atoms, attr))
         self._validate_params()
+        self._coordinate_space = self._resolve_coordinate_space(atoms)
+        if self._coordinate_space == "free_molecule" and len(atoms) < 2:
+            raise NotImplementedError(
+                "Free-molecule PRFO requires at least one internal degree "
+                "of freedom."
+            )
 
         # Mode tracking
         self.tracked_mode_vec_mw = None
@@ -557,9 +653,12 @@ class PRFO(JobABC):
             "dp_rms_th",
         )
         for name in positive:
-            value = float(getattr(self.params, name))
-            if not np.isfinite(value) or value <= 0.0:
-                raise ValueError(f"PRFO {name} must be finite and positive")
+            try:
+                value = _finite_positive_real(getattr(self.params, name))
+            except ValueError as exc:
+                raise ValueError(
+                    f"PRFO {name} must be a finite positive real scalar"
+                ) from exc
             setattr(self.params, name, value)
         if not (
             self.params.trust_min
@@ -593,6 +692,9 @@ class PRFO(JobABC):
             self.params.eta_shrink,
             self.params.eta_expand,
         ) = qualities
+
+    def _resolve_coordinate_space(self, atoms: Atoms) -> str:
+        return _resolve_prfo_coordinate_space(atoms, self.params.rigid_symmetry)
     
     def atoms_to_xyz(self, atoms: Atoms) -> str:
         """Convert Atoms object to XYZ format string."""
@@ -603,25 +705,6 @@ class PRFO(JobABC):
             lines.append(f"{s:<2} {x:14.6f} {y:14.6f} {z:14.6f}")
         return "\n".join(lines) + "\n"
     
-    def check_convergence(self, atoms: Atoms) -> bool:
-        """
-        Check if optimization has converged based on forces and displacements.
-        
-        Parameters
-        ----------
-        atoms : Atoms
-            Current geometry with convergence metrics attached
-        
-        Returns
-        -------
-        bool
-            True if all convergence criteria are met
-        """
-        return (atoms.max_f <= self.params.f_max_th and
-                atoms.rms_f <= self.params.f_rms_th and
-                atoms.max_dp <= self.params.dp_max_th and
-                atoms.rms_dp <= self.params.dp_rms_th)
-
     def _terminal_result(
         self,
         *,
@@ -807,9 +890,10 @@ class PRFO(JobABC):
         Parameters
         ----------
         w_mw : array
-            Eigenvalues in mass-weighted coordinates
+            Eigenvalues in the selected mass-weighted physical space
         V_mw : array
-            Eigenvectors in mass-weighted coordinates
+            Physical eigenvectors embedded in full mass-weighted Cartesian
+            coordinates, so overlap remains meaningful as the basis changes
         gp_mw : array
             Projected gradient in eigen-basis
         
@@ -818,8 +902,8 @@ class PRFO(JobABC):
         int
             Index of tracked mode
         """
-        # Translational/rotational near-zero modes are never valid tracking
-        # targets, including after the first eigensystem update.
+        # Rigid modes have already been removed for free molecules.  Keep the
+        # existing curvature significance threshold for genuine soft modes.
         significant = np.flatnonzero(
             np.abs(w_mw) > self.params.inertia_threshold
         )
@@ -870,15 +954,12 @@ class PRFO(JobABC):
         atoms = self.atoms
         trust_radius = self.params.trust_radius
 
-        converged = False
         iteration = 0
 
         # Setup trajectory file
         base, _ = os.path.splitext(self.output)
         ext = ".pdb" if atoms.info.get("pdb_template") else ".xyz"
         traj_file = base + "_prfo_traj" + ext
-        ts_file = base + "_prfo_ts" + ext
-        
         # Log header
         info_message = [
             "\nStarting Transition State Search (TS) with RS-PRFO...\n",
@@ -891,12 +972,12 @@ class PRFO(JobABC):
             f"Force convergence thresholds: "
             f"f_max={self.params.f_max_th:.6f}, "
             f"f_rms={self.params.f_rms_th:.6f}\n",
-            f"Displacement diagnostics: "
+            f"Displacement diagnostics (not success criteria): "
             f"dp_max={self.params.dp_max_th:.6f}, "
-            f"dp_rms={self.params.dp_rms_th:.6f}\n"
+            f"dp_rms={self.params.dp_rms_th:.6f}\n",
+            f"Coordinate-space contract: {self._coordinate_space}\n",
         ]
         log_info(info_message, self.output)
-        del converged, ts_file
 
         H_work = None
         last_max_dp = 0.0
@@ -1018,20 +1099,33 @@ class PRFO(JobABC):
             g_mw = vec1d(D * g_cart, n3)
             H_mw = (D[:, None] * H_cart) * D[None, :]
             try:
-                w_mw, V_mw = np.linalg.eigh(H_mw)
-            except np.linalg.LinAlgError as exc:
+                basis = (
+                    _rigid_internal_complement(atoms)
+                    if self._coordinate_space == "free_molecule"
+                    else np.eye(n3, dtype=np.float64)
+                )
+                H_physical = basis.T @ H_mw @ basis
+                H_physical = 0.5 * (H_physical + H_physical.T)
+                g_physical = basis.T @ g_mw
+                w_physical, V_physical = np.linalg.eigh(H_physical)
+            except (ValueError, np.linalg.LinAlgError, NotImplementedError) as exc:
                 return self._terminal_result(
                     status=PRFOStatus.FAILED_HESSIAN,
                     iteration=iteration,
                     energy=E_old,
                     negative_modes=None,
-                    detail=f"Hessian eigensolver failed: {exc}",
+                    detail=f"Physical Hessian eigensystem failed: {exc}",
                 )
-            gp_mw = vec1d(V_mw.T @ g_mw, n3)
+            n_physical = H_physical.shape[0]
+            gp_physical = vec1d(V_physical.T @ g_physical, n_physical)
+            V_modes_mw = basis @ V_physical
             if (
-                not np.all(np.isfinite(w_mw))
-                or not np.all(np.isfinite(V_mw))
-                or not np.all(np.isfinite(gp_mw))
+                not np.all(np.isfinite(H_physical))
+                or not np.all(np.isfinite(g_physical))
+                or not np.all(np.isfinite(w_physical))
+                or not np.all(np.isfinite(V_physical))
+                or not np.all(np.isfinite(gp_physical))
+                or not np.all(np.isfinite(V_modes_mw))
             ):
                 return self._terminal_result(
                     status=PRFOStatus.FAILED_HESSIAN,
@@ -1041,7 +1135,7 @@ class PRFO(JobABC):
                     detail="Hessian eigendecomposition contains non-finite values.",
                 )
             negative_modes = int(
-                np.count_nonzero(w_mw < -self.params.inertia_threshold)
+                np.count_nonzero(w_physical < -self.params.inertia_threshold)
             )
 
             if forces_converged:
@@ -1059,7 +1153,8 @@ class PRFO(JobABC):
                     energy=E_old,
                     negative_modes=negative_modes,
                     detail=(
-                        "Geometry converged but the mass-weighted Hessian has "
+                        "Geometry converged but the mass-weighted physical "
+                        "Hessian has "
                         f"{negative_modes} significant negative modes; expected 1."
                     ),
                 )
@@ -1078,9 +1173,9 @@ class PRFO(JobABC):
 
             try:
                 tracked_mode_idx = self.update_mode_tracking(
-                    w_mw,
-                    V_mw,
-                    gp_mw,
+                    w_physical,
+                    V_modes_mw,
+                    gp_physical,
                 )
             except Exception as exc:
                 return self._terminal_result(
@@ -1097,17 +1192,18 @@ class PRFO(JobABC):
             while not accepted and attempts < max_attempts:
                 attempts += 1
                 try:
-                    s_mw = prfo_step(
-                        H=H_mw,
-                        g=g_mw,
+                    s_physical = prfo_step(
+                        H=H_physical,
+                        g=g_physical,
                         is_ts=True,
                         target_mode=tracked_mode_idx,
                         trust_radius=trust_radius,
                         evals_eps=self.params.evals_eps,
                         mu_margin=self.params.mu_margin,
                         max_bisect_it=self.params.max_bisect_it,
-                        pre_eig=(w_mw, V_mw, gp_mw),
+                        pre_eig=(w_physical, V_physical, gp_physical),
                     )
+                    s_mw = basis @ s_physical
                 except Exception as exc:
                     return self._terminal_result(
                         status=PRFOStatus.FAILED_STEP_SOLVER,

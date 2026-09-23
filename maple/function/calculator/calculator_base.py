@@ -434,15 +434,41 @@ class CalcABC(ase.calculators.calculator.Calculator):
         if hessian is not None:
             self.results['hessian'] = hessian
 
-    def get_hessian(self, atoms, delta: float = 0.002):
-        """Dispatch on self.hessian. Subclasses may override for backend autograd."""
+    def get_hessian(
+        self,
+        atoms,
+        delta: float = 0.002,
+        *,
+        constraint_mode: str = "fixed_cartesian",
+    ):
+        """Return a raw or fixed-Cartesian Hessian in Ha/Angstrom^2.
+
+        ``fixed_cartesian`` embeds the supported active Cartesian block in a
+        3N matrix; nonlinear constraint second derivatives are not supplied.
+        ``raw_cartesian`` explicitly differentiates the unconstrained PES.
+        """
         validate_electronic_state(atoms, self)
         self._reject_unsupported_pbc(atoms)
+        from ._batch_eval import _movable_dofs, _validate_hessian_constraint_mode
+
+        _validate_hessian_constraint_mode(constraint_mode)
         mode = getattr(self, 'hessian', self.SUPPORTED_HESSIAN_MODES[0])
         if mode == 'analytic':
             if getattr(self, 'solvent_correction', None) is not None:
                 raise NotImplementedError(IMPLICIT_SOLVENT_FORCE_ERROR)
-            return np.asarray(self._analytic_hessian(atoms))
+            movable = _movable_dofs(atoms, constraint_mode == 'fixed_cartesian')
+            raw_atoms = atoms.copy() if getattr(atoms, 'constraints', None) else atoms
+            if raw_atoms is not atoms:
+                raw_atoms.set_constraint()
+            H = np.asarray(self._analytic_hessian(raw_atoms))
+            if constraint_mode == 'raw_cartesian':
+                return H
+            fixed = np.setdiff1d(np.arange(3 * len(atoms)), movable)
+            if fixed.size:
+                H = H.copy()
+                H[fixed, :] = 0.0
+                H[:, fixed] = 0.0
+            return H
         if mode == 'numerical':
             if getattr(self, 'solvent_correction', None) is not None:
                 raise NotImplementedError(IMPLICIT_SOLVENT_FORCE_ERROR)
@@ -451,6 +477,7 @@ class CalcABC(ase.calculators.calculator.Calculator):
             return FDHessianEvaluator(
                 self,
                 fd_batch_size=getattr(self, "fd_batch_size", None),
+                constraint_mode=constraint_mode,
             ).hessian(atoms, delta)
         raise ValueError(f"Unknown hessian mode: {mode!r}")
 

@@ -12,7 +12,8 @@ have to inherit `CalcABC`. UMA, for example, extends third-party
 
 **Public methods:**
 - `calculate(self, atoms, properties, system_changes)` — ASE entry point.
-- `get_hessian(self, atoms, delta=0.002)` — returns a `(3N, 3N) np.ndarray`
+- `get_hessian(self, atoms, delta=0.002, *, constraint_mode='fixed_cartesian')`
+  — returns a `(3N, 3N) np.ndarray`
   in Hartree / Å². `CalcABC` provides a default that dispatches on
   `self.hessian`.
 - `get_hvp(self, atoms, n)` — optional; required only for the HVP-enabled
@@ -101,8 +102,8 @@ class FooCalculator(CalcABC):
   not multiply by `EV2HARTREE` themselves** for the `calculate()` path.
 - The Hessian path is independent: `_analytic_hessian` must return
   Hartree / Å² directly (each eV-native backend multiplies by `EV2HARTREE`
-  inside its analytic method); the numerical path inherits Hartree via
-  `numerical_hessian_from_atoms`, which calls back into `calculate()`.
+  inside its analytic method); `FDHessianEvaluator` differentiates forces
+  already expressed in Hartree / Å.
 
 ## PES identity for paths and restart
 
@@ -137,11 +138,20 @@ run with `load_state`, but cannot prove an exact continuation.
 
 ## Hessian
 
-- `self.hessian` selects `'analytic'` or `'numerical'`. Numerical falls
-  through to the shared `numerical_hessian_from_atoms` helper for free.
-- `numerical_hessian_from_atoms` restores the calculator's pre-call
-  `results` before returning, so standalone `calc.get_hessian(atoms)` does
-  not leave `results` pointing at the final displaced geometry.
+- `self.hessian` selects `'analytic'` or `'numerical'`. The numerical path
+  uses `FDHessianEvaluator`, with ordered central-difference force pairs and
+  bounded automatic displacement chunks. An explicit `fd_batch_size='all'`
+  opts out of the host-memory bound.
+- `constraint_mode='fixed_cartesian'` (default) embeds the active Cartesian
+  block for `FixAtoms`/`FixCartesian`; unsupported nonlinear constraints fail
+  closed. `constraint_mode='raw_cartesian'` explicitly differentiates the
+  unconstrained PES using constraint-free copies. Neither mode represents the
+  Hessian of a nonlinear constrained Lagrangian/tangent-space problem.
+- The numerical path restores calculator cache state and reports the
+  antisymmetric residual **before** symmetrization. Its scaled diagnostic is
+  `max|H-H.T| / max(1 Ha/Å², max|H|)`, not a pure relative error; symmetry
+  alone does not establish Hessian accuracy. Validate against analytic
+  references and a finite-difference step sweep.
 - Analytic Hessian with implicit solvent is unsupported and raises
   `NotImplementedError` from `CalcABC.get_hessian`. Document the
   limitation in any backend-specific notes.

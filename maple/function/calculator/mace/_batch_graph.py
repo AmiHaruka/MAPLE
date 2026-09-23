@@ -13,6 +13,9 @@ from typing import Sequence
 import numpy as np
 import torch
 
+from ._common import one_hot_node_attrs as _one_hot_node_attrs
+from ._common import radius_graph_no_pbc
+
 
 def one_hot_node_attrs(
     Z: torch.Tensor,
@@ -20,27 +23,8 @@ def one_hot_node_attrs(
     *,
     dtype: torch.dtype,
 ) -> torch.Tensor:
-    table = torch.tensor(atomic_number_table, dtype=torch.long, device=Z.device)
-    eq = Z[:, None] == table[None, :]
-    if not torch.all(eq.any(dim=1)):
-        miss = Z[~eq.any(dim=1)].unique().tolist()
-        raise ValueError(f"Atomic number(s) {miss} not in AtomicNumberTable {list(atomic_number_table)}")
-    return eq.to(dtype)
-
-
-def radius_graph_no_pbc(positions: torch.Tensor, r_max: float):
-    N = positions.size(0)
-    rij = positions[:, None, :] - positions[None, :, :]
-    d2 = (rij * rij).sum(dim=-1)
-    mask = torch.ones((N, N), dtype=torch.bool, device=positions.device)
-    mask.fill_diagonal_(False)
-    mask &= d2 <= (r_max + 1e-12) ** 2
-    iu, ju = torch.nonzero(torch.triu(mask), as_tuple=True)
-    src = torch.cat([iu, ju], dim=0)
-    dst = torch.cat([ju, iu], dim=0)
-    edge_index = torch.stack([src, dst], dim=0).to(torch.long)
-    shifts = torch.zeros((edge_index.size(1), 3), dtype=positions.dtype, device=positions.device)
-    return edge_index, shifts
+    """Keep the batch helper's call/error contract over the shared core."""
+    return _one_hot_node_attrs(Z, list(atomic_number_table), dtype=dtype)
 
 
 def concatenate_positions(

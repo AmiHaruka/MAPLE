@@ -590,6 +590,7 @@ class NEB(JobABC):
         require_shared_pdb_writer(self.input_images, "NEB")
 
         # Initialize params from paras dict
+        self.raw_paras = paras if isinstance(paras, dict) else {}
         self.params = self._init_params(NEBParams, paras, ("neb", "NEB", "ts"))
 
         # Safety: minimal guard
@@ -1103,7 +1104,7 @@ class NEB(JobABC):
             ts_guess.dp_max_th = images[0].dp_max_th
             ts_guess.dp_rms_th = images[0].dp_rms_th
 
-            prfo = PRFO(output=self.output, atoms=ts_guess)
+            prfo = PRFO(output=self.output, atoms=ts_guess, paras=self.raw_paras)
             prfo_result = prfo.run_result()
             if not prfo_result.geometry_converged:
                 log_info([

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 from ase import Atoms
@@ -74,17 +74,29 @@ class RFO(JobABC):
         Writes <base>_opt_traj.xyz during accepted steps and <base>_opt.xyz on finish.
         Returns the optimized Atoms object.
         """
+        value = self.params.fd_batch_size
+        if value is None:
+            return self._run_optimization()
+
+        calc = self.atoms.calc
+        missing = object()
+        previous = getattr(calc, "fd_batch_size", missing)
+        calc.fd_batch_size = value
+        try:
+            return self._run_optimization()
+        finally:
+            if previous is missing:
+                del calc.fd_batch_size
+            else:
+                calc.fd_batch_size = previous
+
+    def _run_optimization(self) -> Atoms:
+        """Execute one job while any FD batch setting is scoped by ``run``."""
         atoms = self.atoms
         base, _ = os.path.splitext(self.output)
         output_pdb = atoms.info.get("pdb_template")
         opt_traj_file = base + ("_opt_traj.pdb" if output_pdb else "_opt_traj.xyz")
         iteration = 0
-
-        # Propagate fd_batch_size to the calculator so FDHessianEvaluator
-        # picks it up when get_hessian dispatches to the numerical path.
-        # Harmless for analytic Hessian calculators.
-        if self.params.fd_batch_size is not None:
-            atoms.calc.fd_batch_size = self.params.fd_batch_size
 
         # initial energy/forces (single calculator invocation)
         e_init, f_init = energy_forces_one(atoms.calc, atoms)

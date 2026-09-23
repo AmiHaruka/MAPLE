@@ -35,6 +35,7 @@ from ._batch_types import BatchResult
 from ._batch_utils import (
     atoms_list_has_pbc,
     normalize_energy_forces_request,
+    preserve_calculator_state,
     sequential_calculate_many,
 )
 
@@ -42,6 +43,10 @@ AUTO_BATCH_SIZE = "auto"
 ALL_BATCH_SIZE = "all"
 AUTO_BATCH_TARGET_FRACTION = 0.75
 FD_HESSIAN_ANTISYMMETRY_THRESHOLD = 1e-4
+# An automatic FD request never retains more than this many displaced Atoms.
+# Explicit fd_batch_size='all' deliberately opts out of the host-memory cap.
+FD_AUTO_HOST_DISPLACEMENT_CAP = 64
+FD_HESSIAN_CONSTRAINT_MODES = ("fixed_cartesian", "raw_cartesian")
 
 
 def _calculate_many_nonperiodic_batch_only(calc, atoms_list, properties) -> BatchResult:
@@ -436,6 +441,15 @@ class _AutoBatchSizer:
 _SUPPORTED_FD_HESSIAN_CONSTRAINTS = (FixAtoms, FixCartesian)
 
 
+def _validate_hessian_constraint_mode(mode: str) -> str:
+    if mode not in FD_HESSIAN_CONSTRAINT_MODES:
+        raise ValueError(
+            "constraint_mode must be 'fixed_cartesian' or 'raw_cartesian', "
+            f"got {mode!r}"
+        )
+    return mode
+
+
 def _movable_dofs(atoms: Atoms, respect_constraints: bool) -> List[int]:
     """Return unconstrained Cartesian DOF indices in a 3N Hessian.
 
@@ -452,22 +466,32 @@ def _movable_dofs(atoms: Atoms, respect_constraints: bool) -> List[int]:
     if not respect_constraints:
         return list(range(3 * n_atoms))
 
+    def cartesian_base(atom_index) -> int:
+        index = int(atom_index)
+        if not -n_atoms <= index < n_atoms:
+            raise ValueError(
+                f"Constraint atom index {index} is outside {-n_atoms}..{n_atoms - 1}"
+            )
+        return 3 * (index % n_atoms)
+
     mask = np.ones(3 * n_atoms, dtype=bool)
     for constraint in getattr(atoms, "constraints", []) or []:
         if not isinstance(constraint, _SUPPORTED_FD_HESSIAN_CONSTRAINTS):
             raise NotImplementedError(
                 "FD Hessian only supports FixAtoms/FixCartesian constraints; "
-                f"got {type(constraint).__name__}. Disable constraint handling "
-                "explicitly if you want an unconstrained Cartesian FD Hessian."
+                f"got {type(constraint).__name__}. Request "
+                "constraint_mode='raw_cartesian' explicitly for an "
+                "unconstrained Cartesian Hessian."
             )
 
         if isinstance(constraint, FixAtoms):
             for atom_idx in constraint.get_indices():
-                mask[3 * int(atom_idx) : 3 * int(atom_idx) + 3] = False
+                base = cartesian_base(atom_idx)
+                mask[base : base + 3] = False
         elif isinstance(constraint, FixCartesian):
             fixed_axes = np.asarray(constraint.mask, dtype=bool).reshape(3)
             for atom_idx in constraint.get_indices():
-                base = 3 * int(atom_idx)
+                base = cartesian_base(atom_idx)
                 for axis, fixed in enumerate(fixed_axes):
                     if fixed:
                         mask[base + axis] = False
@@ -491,6 +515,13 @@ def _copy_with_positions(
 ) -> Atoms:
     at = template.copy()
     at.set_positions(positions, apply_constraint=apply_constraints)
+    return at
+
+
+def _raw_copy_with_positions(template: Atoms, positions: np.ndarray) -> Atoms:
+    """A raw Cartesian perturbation has neither adjusted steps nor forces."""
+    at = _copy_with_positions(template, positions, apply_constraints=False)
+    at.set_constraint()
     return at
 
 
@@ -559,9 +590,11 @@ class FDHessianEvaluator:
     fallback) can evaluate them with a single Python-level dispatch instead
     of ``2·N_movable_dof`` Python-level calls.
 
-    ``FixAtoms`` and ``FixCartesian`` are respected by default — frozen DOFs
-    contribute zero rows and columns.  Other ASE constraints fail fast because
-    they cannot be represented by this Cartesian DOF projection.
+    The default ``fixed_cartesian`` object embeds the active Cartesian block
+    and zeroes fixed rows/columns. ``raw_cartesian`` differentiates the
+    unconstrained potential even if the input Atoms carries ASE constraints.
+    Nonlinear constrained second derivatives are not represented by either
+    object; callers must explicitly request raw Cartesian or fail closed.
     """
 
     def __init__(
@@ -571,6 +604,7 @@ class FDHessianEvaluator:
         respect_fixatoms: bool = True,
         respect_constraints: Optional[bool] = None,
         fd_context_mode: Optional[str] = None,
+        constraint_mode: Optional[str] = None,
     ) -> None:
         self.calc = calc
         if fd_batch_size is None:
@@ -578,9 +612,20 @@ class FDHessianEvaluator:
         else:
             fd_batch_size = _positive_int_auto_or_none(fd_batch_size, "fd_batch_size")
         self.fd_batch_size = fd_batch_size
-        if respect_constraints is None:
-            respect_constraints = respect_fixatoms
-        self.respect_constraints = bool(respect_constraints)
+        if constraint_mode is None:
+            if respect_constraints is None:
+                respect_constraints = respect_fixatoms
+            constraint_mode = (
+                "fixed_cartesian" if respect_constraints else "raw_cartesian"
+            )
+        else:
+            _validate_hessian_constraint_mode(constraint_mode)
+            if respect_constraints is not None and bool(respect_constraints) != (
+                constraint_mode == "fixed_cartesian"
+            ):
+                raise ValueError("constraint_mode conflicts with respect_constraints")
+        self.constraint_mode = constraint_mode
+        self.respect_constraints = constraint_mode == "fixed_cartesian"
         # Backward-compatible alias for callers/tests that still use the old
         # name from the FixAtoms-only implementation.
         self.respect_fixatoms = self.respect_constraints
@@ -597,57 +642,24 @@ class FDHessianEvaluator:
         if not movable_dofs:
             return H
 
-        context = self._make_fd_context(atoms, delta)
-        if context is not None:
-            try:
-                return self._hessian_from_context(
-                    context, atoms, pos0, movable_dofs, H, delta
-                )
-            finally:
-                atoms.set_positions(pos0)
-                close = getattr(context, "close", None)
-                if close is not None:
-                    close()
+        # A constraint-free reference guarantees raw force derivatives in both
+        # modes; fixed Cartesian DOFs are projected only after differentiation.
+        reference = atoms.copy()
+        reference.set_constraint()
+        with preserve_calculator_state(self.calc):
+            context = self._make_fd_context(reference, delta)
+            if context is not None:
+                try:
+                    return self._hessian_from_context(
+                        context, pos0, movable_dofs, H, delta
+                    )
+                finally:
+                    close = getattr(context, "close", None)
+                    if close is not None:
+                        close()
 
-        # Build the displaced-geometry list. Entries come in (plus, minus)
-        # pairs per 3N Cartesian DOF so the central-difference reduction is
-        # a simple zip over the resulting force list.
-        displaced: List[Atoms] = []
-        rows: List[int] = []
-        for dof in movable_dofs:
-            atom_idx, axis = divmod(int(dof), 3)
-            rows.append(int(dof))
-            pos_p = pos0.copy()
-            pos_p[atom_idx, axis] += delta
-            displaced.append(
-                _copy_with_positions(
-                    atoms,
-                    pos_p,
-                    apply_constraints=self.respect_constraints,
-                )
-            )
+            self._stream_force_rows(reference, pos0, movable_dofs, H, delta)
 
-            pos_m = pos0.copy()
-            pos_m[atom_idx, axis] -= delta
-            displaced.append(
-                _copy_with_positions(
-                    atoms,
-                    pos_m,
-                    apply_constraints=self.respect_constraints,
-                )
-            )
-
-        try:
-            # Evaluate forces. We do not request energies — the central
-            # difference formula only needs forces, and skipping energies lets
-            # batched backends avoid a redundant scalar reduction.
-            forces = self._chunked_forces(displaced)
-        finally:
-            # Restore the input atoms so callers do not see a perturbed geometry
-            # even if a backend raises while evaluating a displacement chunk.
-            atoms.set_positions(pos0)
-
-        self._fill_rows_from_forces(H, rows, forces, delta)
         self._project_fixed_dofs(H, N, movable_dofs)
         self._symmetrize(H)
 
@@ -670,30 +682,91 @@ class FDHessianEvaluator:
     def _hessian_from_context(
         self,
         context: FDHessianContext,
-        atoms: Atoms,
         pos0: np.ndarray,
         movable_dofs: Sequence[int],
         H: np.ndarray,
         delta: float,
     ) -> np.ndarray:
-        rows: List[int] = []
-        forces: List[np.ndarray] = []
         for dof in movable_dofs:
             atom_idx, axis = divmod(int(dof), 3)
-            rows.append(int(dof))
             pos_p = pos0.copy()
             pos_p[atom_idx, axis] += delta
-            forces.append(np.asarray(context.force_at(pos_p), dtype=np.float64))
+            F_plus = self._validated_force(
+                context.force_at(pos_p), len(pos0), 2 * int(dof)
+            )
 
             pos_m = pos0.copy()
             pos_m[atom_idx, axis] -= delta
-            forces.append(np.asarray(context.force_at(pos_m), dtype=np.float64))
+            F_minus = self._validated_force(
+                context.force_at(pos_m), len(pos0), 2 * int(dof) + 1
+            )
+            H[dof, :] = (-(F_plus - F_minus) / (2.0 * delta)).reshape(-1)
 
-        self._fill_rows_from_forces(H, rows, forces, delta)
-        self._project_fixed_dofs(H, len(atoms), movable_dofs)
+        self._project_fixed_dofs(H, len(pos0), movable_dofs)
         self._symmetrize(H)
-        atoms.set_positions(pos0)
         return H
+
+    def _stream_force_rows(
+        self,
+        atoms: Atoms,
+        pos0: np.ndarray,
+        movable_dofs: Sequence[int],
+        H: np.ndarray,
+        delta: float,
+    ) -> None:
+        n_displacements = 2 * len(movable_dofs)
+        auto = self.fd_batch_size == AUTO_BATCH_SIZE
+        if auto:
+            # The sizer needs atom-size metadata, not displaced Atoms. Reusing
+            # a bounded reference list preserves its per-item memory model.
+            sample_count = min(n_displacements, FD_AUTO_HOST_DISPLACEMENT_CAP)
+            sizer = _AutoBatchSizer(
+                self.calc, [atoms] * sample_count, ("forces",), kind="fd"
+            )
+            chunk = sizer.chunk
+        else:
+            sizer = None
+            chunk = (
+                n_displacements if self.fd_batch_size in (ALL_BATCH_SIZE, None)
+                else self.fd_batch_size
+            )
+
+        start = 0
+        while start < len(movable_dofs):
+            count = min(max(1, chunk // 2), len(movable_dofs) - start)
+            rows = movable_dofs[start : start + count]
+            displaced: List[Atoms] = []
+            for dof in rows:
+                atom_idx, axis = divmod(int(dof), 3)
+                for sign in (1.0, -1.0):
+                    pos = pos0.copy()
+                    pos[atom_idx, axis] += sign * delta
+                    displaced.append(_raw_copy_with_positions(atoms, pos))
+            try:
+                forces = self._chunked_forces(displaced, chunk)
+            except RuntimeError as exc:
+                if sizer is None or not _is_cuda_oom(exc) or not sizer.backoff_after_oom():
+                    raise
+                chunk = sizer.chunk
+                continue
+            self._fill_rows_from_forces(H, rows, forces, delta)
+            start += count
+
+    def _chunked_forces(self, displaced: Sequence[Atoms], chunk: int) -> List[np.ndarray]:
+        """Evaluate one resident chunk; split a pair only at an explicit cap of 1."""
+        out: List[np.ndarray] = []
+        for start in range(0, len(displaced), chunk):
+            sub = displaced[start : start + chunk]
+            result = _calculate_many_nonperiodic_batch_only(
+                self.calc, sub, properties=("forces",)
+            )
+            if result.forces is None:
+                raise RuntimeError(
+                    "calculate_many returned no forces; required for "
+                    "FDHessianEvaluator central difference."
+                )
+            out.extend(result.forces)
+        return out
 
     def _fill_rows_from_forces(
         self,
@@ -752,6 +825,10 @@ class FDHessianEvaluator:
             {
                 "absolute": abs_resid,
                 "relative": rel_resid,
+                "absolute_unit": "Ha/Angstrom^2",
+                "scale_unit": "Ha/Angstrom^2",
+                "scale_floor": 1.0,
+                "scale": max(1.0, float(np.max(np.abs(H)))) if H.size else 1.0,
                 "threshold": self._antisymmetry_threshold(),
             },
         )
@@ -760,6 +837,7 @@ class FDHessianEvaluator:
 
     @staticmethod
     def _antisymmetry_residual(H: np.ndarray) -> Tuple[float, float]:
+        """Absolute Ha/Angstrom^2 and scaled residual with a 1 Ha/Angstrom^2 floor."""
         if H.size == 0:
             return 0.0, 0.0
         abs_resid = float(np.max(np.abs(H - H.T)))
@@ -794,7 +872,9 @@ class FDHessianEvaluator:
         msg = (
             "FD Hessian central-difference force derivative has a large "
             "antisymmetric residual before symmetrization: "
-            f"abs={abs_resid:.6e}, rel={rel_resid:.6e}, "
+            f"abs={abs_resid:.6e} Ha/Angstrom^2, "
+            f"scaled={rel_resid:.6e} "
+            "(scale=max(1 Ha/Angstrom^2, max|H|)), "
             f"threshold={threshold:.6e}. This can indicate non-conservative "
             "forces, unit drift, or batch force-order/shape mismatch; the "
             "matrix will be symmetrized only after this diagnostic is surfaced."
@@ -813,47 +893,6 @@ class FDHessianEvaluator:
             "fd_hessian_antisymmetry_action must be 'ignore', 'warn', or "
             f"'raise', got {action!r}"
         )
-
-    def _chunked_forces(self, atoms_list: Sequence[Atoms]) -> List[np.ndarray]:
-        n_total = len(atoms_list)
-        if n_total == 0:
-            return []
-
-        auto = self.fd_batch_size == AUTO_BATCH_SIZE
-        sizer = _AutoBatchSizer(
-            self.calc, atoms_list, ("forces",), kind="fd"
-        ) if auto else None
-        chunk = (
-            sizer.chunk if sizer is not None
-            else n_total if self.fd_batch_size == ALL_BATCH_SIZE
-            else self.fd_batch_size if self.fd_batch_size is not None
-            else n_total
-        )
-        out: List[np.ndarray] = []
-        start = 0
-        while start < n_total:
-            sub = list(atoms_list[start : start + chunk])
-            try:
-                result = _calculate_many_nonperiodic_batch_only(
-                    self.calc, sub, properties=("forces",)
-                )
-            except RuntimeError as exc:
-                if sizer is None or not _is_cuda_oom(exc) or not sizer.backoff_after_oom():
-                    raise
-                chunk = sizer.chunk
-                continue
-            if result.forces is None:
-                raise RuntimeError(
-                    "calculate_many returned no forces; required for "
-                    "FDHessianEvaluator central difference."
-                )
-            for f in result.forces:
-                out.append(np.asarray(f, dtype=np.float64))
-            start += len(sub)
-            if sizer is not None:
-                chunk = max(1, min(sizer.chunk, n_total - start or sizer.chunk))
-        return out
-
 
 # ---------------------------------------------------------------------------
 # Path snapshots and HVP scaffolding

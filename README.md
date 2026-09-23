@@ -133,7 +133,12 @@ produces `_ts_candidate.xyz`; max-iteration PRFO termination produces only
 `_prfo_unconverged.xyz` and fails closed. Production first-order-saddle claims
 still require an independent frequency check (exactly one imaginary mode) and
 forward/reverse IRC endpoint validation. Experimental `BatchPRFO` remains
-runtime-disabled.
+runtime-disabled. Scalar `PRFO` now requires an explicit rigid-symmetry
+contract when the calculator does not declare one: use
+`rigid_symmetry=free_molecule` only for a validated isolated, rigid-motion-
+invariant PES, or `rigid_symmetry=cartesian_external` for a laboratory-frame
+potential. The same option is forwarded to `nebts` refinement; unknown
+symmetry fails closed rather than guessing from geometry.
 
 ## Quick Start
 

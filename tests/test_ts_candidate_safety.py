@@ -30,6 +30,8 @@ from maple.function.utility import Molecules
 
 class _AnalyticSaddleCalculator(Calculator):
     implemented_properties = ["energy", "free_energy", "forces"]
+    # This one-atom laboratory-frame quadratic is not a free-molecule PES.
+    rigid_body_invariant = False
 
     def calculate(
         self,
@@ -103,6 +105,21 @@ class _InconsistentFlatEnergyCalculator(_AnalyticSaddleCalculator):
 
 
 class PRFOCandidateSafetyTests(unittest.TestCase):
+    def test_scalar_prfo_rejects_non_real_force_thresholds_before_execution(self):
+        atoms = Atoms(
+            "H", positions=[[0.0, 0.0, 0.0]],
+            calculator=_AnalyticSaddleCalculator(),
+        )
+        for value in (True, np.bool_(True), "0.002"):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "f_max_th"):
+                    PRFO(
+                        output="unused.out", atoms=atoms,
+                        paras={"f_max_th": value},
+                    )
+        PRFO(output="unused.out", atoms=atoms,
+             paras={"f_max_th": np.float32(2e-3)})
+
     def test_constrained_prfo_fails_closed_without_hessian_projection(self):
         atoms = Atoms(
             "H2",
@@ -428,7 +445,10 @@ class TSCallerSafetyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             output = Path(tmpdir) / "string.out"
             images = [
-                Atoms("H", positions=[[float(i), 0.0, 0.0]])
+                Atoms(
+                    "H", positions=[[float(i), 0.0, 0.0]],
+                    calculator=_AnalyticMinimumCalculator(),
+                )
                 for i in range(3)
             ]
             gsm = GSM.__new__(GSM)
@@ -508,7 +528,10 @@ class TSCallerSafetyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             output = Path(tmpdir) / "neb.out"
             images = [
-                Atoms("H", positions=[[float(i), 0.0, 0.0]])
+                Atoms(
+                    "H", positions=[[float(i), 0.0, 0.0]],
+                    calculator=_AnalyticMinimumCalculator(),
+                )
                 for i in range(3)
             ]
             for name in ("f_max_th", "f_rms_th", "dp_max_th", "dp_rms_th"):
@@ -517,6 +540,7 @@ class TSCallerSafetyTests(unittest.TestCase):
             neb = NEB.__new__(NEB)
             neb.output = str(output)
             neb.atoms_R = images[0]
+            neb.raw_paras = {"prfo": {"rigid_symmetry": "cartesian_external"}}
             neb.params = SimpleNamespace(
                 lbfgs_m=2,
                 cistep0=0.01,
@@ -545,9 +569,13 @@ class TSCallerSafetyTests(unittest.TestCase):
                 Path(tmpdir) / "neb_prfo_unconverged.xyz",
             )
 
-            with patch.object(PRFO, "run_result", return_value=failed):
+            with (
+                patch.object(PRFO, "__init__", return_value=None) as construct,
+                patch.object(PRFO, "run_result", return_value=failed),
+            ):
                 with self.assertRaises(PRFOConvergenceError):
                     neb.restart_run(images, energies=[0.0, 1.0, 0.0])
+            self.assertIs(construct.call_args.kwargs["paras"], neb.raw_paras)
 
             self.assertFalse(
                 (Path(tmpdir) / "neb_nebts_ts_candidate.xyz").exists()
@@ -595,6 +623,7 @@ class TSCallerSafetyTests(unittest.TestCase):
             neb = NEB.__new__(NEB)
             neb.output = str(output)
             neb.atoms_R = images[0]
+            neb.raw_paras = {"prfo": {"rigid_symmetry": "cartesian_external"}}
             neb.params = SimpleNamespace(
                 lbfgs_m=2,
                 cistep0=0.01,

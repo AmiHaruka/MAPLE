@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import hashlib
 import math
 import os
-from typing import Dict, Literal
+from typing import Dict, Literal, NamedTuple
 
 import numpy as np
 import torch
@@ -140,6 +140,149 @@ def _padded_neighbors_from_mask(mask: torch.Tensor) -> torch.Tensor:
     return nbmat
 
 
+class _MoleculeLocalIndices(NamedTuple):
+    indices: torch.Tensor
+    valid: torch.Tensor
+    order: torch.Tensor
+    group: torch.Tensor
+    within: torch.Tensor
+    counts: torch.Tensor
+
+
+def _molecule_local_indices(mol_idx: torch.Tensor) -> _MoleculeLocalIndices | None:
+    """Group atom indices by molecule, avoiding pathological ragged padding."""
+    n_atoms = int(mol_idx.numel())
+    _, order = torch.sort(mol_idx, stable=True)
+    _, counts = torch.unique_consecutive(mol_idx[order], return_counts=True)
+    n_molecules = int(counts.numel())
+    width = int(counts.max().item())
+    # One very large molecule plus many tiny ones can make a single padded
+    # bucket larger than the original global mask. Keep the safe dense path.
+    if n_molecules * width * width >= n_atoms * n_atoms:
+        return None
+    starts = counts.cumsum(0) - counts
+    columns = torch.arange(width, device=mol_idx.device)
+    valid = columns[None, :] < counts[:, None]
+    indices = order[(starts[:, None] + columns[None, :]).clamp(max=n_atoms - 1)]
+    group = torch.repeat_interleave(
+        torch.arange(n_molecules, device=mol_idx.device), counts, output_size=n_atoms
+    )
+    within = torch.arange(n_atoms, device=mol_idx.device) - starts[group]
+    return _MoleculeLocalIndices(indices, valid, order, group, within, counts)
+
+
+def _padded_neighbors_from_local_mask(
+    mask: torch.Tensor,
+    local: _MoleculeLocalIndices,
+) -> torch.Tensor:
+    """Restore global row order after packing molecule-local neighbor masks."""
+    n_atoms = int(local.order.numel())
+    counts = mask.sum(dim=-1)
+    width = max(int(counts.max().item()), 1)
+    padded = torch.full(
+        (*local.indices.shape, width), n_atoms, dtype=torch.int32, device=local.indices.device
+    )
+    neighbors = torch.masked_select(
+        local.indices[:, None, :].expand_as(mask), mask
+    ).to(torch.int32)
+    slots = torch.arange(width, device=local.indices.device)[None, None, :] < counts[:, :, None]
+    padded.masked_scatter_(slots, neighbors)
+    result = torch.full(
+        (n_atoms + 1, width), n_atoms, dtype=torch.int32, device=local.indices.device
+    )
+    result[local.order] = padded[local.group, local.within]
+    return result
+
+
+def _padded_all_pairs_from_local_indices(local: _MoleculeLocalIndices) -> torch.Tensor:
+    """Skip each atom's own column; all other local atoms remain in index order."""
+    n_atoms = int(local.order.numel())
+    n_local = int(local.indices.shape[1])
+    width = max(n_local - 1, 1)
+    rows = torch.arange(n_local, device=local.indices.device)[None, :, None]
+    columns = torch.arange(width, device=local.indices.device)[None, None, :]
+    positions = columns + (columns >= rows).to(columns.dtype)
+    candidates = local.indices[:, None, :].expand(-1, n_local, -1).gather(
+        2, positions.clamp(max=n_local - 1).expand(len(local.counts), -1, -1)
+    )
+    keep = local.valid[:, :, None] & (positions < local.counts[:, None, None])
+    padded = torch.where(keep, candidates, n_atoms).to(torch.int32)
+    result = torch.full(
+        (n_atoms + 1, width), n_atoms, dtype=torch.int32, device=local.indices.device
+    )
+    result[local.order] = padded[local.group, local.within]
+    return result
+
+
+def _molecule_local_neighbor_matrices(
+    coord: torch.Tensor,
+    mol_idx: torch.Tensor,
+    cutoffs: tuple[float, ...],
+) -> tuple[torch.Tensor, ...]:
+    """Build finite or all-pairs lists without cross-molecule distance tensors."""
+    n_atoms = int(mol_idx.numel())
+    if n_atoms == 0:
+        empty = torch.zeros((1, 1), dtype=torch.int32, device=mol_idx.device)
+        return tuple(empty.clone() for _ in cutoffs)
+
+    local = _molecule_local_indices(mol_idx)
+    if local is None:
+        return _dense_neighbor_matrices(coord, mol_idx, cutoffs)
+    n_local = int(local.indices.shape[1])
+    pairs = local.valid[:, :, None] & local.valid[:, None, :]
+    pairs &= ~torch.eye(n_local, dtype=torch.bool, device=mol_idx.device)[None]
+
+    if any(not math.isinf(cutoff) for cutoff in cutoffs):
+        local_coord = coord[local.indices]
+        diff = local_coord[:, :, None, :] - local_coord[:, None, :, :]
+        dist2 = torch.sum(diff ** 2, dim=-1)
+
+    results = []
+    for cutoff in cutoffs:
+        if math.isinf(cutoff):
+            results.append(_padded_all_pairs_from_local_indices(local))
+        else:
+            results.append(_padded_neighbors_from_local_mask(
+                pairs & (dist2 <= cutoff ** 2), local
+            ))
+    return tuple(results)
+
+
+def _dense_neighbor_matrices(
+    coord: torch.Tensor,
+    mol_idx: torch.Tensor,
+    cutoffs: tuple[float, ...],
+) -> tuple[torch.Tensor, ...]:
+    """Use the lower-overhead global mask for small, launch-bound batches."""
+    n_atoms = int(mol_idx.numel())
+    pairs = mol_idx[:, None] == mol_idx[None, :]
+    pairs &= ~torch.eye(n_atoms, dtype=torch.bool, device=mol_idx.device)
+    if any(not math.isinf(cutoff) for cutoff in cutoffs):
+        diff = coord[:, None, :] - coord[None, :, :]
+        dist2 = torch.sum(diff ** 2, dim=-1)
+    return tuple(
+        _padded_neighbors_from_mask(
+            pairs if math.isinf(cutoff) else pairs & (dist2 <= cutoff ** 2)
+        )
+        for cutoff in cutoffs
+    )
+
+
+def _neighbor_matrices(
+    coord: torch.Tensor,
+    mol_idx: torch.Tensor,
+    cutoffs: tuple[float, ...],
+) -> tuple[torch.Tensor, ...]:
+    # Small dense masks cost less than sorting/bucketing on CUDA. Beyond this
+    # size, their O(N²) distance tensor dominates, particularly for many paths.
+    dense_limit = 2048 if mol_idx.is_cuda else 64
+    if mol_idx.numel() <= dense_limit:
+        return _dense_neighbor_matrices(coord, mol_idx, cutoffs)
+    if bool(torch.all(mol_idx == mol_idx[0])):
+        return _dense_neighbor_matrices(coord, mol_idx, cutoffs)
+    return _molecule_local_neighbor_matrices(coord, mol_idx, cutoffs)
+
+
 def nblist_dense_padded_multi(
     coord: torch.Tensor,
     mol_idx: torch.Tensor,
@@ -151,24 +294,14 @@ def nblist_dense_padded_multi(
     unrelated NEB/path images concatenated into one tensor could form artificial
     cross-image edges whenever two atoms happen to be close in Cartesian space.
     """
-    device = coord.device
-    N = coord.shape[0]
-    diff = coord[:, None, :] - coord[None, :, :]
-    dist2 = torch.sum(diff ** 2, dim=-1)
-    same = mol_idx[:, None] == mol_idx[None, :]
-    eye = torch.eye(N, dtype=torch.bool, device=device)
-    mask = (dist2 <= cutoff ** 2) & same & (~eye)
-    return _padded_neighbors_from_mask(mask)
+    return _neighbor_matrices(coord, mol_idx, (cutoff,))[0]
 
 
 def nblist_all_pairs_padded_multi(mol_idx: torch.Tensor) -> torch.Tensor:
     """All ordered, non-self atom pairs within each concatenated molecule."""
-    device = mol_idx.device
-    N = int(mol_idx.numel())
-    same = mol_idx[:, None] == mol_idx[None, :]
-    eye = torch.eye(N, dtype=torch.bool, device=device)
-    mask = same & (~eye)
-    return _padded_neighbors_from_mask(mask)
+    return _neighbor_matrices(
+        torch.empty((0, 3), device=mol_idx.device), mol_idx, (float("inf"),)
+    )[0]
 
 
 def build_aimnet2_neighbor_matrices(
@@ -186,12 +319,7 @@ def build_aimnet2_neighbor_matrices(
     if math.isnan(cutoff_lr) or cutoff_lr <= 0.0:
         raise ValueError(f"AIMNet2 long-range cutoff must be positive or inf, got {cutoff_lr!r}")
 
-    nbmat = nblist_dense_padded_multi(coord, mol_idx, cutoff)
-    if math.isinf(cutoff_lr):
-        nbmat_lr = nblist_all_pairs_padded_multi(mol_idx)
-    else:
-        nbmat_lr = nblist_dense_padded_multi(coord, mol_idx, cutoff_lr)
-    return nbmat, nbmat_lr
+    return _neighbor_matrices(coord, mol_idx, (cutoff, cutoff_lr))
 
 # --------------------------------------------
 # Pad helpers

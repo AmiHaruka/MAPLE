@@ -526,8 +526,14 @@ class UMACalculator(FAIRChemCalculator):
 
         return charge, mult
 
-    def get_hessian(self, atoms: Atoms, delta: float = 0.002) -> np.ndarray:
-        """Numerical-only Hessian via shared finite-difference helper."""
+    def get_hessian(
+        self,
+        atoms: Atoms,
+        delta: float = 0.002,
+        *,
+        constraint_mode: str = "fixed_cartesian",
+    ) -> np.ndarray:
+        """Numerical fixed-Cartesian or explicitly raw Hessian in Ha/Angstrom^2."""
         from .._batch_eval import FDHessianEvaluator
 
         self._set_task_from_atoms(atoms)
@@ -536,6 +542,7 @@ class UMACalculator(FAIRChemCalculator):
         return FDHessianEvaluator(
             self,
             fd_batch_size=getattr(self, "fd_batch_size", None),
+            constraint_mode=constraint_mode,
         ).hessian(atoms, delta)
 
     def calculate_many(self, atoms_list, properties=("energy", "forces")) -> BatchResult:

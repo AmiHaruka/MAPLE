@@ -18,6 +18,7 @@ from .._batch_eval import (
     _calculator_batch_size,
     _is_cuda_oom,
 )
+from ..calculator_base import EV2HARTREE
 from ..electronic_state import requested_electronic_state
 from ._aimnet2_calculator import (
     AIMNET2_PADDED_PER_MOLECULE_LAYOUT,
@@ -189,6 +190,8 @@ class AIMNet2BatchCalc:
         This is crucial for compatibility with batch-PRFO, where PRFO wants
         a fixed padded size (self._nmax) across all iterations.
         """
+        self._prepared = False
+        self._coord_backup = None
         device, dtype = self.device, self.dtype
         self._atoms_list = list(atoms_list)
         if any(bool(np.any(getattr(at, "pbc", False))) for at in atoms_list):
@@ -327,8 +330,19 @@ class AIMNet2BatchCalc:
     @torch.no_grad()
     def restore_coords(self):
         if self._coord_backup is not None:
-            self.coord.copy_(self._coord_backup)
-            self._coord_backup = None
+            try:
+                self.coord.copy_(self._coord_backup)
+            except Exception:
+                self._prepared = False
+                raise
+            finally:
+                self._coord_backup = None
+
+    def _discard_coord_backup(self):
+        """Finish a validated committed step without reverting its coordinates."""
+        if self._coord_backup is None:
+            raise RuntimeError("No coordinate backup exists for the committed step")
+        self._coord_backup = None
 
     # -------------------------------------------------------------------------
     # forward (unchanged)
@@ -344,7 +358,7 @@ class AIMNet2BatchCalc:
             need_graph=need_graph,
         )
 
-    def _forward_energy_forces_data(
+    def _forward_energy_data(
         self,
         c: torch.Tensor,
         numbers: torch.Tensor,
@@ -353,8 +367,8 @@ class AIMNet2BatchCalc:
         mult: torch.Tensor,
         *,
         batch_size: int,
-        need_graph: bool,
     ):
+        """Run one native model forward and return eV energies and coordinate leaf."""
         if not self._prepared:
             raise RuntimeError("call prepare() before evaluating energy/forces")
         device, dtype = self.device, self.dtype
@@ -406,6 +420,23 @@ class AIMNet2BatchCalc:
             )
         E_eV = e_vec[:-1]
 
+        return E_eV, coord_leaf
+
+    def _forward_energy_forces_data(
+        self,
+        c: torch.Tensor,
+        numbers: torch.Tensor,
+        mol_idx: torch.Tensor,
+        charge: torch.Tensor,
+        mult: torch.Tensor,
+        *,
+        batch_size: int,
+        need_graph: bool,
+    ):
+        E_eV, coord_leaf = self._forward_energy_data(
+            c, numbers, mol_idx, charge, mult, batch_size=batch_size
+        )
+
         grad = torch.autograd.grad(E_eV.sum(), coord_leaf,
                                    create_graph=need_graph, retain_graph=need_graph)[0]
         F_all_eV = -grad
@@ -415,12 +446,13 @@ class AIMNet2BatchCalc:
         return E_eV, F_all_eV, coord_leaf
 
     # -------------------------------------------------------------------------
-    # get_ef_gpu() and get_efh_gpu(): no structural change needed.
-    # They already use self.nmax_dof for padding, which now matches PRFO.
+    # E/F and E/F/H keep the same native model and fixed padded output width.
     # -------------------------------------------------------------------------
     def get_ef_gpu(self):
+        if not self._prepared:
+            raise RuntimeError("call prepare() before evaluating energy/forces")
         B = self._atoms_B
-        device, dtype = self.device, self.dtype
+        device = self.device
         result_dtype = torch.float64
         if B == 0:
             return (torch.zeros((0,), dtype=result_dtype, device=device),
@@ -471,28 +503,10 @@ class AIMNet2BatchCalc:
         start = 0
         while start < B:
             stop = min(B, start + sizer.chunk)
-            atom_start = int(self._ptr[start].item())
-            atom_stop = int(self._ptr[stop].item())
-            local_mol_idx = self.mol_idx[atom_start:atom_stop] - int(start)
-            local_charge = torch.cat(
-                [
-                    self.charge[start:stop],
-                    self.charge.new_zeros(1),
-                ]
-            )
-            local_mult = torch.cat(
-                [
-                    self.mult[start:stop],
-                    self.mult.new_ones(1),
-                ]
-            )
+            coord, numbers, mol_idx, charge, mult = self._native_chunk_inputs(start, stop)
             try:
                 energy, force, _ = self._forward_energy_forces_data(
-                    self.coord[atom_start:atom_stop],
-                    self.numbers[atom_start:atom_stop],
-                    local_mol_idx,
-                    local_charge,
-                    local_mult,
+                    coord, numbers, mol_idx, charge, mult,
                     batch_size=stop - start,
                     need_graph=False,
                 )
@@ -505,9 +519,24 @@ class AIMNet2BatchCalc:
             start = stop
         return torch.cat(energies, dim=0), torch.cat(forces, dim=0)
 
+    def _native_chunk_inputs(self, start: int, stop: int):
+        """Use the same molecule indexing and sentinel inputs for E/F and E/F/H."""
+        atom_start = int(self._ptr[start].item())
+        atom_stop = int(self._ptr[stop].item())
+        return (
+            self.coord[atom_start:atom_stop],
+            self.numbers[atom_start:atom_stop],
+            self.mol_idx[atom_start:atom_stop] - start,
+            torch.cat((self.charge[start:stop], self.charge.new_zeros(1))),
+            torch.cat((self.mult[start:stop], self.mult.new_ones(1))),
+        )
+
     def get_efh_gpu(self):
+        """Return ordered, fixed-width E/F/H using bounded native GPU chunks."""
+        if not self._prepared:
+            raise RuntimeError("call prepare() before evaluating energy/forces/Hessian")
         B = self._atoms_B
-        device, dtype = self.device, self.dtype
+        device = self.device
         result_dtype = torch.float64
         if B == 0:
             return (torch.zeros((0,), dtype=result_dtype, device=device),
@@ -515,44 +544,96 @@ class AIMNet2BatchCalc:
                     torch.zeros((0, 0, 0), dtype=result_dtype, device=device),
                     torch.zeros((0,), dtype=torch.int64, device=device))
 
-        E_eV, F_all_eV, coord_leaf = self._forward_energy_forces_(self.coord, need_graph=True)
-
-        f_flat = F_all_eV.reshape(-1)
-        cols = []
-        for k in range(f_flat.numel()):
-            g2 = torch.autograd.grad(f_flat[k], coord_leaf,
-                                     retain_graph=True, create_graph=False)[0]
-            cols.append(g2.reshape(-1))
-        H_global_eV = -torch.stack(cols, dim=1)
-        H_global_eV = 0.5 * (H_global_eV + H_global_eV.transpose(0, 1))
-
         nmax = self.nmax_dof
-        F_eV = torch.zeros((B, nmax), dtype=result_dtype, device=device)
-        H_eV = torch.zeros(
-            (B, nmax, nmax),
-            dtype=result_dtype,
-            device=device,
+        energies = torch.empty(B, dtype=result_dtype, device=device)
+        forces = torch.zeros((B, nmax), dtype=result_dtype, device=device)
+        hessians = torch.zeros((B, nmax, nmax), dtype=result_dtype, device=device)
+        padding = torch.empty(B, dtype=torch.int64, device=device)
+
+        setting = _calculator_batch_size(self, "optimization_batch_size")
+        sizer = _AutoBatchSizer(
+            self, self._atoms_list, ("energy", "forces", "hessian"),
+            kind="optimization",
         )
-        P    = torch.empty((B,), dtype=torch.int64, device=device)
+        if setting == AUTO_BATCH_SIZE:
+            chunk = sizer.chunk
+        elif setting == ALL_BATCH_SIZE:
+            chunk = B
+        else:
+            chunk = int(setting)
+        sizer.chunk = max(1, min(chunk, B))
+        self._auto_batch_size_last = sizer.chunk
 
-        s = self._ptr[:-1]; t = self._ptr[1:]
-        for i in range(B):
-            ni  = int((t[i] - s[i]).item())
-            dof = 3 * ni
-            P[i] = self.Nmax_atoms - ni
-            if dof > 0:
-                F_eV[i, :dof]       = F_all_eV[s[i]:t[i], :].reshape(-1)
-                H_eV[i, :dof, :dof] = H_global_eV[3*s[i]:3*t[i], 3*s[i]:3*t[i]]
+        start = 0
+        while start < B:
+            stop = min(B, start + sizer.chunk)
+            try:
+                chunk_energy, chunk_force, chunk_hessians = self._efh_chunk(start, stop)
+            except RuntimeError as exc:
+                if not _is_cuda_oom(exc) or not sizer.backoff_after_oom():
+                    raise
+                continue
 
-        energies = E_eV.to(result_dtype) / EH2EV
-        forces = F_eV / EH2EV
-        hessians = H_eV / EH2EV
+            energies[start:stop] = chunk_energy.to(result_dtype) / EH2EV
+            atom_start = 0
+            for offset, local_hessian in enumerate(chunk_hessians):
+                index = start + offset
+                n_atoms = len(self._atoms_list[index])
+                atom_stop = atom_start + n_atoms
+                dof = 3 * n_atoms
+                forces[index, :dof] = (
+                    chunk_force[atom_start:atom_stop].reshape(-1).to(result_dtype)
+                    / EH2EV
+                )
+                hessians[index, :dof, :dof] = local_hessian.to(result_dtype)
+                padding[index] = nmax // 3 - n_atoms
+                atom_start = atom_stop
+            start = stop
+
         if (
             not bool(torch.isfinite(energies).all().item())
             or not bool(torch.isfinite(forces).all().item())
             or not bool(torch.isfinite(hessians).all().item())
         ):
             raise FloatingPointError(
-                "AIMNet2BatchCalc produced non-finite energies, forces, or Hessians."
+                "AIMNet2BatchCalc produced non-finite energies, forces, or Hessians"
             )
-        return energies, forces, hessians, P
+        return energies, forces, hessians, padding
+
+    def _efh_chunk(self, start: int, stop: int):
+        """Differentiate one disconnected graph chunk without a global H matrix."""
+        coord, numbers, mol_idx, charge, mult = self._native_chunk_inputs(start, stop)
+        energy_eV, coord_leaf = self._forward_energy_data(
+            coord, numbers, mol_idx, charge, mult, batch_size=stop - start,
+        )
+
+        # Keep the existing E/F output contract. For H, apply the constant unit
+        # conversion before both derivatives, as the scalar AIMNet2 route does.
+        force_eV = -torch.autograd.grad(
+            energy_eV.sum(), coord_leaf, retain_graph=True
+        )[0]
+        force_Ha = -torch.autograd.grad(
+            (energy_eV * EV2HARTREE).sum(), coord_leaf, create_graph=True
+        )[0]
+        if not bool(torch.isfinite(force_eV).all().item()) or not bool(torch.isfinite(force_Ha).all().item()):
+            raise FloatingPointError("AIMNet2BatchCalc produced non-finite forces")
+
+        blocks = []
+        local_start = 0
+        for atoms in self._atoms_list[start:stop]:
+            local_stop = local_start + len(atoms)
+            force_components = force_Ha[local_start:local_stop].reshape(-1)
+            rows = [
+                -torch.autograd.grad(component, coord_leaf, retain_graph=True)[0][
+                    local_start:local_stop
+                ].reshape(-1)
+                for component in force_components
+            ]
+            hessian = torch.stack(rows)
+            hessian = 0.5 * (hessian + hessian.transpose(0, 1))
+            if not bool(torch.isfinite(hessian).all().item()):
+                raise FloatingPointError("AIMNet2BatchCalc produced a non-finite Hessian")
+            blocks.append(hessian.detach())
+            local_start = local_stop
+
+        return energy_eV.detach(), force_eV.detach(), blocks
