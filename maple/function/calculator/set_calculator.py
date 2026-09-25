@@ -19,6 +19,7 @@ from .calculator_base import (
     normalize_none_option,
     validate_implicit_solvent_choice,
 )
+from .electronic_state import validate_electronic_state
 
 
 HF_REPO_ID = 'Wayne7815/MAPLE_models'
@@ -146,31 +147,7 @@ class SetCalculator:
         )
         if self.implicit == 'none':
             return
-
-        if self.implicit != 'gbsa':
-            raise ValueError(
-                "Unsupported implicit solvation method: "
-                f"'{self.implicit}'. Supported experimental method: gbsa."
-            )
-
-        if self.solvation_options.get('experimental') is not True:
-            raise ValueError(
-                "Implicit GB-polar/QEq solvation is experimental and disabled "
-                "by default. Add experimental=true in #solv(...) to request "
-                "energy-only use."
-            )
-
-        if self.model_options.get('hessian') is not None:
-            raise ValueError(
-                "Experimental implicit GB-polar solvation does not support "
-                "Hessian/HVP workflows."
-            )
-
-        if self.atoms is not None and atoms_has_pbc(self.atoms):
-            raise ValueError(
-                "Experimental implicit GB-polar solvation is non-periodic only; "
-                "remove #pbc or use a periodic solvent backend."
-            )
+        raise ValueError(f"Unsupported implicit solvation method: '{self.implicit}'.")
 
     def _discover_calculator_class(self, name: str):
         """Resolve `name` to a registered calculator class.
@@ -251,17 +228,7 @@ class SetCalculator:
                 )
 
         if self.atoms is not None:
-            has_charge = self.atoms.info.get('charge', 0) != 0
-            has_mult = self.atoms.info.get('mult', 1) != 1
-            if (has_charge or has_mult) and not cls.SUPPORTS_CHARGE_MULT:
-                self.log_info(
-                    [
-                        f"\n [WARNING] Model '{self.model}' does not support charge/multiplicity.\n",
-                        f"           charge={self.atoms.info.get('charge', 0)}, ",
-                        f"mult={self.atoms.info.get('mult', 1)} will be IGNORED.\n",
-                        '           Models with charge/mult support: aimnet2, aimnet2nse, uma, macepols/m/l\n',
-                    ]
-                )
+            validate_electronic_state(self.atoms, cls, model_options=self.model_options)
 
         if self.d4:
             import inspect

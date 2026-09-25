@@ -12,7 +12,8 @@ have to inherit `CalcABC`. UMA, for example, extends third-party
 
 **Public methods:**
 - `calculate(self, atoms, properties, system_changes)` — ASE entry point.
-- `get_hessian(self, atoms, delta=0.002)` — returns a `(3N, 3N) np.ndarray`
+- `get_hessian(self, atoms, delta=0.002, *, constraint_mode='fixed_cartesian')`
+  — returns a `(3N, 3N) np.ndarray`
   in Hartree / Å². `CalcABC` provides a default that dispatches on
   `self.hessian`.
 - `get_hvp(self, atoms, n)` — optional; required only for the HVP-enabled
@@ -101,31 +102,56 @@ class FooCalculator(CalcABC):
   not multiply by `EV2HARTREE` themselves** for the `calculate()` path.
 - The Hessian path is independent: `_analytic_hessian` must return
   Hartree / Å² directly (each eV-native backend multiplies by `EV2HARTREE`
-  inside its analytic method); the numerical path inherits Hartree via
-  `numerical_hessian_from_atoms`, which calls back into `calculate()`.
+  inside its analytic method); `FDHessianEvaluator` differentiates forces
+  already expressed in Hartree / Å.
+
+## PES identity for paths and restart
+
+Shipped calculators record the loaded checkpoint content hash and effective
+energy settings. External calculators used for a reaction path or MD checkpoint
+must provide `get_pes_identity()` or `maple_pes_identity` containing `backend`,
+`model_fingerprint` (`algorithm`, `digest`, `source`), and `relevant_settings`.
+A class name or Python object ID is not a model fingerprint. Mutable energy
+settings must be reflected in the returned identity and invalidate result caches.
+ANI's `d4` property and AIMNet2's Coulomb setter perform both operations.
+UMA returns predictor and resolved provenance from a single loading operation;
+its compatibility artifacts are immutable and content-addressed.
+
+`electronic_state_identity(atoms)` adds the authoritative integer `charge` and
+positive `mult`. Ordinary path methods require identical electronic/PES identity,
+atom order, PBC and cell before evaluating images. RST V2 additionally binds
+masses, constraints and dynamics parameters. Legacy RST V1 can initialize a new
+run with `load_state`, but cannot prove an exact continuation.
 
 ## Implicit solvent
 
-- `_finalize_results` is the only place that adds the GBSA correction.
-  **Custom calculators do not call `implicit_solv_energy_and_force()`
-  directly** for the `calculate()` flow. If a backend needs special
-  handling, override `_finalize_results` rather than duplicating the
-  solvent path.
-- Solvent setup happens via `init_implicit_solvent(calc, implicit,
-  solvent, device)`. `CalcABC.__init__` does not call this for you in the
-  current release; subclasses still invoke `self.implicit_solv_init(...)`
-  inside their own `__init__`.
-- `None`, `none`, `null`, `false`, `0`, and empty strings normalize to
-  `none`. `implicit='gbsa'` requires a real solvent name such as
-  `solvent='water'`; MAPLE fails early instead of looking for `None.dat`.
+- The built-in `implicit='gbsa'` path is disabled, including direct `GBSA`
+  construction. Its old implementation misread source parameter types and units;
+  an experimental opt-in must not bypass this scientific failure.
+- The retained tables expose their source fields (surface tension, descreening,
+  Born scaling/offset, energy shift), not fabricated atomic radii. A new solvation
+  model requires an explicit Hamiltonian/parameter contract and validation.
+- Gas-phase `implicit='none'` is unchanged. `None`, `none`, `null`, `false`, `0`,
+  and empty strings still normalize to `none`.
+- QEq uses the Open Babel-derived Gaussian-radius convention. It is a GTO/fixed-
+  hardness approximation, not the original STO/hydrogen-self-consistent QEq.
 
 ## Hessian
 
-- `self.hessian` selects `'analytic'` or `'numerical'`. Numerical falls
-  through to the shared `numerical_hessian_from_atoms` helper for free.
-- `numerical_hessian_from_atoms` restores the calculator's pre-call
-  `results` before returning, so standalone `calc.get_hessian(atoms)` does
-  not leave `results` pointing at the final displaced geometry.
+- `self.hessian` selects `'analytic'` or `'numerical'`. The numerical path
+  uses `FDHessianEvaluator`, with ordered central-difference force pairs and
+  bounded automatic displacement chunks. An explicit `fd_batch_size='all'`
+  opts out of the host-memory bound.
+- `constraint_mode='fixed_cartesian'` (default) embeds the active Cartesian
+  block for `FixAtoms`/`FixCartesian`; unsupported nonlinear constraints fail
+  closed. `constraint_mode='raw_cartesian'` explicitly differentiates the
+  unconstrained PES using constraint-free copies. Neither mode represents the
+  Hessian of a nonlinear constrained Lagrangian/tangent-space problem.
+- The numerical path restores calculator cache state and reports the
+  antisymmetric residual **before** symmetrization. Its scaled diagnostic is
+  `max|H-H.T| / max(1 Ha/Å², max|H|)`, not a pure relative error; symmetry
+  alone does not establish Hessian accuracy. Validate against analytic
+  references and a finite-difference step sweep.
 - Analytic Hessian with implicit solvent is unsupported and raises
   `NotImplementedError` from `CalcABC.get_hessian`. Document the
   limitation in any backend-specific notes.
@@ -153,10 +179,17 @@ class FooCalculator(CalcABC):
 - `atoms.info['charge']` and `atoms.info['mult']` carry the values. Backends
   that require integer charge/spin inputs must reject non-integer values rather
   than truncating them.
-- Set `SUPPORTS_CHARGE_MULT = True` if the backend honors them; otherwise
-  `SetCalculator` warns the user that the values will be ignored.
-- MACE-POLAR rejects non-integer `mult` before converting multiplicity to the
-  model's unpaired-electron `spin = mult - 1` input.
+- Set `SUPPORTS_CHARGE_MULT = True` if the backend represents requested states.
+  Unsupported non-default charge/multiplicity is rejected by the factory, direct
+  calculator entry points, and model-bound thermochemistry; it is never ignored.
+- Partial or task-dependent support uses `validate_electronic_state_request(q, mult, settings)`.
+  The factory supplies model options; an instance can supply its current context
+  through `electronic_state_settings()`. FeNNol accepts charged singlets only;
+  UMA accepts non-default electronic states only for `omol`.
+- MACE-POLAR rejects non-integer `mult` and passes it as `total_spin` unchanged.
+- `CalcABC` invalidates cached results when `charge` or `mult` changes, including
+  metadata-only updates at fixed geometry. Non-`CalcABC` backends must preserve
+  the same contract; FAIR-Chem already tracks `Atoms.info` for UMA.
 - UMA `omol` charged/open-shell inputs are passed through to FAIR-Chem and
   emit a warning until MAPLE has accepted golden numerical tolerances for
   those states.
@@ -201,17 +234,17 @@ backend that switches tasks for periodic input.
 
 | Backend (names) | PBC | charge/mult | Hessian | Implicit solvent | D4 | HVP (Dimer) |
 |---|---|---|---|---|---|---|
-| ANI (`ani2x/1x/1ccx/1xnr`) | no; fail-fast | no | analytic + numerical | yes | yes | yes; no implicit solvent |
-| AIMNet2 (`aimnet2`, `aimnet2nse`) | no; fail-fast; no Ewald | yes | analytic + numerical | yes | no | no |
-| MACE-OFF (`maceoff23s/m/l`, `egret`) | no; fail-fast | no | analytic + numerical | yes | no | no |
-| MACE-omol (`maceomol`) | no; fail-fast | no | analytic + numerical | yes | no | no |
-| MACE-POLAR (`macepols/m/l`) | no; fail-fast; no external field | yes (`spin = mult − 1`) | analytic + numerical | yes | no | no |
-| UMA (`uma`) | yes; non-PBC auto `omol`; PBC requires explicit non-`omol` task; stress rejected | `omol` only (`spin = mult`); non-`omol` rejects non-default charge/mult | numerical only | yes | no | no |
+| ANI (`ani2x/1x/1ccx/1xnr`) | no; fail-fast | no | analytic + numerical | disabled | yes | yes; no implicit solvent |
+| AIMNet2 (`aimnet2`, `aimnet2nse`) | no; fail-fast; no Ewald | yes | analytic + numerical | disabled | no | no |
+| MACE-OFF (`maceoff23s/m/l`, `egret`) | no; fail-fast | no | analytic + numerical | disabled | no | no |
+| MACE-omol (`maceomol`) | no; fail-fast | no | analytic + numerical | disabled | no | no |
+| MACE-POLAR (`macepols/m/l`) | no; fail-fast; no external field | yes (`total_spin = mult`) | analytic + numerical | disabled | no | no |
+| UMA (`uma`) | yes; non-PBC auto `omol`; PBC requires explicit non-`omol` task; stress rejected | `omol` only (`spin = mult`); non-`omol` rejects non-default charge/mult | numerical only | disabled | no | no |
 
-`spin` semantics differ on purpose: MACE-POLAR's traced interface takes the
-number of unpaired electrons (`mult − 1`), UMA's FAIR-Chem path takes the
-spin multiplicity (`mult`). Confirm against the specific checkpoint before
-trusting open-shell results — neither encoding is verified here.
+MACE-POLAR takes multiplicity directly (`total_spin = mult`, singlet = 1):
+its Fukui equilibration subtracts one internally. This is also true of the
+shipped S/M/L TorchScript models. UMA's FAIR-Chem input is likewise `spin = mult`.
+Input-contract verification does not establish charged/open-shell accuracy.
 
 Observed on a local uma-s-1p1 checkpoint: direct FAIR-Chem and the MAPLE UMA
 wrapper agree for H₂O `q=0/+1/-1` and `mult=3`, so charge/spin reaches

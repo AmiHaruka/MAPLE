@@ -34,6 +34,7 @@ from scipy.spatial.transform import Rotation
 from ...jobABC import JobABC
 from maple.function.utility import Molecules
 from maple.function.read.filereader.pdb_reader import write_pdb_trajectory
+from maple.function.calculator.electronic_state import validate_path_contract
 
 # =============================================================================
 # ------------------------------ Utilities ------------------------------------
@@ -732,6 +733,7 @@ class DMF(JobABC):
 
     # ------------------------------------------------------------------ run --
     def run(self):
+        validate_path_contract(self.input_images, method="DMF")
         n_input = len(self.input_images)
         if n_input < 2:
             raise ValueError(

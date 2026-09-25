@@ -9,9 +9,10 @@ QEQ_CHARGE_TOL = 1.0e-8
 
 class QEqTorch:
     """
-    GPU-compatible Charge Equilibration (QEq) solver implemented with PyTorch.
-    Reads per-element parameters (electronegativity, hardness, Gaussian radius)
-    from ./data/qeq.dat and computes atomic charges for an ASE Atoms object.
+    Gaussian-screened QEq using the Open Babel radius parameter convention.
+
+    The GTO screening and fixed atomic hardness are approximations to the
+    original Rappe-Goddard model, not its STO/hydrogen-self-consistent form.
 
     Reference:
       A.K. Rappé and W.A. Goddard III, J. Phys. Chem. 95 (1991): 3358–3363.
@@ -104,11 +105,17 @@ class QEqTorch:
         H[:N, :N] = torch.diag(J)
 
         # Off-diagonal: Gaussian-screened Coulomb interaction
-        rij = torch.cdist(coords, coords, p=2) + 1e-6
+        rij = torch.cdist(coords, coords, p=2)
         a = sigma.view(-1, 1)
         b = sigma.view(1, -1)
-        p = torch.sqrt(a * b / (a**2 + b**2))
-        coulomb = torch.erf(p * rij) / rij
+        # Radius -> Gaussian exponent 1/radius^2 gives p in inverse Angstrom.
+        p = torch.rsqrt(a**2 + b**2)
+        safe_rij = torch.where(rij > 0, rij, torch.ones_like(rij))
+        coulomb = torch.where(
+            rij > 0,
+            torch.erf(p * rij) / safe_rij,
+            2.0 * p / np.sqrt(np.pi),
+        )
 
         H[:N, :N] += (COULOMB_EV_ANGSTROM / self.eps0) * (
             coulomb - torch.diag(torch.diag(coulomb))

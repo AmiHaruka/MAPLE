@@ -1,0 +1,48 @@
+name: Batch release GPU verification
+
+on:
+  workflow_dispatch:
+  workflow_call:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  required-real-checkpoints:
+    runs-on: [self-hosted, linux, x64, gpu]
+    timeout-minutes: 30
+    env:
+      MAPLE_REQUIRE_REAL_CHECKPOINTS: "1"
+      MAPLE_RELEASE_DEVICE: cuda
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require runner-provisioned checkpoints
+        shell: bash
+        run: |
+          test -n "${MAPLE_RELEASE_CHECKPOINT_DIR:-}"
+          test -f "${MAPLE_RELEASE_CHECKPOINT_DIR}/aimnet2.pt"
+          test -f "${MAPLE_RELEASE_CHECKPOINT_DIR}/aimnet2nse.pt"
+
+      - name: Install MAPLE without replacing the runner CUDA stack
+        run: python -m pip install -e .
+
+      - name: Run required real-checkpoint contract tests
+        run: python tests/test_batch_contracts.py -q
+
+      - name: Produce machine-readable parity and benchmark artifact
+        run: |
+          python scripts/verify_aimnet2_batch_release.py \
+            --checkpoint-dir "${MAPLE_RELEASE_CHECKPOINT_DIR}" \
+            --artifact artifacts/aimnet2-batch-release.json
+
+      - name: Upload verification artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: aimnet2-batch-release-${{ github.sha }}
+          path: artifacts/aimnet2-batch-release.json
+          if-no-files-found: error

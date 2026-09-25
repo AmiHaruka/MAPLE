@@ -1,5 +1,5 @@
 #model=aimnet2nse
-#scan(method=rfo,mode=relaxed)
+#scan(method=lbfgs,mode=relaxed)
 #device=gpu0
 
 C     -0.46276972     1.15067867     0.42624477

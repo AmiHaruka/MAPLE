@@ -24,10 +24,20 @@ from typing import List, Tuple, Optional
 import numpy as np
 from ase import Atoms
 
+from ....calculator._batch_eval import (
+    EnergyEvaluator,
+    PathEvaluator,
+    shared_calculator,
+    structures_have_constraints,
+    supports_batch_calculation,
+)
+
 # You already have these utilities / mixins in your codebase:
 from .logger import log_info
+from ._pdb_compat import require_shared_pdb_writer
 from ...jobABC import JobABC
 from maple.function.read.filereader.pdb_reader import write_pdb_trajectory
+from maple.function.calculator.electronic_state import validate_path_contract
 
 
 # =============================================================================
@@ -118,7 +128,40 @@ def atoms_to_xyz_block(atoms: Atoms) -> str:
 
 
 def get_energies(images: List[Atoms]) -> List[float]:
+    calc = shared_calculator(images)
+    if (
+        calc is not None
+        and supports_batch_calculation(calc)
+        and not structures_have_constraints(images)
+    ):
+        energies = EnergyEvaluator(
+            calc,
+            batch_size=getattr(calc, "path_batch_size", None),
+        ).energies(images)
+        return [float(e) for e in energies]
     return [float(at.get_potential_energy(force_consistent=True)) for at in images]
+
+
+def get_energy_forces(images: List[Atoms]) -> Tuple[List[float], List[np.ndarray]]:
+    """Evaluate independent string/path images with a safe batch when possible."""
+    calc = shared_calculator(images)
+    if (
+        calc is not None
+        and supports_batch_calculation(calc)
+        and not structures_have_constraints(images)
+    ):
+        energies, forces = PathEvaluator(
+            calc,
+            batch_size=getattr(calc, "path_batch_size", None),
+        ).energy_forces(images)
+        return [float(e) for e in energies], [to_numpy_f64(f) for f in forces]
+
+    energies: List[float] = []
+    forces: List[np.ndarray] = []
+    for img in images:
+        energies.append(float(img.get_potential_energy(force_consistent=True)))
+        forces.append(to_numpy_f64(img.get_forces()))
+    return energies, forces
 
 
 def rms_force_perp(Fp_list: List[np.ndarray]) -> float:
@@ -351,8 +394,10 @@ class GSM(JobABC):
         super().__init__(output)
         self.atoms_R = atoms_R
         self.atoms_P = atoms_P
+        self.raw_paras = paras if isinstance(paras, dict) else {}
         self.atoms_R.calc = atoms_R.calc
         self.atoms_P.calc = atoms_P.calc
+        require_shared_pdb_writer([atoms_R, atoms_P], "String")
 
         # Initialize params from paras dict
         self.params = self._init_params(GSMParams, paras, ("gsm", "GSM", "string", "STRING", "ts"))
@@ -444,18 +489,18 @@ class GSM(JobABC):
 
         lb = LBFGSDriver(m=5, curvature=70.0, maxstep=0.1)
         x = pos.copy()
-        E, g = energy_and_grad(x)
+        _, g = energy_and_grad(x)
         k = 0
         while k < max_iter and not lb.should_stop(g, fmax_th=gtol, frms_th=gtol*0.5):
             p = lb.two_loop(g)            # descent direction in subspace
             p = proj_perp(p)              # safety: ensure perpendicular
             p = lb.step_limit(p)
             x_new = x + p
-            E_new, g_new = energy_and_grad(x_new)
+            _, g_new = energy_and_grad(x_new)
             s = x_new - x
             y = g_new - g
             lb.update(s, y)
-            x, E, g = x_new, E_new, g_new
+            x, g = x_new, g_new
             k += 1
         img.set_positions(x.reshape(-1,3))
 
@@ -521,26 +566,43 @@ class GSM(JobABC):
 
     def restart_run(self, images: List[Atoms], hei_idx: int, base_prefix: str):
         """
-        Take HEI from the equal-arc path as TS guess, run PRFO/RFO refinement,
-        then print a NEB-TS-style path summary (marking CI and TS) and dump files.
+        Take HEI from the equal-arc path as a TS guess, run PRFO refinement,
+        then report a geometry-converged candidate without certifying a TS.
         """
-        from .PRFO import PRFO
+        from .PRFO import PRFO, PRFOConvergenceError
+        require_shared_pdb_writer(images, "String")
 
         # Prepare TS guess from HEI
         ts_guess = copy.deepcopy(images[hei_idx])
         inherit_attrs(images[0], ts_guess)
 
-        # Run PRFO to refine TS
-        prfo = PRFO(output=self.output, atoms=ts_guess)
-        ts_opt = prfo.run()
-        E_TS   = float(ts_opt.get_potential_energy(force_consistent=True))
+        # Run PRFO to refine the candidate geometry.
+        prfo = PRFO(output=self.output, atoms=ts_guess, paras=self.raw_paras)
+        prfo_result = prfo.run_result()
+        if not prfo_result.geometry_converged:
+            log_info([
+                "\nPRFO refinement did not converge; the HEI geometry was not "
+                "promoted to a TS candidate.\n",
+                f"Diagnostic: {prfo_result.structure_path}\n",
+            ], self.output)
+            raise PRFOConvergenceError(prfo_result)
+        ts_candidate = prfo_result.atoms
+        E_TS = float(
+            ts_candidate.get_potential_energy(force_consistent=True)
+        )
+        candidate_ext = (
+            ".pdb" if ts_candidate.info.get("pdb_template") else ".xyz"
+        )
+        stringts_candidate = (
+            base_prefix + "_stringts_ts_candidate" + candidate_ext
+        )
 
-        # Create a path with TS inserted after the original CI (HEI)
+        # Create a path with the candidate inserted after the original HEI.
         images_ts = [img for img in images]
-        images_ts.insert(hei_idx + 1, ts_opt)
+        images_ts.insert(hei_idx + 1, ts_candidate)
 
         # Energies of the augmented path
-        Es_path = get_energies(images_ts)
+        Es_path, raw_forces_path = get_energy_forces(images_ts)
         kcal_per_Eh = 627.509
 
         # Helper: energy-weighted tangent for projected-perp forces
@@ -563,33 +625,38 @@ class GSM(JobABC):
                 t_flat = np.zeros_like(t_flat); t_flat[0] = 1.0; nrm = 1.0
             return t_flat / nrm
 
-        # Compute per-image metrics:
-        # - Non-TS rows: projected-perpendicular forces (Fp)
-        # - TS row: global forces (printed as 0.0/0.0 if you want identical to sample)
-        maxFp_list = []
-        rmsFp_list = []
+        # Compute per-image metrics with an explicit force definition per row.
+        max_force_list = []
+        rms_force_list = []
+        force_kind_list = []
         for i, at in enumerate(images_ts):
             if i == hei_idx + 1:
-                # TS: global forces; print zeros to match your sample format
-                maxFp_list.append(0.0)
-                rmsFp_list.append(0.0)
+                reported_force = to_numpy_f64(raw_forces_path[i])
+                force_kind_list.append("candidate-global")
             else:
-                F_raw = to_numpy_f64(at.get_forces())
+                F_raw = raw_forces_path[i]
                 pos   = to_numpy_f64(at.get_positions())
                 masses= to_numpy_f64(at.get_masses())
                 F_rb  = project_out_rigidbody_forces(F_raw, pos, masses).reshape(-1)
                 tau   = energy_weighted_tangent(images_ts, Es_path, i)
                 c     = float(np.dot(F_rb, tau))
-                Fp    = (F_rb - c * tau).reshape(-1, 3)
-                maxFp_list.append(float(np.max(np.linalg.norm(Fp, axis=1))))
-                rmsFp_list.append(float(np.sqrt(np.mean(np.linalg.norm(Fp, axis=1) ** 2))))
+                reported_force = (F_rb - c * tau).reshape(-1, 3)
+                force_kind_list.append("projected")
+            force_norms = np.linalg.norm(reported_force, axis=1)
+            max_force_list.append(float(np.max(force_norms)))
+            rms_force_list.append(
+                float(np.sqrt(np.mean(force_norms ** 2)))
+            )
 
         # Dump STRING-TS files
         ext = ".pdb" if images_ts and images_ts[0].info.get("pdb_template") else ".xyz"
         stringts_mep = base_prefix + "_stringts_mep" + ext
-        stringts_ts  = base_prefix + "_stringts_ts" + ext
         write_xyz(stringts_mep, images_ts, energies=Es_path)
-        write_xyz(stringts_ts, [ts_opt], energies=[E_TS])
+        write_xyz(
+            stringts_candidate,
+            [ts_candidate],
+            energies=[E_TS],
+        )
 
         # Pretty-print TS coordinates
         def atoms_to_xyz_lines(atoms: Atoms) -> List[str]:
@@ -605,29 +672,42 @@ class GSM(JobABC):
             "\n---------------------------------------------------------------\n",
             "                    PATH SUMMARY FOR String-TS             \n",
             "---------------------------------------------------------------\n",
-            "All forces in Eh/Angstrom. Global forces for TS.\n\n",
-            "Image     E(Eh)   dE(kcal/mol)  max(|Fp|)  RMS(Fp)\n"
+            "All forces in Eh/Angstrom; definitions are explicit per row.\n\n",
+            "Image     E(Eh)   dE(kcal/mol)  Force kind       max(|F|)    RMS(|F|)\n"
         ], self.output)
 
         for i, E in enumerate(Es_path):
             dE = (E - Es_path[0]) * kcal_per_Eh
+            metrics = (
+                f"{force_kind_list[i]:<16s} "
+                f"{max_force_list[i]:11.5f} {rms_force_list[i]:10.5f}"
+            )
             if i == hei_idx:
-                log_info([f"{i:4d} {E:12.5f} {dE:11.2f} {maxFp_list[i]:11.5f} {rmsFp_list[i]:10.5f} <= CI\n"], self.output)
+                log_info([
+                    f"{i:4d} {E:12.5f} {dE:11.2f} {metrics} <= HEI\n"
+                ], self.output)
             elif i == hei_idx + 1:
-                log_info([f"  TS {E:12.5f} {dE:11.2f} {0.0:11.5f} {0.0:10.5f} <= TS\n"], self.output)
+                log_info([
+                    f"CAND {E:12.5f} {dE:11.2f} "
+                    f"{metrics} <= TS candidate\n"
+                ], self.output)
             else:
-                log_info([f"{i:4d} {E:12.5f} {dE:11.2f} {maxFp_list[i]:11.5f} {rmsFp_list[i]:10.5f}\n"], self.output)
+                log_info([
+                    f"{i:4d} {E:12.5f} {dE:11.2f} {metrics}\n"
+                ], self.output)
 
         log_info([
             "\n-----------------------------------------\n",
-            "  REFINED TS STRUCTURE (ANGSTROEM)\n",
+            "  REFINED TS CANDIDATE (ANGSTROEM)\n",
             "-----------------------------------------\n",
-            *[line + "\n" for line in atoms_to_xyz_lines(ts_opt)]
+            *[line + "\n" for line in atoms_to_xyz_lines(ts_candidate)],
+            "Frequency/mode and bidirectional IRC verification are still "
+            "required before TS certification.\n",
         ], self.output)
 
         log_info([
             f"\nWrote STRING-TS MEP to: {stringts_mep}\n",
-            f"Wrote TS structure to:  {stringts_ts}\n"
+            f"Wrote TS candidate to:  {stringts_candidate}\n"
         ], self.output)
 
 
@@ -642,17 +722,18 @@ class GSM(JobABC):
         2) Merge L + reversed R and equal-arc reparameterization to fixed n_images.
         3) Take HEI (on the reparameterized path) as TS guess and call PRFO via restart_run().
         """
-        def forces_info(atoms):
-            F = to_numpy_f64(atoms.get_forces())
+        validate_path_contract([self.atoms_R, self.atoms_P], method="String")
+        def forces_info_from_array(forces):
+            F = to_numpy_f64(forces)
             maxF = np.max(np.linalg.norm(F, axis=1))
             rmsF = np.sqrt(np.mean(np.linalg.norm(F, axis=1) ** 2))
             return maxF, rmsF
 
         # --- Report endpoints
-        E_R = self.atoms_R.get_potential_energy(force_consistent=True)
-        E_P = self.atoms_P.get_potential_energy(force_consistent=True)
-        maxF_R, rmsF_R = forces_info(self.atoms_R)
-        maxF_P, rmsF_P = forces_info(self.atoms_P)
+        endpoint_energies, endpoint_forces = get_energy_forces([self.atoms_R, self.atoms_P])
+        E_R, E_P = endpoint_energies
+        maxF_R, rmsF_R = forces_info_from_array(endpoint_forces[0])
+        maxF_P, rmsF_P = forces_info_from_array(endpoint_forces[1])
 
         log_info([
             "\nProperties of fixed STRING end points:\n",

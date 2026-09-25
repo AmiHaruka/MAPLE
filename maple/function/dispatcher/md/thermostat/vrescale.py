@@ -30,9 +30,15 @@ Reference:
 
 import numpy as np
 from ase import Atoms
-from typing import Optional
-
-from ..utils import AMU_TO_AU, FS_TO_AU, KELVIN_TO_HARTREE
+from ..utils import (
+    AMU_TO_AU,
+    FS_TO_AU,
+    KELVIN_TO_HARTREE,
+    DofPolicy,
+    remove_center_of_mass_motion,
+    remove_rigid_body_rotation,
+)
+from ....utility.active_dof import active_atom_mask
 
 
 class VRescaleThermostat:
@@ -49,8 +55,9 @@ class VRescaleThermostat:
         temperature: float,
         tau_t: float,
         timestep: float,
-        rng: Optional[np.random.Generator] = None,
-        n_dof: Optional[int] = None,
+        rng: np.random.Generator | None = None,
+        n_dof: int | None = None,
+        dof_policy: DofPolicy | None = None,
     ):
         """
         Parameters
@@ -72,12 +79,21 @@ class VRescaleThermostat:
         self.tau_t = tau_t * FS_TO_AU       # fs → a.u.
         self.timestep = timestep * FS_TO_AU # fs → a.u.
         self.masses = atoms.get_masses() * AMU_TO_AU
+        self.active_atoms = active_atom_mask(atoms)
+        if not np.any(self.active_atoms):
+            raise ValueError("V-rescale dynamics requires at least one active atom")
         self.rng = rng if rng is not None else np.random.default_rng()
+        self.dof_policy = dof_policy
 
         n_atoms = len(atoms)
         # Runtime N_dof should be provided by the central DOF policy; fall back to
         # the legacy rule only for not-yet-migrated callers.
-        self._n_dof = n_dof if n_dof is not None else (3 * n_atoms if any(atoms.pbc) else 3 * n_atoms - 3)
+        if n_dof is not None:
+            self._n_dof = n_dof
+        elif not np.all(self.active_atoms):
+            self._n_dof = 3 * int(np.count_nonzero(self.active_atoms))
+        else:
+            self._n_dof = 3 * n_atoms if any(atoms.pbc) else 3 * n_atoms - 3
         self._kT_target = temperature * KELVIN_TO_HARTREE
         self._ke_target = 0.5 * self._n_dof * self._kT_target
 
@@ -132,7 +148,21 @@ class VRescaleThermostat:
             (rescaled_velocities, delta_w) where delta_w = (α² − 1)·K
             is the energy injected by the thermostat this step (Hartree).
         """
-        ke = 0.5 * np.sum(self.masses[:, np.newaxis] * velocities ** 2)
+        velocities = velocities.copy()
+        velocities[~self.active_atoms] = 0.0
+        thermal = velocities
+        if self.dof_policy is not None and not self.dof_policy.get("anchored", False):
+            if self.dof_policy.get("angular_active", False):
+                thermal = remove_center_of_mass_motion(self.atoms, thermal)
+                thermal = remove_rigid_body_rotation(self.atoms, thermal)
+            elif self.dof_policy.get("linear_active", False):
+                thermal = remove_center_of_mass_motion(self.atoms, thermal)
+        nonthermal = velocities - thermal
+
+        ke = 0.5 * np.sum(
+            self.masses[self.active_atoms, np.newaxis]
+            * thermal[self.active_atoms] ** 2
+        )
 
         if ke < 1e-30:
             return velocities, 0.0
@@ -157,7 +187,8 @@ class VRescaleThermostat:
         alpha_sq = max(alpha_sq, 0.0)
 
         alpha = np.sqrt(alpha_sq)
-        v_new = alpha * velocities
+        v_new = nonthermal + alpha * thermal
+        v_new[~self.active_atoms] = 0.0
 
         # Thermostat work per step: ΔW_k = (α²_k − 1)·K_k
         #

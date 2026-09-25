@@ -9,30 +9,40 @@ Constant:
 Uses Velocity Verlet integrator for symplectic time evolution.
 """
 
-import numpy as np
 from dataclasses import dataclass
-from typing import Optional
+from typing import NamedTuple, Optional
+
+import numpy as np
 from ase import Atoms
 
-from ...jobABC import JobABC
 from maple.function.timer import timer
 
+from ...jobABC import JobABC
 from ..integrator.velocity_verlet import VelocityVerlet
+from ..logger import MDLogger
+from ..state import validate_prepared_restart
 from ..utils import (
-    VELOCITY_REPR_LFMIDDLE_CARRIED,
-    apply_runtime_motion_projection,
-    calculate_temperature,
-    calculate_kinetic_energy,
-    describe_dof_policy,
-    get_initialization_dof_policy,
-    get_n_dof_from_policy,
-    get_runtime_dof_policy,
-    initialize_velocities,
-    lfmiddle_carried_to_standard,
     FS_TO_AU,
     HA_PER_ANG_TO_AU,
+    VELOCITY_REPR_LFMIDDLE_CARRIED,
+    DofPolicy,
+    apply_runtime_motion_projection,
+    calculate_kinetic_energy,
+    calculate_temperature,
+    describe_dof_policy,
+    enforce_active_velocities,
+    get_n_dof_from_policy,
+    get_persistent_motion_dof_policy,
+    initialize_velocities,
+    lfmiddle_carried_to_standard,
+    motion_subspace_identity,
+    normalize_remove_angular_alias,
 )
-from ..logger import MDLogger
+
+
+class _NVEConfiguration(NamedTuple):
+    dof_policy: DofPolicy
+    dynamics_parameters: dict
 
 
 @dataclass
@@ -198,9 +208,12 @@ class NVE(JobABC):
         self.atoms = atoms
 
         # Initialize params from dict
-        self.params = self._init_params(NVEParams, paras, ("md", "MD", "nve", "NVE"))
-
-        # Initialize components
+        aliases = ("md", "MD", "nve", "NVE")
+        self.params = self._init_params(NVEParams, paras, aliases)
+        self.params.remove_angular = normalize_remove_angular_alias(
+            paras, aliases, self.params.remove_angular
+        )
+        self.params.remove_rotation = False
         self.logger = MDLogger(
             output_path=output,
             log_every=self.params.log_every,
@@ -210,90 +223,127 @@ class NVE(JobABC):
             debug=self.params.debug,
         )
 
-    def run(self):
-        """
-        Execute NVE simulation.
-        """
-        with timer("MD Simulation (NVE)"):
-            # Log parameters
-            self._log_parameters()
+    def _build_actual_state(self, atoms: Atoms) -> _NVEConfiguration:
+        """Build candidate-state policy without changing live job state."""
+        dof_policy = get_persistent_motion_dof_policy(
+            atoms,
+            remove_com=self.params.remove_com,
+            remove_angular=self.params.remove_angular,
+            remove_com_every=self.params.remove_com_every,
+            remove_angular_every=self.params.remove_angular_every,
+        )
+        dynamics_parameters = {
+            "ensemble": "nve",
+            "timestep": float(self.params.timestep),
+            "remove_com_every": int(self.params.remove_com_every),
+            "remove_angular_every": int(self.params.remove_angular_every),
+            "motion_subspace": motion_subspace_identity(dof_policy),
+        }
+        return _NVEConfiguration(dof_policy, dynamics_parameters)
 
-            if self.params.load_state:
-                if self.params.init_velocities and self.params.debug:
-                    self.log_info([
-                        "\nload_state=True: ignoring init_velocities and using coordinates/velocities from RST.\n"
-                    ])
-                result = self.logger.restart_simulation(
-                    ensemble='nve',
+    def _install_actual_state(self, atoms: Atoms, configuration: _NVEConfiguration) -> None:
+        self.atoms = atoms
+        self._dof_policy, self.logger.dynamics_parameters = configuration
+        self._runtime_n_dof = get_n_dof_from_policy(self._dof_policy)
+
+    def run(self):
+        """Execute NVE simulation."""
+        with timer("MD Simulation (NVE)"):
+            prepared = None
+            if self.params.restart or self.params.load_state:
+                prepared = self.logger.prepare_restart_candidate(
+                    self.atoms,
+                    rst_file=self.params.rst_file or None,
+                    load_state=self.params.load_state,
+                )
+                configuration = self._build_actual_state(prepared.atoms)
+                completed = validate_prepared_restart(
+                    prepared,
+                    ensemble="nve",
                     timestep=self.params.timestep,
                     n_steps=self.params.steps,
-                    temperature=self.params.temperature,
-                    atoms=self.atoms,
-                    rst_file=self.params.rst_file if self.params.rst_file else None,
-                    load_state=True,
+                    dynamics_parameters=configuration.dynamics_parameters,
                 )
-                self.atoms, velocities, step_offset = result
-                velocities = self._restore_standard_velocities(velocities)
-                remaining = self.params.steps
-            elif self.params.restart:
-                if self.params.init_velocities and self.params.debug:
-                    self.log_info([
-                        "\nrestart=True: ignoring init_velocities and using coordinates/velocities from RST.\n"
-                    ])
-                result = self.logger.restart_simulation(
-                    ensemble='nve',
-                    timestep=self.params.timestep,
-                    n_steps=self.params.steps,
-                    temperature=self.params.temperature,
-                    atoms=self.atoms,
-                    rst_file=self.params.rst_file if self.params.rst_file else None,
-                    load_state=False,
+                velocities = enforce_active_velocities(
+                    prepared.atoms, prepared.velocities
                 )
-                if result is None:   # already completed
+                if (prepared.load_state
+                        and prepared.checkpoint["velocity_representation"]
+                        == VELOCITY_REPR_LFMIDDLE_CARRIED):
+                    forces = prepared.atoms.get_forces() * HA_PER_ANG_TO_AU
+                    velocities = lfmiddle_carried_to_standard(
+                        prepared.atoms,
+                        velocities,
+                        forces,
+                        prepared.checkpoint["timestep"] * FS_TO_AU,
+                    )
+                velocities = enforce_active_velocities(prepared.atoms, velocities)
+                prepared = prepared.with_velocities(velocities, "standard")
+                if not completed:
+                    prepared.atoms.get_forces()
+                self._install_actual_state(prepared.atoms, configuration)
+                accepted = self.logger.consume_prepared_restart(
+                    prepared, completed=completed, dof_policy=self._dof_policy
+                )
+                if not accepted:
+                    self.atoms.arrays["velocities"] = velocities
                     return
-                self.atoms, velocities, step_offset = result
-                velocities = self._restore_standard_velocities(velocities)
-                remaining = self.params.steps - step_offset
+                step_offset = prepared.step_offset
+                remaining = (
+                    self.params.steps if prepared.load_state
+                    else self.params.steps - step_offset
+                )
             else:
-                # ── Velocity initialisation ───────────────────────────────
-                if 'velocities' in self.atoms.arrays and self.params.init_velocities:
-                    # Velocities were embedded in the input file (7-column XYZ) and
-                    # parsed by InputReader into atoms.arrays['velocities'].
-                    # Honour them instead of discarding with a fresh MB draw —
-                    # this allows "run NVT, save inp with velocities, run NVE" without
-                    # any extra flags.
-                    velocities = self.atoms.arrays['velocities']
-                    t_check = calculate_temperature(self.atoms, velocities)
-                    self.log_info([
-                        f"\nVelocities loaded from input file "
-                        f"(T = {t_check:.2f} K); skipping random initialisation.\n"
-                    ])
+                self._install_actual_state(
+                    self.atoms, self._build_actual_state(self.atoms)
+                )
+                if "velocities" in self.atoms.arrays and self.params.init_velocities:
+                    velocities = enforce_active_velocities(
+                        self.atoms, self.atoms.arrays["velocities"]
+                    )
                 elif self.params.init_velocities:
                     velocities = self._initialize_velocities()
                 else:
-                    if 'velocities' not in self.atoms.arrays:
+                    if "velocities" not in self.atoms.arrays:
                         raise ValueError(
-                            "init_velocities=False, "
-                            "but no velocities found in atoms.arrays"
+                            "init_velocities=False, but no velocities found in atoms.arrays"
                         )
-                    velocities = self.atoms.arrays['velocities']
+                    velocities = enforce_active_velocities(
+                        self.atoms, self.atoms.arrays["velocities"]
+                    )
                 step_offset = 0
-                remaining   = self.params.steps
-                source = "input_xyz" if 'velocities' in self.atoms.arrays and not self.params.init_velocities else ("input_xyz" if 'velocities' in self.atoms.arrays and self.params.init_velocities else "init_velocities")
-                self.logger.log_debug_initial_state(self.atoms, velocities, mode=source, effective_step=step_offset)
+                remaining = self.params.steps
+                source = "input_xyz" if "velocities" in self.atoms.arrays else "init_velocities"
+                self.logger.log_debug_initial_state(
+                    self.atoms,
+                    velocities,
+                    mode=source,
+                    effective_step=step_offset,
+                    dof_policy=self._dof_policy,
+                )
 
-            # Run simulation
-            final_velocities = self._run_simulation(velocities,
-                                                    step_offset=step_offset,
-                                                    n_steps=remaining)
-
-            # Store final velocities
-            self.atoms.arrays['velocities'] = final_velocities
+            self._log_parameters()
+            final_velocities = self._run_simulation(
+                velocities, step_offset=step_offset, n_steps=remaining
+            )
+            self.atoms.arrays["velocities"] = final_velocities
 
     def _log_parameters(self):
         """Log NVE parameters to output."""
-        # Runtime motion projection settings are parallel, not enable/disable toggles.
-        if any(self.atoms.pbc):
+        for warning in self._dof_policy["warnings"]:
+            self.log_info([f"\n*** WARNING: {warning}\n"])
+        anchored = self._dof_policy["anchored"]
+        init_com = (
+            "ignored (FixAtoms anchors system)" if anchored
+            else f"{self.params.remove_com} (initialization-only)"
+        )
+        init_angular = (
+            "ignored (FixAtoms anchors system)" if anchored
+            else f"{self.params.remove_angular} (initialization-only; includes COM+rotation)"
+        )
+        if anchored:
+            com_status = angular_status = "ignored (FixAtoms anchors system)"
+        elif any(self.atoms.pbc):
             com_status = ("disabled (remove_com_every=0)"
                           if self.params.remove_com_every == 0
                           else f"every {self.params.remove_com_every} steps (PBC COM drift removal)")
@@ -321,8 +371,8 @@ class NVE(JobABC):
             f"Restart mode:       {self.params.restart}\n",
             f"Load-state mode:    {self.params.load_state}\n",
             f"RST every:          {self.params.rst_every} steps\n",
-            f"Remove COM:         {self.params.remove_com} (initialization-only)\n",
-            f"Remove angular:     {self.params.remove_angular} (initialization-only; includes COM+rotation)\n",
+            f"Remove COM:         {init_com}\n",
+            f"Remove angular:     {init_angular}\n",
             f"Remove COM every:   {com_status}\n",
             f"Remove angular ev.: {angular_status}\n",
         ])
@@ -393,19 +443,6 @@ class NVE(JobABC):
             self.log_info([nvt_warn])
             print(nvt_warn, end='', flush=True)
 
-    def _restore_standard_velocities(self, velocities: np.ndarray) -> np.ndarray:
-        # NVT (LF-Middle Langevin) writes carried velocities to .rst. Standard
-        # Velocity Verlet expects v_standard = v_carried + 0.5 * F * dt / m at
-        # the saved position; without this half-kick the NVE microcanonical
-        # surface is offset by O(dt²) and ⟨T⟩ drifts low.
-        if self.logger.resumed_velocity_representation != VELOCITY_REPR_LFMIDDLE_CARRIED:
-            return velocities
-        forces = self.atoms.get_forces() * HA_PER_ANG_TO_AU
-        source_dt_au = (self.logger.resumed_timestep * FS_TO_AU
-                        if self.logger.resumed_timestep is not None
-                        else self.params.timestep * FS_TO_AU)
-        return lfmiddle_carried_to_standard(self.atoms, velocities, forces, source_dt_au)
-
     def _initialize_velocities(self) -> np.ndarray:
         """
         Initialize velocities from Maxwell-Boltzmann distribution.
@@ -425,7 +462,8 @@ class NVE(JobABC):
         )
 
         # Remind user to consider removing angular momentum for isolated molecules.
-        if not any(self.atoms.pbc) and not self.params.remove_angular:
+        if (not self._dof_policy["anchored"] and not any(self.atoms.pbc)
+                and not self.params.remove_angular):
             msg = (
                 "NOTE: Non-periodic system detected. In NVE, total angular momentum\n"
                 "  is conserved, so any initial L causes rigid-body rotation throughout\n"
@@ -434,7 +472,8 @@ class NVE(JobABC):
             )
             self.log_info([msg])
             print(msg, end='', flush=True)
-        if (not any(self.atoms.pbc) and self.params.remove_angular
+        if (not self._dof_policy["anchored"] and not any(self.atoms.pbc)
+                and self.params.remove_angular
                 and self.params.remove_angular_every == 0):
             msg = (
                 "NOTE: remove_angular=true and remove_angular_every=0 are parallel settings,\n"
@@ -445,12 +484,8 @@ class NVE(JobABC):
             print(msg, end='', flush=True)
 
         # Initialize velocities
-        runtime_policy = get_runtime_dof_policy(
-            self.atoms,
-            remove_com_every=self.params.remove_com_every,
-            remove_angular_every=self.params.remove_angular_every,
-        )
-        runtime_n_dof = get_n_dof_from_policy(runtime_policy)
+        dof_policy = self._dof_policy
+        n_dof = get_n_dof_from_policy(dof_policy)
 
         velocities = initialize_velocities(
             atoms=self.atoms,
@@ -458,15 +493,16 @@ class NVE(JobABC):
             remove_com=self.params.remove_com,
             remove_rotation=self.params.remove_rotation,
             remove_angular=self.params.remove_angular,
-            target_n_dof=runtime_n_dof,
+            target_n_dof=n_dof,
             rng=rng
         )
 
-        # Verify temperature against the runtime DOF policy.
+        # Verify temperature against the effective conserved-motion subspace.
         actual_temp = calculate_temperature(
             self.atoms,
             velocities,
-            n_dof=runtime_n_dof,
+            n_dof=n_dof,
+            dof_policy=dof_policy,
         )
         self.log_info([
             f"Initial temperature: {actual_temp:.2f} K\n"
@@ -508,27 +544,15 @@ class NVE(JobABC):
             temperature=self.params.temperature,
             atoms=self.atoms,
             step_offset=step_offset,
-            n_dof=get_n_dof_from_policy(get_runtime_dof_policy(
-                self.atoms,
-                remove_com_every=self.params.remove_com_every,
-                remove_angular_every=self.params.remove_angular_every,
-            )),
-            dof_description=describe_dof_policy(get_runtime_dof_policy(
-                self.atoms,
-                remove_com_every=self.params.remove_com_every,
-                remove_angular_every=self.params.remove_angular_every,
-            )),
+            n_dof=get_n_dof_from_policy(self._dof_policy),
+            dof_description=describe_dof_policy(self._dof_policy),
         )
 
         self.logger.log_main(["\nStarting NVE simulation...\n\n"])
 
         integrator = VelocityVerlet(self.atoms, self.params.timestep)
-        runtime_policy = get_runtime_dof_policy(
-            self.atoms,
-            remove_com_every=self.params.remove_com_every,
-            remove_angular_every=self.params.remove_angular_every,
-        )
-        runtime_n_dof = get_n_dof_from_policy(runtime_policy)
+        dof_policy = self._dof_policy
+        n_dof = get_n_dof_from_policy(dof_policy)
         v = velocities.copy()
 
         # Cache forces at t=0; reused as first B-step forces each cycle.
@@ -544,18 +568,20 @@ class NVE(JobABC):
             # `remove_angular_every` handles runtime angular projection and always
             # includes COM removal first. If angular projection fires on this step,
             # it supersedes COM-only removal for the same step.
+            abs_step = step_offset + step
             v, _projection = apply_runtime_motion_projection(
                 self.atoms,
                 v,
-                step=step,
+                step=abs_step,
                 remove_com_every=self.params.remove_com_every,
                 remove_angular_every=self.params.remove_angular_every,
             )
 
             # Calculate thermodynamic quantities
-            abs_step      = step_offset + step
             current_time  = abs_step * self.params.timestep
-            temperature   = calculate_temperature(self.atoms, v, n_dof=runtime_n_dof)
+            temperature   = calculate_temperature(
+                self.atoms, v, n_dof=n_dof, dof_policy=dof_policy
+            )
             kinetic_energy   = calculate_kinetic_energy(self.atoms, v)
             potential_energy = self.atoms.get_potential_energy()  # Ha
             total_energy     = kinetic_energy + potential_energy

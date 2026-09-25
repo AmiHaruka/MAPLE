@@ -29,6 +29,7 @@ from ase import Atoms
 from ._common import compute_metrics, is_converged, write_xyz
 from .DIIS import DIISAccelerator, DIISParams
 from ...jobABC import JobABC
+from ....calculator._batch_eval import energy_forces_one, reset_calculator_cache
 
 
 @dataclass
@@ -436,9 +437,8 @@ class SDCG(JobABC):
         atoms = self.atoms
 
         # Get initial state
-        energy = float(atoms.get_potential_energy(force_consistent=True))
+        energy, forces = energy_forces_one(atoms.calc, atoms)
         write_xyz(opt_traj_file, [atoms.copy()], energies=[energy])
-        forces = atoms.get_forces()
 
         # Auto cg_switch_fmax: 0.5 * initial max force
         initial_max_f = np.abs(forces).max()
@@ -454,7 +454,9 @@ class SDCG(JobABC):
         iteration = 0
 
         while iteration < self.params.max_iter:
-            forces = atoms.get_forces()
+            # `forces` is loop-carried from the previous accepted step (or
+            # from the initial energy_forces_one call), so a top-of-loop
+            # refetch would be redundant.
 
             # Check SD -> CG phase transition
             if self._phase == "sd" and self.params.cg_enabled:
@@ -482,14 +484,14 @@ class SDCG(JobABC):
                 step = self._clip_step(step)
                 atoms.set_positions(saved_positions + step)
 
-                new_energy = float(atoms.get_potential_energy(force_consistent=True))
-                new_forces = atoms.get_forces()
+                new_energy, new_forces = energy_forces_one(atoms.calc, atoms)
                 new_max_f = np.abs(new_forces).max()
                 old_max_f = np.abs(forces).max()
 
                 # Validate: reject if energy rises significantly AND force increases
                 if new_energy > saved_energy + 0.05 and new_max_f > old_max_f * 1.5:
                     atoms.set_positions(saved_positions)
+                    reset_calculator_cache(atoms.calc)
                     self.diis.drop_oldest()
                     if self.params.verbose == 1:
                         self.log_info([
@@ -510,8 +512,7 @@ class SDCG(JobABC):
 
                 atoms.set_positions(atoms.get_positions() + step)
 
-                energy = float(atoms.get_potential_energy(force_consistent=True))
-                forces = atoms.get_forces()
+                energy, forces = energy_forces_one(atoms.calc, atoms)
 
             # Update BB history
             self._prev_positions = saved_positions

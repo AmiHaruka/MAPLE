@@ -8,20 +8,35 @@ Handles:
     - Final summary statistics
 """
 
+import os
+import tempfile
 import time as _time
-import numpy as np
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional, TextIO, Any
+from typing import Any, Optional, TextIO
+
+import numpy as np
 from ase import Atoms
 
+from ...calculator.electronic_state import (
+    canonical_identity_json,
+    electronic_state_identity,
+)
+from .dcd_writer import DCDWriter
+from .rst_io import (
+    promote_rst_checkpoint,
+    rotate_rst_checkpoint,
+)
+from .state import (
+    PreparedMDState,
+    prepare_restart_candidate,
+)
 from .utils import (
     VELOCITY_REPR_STANDARD,
     normalize_velocity_representation,
     set_atoms_velocity_representation,
     write_xyz_frame,
 )
-from .rst_io import read_rst, rotate_rst_checkpoint
-from .dcd_writer import DCDWriter
 
 
 def _backup_file(path: Path) -> Optional[Path]:
@@ -40,6 +55,19 @@ def _backup_file(path: Path) -> Optional[Path]:
             path.rename(backup)
             return backup
         n += 1
+
+
+@contextmanager
+def _atomic_text_target(path: Path):
+    """Yield a unique sibling temp path and publish it only after success."""
+    fd, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    os.close(fd)
+    temporary = Path(name)
+    try:
+        yield temporary
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 # ========== Unit Conversion Constants ==========
@@ -120,6 +148,8 @@ class MDLogger:
         # Generate file paths
         base   = Path(output_path).stem
         parent = Path(output_path).parent
+        self._base = base
+        self._parent = parent
 
         self.thermo_path   = parent / f"{base}_md_thermo.dat"
         self.traj_path     = parent / f"{base}_md_traj.{self.traj_format}"
@@ -164,24 +194,147 @@ class MDLogger:
         self.resumed_velocity_representation: str = VELOCITY_REPR_STANDARD
         self.resumed_timestep: Optional[float] = None
         self.velocity_representation: str = VELOCITY_REPR_STANDARD
-        # Fresh-start backup should not archive checkpoint files that are being
-        # used as explicit rst_file inputs for the current run.
-        self._protected_restart_inputs: set[Path] = set()
+        self.dynamics_parameters: Optional[dict] = None
+        self._run_pes_identity: str | None = None
+        self._segment_parent_step: int | None = None
+        self._segment_parent_sha256: str | None = None
+        self._segment_source: Path | None = None
+        self._segment_parent_snapshot: Path | None = None
+
+    def _restart_candidates(self, rst_file: str | None) -> list[Path]:
+        if rst_file is None:
+            return [self.rst_path, self.rst_prev_path]
+        path = Path(rst_file)
+        if not path.suffix:
+            path = path.with_suffix(".rst")
+        if not path.is_absolute():
+            path = Path(self.main_output).parent / path
+        return [path]
+
+    def prepare_restart_candidate(
+        self,
+        atoms: Atoms,
+        *,
+        rst_file: str | None,
+        load_state: bool,
+    ) -> PreparedMDState:
+        return prepare_restart_candidate(
+            atoms,
+            self._restart_candidates(rst_file),
+            load_state=load_state,
+        )
+
+    def _select_segment_paths(self, prepared: PreparedMDState) -> None:
+        existing = []
+        for path in self._parent.glob(f"{self._base}_md_seg*_thermo.dat"):
+            marker = path.name.split("_md_seg", 1)[1].split("_", 1)[0]
+            if marker.isdigit():
+                existing.append(int(marker))
+        segment = max(existing, default=1) + 1
+        prefix = self._parent / f"{self._base}_md_seg{segment:04d}"
+        self.thermo_path = Path(f"{prefix}_thermo.dat")
+        self.traj_path = Path(f"{prefix}_traj.{self.traj_format}")
+        self.summary_path = Path(f"{prefix}_summary.txt")
+        self.final_path = Path(f"{prefix}_final.xyz")
+        self._segment_parent_snapshot = Path(f"{prefix}_parent.rst")
+        self._segment_parent_snapshot.write_bytes(prepared.source_bytes)
+        self._segment_parent_step = int(prepared.checkpoint["step"])
+        self._segment_parent_sha256 = prepared.source_sha256
+        self._segment_source = prepared.source
+
+    def consume_prepared_restart(
+        self,
+        prepared: PreparedMDState,
+        *,
+        completed: bool,
+        dof_policy=None,
+    ) -> bool:
+        """Install validated restart metadata and allocate an isolated segment."""
+        state = prepared.checkpoint
+        self._validate_run_pes(prepared.atoms)
+        self.resumed_rng_state = None if prepared.load_state else state.get("rng_state")
+        self.resumed_velocity_representation = normalize_velocity_representation(
+            state.get("velocity_representation")
+        )
+        self.resumed_timestep = state["timestep"]
+        self.velocity_representation = self.resumed_velocity_representation
+        set_atoms_velocity_representation(prepared.atoms, self.velocity_representation)
+        if completed:
+            if not prepared.load_state:
+                promote_rst_checkpoint(
+                    prepared.source,
+                    self.rst_path,
+                    self.rst_prev_path,
+                    source_bytes=prepared.source_bytes,
+                )
+            self.log_main([
+                f"\nRestart checkpoint {prepared.source.name} already completed the "
+                f"requested run ({state['step']} steps).\n"
+            ])
+            return False
+
+        if not prepared.load_state:
+            self._select_segment_paths(prepared)
+            promote_rst_checkpoint(
+                prepared.source,
+                self.rst_path,
+                self.rst_prev_path,
+                source_bytes=prepared.source_bytes,
+            )
+        self.log_debug_initial_state(
+            atoms=prepared.atoms,
+            velocities=prepared.velocities,
+            mode="load_state" if prepared.load_state else "restart",
+            source=str(prepared.source),
+            rst_step=state["step"],
+            effective_step=prepared.step_offset,
+            velocity_representation=self.velocity_representation,
+            dof_policy=dof_policy,
+        )
+        return True
+
+    def _validate_run_pes(self, atoms: Atoms) -> dict:
+        """Bind before starting; reject a changed Hamiltonian during this run."""
+        identity = electronic_state_identity(atoms)
+        canonical = canonical_identity_json(identity)
+        if self._run_pes_identity is None:
+            self._run_pes_identity = canonical
+        elif canonical != self._run_pes_identity:
+            raise RuntimeError("PES identity changed during the MD run.")
+        return identity
+
+    def _checkpoint_metadata(self, atoms: Atoms) -> tuple[dict, dict]:
+        if self.dynamics_parameters is None:
+            raise RuntimeError(
+                "Exact MD checkpoints require the ensemble dynamics parameters."
+            )
+        return self._validate_run_pes(atoms), self.dynamics_parameters
 
     def log_debug_initial_state(self, atoms: Atoms, velocities: np.ndarray,
                                 mode: str, effective_step: int,
                                 source: Optional[str] = None,
                                 rst_step: Optional[int] = None,
-                                velocity_representation: Optional[str] = None):
+                                velocity_representation: Optional[str] = None,
+                                dof_policy=None):
         if not self.debug:
             return
 
-        from .utils import calculate_kinetic_energy, calculate_temperature
+        from .utils import (
+            calculate_kinetic_energy,
+            calculate_temperature,
+            get_n_dof_from_policy,
+        )
 
         forces = atoms.get_forces()
         kinetic_energy = calculate_kinetic_energy(atoms, velocities)
         potential_energy = atoms.get_potential_energy()
-        temperature_inst = calculate_temperature(atoms, velocities)
+        n_dof = get_n_dof_from_policy(dof_policy) if dof_policy is not None else None
+        temperature_inst = calculate_temperature(
+            atoms,
+            velocities,
+            n_dof=n_dof,
+            dof_policy=dof_policy,
+        )
         atom0_pos = atoms.get_positions()[0]
         atom0_vel = velocities[0]
         atom0_force = forces[0]
@@ -234,6 +387,7 @@ class MDLogger:
             write_conserved_energy: Append conserved-energy columns for
                 ensembles/thermostats that define one explicitly.
         """
+        self._checkpoint_metadata(atoms)
         self._ensemble    = ensemble.lower()
         self.velocity_representation = normalize_velocity_representation(velocity_representation)
         set_atoms_velocity_representation(atoms, self.velocity_representation)
@@ -253,9 +407,10 @@ class MDLogger:
         self._last_wall  = self._wall_start
         self._last_step  = step_offset
 
-        if step_offset == 0:
+        is_segment = self._segment_parent_step is not None
+        backup_msgs = []
+        if step_offset == 0 and not is_segment:
             # Open files (back up any pre-existing files first, GROMACS-style)
-            backup_msgs = []
             for p in (
                 self.thermo_path,
                 self.traj_path,
@@ -264,14 +419,12 @@ class MDLogger:
                 self.rst_path,
                 self.rst_prev_path,
             ):
-                if p in self._protected_restart_inputs:
-                    continue
                 backup = _backup_file(p)
                 if backup is not None:
                     backup_msgs.append(f"  Backed up existing file: {p.name} -> {backup.name}\n")
 
+        if step_offset == 0 or is_segment:
             self.thermo_file = open(self.thermo_path, 'w')
-            # Open trajectory file based on format
             if self.traj_format == 'dcd':
                 self.traj_file = DCDWriter(
                     path=self.traj_path,
@@ -282,7 +435,8 @@ class MDLogger:
                 )
             else:  # xyz
                 self.traj_file = open(self.traj_path, 'w')
-        # else: files already opened in append mode by restart_simulation()
+        else:
+            raise RuntimeError("MD output must start in a fresh run segment")
 
         # Write main output header
         total_steps_display = n_steps + step_offset
@@ -318,17 +472,31 @@ class MDLogger:
             "\n" + "="*80 + "\n",
         ])
 
-        if step_offset == 0 and backup_msgs:
+        if step_offset == 0 and not is_segment and backup_msgs:
             self.log_main(["\nWARNING: Pre-existing output files were backed up:\n"] + backup_msgs + ["\n"])
             for msg in backup_msgs:
                 print(f"WARNING: {msg.strip()}")
 
-        # Write thermodynamics header (fresh run only; resume appends a separator instead)
-        if step_offset == 0:
-            self.thermo_file.write(f"# MD Simulation - {ensemble.upper()} Ensemble\n")
-            self.thermo_file.write(f"# Timestep: {timestep} fs\n")
+        # Every run segment has its own thermodynamic stream and header.
+        if step_offset == 0 or is_segment:
+            thermo_file = self.thermo_file
+            if thermo_file is None:
+                raise RuntimeError("Thermodynamic output was not opened")
+            thermo_file.write(f"# MD Simulation - {ensemble.upper()} Ensemble\n")
+            thermo_file.write(f"# Timestep: {timestep} fs\n")
+            if is_segment:
+                if self._segment_source is None or self._segment_parent_snapshot is None:
+                    raise RuntimeError("Restart segment provenance was not prepared")
+                thermo_file.write(
+                    f"# Parent checkpoint: {self._segment_source.name}\n"
+                    f"# Parent snapshot: {self._segment_parent_snapshot.name}\n"
+                    f"# Parent checkpoint step: {self._segment_parent_step}\n"
+                    f"# Parent checkpoint sha256: {self._segment_parent_sha256}\n"
+                    f"# Start step: {step_offset}\n"
+                    "# Conserved-energy and bath-work diagnostics are segment-local.\n"
+                )
             if self._ensemble == 'npt':
-                self.thermo_file.write(
+                thermo_file.write(
                     f"# {'Step':>8} {'Time(fs)':>12} {'Temp(K)':>12} "
                     f"{'KE(Ha)':>15} {'PE(Ha)':>15} {'TE(Ha)':>15} "
                     f"{'Press(bar)':>12} {'Vol(A^3)':>12}\n"
@@ -345,13 +513,13 @@ class MDLogger:
                 elif self._write_conserved_energy:
                     header += f" {'H_cons_ext(Ha)':>15}"
                 header += "\n"
-                self.thermo_file.write(header)
+                thermo_file.write(header)
             else:
-                self.thermo_file.write(
+                thermo_file.write(
                     f"# {'Step':>8} {'Time(fs)':>12} {'Temp(K)':>12} "
                     f"{'KE(Ha)':>15} {'PE(Ha)':>15} {'TE(Ha)':>15}\n"
                 )
-            self.thermo_file.flush()
+            thermo_file.flush()
 
         # ------------------------------------------------------------------
         # Progress header  (verbose >= 1)
@@ -547,8 +715,7 @@ class MDLogger:
             self.log_main([line + "\n"])
 
         # Write trajectory at traj_every frequency.
-        # frame_number stores the MD *step* number so that restart_simulation()
-        # can recover step_offset directly without needing to know traj_every.
+        # frame_number stores the absolute MD step rather than a frame index.
         if step % self.traj_every == 0:
             if self.traj_format == 'dcd':
                 # DCD writer handles its own writing
@@ -568,6 +735,7 @@ class MDLogger:
 
         # Write restart checkpoint at rst_every frequency
         if rst_every and step % rst_every == 0:
+            pes_identity, dynamics_parameters = self._checkpoint_metadata(atoms)
             rotate_rst_checkpoint(
                 rst_path=self.rst_path,
                 rst_prev_path=self.rst_prev_path,
@@ -579,215 +747,13 @@ class MDLogger:
                 energy=total_energy_hartree,
                 rng_state=rng_state,
                 velocity_representation=velocity_representation,
+                pes_identity=pes_identity,
+                dynamics_parameters=dynamics_parameters,
             )
-
-    def restart_simulation(
-        self,
-        ensemble: str,
-        timestep: float,
-        n_steps: int,
-        temperature: float,
-        atoms: Atoms,
-        pressure: float = None,
-        rst_file: str = None,
-        load_state: bool = False,
-    ):
-        """
-        Restore state from a .rst checkpoint file, validate against input atoms,
-        open output files, and return (atoms, velocities, step_offset).
-
-        Restore state from a .rst checkpoint file, validate against input atoms,
-        and return ``(atoms, velocities, step_offset)``.
-
-        Input selection modes:
-
-        1. **Auto-detect** (rst_file=None):
-           Search ``{base}_md.rst`` and ``{base}_md_prev.rst``.
-
-        2. **Explicit checkpoint** (rst_file="/path/to/file.rst"):
-           Read the specified checkpoint file (auto-appends ``.rst`` if missing).
-
-        Semantic modes:
-
-        - ``restart=yes`` / ``load_state=no``:
-          Resume semantics. Checkpoint coordinates, velocities, and step count
-          are restored, so the run continues from the saved step.
-
-        - ``load_state=yes``:
-          Load-state semantics. Checkpoint coordinates and velocities are
-          restored, but the new run starts from step 0.
-
-        Returns None if a restart checkpoint already completed the requested run.
-        Raises RuntimeError on hard failures (mismatch, missing files, etc.).
-        """
-        from ase.cell import Cell
-
-        # ------------------------------------------------------------------
-        # Determine checkpoint source
-        # ------------------------------------------------------------------
-        has_explicit_rst = rst_file is not None
-
-        if has_explicit_rst:
-            # Resolve path: auto-append .rst if missing
-            rst = Path(rst_file)
-            if rst.suffix == '':
-                rst = rst.with_suffix('.rst')
-            # If relative path, resolve relative to output file's directory
-            if not rst.is_absolute():
-                rst = Path(self.main_output).parent / rst
-            candidates = [rst]
-        else:
-            candidates = [self.rst_path, self.rst_prev_path]
-
-        self._protected_restart_inputs = set()
-
-        state = None
-        errors = []
-        used_path = None
-        for path in candidates:
-            if not path.exists():
-                errors.append(f"missing: {path}")
-                continue
-            try:
-                state = read_rst(path)
-                used_path = path
-                break
-            except ValueError as exc:
-                errors.append(f"{path.name}: {exc}")
-
-        if state is None:
-            raise RuntimeError("MD restart failed: " + "; ".join(errors))
-
-        # ------------------------------------------------------------------
-        # Validation: atoms must always match
-        # ------------------------------------------------------------------
-        if state["natoms"] != len(atoms):
-            raise RuntimeError(
-                f"Atom count mismatch: rst has {state['natoms']}, input has {len(atoms)}"
-            )
-        ref_symbols = atoms.get_chemical_symbols()
-        for idx, (rst_sym, input_sym) in enumerate(zip(state["symbols"], ref_symbols), 1):
-            if rst_sym != input_sym:
-                raise RuntimeError(
-                    f"Element mismatch between rst and input at position {idx}"
-                )
-
-        if not load_state:
-            if state["ensemble"] != ensemble:
-                raise RuntimeError(
-                    f"Ensemble mismatch: rst has '{state['ensemble']}', "
-                    f"input specifies '{ensemble}'"
-                )
-            if abs(state["timestep"] - timestep) > 1e-12:
-                raise RuntimeError(
-                    f"Timestep mismatch: rst has {state['timestep']}, "
-                    f"input specifies {timestep}"
-                )
-            if state["step"] >= n_steps:
-                self.log_main([
-                    f"\nRestart checkpoint {used_path.name} already completed the "
-                    f"requested run ({state['step']}/{n_steps} steps).\n"
-                ])
-                # Even though the run is complete, export final.xyz from
-                # the checkpoint so the user always has the last-frame file.
-                if not self.final_path.exists():
-                    atoms.set_positions(state["positions"])
-                    if state["cell"] is not None:
-                        atoms.set_cell(Cell.fromcellpar(state["cell"]))
-                    if state["pbc"] is not None:
-                        atoms.set_pbc(state["pbc"])
-                    with open(self.final_path, 'w') as f:
-                        write_xyz_frame(
-                            f,
-                            atoms=atoms,
-                            energy=state["energy"],
-                            frame_number=state["step"],
-                            velocity=state["velocities"] if self.debug else None,
-                            include_velocities=self.debug,
-                            velocity_representation=state.get("velocity_representation"),
-                        )
-                    self.log_main([
-                        f"  Exported final structure: {self.final_path.name}\n"
-                    ])
-                return None
-
-        if has_explicit_rst and used_path in (self.rst_path, self.rst_prev_path):
-            self._protected_restart_inputs = {self.rst_path, self.rst_prev_path}
-
-        if load_state:
-            if self.debug:
-                self.log_main([
-                    f"\nLoading state from explicit checkpoint: {used_path.name} "
-                    f"(start new run from step 0)\n",
-                ])
-            step_offset = 0
-        else:
-            if has_explicit_rst and self.debug:
-                self.log_main([
-                    f"\nRestarting from explicit checkpoint: {used_path.name} "
-                    f"(resume from step {state['step']})\n",
-                ])
-            step_offset = state["step"]
-
-        # Restore atoms state
-        atoms.set_positions(state["positions"])
-        if state["cell"] is not None:
-            atoms.set_cell(Cell.fromcellpar(state["cell"]))
-        if state["pbc"] is not None:
-            atoms.set_pbc(state["pbc"])
-
-        # Store RNG state for ensemble drivers (NVT/NPT) to restore
-        self.resumed_rng_state = state.get("rng_state")
-        self.resumed_velocity_representation = normalize_velocity_representation(
-            state.get("velocity_representation")
-        )
-        self.resumed_timestep = state["timestep"]
-        self.velocity_representation = self.resumed_velocity_representation
-        set_atoms_velocity_representation(atoms, self.velocity_representation)
-
-        self.log_debug_initial_state(
-            atoms=atoms,
-            velocities=state["velocities"],
-            mode="load_state" if load_state else "restart",
-            source=str(used_path),
-            rst_step=state["step"],
-            effective_step=step_offset,
-            velocity_representation=self.velocity_representation,
-        )
-
-        # ------------------------------------------------------------------
-        # Open output files only for resume semantics.
-        # start_simulation(step_offset>0) skips file opening, so resume mode
-        # must append here. load_state starts a fresh run and therefore relies
-        # on start_simulation(step_offset=0) to open clean output files.
-        # ------------------------------------------------------------------
-        if not load_state:
-            self.thermo_file = (open(self.thermo_path, "a") if self.thermo_path.exists()
-                                else open(self.thermo_path, "w"))
-            if self.traj_format == 'dcd':
-                if self.traj_path.exists():
-                    self.traj_file = DCDWriter.open_for_append(self.traj_path)
-                else:
-                    self.traj_file = DCDWriter(
-                        path=self.traj_path,
-                        natoms=len(atoms),
-                        timestep=timestep,
-                        is_periodic=any(atoms.pbc),
-                        first_step=state["step"],
-                    )
-            else:
-                self.traj_file = (open(self.traj_path, "a") if self.traj_path.exists()
-                                  else open(self.traj_path, "w"))
-            self.thermo_file.write(
-                f"\n# --- RESTARTED from {used_path.name} step {state['step']} ---\n"
-            )
-            self.thermo_file.flush()
-
-        return atoms, state["velocities"], step_offset
 
     def end_simulation(self, atoms: Atoms = None, final_velocities: np.ndarray = None,
                        rng_state: str = None,
-                       velocity_representation: Optional[str] = None):
+                       velocity_representation: str | None = None):
         """
         Finalize simulation, compute publication-quality conservation metrics,
         write summary file, and write final restart checkpoint.
@@ -807,6 +773,8 @@ class MDLogger:
         velocity_representation : str, optional
             Label describing the semantics of ``final_velocities``.
         """
+        if atoms is not None:
+            self._validate_run_pes(atoms)
         velocity_representation = normalize_velocity_representation(
             velocity_representation or self.velocity_representation
         )
@@ -970,12 +938,10 @@ class MDLogger:
             ]
         summary_lines += perf_lines
 
-        self.log_main(summary_lines, echo=True)
-
         # ------------------------------------------------------------------
         # Write summary file
         # ------------------------------------------------------------------
-        with open(self.summary_path, 'w') as f:
+        with _atomic_text_target(self.summary_path) as summary_tmp, open(summary_tmp, 'w') as f:
             f.write("MD Simulation Summary\n")
             f.write("=" * 60 + "\n\n")
             f.write(f"Ensemble:                   {self._ensemble.upper()}\n")
@@ -985,6 +951,8 @@ class MDLogger:
             f.write(f"N_dof:                      {n_dof}  "
                     f"{dof_description}\n")
             f.write(f"Energy reporting basis:     {energy_label}\n\n")
+            if self._segment_parent_step is not None:
+                f.write("Diagnostic scope:           current output segment\n\n")
 
             f.write("Energy Statistics:\n")
             f.write(f"  Mean total energy:        {energy_mean:.8f} Ha\n")
@@ -1047,8 +1015,26 @@ class MDLogger:
             final_energy = self.energies[-1] if self.energies else float("nan")
             final_step = int(round(self.times[-1] / self._timestep)) if self.times and self._timestep > 0 else 0
 
-            # Write RST checkpoint (complete state for restart)
-            # For NVT/NPT, include RNG state for deterministic continuation
+            # Write final structure XYZ (confout.gro equivalent)
+            # This file contains:
+            #   - Coordinates (can be used as input for next stage)
+            #   - Velocities (embedded in XYZ, read by InputReader)
+            #   - Cell parameters (if PBC)
+            with _atomic_text_target(self.final_path) as final_tmp, open(final_tmp, 'w') as f:
+                write_xyz_frame(
+                    f,
+                    atoms=atoms,
+                    energy=final_energy,
+                    frame_number=final_step,
+                    velocity=final_velocities if self.debug else None,
+                    include_velocities=self.debug,
+                    velocity_representation=velocity_representation,
+                )
+            final_xyz_written = True
+
+            # Publish the canonical checkpoint only after human-readable final
+            # artifacts have been written successfully.
+            pes_identity, dynamics_parameters = self._checkpoint_metadata(atoms)
             rotate_rst_checkpoint(
                 rst_path=self.rst_path,
                 rst_prev_path=self.rst_prev_path,
@@ -1060,25 +1046,12 @@ class MDLogger:
                 energy=final_energy,
                 rng_state=rng_state,
                 velocity_representation=velocity_representation,
+                pes_identity=pes_identity,
+                dynamics_parameters=dynamics_parameters,
             )
             final_written = True
 
-            # Write final structure XYZ (confout.gro equivalent)
-            # This file contains:
-            #   - Coordinates (can be used as input for next stage)
-            #   - Velocities (embedded in XYZ, read by InputReader)
-            #   - Cell parameters (if PBC)
-            with open(self.final_path, 'w') as f:
-                write_xyz_frame(
-                    f,
-                    atoms=atoms,
-                    energy=final_energy,
-                    frame_number=final_step,
-                    velocity=final_velocities if self.debug else None,
-                    include_velocities=self.debug,
-                    velocity_representation=velocity_representation,
-                )
-            final_xyz_written = True
+        self.log_main(summary_lines, echo=True)
 
         self.log_main([
             f"\n{'── Output Files ──':^80}\n",

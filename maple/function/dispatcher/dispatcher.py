@@ -27,8 +27,9 @@ class Dispatcher():
         if jobtype == 'opt':
             from .optimization import Optimization
 
-            if isinstance(atoms, (list, Molecules)):
-                raise NotImplementedError('For optimization job, only one Atoms object is allowed.')
+            # Multi-structure input runs through the batched optimizer.
+            if isinstance(atoms, list):
+                atoms = Molecules(atoms)
             opt = Optimization(output=output, atoms=atoms, params=commandcontrol.params)
             opt.run()
             

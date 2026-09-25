@@ -1,5 +1,6 @@
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from dataclasses import fields
 from typing import Tuple
 
@@ -70,12 +71,12 @@ class JobABC(ABC):
         with open(self.output, 'a') as file:
             file.write(f"ERROR: {error_message}\n")
 
-    def log_info(self, info_message: list) -> None:
+    def log_info(self, info_message: Iterable[str]) -> None:
         """
         Logs info messages to the output file.
 
         Args:
-            info_message: The info message to log.
+            info_message: Text fragments to write in order.
         """
         with open(self.output, 'a') as file:
             for info in info_message:   

@@ -7,7 +7,26 @@ import numpy as np
 import torch
 from ase.calculators.calculator import all_changes
 
-from ..calculator_base import CalcABC, hessian_via_double_autograd, register_calculator
+from .._batch_types import BatchResult
+from .._batch_utils import (
+    atoms_list_has_pbc,
+    empty_batch_result,
+    normalize_energy_forces_request,
+    sequential_calculate_many,
+    split_atomwise_array,
+)
+from ..calculator_base import (
+    EV2HARTREE,
+    CalcABC,
+    hessian_via_double_autograd,
+    register_calculator,
+)
+from ._batch_graph import build_mace_data_dict_batch, energy_vector_from_output
+from ..electronic_state import (
+    attach_calculator_identity,
+    solvation_identity_settings,
+    validate_electronic_state,
+)
 from ._common import (
     model_float_dtype,
     one_hot_node_attrs,
@@ -105,12 +124,20 @@ class MACECalculator(CalcABC):
     # _require_local_model_file when CHECKPOINT_FILENAME has no entry.
     CHECKPOINT_FILENAME = {'maceoff23m': 'maceoff23m.pt', 'egret': 'egret1s.pt'}
     REQUIRES_LOCAL_MODEL_FILE = True
-    OPTION_KEYS = ()
+    OPTION_KEYS = ('batch_size', 'path_batch_size')
     MODEL_PATH_OPTION = 'model_path'
+    supports_batch_energy_forces = True
+    supports_analytic_hessian = True
+    batch_memory_model = 'disconnected_graph'
+    auto_path_batch_cap = 8
 
     @classmethod
     def build_kwargs_from_options(cls, model, options, *, resolved_model_path=None):
         kwargs = {}
+        if options.get('batch_size') is not None:
+            kwargs['batch_size'] = options.get('batch_size')
+        if options.get('path_batch_size') is not None:
+            kwargs['path_batch_size'] = options.get('path_batch_size')
         if resolved_model_path is not None:
             kwargs['model_path'] = resolved_model_path
         return kwargs
@@ -120,6 +147,8 @@ class MACECalculator(CalcABC):
         model: str = 'maceoff23s',
         model_path: Optional[str] = None,
         overwrite: bool = False,
+        batch_size=None,
+        path_batch_size='auto',
         implicit: Literal['gbsa', 'none'] = 'none',
         solvent: str = 'none',
         ):
@@ -145,10 +174,19 @@ class MACECalculator(CalcABC):
         self.device = device
         self.dtype = model_float_dtype(self.model)
         self.overwrite = overwrite
+        self.batch_size = batch_size
+        self.path_batch_size = path_batch_size
 
         self.r_max = float(self.model.r_max)
         self.atomic_numbers = [int(z) for z in self.model.atomic_numbers]
         self.hessian = 'analytic'
+
+        attach_calculator_identity(
+            self,
+            backend=str(model).lower(),
+            checkpoint_path=model_path,
+            relevant_settings=solvation_identity_settings(implicit, solvent),
+        )
 
         self.implicit_solv_init(implicit=implicit, solvent=solvent)
 
@@ -184,10 +222,95 @@ class MACECalculator(CalcABC):
 
         self._finalize_results(atoms, energy=energy_eV.item(), forces=forces_np, hessian=hessian)
 
+    def calculate_many(self, atoms_list, properties=("energy", "forces")) -> BatchResult:
+        """Evaluate independent MACE-OFF structures as one disconnected graph.
+
+        The graph helper builds each image's no-PBC radius graph separately and
+        offsets edge indices into a PyG-style batch, so there are no artificial
+        cross-image edges.  Units match ``calculate`` by keeping autograd in
+        native eV and converting detached outputs at the result boundary.
+        """
+        _, want_energy, want_forces, request = normalize_energy_forces_request(
+            properties
+        )
+        if not request:
+            return BatchResult()
+
+        atoms_list = list(atoms_list)
+        if not atoms_list:
+            return empty_batch_result(want_energy, want_forces)
+
+        if atoms_list_has_pbc(atoms_list):
+            return sequential_calculate_many(
+                self, atoms_list, request, want_energy, want_forces
+            )
+
+        if getattr(self, 'solvent_correction', None) is not None:
+            return sequential_calculate_many(
+                self, atoms_list, request, want_energy, want_forces
+            )
+
+        for atoms in atoms_list:
+            validate_electronic_state(atoms, self)
+
+        data_dict, local_or_ghost, counts = build_mace_data_dict_batch(
+            atoms_list,
+            atomic_numbers=self.atomic_numbers,
+            r_max=self.r_max,
+            device=self.device,
+            dtype=self.dtype,
+            requires_grad=want_forces,
+        )
+
+        if want_forces:
+            total_energy_local = self.model.forward(
+                data=data_dict,
+                local_or_ghost=local_or_ghost,
+                compute_virials=False,
+            )
+        else:
+            with torch.no_grad():
+                total_energy_local = self.model.forward(
+                    data=data_dict,
+                    local_or_ghost=local_or_ghost,
+                    compute_virials=False,
+                )
+
+        energy_vec_eV = energy_vector_from_output(
+            total_energy_local,
+            batch_size=len(atoms_list),
+            n_atoms_total=data_dict['positions'].shape[0],
+            batch=data_dict['batch'],
+        )
+
+        # Match calculate()/_finalize_results(): promote model energies before
+        # conversion so FP32 models do not incur an extra Hartree-rounding step.
+        energies = (
+            energy_vec_eV.detach().cpu().numpy().astype(np.float64) * EV2HARTREE
+            if want_energy else None
+        )
+
+        forces_list = None
+        if want_forces:
+            forces_eV = -torch.autograd.grad(
+                energy_vec_eV.sum(),
+                data_dict['positions'],
+                create_graph=False,
+                retain_graph=False,
+            )[0]
+            forces_ha = forces_eV.detach().cpu().numpy() * EV2HARTREE
+            forces_list = split_atomwise_array(
+                forces_ha.astype(np.float64),
+                counts,
+            )
+
+        return BatchResult(
+            energies=energies,
+            forces=forces_list,
+        ).validate_against(atoms_list, request)
+
     def _analytic_hessian(self, atoms) -> np.ndarray:
         """Analytic Hessian via autograd. Returns (3N, 3N) np.ndarray in Hartree/Å²."""
-        from ..calculator_base import EV2HARTREE
-
         positions = torch.tensor(
             atoms.get_positions(), dtype=self.dtype, device=self.device, requires_grad=True
         )

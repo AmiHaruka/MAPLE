@@ -6,6 +6,14 @@ import numpy as np
 
 import ase.calculators.calculator
 
+from ._batch_types import BatchResult
+from ._batch_utils import (
+    empty_batch_result,
+    normalize_energy_forces_request,
+    sequential_calculate_many,
+)
+from .electronic_state import validate_electronic_state
+
 if TYPE_CHECKING:
     import torch
 
@@ -90,11 +98,9 @@ def validate_implicit_solvent_choice(implicit, solvent):
     """Normalize and validate implicit-solvent selector pair."""
     implicit_norm = normalize_none_option(implicit)
     solvent_norm = normalize_none_option(solvent)
-    if implicit_norm == 'gbsa' and solvent_norm == 'none':
-        raise ValueError(
-            "implicit='gbsa' requires an explicit solvent name such as solvent='water'; "
-            "use implicit='none' to disable implicit solvent."
-        )
+    if implicit_norm == 'gbsa':
+        from .extra_correction.solvent.gbsa.gbsa import GBSA_UNAVAILABLE
+        raise NotImplementedError(GBSA_UNAVAILABLE)
     return implicit_norm, solvent_norm
 
 
@@ -277,9 +283,38 @@ class CalcABC(ase.calculators.calculator.Calculator):
     OPTION_KEYS: tuple | None = None
     # Constructor kwarg that accepts an explicit user model_path, if any.
     MODEL_PATH_OPTION: str | None = None
+    # Conservative default: every CalcABC backend satisfies the unified
+    # result-driven batch contract via sequential single-structure calls.
+    # Backends that implement a real model-level batch path override
+    # ``calculate_many`` and flip this capability flag.
+    supports_batch_energy_forces: bool = False
+    supports_analytic_hessian: bool = False
+    supports_hvp: bool = False
+    batch_memory_model: str | None = None
+    auto_batch_hard_cap: int | None = None
+    auto_path_batch_cap: int | None = None
+    auto_fd_batch_cap: int | None = None
+    auto_hvp_batch_cap: int | None = None
+    # This scaled antisymmetry limit is a diagnostic guard, not an accuracy
+    # certificate. Selected FD probes do not establish a bound for every
+    # backend or geometry; larger residuals fail before symmetrization.
+    fd_hessian_antisymmetry_threshold: float | None = 1e-4
+    fd_hessian_antisymmetry_action: str = "raise"
+    fd_context_mode: str = "safe"
 
     def __init__(self):
         super().__init__()
+
+    def check_state(self, atoms, tol=1e-15):
+        """Include electronic inputs, which ASE's geometry cache does not track."""
+        changes = super().check_state(atoms, tol=tol)
+        if self.atoms is not None:
+            for key, default in (('charge', 0), ('mult', 1)):
+                if not ase.calculators.calculator.equal(
+                    self.atoms.info.get(key, default), atoms.info.get(key, default)
+                ):
+                    changes.append(key)
+        return changes
 
     def _reject_unsupported_pbc(self, atoms) -> None:
         if not self.SUPPORTS_PBC:
@@ -309,10 +344,58 @@ class CalcABC(ase.calculators.calculator.Calculator):
         system_changes=ase.calculators.calculator.all_changes,
     ):
         target_atoms = atoms if atoms is not None else getattr(self, 'atoms', None)
+        validate_electronic_state(target_atoms, self)
         self._reject_unsupported_pbc(target_atoms)
         properties = reject_implicit_solvent_derivatives(self, properties)
         super().calculate(atoms, properties, system_changes)
         return target_atoms
+
+    def calculate_many(self, atoms_list, properties=("energy", "forces")) -> BatchResult:
+        """Return batched energies/forces using the safe sequential fallback.
+
+        The public batch contract is return-value driven: callers consume the
+        returned :class:`BatchResult` instead of reading ``self.results`` after a
+        multi-structure evaluation.  The base implementation deliberately
+        preserves every subclass' validated single-structure logic by looping
+        through ``calculate(...)``.  Native-batch backends override this method
+        only when they can keep exactly the same units, ordering, PBC policy,
+        and solvent/metadata semantics.
+        """
+        _, want_energy, want_forces, request = normalize_energy_forces_request(
+            properties
+        )
+        if not request:
+            return BatchResult()
+
+        atoms_list = list(atoms_list)
+        if not atoms_list:
+            return empty_batch_result(want_energy, want_forces)
+
+        return sequential_calculate_many(
+            self, atoms_list, request, want_energy, want_forces
+        )
+
+    def make_fd_context(
+        self,
+        atoms,
+        *,
+        delta: float | None = None,
+        fd_context_mode: str | None = None,
+    ):
+        """Optional fixed-topology force context for FD Hessians.
+
+        ``None`` keeps FDHessianEvaluator on the normal ``calculate_many``
+        route.  Backends can override this later only with a validated graph
+        reuse policy; the base class refuses unknown modes so misspellings do
+        not silently alter numerical Hessians.
+        """
+        mode = fd_context_mode or getattr(self, "fd_context_mode", "safe")
+        if mode not in ("safe", "fast"):
+            raise ValueError(
+                "fd_context_mode must be 'safe' or 'fast', "
+                f"got {mode!r}"
+            )
+        return None
 
     @classmethod
     def build_kwargs_from_options(cls, model, model_options, *, resolved_model_path=None):
@@ -352,18 +435,51 @@ class CalcABC(ase.calculators.calculator.Calculator):
         if hessian is not None:
             self.results['hessian'] = hessian
 
-    def get_hessian(self, atoms, delta: float = 0.002):
-        """Dispatch on self.hessian. Subclasses may override for backend autograd."""
+    def get_hessian(
+        self,
+        atoms,
+        delta: float = 0.002,
+        *,
+        constraint_mode: str = "fixed_cartesian",
+    ):
+        """Return a raw or fixed-Cartesian Hessian in Ha/Angstrom^2.
+
+        ``fixed_cartesian`` embeds the supported active Cartesian block in a
+        3N matrix; nonlinear constraint second derivatives are not supplied.
+        ``raw_cartesian`` explicitly differentiates the unconstrained PES.
+        """
+        validate_electronic_state(atoms, self)
         self._reject_unsupported_pbc(atoms)
+        from ._batch_eval import _movable_dofs, _validate_hessian_constraint_mode
+
+        _validate_hessian_constraint_mode(constraint_mode)
         mode = getattr(self, 'hessian', self.SUPPORTED_HESSIAN_MODES[0])
         if mode == 'analytic':
             if getattr(self, 'solvent_correction', None) is not None:
                 raise NotImplementedError(IMPLICIT_SOLVENT_FORCE_ERROR)
-            return np.asarray(self._analytic_hessian(atoms))
+            movable = _movable_dofs(atoms, constraint_mode == 'fixed_cartesian')
+            raw_atoms = atoms.copy() if getattr(atoms, 'constraints', None) else atoms
+            if raw_atoms is not atoms:
+                raw_atoms.set_constraint()
+            H = np.asarray(self._analytic_hessian(raw_atoms))
+            if constraint_mode == 'raw_cartesian':
+                return H
+            fixed = np.setdiff1d(np.arange(3 * len(atoms)), movable)
+            if fixed.size:
+                H = H.copy()
+                H[fixed, :] = 0.0
+                H[:, fixed] = 0.0
+            return H
         if mode == 'numerical':
             if getattr(self, 'solvent_correction', None) is not None:
                 raise NotImplementedError(IMPLICIT_SOLVENT_FORCE_ERROR)
-            return numerical_hessian_from_atoms(self, atoms, delta)
+            from ._batch_eval import FDHessianEvaluator
+
+            return FDHessianEvaluator(
+                self,
+                fd_batch_size=getattr(self, "fd_batch_size", None),
+                constraint_mode=constraint_mode,
+            ).hessian(atoms, delta)
         raise ValueError(f"Unknown hessian mode: {mode!r}")
 
     def _analytic_hessian(self, atoms):

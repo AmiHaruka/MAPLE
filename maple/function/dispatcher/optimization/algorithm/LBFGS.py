@@ -8,6 +8,7 @@ from ase import Atoms
 
 from ._common import compute_metrics, is_converged, write_xyz
 from ...jobABC import JobABC
+from ....calculator._batch_eval import energy_forces_one
 
 
 # ==============================================
@@ -163,11 +164,12 @@ class LBFGS(JobABC):
         atoms = self.atoms
         iteration = 0
         r = atoms.get_positions()
-        e = float(atoms.get_potential_energy(force_consistent=True))
+        e, f = energy_forces_one(atoms.calc, atoms)
         write_xyz(opt_traj_file, [atoms.copy()], energies=[e])
-        f = atoms.get_forces()
 
         while iteration < self.params.max_iter:
+            # ASE forces are ``-grad(E)``. L-BFGS needs the gradient so the
+            # two-loop recursion returns a downhill ``-H^{-1} grad`` step.
             grad = (-f).reshape(-1)
             step_flat = self._two_loop(grad)
             step = self._clip_step(step_flat.reshape(f.shape))
@@ -177,8 +179,7 @@ class LBFGS(JobABC):
             atoms.set_positions(r + step)
 
             r = atoms.get_positions()
-            f = atoms.get_forces()
-            e = float(atoms.get_potential_energy(force_consistent=True))
+            e, f = energy_forces_one(atoms.calc, atoms)
 
             s_vec = (r - r_old).reshape(-1)
             grad = (-f).reshape(-1)

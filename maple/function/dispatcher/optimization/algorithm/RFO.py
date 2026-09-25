@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 import os
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 from ase import Atoms
+from ase.constraints import FixAtoms, FixCartesian
 
 from ._common import (
     compute_metrics,
@@ -14,6 +15,7 @@ from ._common import (
     write_xyz,
 )
 from ...jobABC import JobABC
+from ....calculator._batch_eval import energy_forces_one, reset_calculator_cache
 
 
 # ==============================================
@@ -39,6 +41,10 @@ class RFOParams:
     # output verbosity
     verbose: int = 1
     log_final_paths: bool = True
+
+    # batched finite-difference Hessian: chunk size passed down to
+    # FDHessianEvaluator via the calculator. None = single batch.
+    fd_batch_size: Optional[int] = None
 
 
 # ==============================================
@@ -69,16 +75,45 @@ class RFO(JobABC):
         Writes <base>_opt_traj.xyz during accepted steps and <base>_opt.xyz on finish.
         Returns the optimized Atoms object.
         """
+        for constraint in getattr(self.atoms, "constraints", ()):
+            if not isinstance(constraint, (FixAtoms, FixCartesian)):
+                raise NotImplementedError(
+                    "RFO supports only FixAtoms/FixCartesian constraints; got "
+                    f"{type(constraint).__name__}. A raw Cartesian Hessian is "
+                    "not a constrained RFO Hessian. For a relaxed scan, "
+                    "explicitly choose #scan(method=lbfgs,mode=relaxed), or "
+                    "use mode=rigid; constrained RFO is not implemented."
+                )
+
+        value = self.params.fd_batch_size
+        if value is None:
+            return self._run_optimization()
+
+        calc = self.atoms.calc
+        missing = object()
+        previous = getattr(calc, "fd_batch_size", missing)
+        calc.fd_batch_size = value
+        try:
+            return self._run_optimization()
+        finally:
+            if previous is missing:
+                del calc.fd_batch_size
+            else:
+                calc.fd_batch_size = previous
+
+    def _run_optimization(self) -> Atoms:
+        """Execute one job while any FD batch setting is scoped by ``run``."""
         atoms = self.atoms
         base, _ = os.path.splitext(self.output)
         output_pdb = atoms.info.get("pdb_template")
         opt_traj_file = base + ("_opt_traj.pdb" if output_pdb else "_opt_traj.xyz")
         iteration = 0
 
-        # initial energy/forces
-        E = to_numpy_f64(atoms.get_potential_energy(force_consistent=True))
+        # initial energy/forces (single calculator invocation)
+        e_init, f_init = energy_forces_one(atoms.calc, atoms)
+        E = to_numpy_f64(e_init)
         write_xyz(opt_traj_file, [atoms.copy()], energies=[float(E)])
-        F = to_numpy_f64(atoms.get_forces())
+        F = to_numpy_f64(f_init)
 
         # main loop
         while iteration < self.params.max_iter:
@@ -106,9 +141,10 @@ class RFO(JobABC):
             X_new = (X + s_cart.reshape(-1, 3))
             atoms.set_positions(X_new)
 
-            # Evaluate actual energy and forces at trial
-            E_new = to_numpy_f64(atoms.get_potential_energy(force_consistent=True))
-            F_new = to_numpy_f64(atoms.get_forces())
+            # Evaluate actual energy and forces at trial (single calculator invocation)
+            e_new, f_new = energy_forces_one(atoms.calc, atoms)
+            E_new = to_numpy_f64(e_new)
+            F_new = to_numpy_f64(f_new)
 
             actual_change = float(E_new - E_old)
             rho = None
@@ -168,17 +204,20 @@ class RFO(JobABC):
                 iteration += 1
 
             else:
-                # reject: rollback geometry, shrink radius, DO NOT increment iteration
+                # reject: rollback geometry, shrink radius, DO NOT increment iteration.
+                # The loop-carried E/F still describe geometry X; restore from
+                # that snapshot instead of re-evaluating after rollback.
                 atoms.set_positions(X)  # rollback
+                reset_calculator_cache(atoms.calc)
                 self.trust_radius = max(self.params.trust_radius_min, 0.5 * self.trust_radius)
-                # re-evaluate current E/F (at the old geometry)
-                E = to_numpy_f64(atoms.get_potential_energy(force_consistent=True))
-                F = to_numpy_f64(atoms.get_forces())
+                E = np.float64(E_old)
+                F = F_cart.copy()
                 # log the rejection event
                 # self._log_rejection(iteration + 1, rho)
 
-        # max iterations reached
-        e_final = float(to_numpy_f64(atoms.get_potential_energy(force_consistent=True)))
+        # max iterations reached — atoms is at the geometry whose energy is
+        # the loop-carried `E` (last accepted or initial seed).
+        e_final = float(E)
         self._finalize_run(
             e_final,
             f"RFO optimization reached max iterations ({self.params.max_iter}).",

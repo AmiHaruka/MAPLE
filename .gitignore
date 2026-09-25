@@ -179,6 +179,7 @@ examples/md/**/*.xyz
 # Local automation/session artifacts
 /.omc/
 /docs/
+/artifacts/
 
 # Generated explicit-solvent example outputs
 examples/opt/exp-solv/*.out
@@ -188,6 +189,9 @@ examples/opt/exp-solv/*.xyz
 maple/function/dispatcher/parmfit/doc/
 maple/function/dispatcher/parmfit/test/
 
+
+# Local temporary validation scripts
+/tests/
 # Dock artifacts
 maple/function/dispatcher/dock/doc/
 maple/function/dispatcher/dock/test/

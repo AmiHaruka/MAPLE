@@ -89,6 +89,94 @@ PBC boundary:
 - AIMNet2 `coulomb_method=ewald` is disabled until validated cell/PBC/MIC inputs and reference tests exist; use `simple` or `dsf`.
 - UMA stress/virial requests are rejected until MAPLE validates stress-unit conversion.
 
+### Batch acceleration contract
+
+The batch evaluators preserve the selected model, interaction rules, and
+energy/force units. Batch and single evaluations are not guaranteed to be
+bitwise identical. This branch also changes some optimization, Hessian, and
+transition-state contracts; it is not a transparent scheduling-only update.
+
+- Native batching is used only when all structures share one calculator,
+  carry no unsupported constraints/PBC/solvent state, and the backend declares
+  `supports_batch_energy_forces=True`. Unsupported cases use the validated
+  single-structure path with the ASE calculator cache restored afterward.
+- Every batch result is checked for requested fields, batch cardinality,
+  per-structure atom shapes, exact integer padding, and finite E/F/H values.
+  Unknown properties and ambiguous checkpoint output layouts fail instead of
+  being truncated or guessed.
+- ANI batches identical atomic-number sequences; D4, implicit solvent, and PBC
+  remain sequential. AIMNet2 batching accepts the padded per-molecule output
+  contract only when the checkpoint SHA256 matches the validated packaged
+  `aimnet2.pt`/`aimnet2nse.pt` identities; custom or changed checkpoints remain
+  sequential. AIMNet2 `simple` Coulomb always uses every non-self atom pair
+  within each molecule; only `dsf` uses a finite LR cutoff. The closed-shell
+  checkpoint rejects `mult != 1`, while AIMNet2-NSE receives the required
+  per-molecule multiplicity tensor. MACE-OFF and MACE-O-MOL use disconnected no-PBC graphs;
+  MACE-Polar stays sequential. UMA native batching is limited to neutral
+  closed-shell molecular inputs; charged/open-shell inputs retain the
+  single-structure FAIR-Chem path.
+- `batch_size`, `path_batch_size`, `scan_batch_size`, `fd_batch_size`, and
+  `hvp_batch_size` bound evaluation chunks. Unset evaluator limits default to
+  `auto`; request `all` explicitly to attempt the whole workload at once.
+  `auto` never rounds above its memory estimate, and recognized CUDA OOMs
+  retry in ordered half-size chunks. Rigid scans flush bounded chunks instead
+  of retaining the full grid of `Atoms` objects.
+- Multi-structure optimization invokes the new BatchLBFGS path explicitly by
+  supplying multiple structures. It rejects constraints/empty structures,
+  rejects non-finite search state, applies per-structure Armijo backtracking
+  plus step clipping, records failure status by original structure index, and
+  does not write `_opt.xyz` for non-finite, rejected-step, or max-iteration
+  failures. The generic ASE-compatible adapter still crosses a CPU NumPy
+  boundary; this is a compatibility path rather than an end-to-end GPU claim.
+
+Batch evaluation does not certify a transition state. NEB/PRFO convergence
+produces `_ts_candidate.xyz`; max-iteration PRFO termination produces only
+`_prfo_unconverged.xyz` and fails closed. Production first-order-saddle claims
+still require an independent frequency check (exactly one imaginary mode) and
+forward/reverse IRC endpoint validation. Experimental `BatchPRFO` remains
+runtime-disabled. Scalar `PRFO` now requires an explicit rigid-symmetry
+contract when the calculator does not declare one: use
+`rigid_symmetry=free_molecule` only for a validated isolated, rigid-motion-
+invariant PES, or `rigid_symmetry=cartesian_external` for a laboratory-frame
+potential. The same option is forwarded to `nebts` refinement; unknown
+symmetry fails closed rather than guessing from geometry.
+
+### Changed scientific and output contracts
+
+- PRFO uses a restricted-step P-RFO update rather than the earlier dual-shift
+  step. A geometry candidate now requires converged forces, exactly one
+  significant negative **physical-space** Hessian mode (internal for a free
+  molecule, full Cartesian for a laboratory-frame PES), resolved physical
+  curvature,
+  and a small *unrestricted current-point* Newton correction in Cartesian
+  coordinates. A small previous or trust-limited step alone is not a proximity
+  test. These checks do not replace independent frequency and IRC validation.
+- `rigid_symmetry=auto` rejects calculators without an explicit
+  `rigid_body_invariant` capability. No packaged backend currently declares
+  this capability; even bundled AIMNet2 checkpoints did not pass the frozen
+  E/F/H covariance screen for automatic admission. Existing PRFO and TS
+  refinement inputs therefore need a scientifically justified explicit
+  `rigid_symmetry` setting until their backend is admitted. Unknown or
+  laboratory-frame potentials must not be assumed to be free molecules.
+- `get_hessian()` defaults to `constraint_mode='fixed_cartesian'`. It supports
+  `FixAtoms` and `FixCartesian` but rejects nonlinear `FixInternals` rather than
+  return a misleading Cartesian matrix. `raw_cartesian` is an explicit
+  unconstrained derivative, **not** a constrained RFO Hessian. Relaxed RFO
+  scans are unsupported; use an explicit `#scan(method=lbfgs,mode=relaxed)`
+  input or a rigid scan. The former RFO methanol-scan output is retained only
+  as a historical artifact under `examples/scan/rfo/`.
+- Numerical Hessians retain a hard default antisymmetry diagnostic. Its
+  dimensionless scaled residual is `max|H-Hᵀ| / max(1, max|H|)`, with H
+  expressed in Hartree/Å² and the scale floor equal to 1 Hartree/Å². A small
+  residual does not prove accuracy. There is no automatic float32 threshold
+  relaxation. Inspect step-size and reference-curvature evidence before using
+  the explicit warning/ignore policies.
+- PRFO and refinements write `_prfo_ts_candidate`, `_nebts_ts_candidate`, or
+  `_stringts_ts_candidate` instead of the former `_ts` filenames. No success
+  alias is written. Single-point trajectories flush completed frame windows in
+  input order; on a later failure the valid prefix remains in the output,
+  without a success summary.
+
 ## Quick Start
 
 ### Command Line
@@ -158,6 +246,13 @@ TIPS:  Charge and spin multiplicity are supported only in the **OMOL task** mode
 | `size` | `uma-s-1p1`, `uma-s-1p2`, `uma-m-1p1` | `uma-s-1p1` | Checkpoint variant |
 | `task` | `omol`, `omat`, `oc20`, `odac`, `omc`, `oc22`, `oc25` | `omol` for non-periodic systems | Periodic UMA requires an explicit periodic task such as `omat`, `oc20`, `oc22`, `oc25`, `omc`, or `odac` |
 | `inference` | `default`, `turbo` | `default` | `turbo` accelerates fixed-composition GPU workloads (NEB / TS / freq); ignored on CPU |
+
+UMA follows FAIR-Chem's charge/spin contract: charge and spin multiplicity are
+honored only for the `omol` molecular head.  Non-`omol` tasks reject non-neutral
+`charge`/`mult`/`spin` metadata instead of silently ignoring charged or
+open-shell input.  As a MAPLE fail-closed policy extension, `task=omol` is
+also rejected for PBC systems; choose a periodic task such as `omat`, `oc20`,
+`odac`, `omc`, `oc22`, or `oc25` instead.
 
 ### Coordinates
 

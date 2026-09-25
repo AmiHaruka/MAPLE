@@ -2,23 +2,39 @@
 """
 PRFO (Partitioned Rational Function Optimization) implementation for TS search.
 Features:
-- Dual-shift PRFO with trust region (RS-PRFO)
+- Augmented-Hessian RS-P-RFO with a shared trust restriction
 - Mass-weighted coordinates for step computation
-- Trust radius adaptation based on model agreement
+- Symmetric TS model-quality trust adaptation
 - Mode-following for transition state optimization
 """
 from __future__ import annotations
 import os
 import sys
 from dataclasses import dataclass
-from typing import Optional, Tuple, List
+from enum import Enum
+from numbers import Real
+from typing import Optional
 
 import numpy as np
 from ase import Atoms
 
 from .logger import log_info
+from ._pdb_compat import require_shared_pdb_writer
 from ...jobABC import JobABC
 from maple.function.read.filereader.pdb_reader import write_pdb, write_pdb_model
+from maple.function.utility.rigid_body import mass_weighted_rigid_basis
+
+
+def _finite_positive_real(value) -> float:
+    """Accept only finite positive real scalars, never booleans or strings."""
+    if isinstance(value, (bool, np.bool_)) or not isinstance(
+        value, (Real, np.integer, np.floating)
+    ):
+        raise ValueError("expected a real scalar")
+    result = float(value)
+    if not np.isfinite(result) or result <= 0.0:
+        raise ValueError("expected a finite positive real scalar")
+    return result
 
 # =============================================================================
 # ------------------------------ Utilities ------------------------------------
@@ -45,6 +61,26 @@ def vec1d(x, n_expected=None):
     if n_expected is not None and v.size != n_expected:
         raise ValueError(f"Expected size {n_expected}, got {v.size}")
     return v
+
+
+def _ts_step_quality(
+    actual_change: float,
+    predicted_change: float,
+) -> tuple[float | None, float]:
+    """Return ``rho`` and symmetric TS quality ``Q = 1 - |rho - 1|``."""
+    actual_change = float(actual_change)
+    predicted_change = float(predicted_change)
+    if (
+        not np.isfinite(actual_change)
+        or not np.isfinite(predicted_change)
+        or abs(predicted_change) <= 1.0e-16
+    ):
+        return None, float("-inf")
+    rho = actual_change / predicted_change
+    if not np.isfinite(rho):
+        return None, float("-inf")
+    return rho, 1.0 - abs(rho - 1.0)
+
 
 def write_xyz(filename: str, atoms: Atoms, energy: Optional[float] = None, 
               iteration: Optional[int] = None):
@@ -141,7 +177,12 @@ def prfo_step(H, g, is_ts=False, target_mode=None, trust_radius=0.2,
               evals_eps=1e-10, mu_margin=1e-8, max_bisect_it=60,
               pre_eig=None):
     """
-    Dual-shift PRFO trust-region step in the SAME coordinates as H,g (e.g., MW coords).
+    Restricted-step partitioned RFO step in the coordinates of ``H`` and ``g``.
+
+    The target TS mode uses the highest root of its one-dimensional augmented
+    Hessian (maximization); the complementary subspace uses the lowest root
+    (minimization).  A shared generalized-eigenproblem scale ``alpha >= 1``
+    restricts the combined step to the trust radius.
 
     Parameters
     ----------
@@ -158,7 +199,7 @@ def prfo_step(H, g, is_ts=False, target_mode=None, trust_radius=0.2,
     evals_eps : float
         Eigenvalue regularization threshold
     mu_margin : float
-        Safety margin for bisection boundary
+        Retained for call compatibility; RS-P-RFO uses ``alpha`` bisection.
     max_bisect_it : int
         Maximum bisection iterations
     pre_eig : optional tuple
@@ -177,6 +218,16 @@ def prfo_step(H, g, is_ts=False, target_mode=None, trust_radius=0.2,
     n = H.shape[0]
 
     g = vec1d(g, n)
+    trust_radius = float(trust_radius)
+    evals_eps = float(evals_eps)
+    if not np.all(np.isfinite(H)):
+        raise FloatingPointError("P-RFO Hessian contains non-finite values")
+    if not np.all(np.isfinite(g)):
+        raise FloatingPointError("P-RFO gradient contains non-finite values")
+    if not np.isfinite(trust_radius) or trust_radius <= 0.0:
+        raise ValueError("P-RFO trust radius must be finite and positive")
+    if not np.isfinite(evals_eps) or evals_eps <= 0.0:
+        raise ValueError("P-RFO eigenvalue threshold must be finite and positive")
 
     # Eigendecomposition (or reuse)
     if pre_eig is not None:
@@ -186,168 +237,120 @@ def prfo_step(H, g, is_ts=False, target_mode=None, trust_radius=0.2,
         gp = vec1d(gp, n)
         if V.shape != (n, n):
             raise ValueError("pre_eig V has wrong shape.")
+        if (
+            not np.all(np.isfinite(w))
+            or not np.all(np.isfinite(V))
+            or not np.all(np.isfinite(gp))
+        ):
+            raise FloatingPointError(
+                "P-RFO precomputed eigendecomposition contains non-finite values"
+            )
     else:
         w, V = np.linalg.eigh(H)
         gp = V.T @ g
 
-    # Gentle regularization of tiny eigenvalues (keep sign if nonzero)
-    tiny = (np.abs(w) < evals_eps)
-    w = np.where(tiny & (w == 0.0), evals_eps, w)
-    w = np.where(tiny & (w != 0.0), np.sign(w) * evals_eps, w)
-
-    # Partition into uphill (minus set) and downhill (plus set)
+    # Partition into the maximized target mode and minimized complement.
     if is_ts:
         if target_mode is None:
-            neg_idx = int(np.argmin(w))
-            if w[neg_idx] < -1e-6:
-                j = neg_idx
-            else:
-                j = int(np.argmax(np.abs(gp)))
+            j = int(np.argmin(w))
         else:
             j = int(target_mode)
-        minus_idx = np.array([j], dtype=int)
-        plus_mask = np.ones(n, dtype=bool)
-        plus_mask[minus_idx] = False
-        plus_idx = np.where(plus_mask)[0]
+        if j < 0 or j >= n:
+            raise ValueError(f"target_mode={j} is outside [0, {n})")
+        maximize_idx = np.asarray([j], dtype=int)
+        minimize_idx = np.asarray(
+            [index for index in range(n) if index != j],
+            dtype=int,
+        )
     else:
-        minus_idx = np.array([], dtype=int)
-        plus_idx = np.arange(n, dtype=int)
+        maximize_idx = np.zeros(0, dtype=int)
+        minimize_idx = np.arange(n, dtype=int)
 
-    # Helper to compute unconstrained step & norm^2 for a subspace with sigma flip
-    def unconstrained_component(idx, sigma_sign):
-        """
-        Compute unconstrained step components (μ=0) in eigen-basis.
-        
-        Parameters
-        ----------
-        idx : array of int
-            Indices into eigen-basis for this subspace
-        sigma_sign : float
-            +1 for downhill, -1 for uphill (signature flip)
-        
-        Returns
-        -------
-        s_unc : array
-            Unconstrained step components in eigen-basis on idx
-        norm2_unc : float
-            Squared norm of unconstrained step on idx
-        w_tilde : array
-            Flipped curvatures for bisection use
-        num : array
-            Flipped gradient components for bisection use
-        """
-        if idx.size == 0:
-            return np.zeros(0, dtype=np.float64), 0.0, np.zeros(0), np.zeros(0)
-        w_sub = w[idx]
-        gp_sub = gp[idx]
-        w_tilde = sigma_sign * w_sub
-        num = sigma_sign * gp_sub
-        denom0 = np.where(np.abs(w_tilde) < evals_eps, 
-                         np.sign(w_tilde) * evals_eps, w_tilde)
-        s_unc = -num / denom0
-        return s_unc, float(np.dot(s_unc, s_unc)), w_tilde, num
+    def augmented_subspace_step(
+        indices: np.ndarray,
+        *,
+        maximize: bool,
+        alpha: float,
+    ) -> np.ndarray:
+        if indices.size == 0:
+            return np.zeros(0, dtype=np.float64)
+        curvatures = w[indices]
+        gradients = gp[indices]
+        inv_sqrt_alpha = 1.0 / np.sqrt(alpha)
+        augmented = np.zeros(
+            (indices.size + 1, indices.size + 1),
+            dtype=np.float64,
+        )
+        augmented[0, 1:] = gradients * inv_sqrt_alpha
+        augmented[1:, 0] = gradients * inv_sqrt_alpha
+        augmented[1:, 1:] = np.diag(curvatures / alpha)
+        roots = np.linalg.eigvalsh(augmented)
+        root = float(roots[-1] if maximize else roots[0])
+        denominator = curvatures - alpha * root
+        replacement = np.where(
+            denominator < 0.0,
+            -evals_eps,
+            evals_eps,
+        )
+        denominator = np.where(
+            np.abs(denominator) < evals_eps,
+            replacement,
+            denominator,
+        )
+        return -gradients / denominator
 
-    # Uphill (minus) uses sigma = -1; Downhill (plus) uses sigma = +1
-    s_unc_minus, norm2_unc_minus, wtil_minus, num_minus = \
-        unconstrained_component(minus_idx, -1.0)
-    s_unc_plus, norm2_unc_plus, wtil_plus, num_plus = \
-        unconstrained_component(plus_idx, +1.0)
+    def step_for_alpha(alpha: float) -> np.ndarray:
+        projected = np.zeros(n, dtype=np.float64)
+        if maximize_idx.size:
+            projected[maximize_idx] = augmented_subspace_step(
+                maximize_idx,
+                maximize=True,
+                alpha=alpha,
+            )
+        if minimize_idx.size:
+            projected[minimize_idx] = augmented_subspace_step(
+                minimize_idx,
+                maximize=False,
+                alpha=alpha,
+            )
+        step = V @ projected
+        if not np.all(np.isfinite(step)):
+            raise FloatingPointError("P-RFO step solver produced non-finite values")
+        return step
 
-    # Total unconstrained norm^2 after partition
-    total_unc = norm2_unc_minus + norm2_unc_plus
-    R2 = trust_radius * trust_radius
+    unrestricted = step_for_alpha(1.0)
+    if float(np.linalg.norm(unrestricted)) <= trust_radius:
+        return unrestricted
 
-    # Edge case: if total_unc already within R^2
-    if total_unc <= R2:
-        s_p = np.zeros(n, dtype=np.float64)
-        if minus_idx.size:
-            s_p[minus_idx] = s_unc_minus
-        if plus_idx.size:
-            s_p[plus_idx] = s_unc_plus
-        return V @ s_p
+    alpha_lo = 1.0
+    alpha_hi = 2.0
+    restricted = step_for_alpha(alpha_hi)
+    brackets = 0
+    while (
+        float(np.linalg.norm(restricted)) > trust_radius
+        and brackets < max_bisect_it
+    ):
+        alpha_lo = alpha_hi
+        alpha_hi *= 2.0
+        restricted = step_for_alpha(alpha_hi)
+        brackets += 1
+    if float(np.linalg.norm(restricted)) > trust_radius:
+        raise RuntimeError("P-RFO could not bracket the restricted step")
 
-    # Allocate trust radius between two subspaces
-    if total_unc > 0.0:
-        alpha = norm2_unc_minus / total_unc
-    else:
-        alpha = 0.5
-    alpha_min, alpha_max = 0.05, 0.95
-    alpha = float(np.clip(alpha, alpha_min, alpha_max))
+    for _ in range(max_bisect_it):
+        alpha_mid = 0.5 * (alpha_lo + alpha_hi)
+        candidate = step_for_alpha(alpha_mid)
+        norm = float(np.linalg.norm(candidate))
+        if norm > trust_radius:
+            alpha_lo = alpha_mid
+        else:
+            alpha_hi = alpha_mid
+            restricted = candidate
+        if abs(norm - trust_radius) <= 1.0e-10 * max(1.0, trust_radius):
+            restricted = candidate
+            break
 
-    R2_minus = alpha * R2
-    R2_plus = (1.0 - alpha) * R2
-
-    # Solve two scalar bisections independently
-    def solve_mu_for_norm2(target_norm2, w_tilde, num):
-        """
-        Find μ such that sum_i (num_i/(w_tilde_i - μ))^2 = target_norm2.
-        Domain: μ < min(w_tilde). Monotonically increasing in this interval.
-        """
-        if num.size == 0:
-            return 0.0, np.zeros(0, dtype=np.float64)
-
-        # Unconstrained norm^2 (μ=0)
-        denom0 = np.where(np.abs(w_tilde) < evals_eps,
-                         np.sign(w_tilde) * evals_eps, w_tilde)
-        s_unc = -num / denom0
-        norm2_unc = float(np.dot(s_unc, s_unc))
-        if norm2_unc <= target_norm2:
-            return 0.0, s_unc
-
-        # Bisection for μ
-        def F(mu):
-            denom = w_tilde - mu
-            denom = np.where(np.abs(denom) < evals_eps,
-                           np.sign(denom) * evals_eps, denom)
-            return np.sum((num / denom) ** 2)
-
-        wt_min = float(np.min(w_tilde))
-        b = wt_min - mu_margin
-        Fb = F(b)
-        if (not np.isfinite(Fb)) or (Fb > 1e300):
-            b = wt_min - 1e-4
-            Fb = F(b)
-
-        # Find a < b with F(a) < target_norm2
-        a = b - 1.0
-        Fa = F(a)
-        it = 0
-        while Fa > target_norm2 and it < 60:
-            a -= max(1.0, abs(a) * 0.5)
-            Fa = F(a)
-            it += 1
-
-        lo, hi = a, b
-        for _ in range(max_bisect_it):
-            mid = 0.5 * (lo + hi)
-            Fm = F(mid)
-            if Fm > target_norm2:
-                hi = mid
-            else:
-                lo = mid
-            if abs(Fm - target_norm2) <= 1e-12 * max(1.0, target_norm2) or \
-               abs(hi - lo) < 1e-12:
-                break
-        mu_star = 0.5 * (lo + hi)
-
-        denom = w_tilde - mu_star
-        denom = np.where(np.abs(denom) < evals_eps,
-                        np.sign(denom) * evals_eps, denom)
-        s_part = -num / denom
-        return mu_star, s_part
-
-    # Solve for uphill and downhill parts
-    mu_minus, s_part_minus = solve_mu_for_norm2(R2_minus, wtil_minus, num_minus)
-    mu_plus, s_part_plus = solve_mu_for_norm2(R2_plus, wtil_plus, num_plus)
-
-    # Assemble full eigen-basis step and rotate back
-    s_p = np.zeros(n, dtype=np.float64)
-    if minus_idx.size:
-        s_p[minus_idx] = s_part_minus
-    if plus_idx.size:
-        s_p[plus_idx] = s_part_plus
-
-    return V @ s_p
+    return restricted
 
 def calculate_Hessian(atoms: Atoms):
     """
@@ -366,6 +369,74 @@ def calculate_Hessian(atoms: Atoms):
     calc = atoms.calc
     H = calc.get_hessian(atoms)
     return to_numpy_f64(H)
+
+
+def _rigid_internal_complement(atoms: Atoms) -> np.ndarray:
+    """Orthonormal MW internal coordinates for a free, non-periodic molecule.
+
+    The rigid rank is geometry dependent (three translations plus two or
+    three rotations), so it must not be replaced with an unconditional six-DOF
+    subtraction.  Complete QR of the existing orthonormal rigid basis supplies
+    its complement without forming an ill-conditioned explicit projector.
+    """
+    rigid = mass_weighted_rigid_basis(atoms)
+    n_dof = 3 * len(atoms)
+    if rigid.ndim != 2 or rigid.shape[0] != n_dof:
+        raise ValueError("Rigid-body basis has an invalid shape")
+    if rigid.shape[1] >= n_dof:
+        raise NotImplementedError(
+            "Free-molecule PRFO requires at least one internal degree of freedom"
+        )
+    complete_basis = np.linalg.qr(rigid, mode="complete")[0]
+    return complete_basis[:, rigid.shape[1]:]
+
+
+def _resolve_prfo_coordinate_space(
+    atoms: Atoms, requested: str, calculator=None
+) -> str:
+    """Resolve one shared scalar/batch TS symmetry contract, failing closed.
+
+    Geometry does not prove rigid invariance: a laboratory-frame field can
+    break it. Unknown backends require an explicit assertion by the caller.
+    """
+    requested = str(requested).lower()
+    if requested not in {"auto", "free_molecule", "cartesian_external"}:
+        raise ValueError(
+            "PRFO rigid_symmetry must be 'auto', 'free_molecule', or "
+            "'cartesian_external'"
+        )
+    if np.any(atoms.get_pbc()):
+        raise NotImplementedError(
+            "PRFO periodic TS search has no validated symmetry/curvature "
+            "contract and fails closed."
+        )
+    backend = atoms.calc if calculator is None else calculator
+    capability = getattr(backend, "rigid_body_invariant", None)
+    if capability is not None and not isinstance(capability, (bool, np.bool_)):
+        raise TypeError("Calculator rigid_body_invariant must be boolean")
+    declared = None if capability is None else bool(capability)
+    if requested == "auto":
+        if declared is None:
+            raise NotImplementedError(
+                "PRFO cannot infer rigid-body symmetry from this calculator. "
+                "Set paras={'prfo': {'rigid_symmetry': 'free_molecule'}} "
+                "only for a free rigid-invariant PES, or use "
+                "'cartesian_external' for an explicitly laboratory-frame "
+                "PES; unknown symmetry fails closed."
+            )
+        requested = "free_molecule" if declared else "cartesian_external"
+    elif declared is False and requested == "free_molecule":
+        raise ValueError(
+            "Calculator is not rigid-body invariant; free-molecule "
+            "projection would change its physical problem."
+        )
+    elif declared is True and requested == "cartesian_external":
+        raise ValueError(
+            "Calculator is rigid-body invariant; cartesian_external "
+            "could mistake rigid curvature for an internal TS mode."
+        )
+    return requested
+
 
 def _bfgs_update(H: np.ndarray, s: np.ndarray, y: np.ndarray) -> np.ndarray:
     """BFGS update of Hessian approximation."""
@@ -440,9 +511,10 @@ class PRFOParams:
     trust_min: float = 1e-3                # Minimum trust radius
     trust_max: float = 1.0                 # Maximum trust radius
     
-    # Trust region adaptation thresholds
-    eta_shrink: float = 0.75               # If rho < eta_shrink -> reject & shrink
-    eta_expand: float = 1.75               # If rho > eta_expand and on boundary -> expand
+    # TS step-quality thresholds Q = 1 - |actual/predicted - 1|
+    eta_reject: float = 0.0
+    eta_shrink: float = 0.5
+    eta_expand: float = 0.75
     
     # PRFO step parameters
     evals_eps: float = 1e-10               # Eigenvalue regularization threshold
@@ -450,6 +522,9 @@ class PRFOParams:
     max_bisect_it: int = 60                # Maximum bisection iterations
     recalc: int = 1                        # Exact Hessian recalculation interval
     hessian_update: str = "bofill"         # Working Hessian update: bofill or bfgs
+    inertia_threshold: float = 1e-6        # Significant negative MW Hessian mode
+    stagnation_threshold: float = 1e-12    # Zero-step / no-progress threshold
+    rigid_symmetry: str = "auto"            # free_molecule | cartesian_external | auto
     
     # Convergence thresholds (should be set from atoms object)
     f_max_th: float = 9.5e-3               # Maximum force threshold (Eh/Angstrom)
@@ -457,13 +532,60 @@ class PRFOParams:
     dp_max_th: float = 1.8e-3              # Maximum displacement threshold (Angstrom)
     dp_rms_th: float = 1.2e-3              # RMS displacement threshold (Angstrom)
 
+
+class PRFOStatus(str, Enum):
+    """Optimization status; none of these values certifies a transition state."""
+
+    GEOMETRY_CONVERGED = "geometry_converged"
+    FAILED_NONFINITE = "failed_nonfinite"
+    FAILED_BACKEND = "failed_backend"
+    FAILED_HESSIAN = "failed_hessian"
+    FAILED_WRONG_INERTIA = "failed_wrong_inertia"
+    FAILED_STAGNATION = "failed_stagnation"
+    FAILED_STEP_SOLVER = "failed_step_solver"
+    FAILED_MODE_TRACKING = "failed_mode_tracking"
+    FAILED_MAXITER = "failed_maxiter"
+
+
+@dataclass(frozen=True)
+class PRFOResult:
+    """A geometry candidate is not a frequency/IRC-verified TS.
+
+    ``negative_modes`` counts the selected physical space: internal modes for
+    a rigid-invariant free molecule, full Cartesian modes for an explicitly
+    non-invariant laboratory-frame problem.
+    """
+
+    atoms: Atoms
+    status: PRFOStatus
+    iterations: int
+    structure_path: str
+    negative_modes: int | None = None
+    detail: str = ""
+
+    @property
+    def geometry_converged(self) -> bool:
+        return self.status is PRFOStatus.GEOMETRY_CONVERGED
+
+
+class PRFOConvergenceError(RuntimeError):
+    def __init__(self, result: PRFOResult):
+        super().__init__(
+            "PRFO did not produce a geometry-converged first-order-saddle "
+            "candidate: "
+            f"status={result.status.value}, iterations={result.iterations}, "
+            f"diagnostic={result.structure_path}"
+        )
+        self.result = result
+
+
 # =============================================================================
 # ------------------------------- PRFO Class ----------------------------------
 # =============================================================================
 
 class PRFO(JobABC):
     """
-    Transition state search using Dual-Shift PRFO with trust region adaptation.
+    Transition-state-candidate search using restricted-step partitioned RFO.
 
     The optimization is performed in mass-weighted coordinates for the step
     computation and trust-region enforcement, while geometry updates are done
@@ -476,10 +598,18 @@ class PRFO(JobABC):
                  paras: Optional[dict] = None):
         super().__init__(output)
         self.atoms = atoms
+        require_shared_pdb_writer([atoms], "PRFO")
+        if bool(getattr(atoms, "constraints", None)):
+            raise NotImplementedError(
+                "PRFO does not yet project fixed/constrained degrees of "
+                "freedom from the Hessian; constrained TS search fails closed."
+            )
 
         # Initialize params from paras dict
         self.params = self._init_params(PRFOParams, paras, ("prfo", "PRFO", "ts"))
-        self.params.recalc = max(1, int(self.params.recalc))
+        self.params.recalc = int(self.params.recalc)
+        self.params.max_iter = int(self.params.max_iter)
+        self.params.max_bisect_it = int(self.params.max_bisect_it)
         self.params.hessian_update = str(self.params.hessian_update).lower()
         if self.params.hessian_update not in {"bofill", "bfgs"}:
             raise ValueError("Hessian update method must be 'bofill' or 'bfgs'.")
@@ -488,10 +618,121 @@ class PRFO(JobABC):
         for attr in ('f_max_th', 'f_rms_th', 'dp_max_th', 'dp_rms_th'):
             if hasattr(atoms, attr):
                 setattr(self.params, attr, getattr(atoms, attr))
+        self._validate_params()
+        self._coordinate_space = self._resolve_coordinate_space(atoms)
+        if self._coordinate_space == "free_molecule" and len(atoms) < 2:
+            raise NotImplementedError(
+                "Free-molecule PRFO requires at least one internal degree "
+                "of freedom."
+            )
 
         # Mode tracking
         self.tracked_mode_vec_mw = None
         self.tracked_mode_idx = None
+        self.result: PRFOResult | None = None
+
+    def _validate_params(self) -> None:
+        if self.params.max_iter < 0:
+            raise ValueError("PRFO max_iter must be a non-negative integer")
+        if self.params.recalc <= 0:
+            raise ValueError("PRFO recalc must be a positive integer")
+        if self.params.max_bisect_it <= 0:
+            raise ValueError("PRFO max_bisect_it must be a positive integer")
+
+        positive = (
+            "trust_radius",
+            "trust_min",
+            "trust_max",
+            "evals_eps",
+            "mu_margin",
+            "inertia_threshold",
+            "stagnation_threshold",
+            "f_max_th",
+            "f_rms_th",
+            "dp_max_th",
+            "dp_rms_th",
+        )
+        for name in positive:
+            try:
+                value = _finite_positive_real(getattr(self.params, name))
+            except ValueError as exc:
+                raise ValueError(
+                    f"PRFO {name} must be a finite positive real scalar"
+                ) from exc
+            setattr(self.params, name, value)
+        if not (
+            self.params.trust_min
+            <= self.params.trust_radius
+            <= self.params.trust_max
+        ):
+            raise ValueError(
+                "PRFO trust radii must satisfy trust_min <= trust_radius <= trust_max"
+            )
+        qualities = (
+            float(self.params.eta_reject),
+            float(self.params.eta_shrink),
+            float(self.params.eta_expand),
+        )
+        if (
+            not np.all(np.isfinite(qualities))
+            or not (
+                0.0
+                <= qualities[0]
+                <= qualities[1]
+                <= qualities[2]
+                <= 1.0
+            )
+        ):
+            raise ValueError(
+                "PRFO quality thresholds must be finite and ordered as "
+                "0 <= eta_reject <= eta_shrink <= eta_expand <= 1"
+            )
+        (
+            self.params.eta_reject,
+            self.params.eta_shrink,
+            self.params.eta_expand,
+        ) = qualities
+
+    def _resolve_coordinate_space(self, atoms: Atoms) -> str:
+        return _resolve_prfo_coordinate_space(atoms, self.params.rigid_symmetry)
+
+    def _candidate_proximity(
+        self,
+        eigenvalues: np.ndarray,
+        eigenvectors: np.ndarray,
+        mode_gradient: np.ndarray,
+        physical_basis: np.ndarray,
+        inverse_sqrt_mass: np.ndarray,
+    ) -> tuple[bool, str]:
+        """Check the current unrestricted correction, never a clipped step."""
+        if np.any(np.abs(eigenvalues) <= self.params.inertia_threshold):
+            return False, (
+                "Force/inertia criteria passed, but a physical Hessian mode "
+                "remains unresolved."
+            )
+        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+            correction = inverse_sqrt_mass * (
+                physical_basis @ (
+                    eigenvectors @ (-mode_gradient / eigenvalues)
+                )
+            )
+        if not np.all(np.isfinite(correction)):
+            return False, (
+                "Force/inertia criteria passed, but the current unrestricted "
+                "correction is non-finite."
+            )
+        max_correction = float(np.max(np.abs(correction)))
+        rms_correction = float(np.sqrt(np.mean(correction * correction)))
+        if (
+            max_correction <= self.params.dp_max_th
+            and rms_correction <= self.params.dp_rms_th
+        ):
+            return True, ""
+        return False, (
+            "Force/inertia criteria passed, but the current unrestricted "
+            "Cartesian correction is too large: "
+            f"max={max_correction:.6e} Å, rms={rms_correction:.6e} Å."
+        )
     
     def atoms_to_xyz(self, atoms: Atoms) -> str:
         """Convert Atoms object to XYZ format string."""
@@ -502,28 +743,75 @@ class PRFO(JobABC):
             lines.append(f"{s:<2} {x:14.6f} {y:14.6f} {z:14.6f}")
         return "\n".join(lines) + "\n"
     
-    def check_convergence(self, atoms: Atoms) -> bool:
-        """
-        Check if optimization has converged based on forces and displacements.
-        
-        Parameters
-        ----------
-        atoms : Atoms
-            Current geometry with convergence metrics attached
-        
-        Returns
-        -------
-        bool
-            True if all convergence criteria are met
-        """
-        return (atoms.max_f <= self.params.f_max_th and
-                atoms.rms_f <= self.params.f_rms_th and
-                atoms.max_dp <= self.params.dp_max_th and
-                atoms.rms_dp <= self.params.dp_rms_th)
+    def _terminal_result(
+        self,
+        *,
+        status: PRFOStatus,
+        iteration: int,
+        energy: float | None,
+        negative_modes: int | None,
+        detail: str,
+    ) -> PRFOResult:
+        base, _ = os.path.splitext(self.output)
+        extension = (
+            ".pdb" if self.atoms.info.get("pdb_template") else ".xyz"
+        )
+        suffix = {
+            PRFOStatus.GEOMETRY_CONVERGED: "_prfo_ts_candidate",
+            PRFOStatus.FAILED_NONFINITE: "_prfo_nonfinite",
+            PRFOStatus.FAILED_BACKEND: "_prfo_backend_failure",
+            PRFOStatus.FAILED_HESSIAN: "_prfo_hessian_failure",
+            PRFOStatus.FAILED_WRONG_INERTIA: "_prfo_wrong_inertia",
+            PRFOStatus.FAILED_STAGNATION: "_prfo_stagnation",
+            PRFOStatus.FAILED_STEP_SOLVER: "_prfo_step_failure",
+            PRFOStatus.FAILED_MODE_TRACKING: "_prfo_mode_failure",
+            PRFOStatus.FAILED_MAXITER: "_prfo_unconverged",
+        }[status]
+        structure_path = base + suffix + extension
+        safe_energy = (
+            float(energy)
+            if energy is not None and np.isfinite(float(energy))
+            else None
+        )
+        write_xyz(
+            structure_path,
+            self.atoms,
+            energy=safe_energy,
+            iteration=iteration,
+        )
+        if status is PRFOStatus.GEOMETRY_CONVERGED:
+            heading = "Geometry and first-order inertia converged"
+            qualification = (
+                "This is a first-order-saddle candidate, not a "
+                "frequency/IRC-verified transition state."
+            )
+        else:
+            heading = f"PRFO terminated: {status.value}"
+            qualification = "No transition-state candidate was produced."
+        log_info(
+            [
+                "\n\n" + "-" * 70 + "\n",
+                f"{heading.center(70)}\n",
+                f"{detail}\n",
+                f"{qualification}\n",
+                f"Diagnostic structure: {structure_path}\n",
+            ],
+            self.output,
+        )
+        result = PRFOResult(
+            atoms=self.atoms,
+            status=status,
+            iterations=int(iteration),
+            structure_path=structure_path,
+            negative_modes=negative_modes,
+            detail=detail,
+        )
+        self.result = result
+        return result
     
     def log_iteration(self, iteration: int, atoms: Atoms, E: float,
                      model_change: float, actual_change: float,
-                     rho: Optional[float], trust_radius: float,
+                     rho: Optional[float], quality: float, trust_radius: float,
                      norm_mw: float, on_boundary: bool):
         """
         Log detailed information for current iteration.
@@ -542,6 +830,8 @@ class PRFO(JobABC):
             Actual energy change
         rho : float or None
             Model agreement ratio
+        quality : float
+            Symmetric TS model quality, ``1 - abs(rho - 1)``
         trust_radius : float
             Current trust radius
         norm_mw : float
@@ -592,7 +882,11 @@ class PRFO(JobABC):
                 f"{self.params.f_rms_th:>12.6f}                Yes\n"
             )
         
-        # Displacement convergence
+        # Previous accepted-step displacement is useful for diagnostics; the
+        # candidate gate tests the unrestricted correction at the current point.
+        info_message.append(
+            "Previous-step displacement (diagnostic, not candidate criterion):\n"
+        )
         if atoms.max_dp > self.params.dp_max_th:
             info_message.append(
                 f"Maximum Displacement:  {atoms.max_dp:>12.6f} "
@@ -620,7 +914,7 @@ class PRFO(JobABC):
         info_message.append(
             f"\nModel change: {model_change: .6e}  "
             f"Actual change: {actual_change: .6e}  "
-            f"rho: {rho_str}\n"
+            f"rho: {rho_str}  Q: {quality:.3f}\n"
         )
         info_message.append(
             f"Trust radius (MW): {trust_radius: .6f}  "
@@ -638,9 +932,10 @@ class PRFO(JobABC):
         Parameters
         ----------
         w_mw : array
-            Eigenvalues in mass-weighted coordinates
+            Eigenvalues in the selected mass-weighted physical space
         V_mw : array
-            Eigenvectors in mass-weighted coordinates
+            Physical eigenvectors embedded in full mass-weighted Cartesian
+            coordinates, so overlap remains meaningful as the basis changes
         gp_mw : array
             Projected gradient in eigen-basis
         
@@ -649,18 +944,28 @@ class PRFO(JobABC):
         int
             Index of tracked mode
         """
+        # Rigid modes have already been removed for free molecules.  Keep the
+        # existing curvature significance threshold for genuine soft modes.
+        significant = np.flatnonzero(
+            np.abs(w_mw) > self.params.inertia_threshold
+        )
+        if significant.size == 0:
+            raise RuntimeError(
+                "No significant Hessian mode is available for tracking"
+            )
         if self.tracked_mode_vec_mw is None:
-            # Initialize: track most negative mode or largest gradient
-            neg_idx = int(np.argmin(w_mw))
-            if w_mw[neg_idx] < -1e-6:
-                self.tracked_mode_idx = neg_idx
-            else:
-                self.tracked_mode_idx = int(np.argmax(np.abs(gp_mw)))
+            # Start on the lowest significant curvature. Subsequent
+            # iterations preserve mode identity by overlap.
+            self.tracked_mode_idx = int(
+                significant[np.argmin(w_mw[significant])]
+            )
             self.tracked_mode_vec_mw = V_mw[:, self.tracked_mode_idx].copy()
         else:
-            # Follow mode with maximum overlap
+            # Follow the significant mode with maximum overlap.
             overlaps = np.abs(V_mw.T @ self.tracked_mode_vec_mw)
-            self.tracked_mode_idx = int(np.argmax(overlaps))
+            self.tracked_mode_idx = int(
+                significant[np.argmax(overlaps[significant])]
+            )
             
             # Keep consistent sign to avoid flips
             sign_align = np.sign(np.dot(V_mw[:, self.tracked_mode_idx],
@@ -673,220 +978,468 @@ class PRFO(JobABC):
         return self.tracked_mode_idx
     
     def run(self) -> Atoms:
+        """Run PRFO and return a geometry-converged TS candidate.
+
+        This compatibility wrapper preserves the historical ``Atoms`` return
+        type while failing closed on max-iteration termination. Call
+        :meth:`run_result` when the structured status is needed.
         """
-        Run PRFO transition state optimization.
-        
-        Returns
-        -------
-        Atoms
-            Optimized (or final) geometry
-        """
+        result = self.run_result()
+        if not result.geometry_converged:
+            raise PRFOConvergenceError(result)
+        return result.atoms
+
+    def run_result(self) -> PRFOResult:
+        """Run RS-P-RFO and return a structured, fail-closed status."""
         sys.setrecursionlimit(1000)
-        
+
         atoms = self.atoms
         trust_radius = self.params.trust_radius
-        
-        converged = False
+
         iteration = 0
-        
+
         # Setup trajectory file
         base, _ = os.path.splitext(self.output)
         ext = ".pdb" if atoms.info.get("pdb_template") else ".xyz"
         traj_file = base + "_prfo_traj" + ext
-        ts_file = base + "_prfo_ts" + ext
-        
         # Log header
         info_message = [
-            f"\nStarting Transition State Search (TS) with RS-PRFO...\n",
+            "\nStarting Transition State Search (TS) with RS-PRFO...\n",
             f"Hessian recalc interval: {self.params.recalc}; "
             f"update method: {self.params.hessian_update}\n",
-            f"Trust radius adaptation: eta_shrink={self.params.eta_shrink}, "
-            f"eta_expand={self.params.eta_expand}\n",
-            f"Convergence thresholds: "
+            "Trust quality Q=1-|actual/predicted-1|: "
+            f"reject<={self.params.eta_reject}, "
+            f"shrink<{self.params.eta_shrink}, "
+            f"expand>={self.params.eta_expand}\n",
+            f"Force convergence thresholds: "
             f"f_max={self.params.f_max_th:.6f}, "
-            f"f_rms={self.params.f_rms_th:.6f}, "
+            f"f_rms={self.params.f_rms_th:.6f}\n",
+            f"Last-step displacement diagnostics; current unrestricted Newton "
+            f"correction is a candidate criterion: "
             f"dp_max={self.params.dp_max_th:.6f}, "
-            f"dp_rms={self.params.dp_rms_th:.6f}\n"
+            f"dp_rms={self.params.dp_rms_th:.6f}\n",
+            f"Coordinate-space contract: {self._coordinate_space}\n",
         ]
         log_info(info_message, self.output)
 
         H_work = None
-        
-        # Main optimization loop
-        while iteration < self.params.max_iter:
-            # Get current geometry and energy/forces
-            X = atoms.get_positions().reshape(-1, 3)
-            E_old = to_numpy_f64(
-                atoms.get_potential_energy(force_consistent=True)
-            )
-            
-            F_cart = to_numpy_f64(atoms.get_forces())
+        last_max_dp = 0.0
+        last_rms_dp = 0.0
+
+        while True:
+            X = to_numpy_f64(atoms.get_positions()).reshape(-1, 3)
+            if not np.all(np.isfinite(X)):
+                return self._terminal_result(
+                    status=PRFOStatus.FAILED_NONFINITE,
+                    iteration=iteration,
+                    energy=None,
+                    negative_modes=None,
+                    detail="Current coordinates contain non-finite values.",
+                )
+            try:
+                E_old = float(
+                    atoms.get_potential_energy(force_consistent=True)
+                )
+                F_cart = to_numpy_f64(atoms.get_forces())
+            except Exception as exc:
+                return self._terminal_result(
+                    status=PRFOStatus.FAILED_BACKEND,
+                    iteration=iteration,
+                    energy=None,
+                    negative_modes=None,
+                    detail=f"Energy/force backend failed: {type(exc).__name__}: {exc}",
+                )
+            if not np.isfinite(E_old) or not np.all(np.isfinite(F_cart)):
+                return self._terminal_result(
+                    status=PRFOStatus.FAILED_NONFINITE,
+                    iteration=iteration,
+                    energy=E_old,
+                    negative_modes=None,
+                    detail="Current energy or force contains non-finite values.",
+                )
+            expected_force_shape = (len(atoms), 3)
+            if F_cart.shape != expected_force_shape:
+                return self._terminal_result(
+                    status=PRFOStatus.FAILED_BACKEND,
+                    iteration=iteration,
+                    energy=E_old,
+                    negative_modes=None,
+                    detail=(
+                        f"Current force shape is {F_cart.shape}; expected "
+                        f"{expected_force_shape}."
+                    ),
+                )
             g_cart = vec1d(-F_cart)
-            
+            atoms.max_f = float(np.max(np.abs(F_cart)))
+            atoms.rms_f = float(np.sqrt(np.mean(F_cart * F_cart)))
+            atoms.max_dp = last_max_dp
+            atoms.rms_dp = last_rms_dp
+            forces_converged = (
+                atoms.max_f <= self.params.f_max_th
+                and atoms.rms_f <= self.params.f_rms_th
+            )
+
             need_recalc = (
-                H_work is None
+                forces_converged
+                or H_work is None
                 or (iteration % self.params.recalc == 0)
             )
             if need_recalc:
-                H_cart = to_numpy_f64(calculate_Hessian(atoms))
+                try:
+                    H_cart = to_numpy_f64(calculate_Hessian(atoms))
+                except Exception as exc:
+                    return self._terminal_result(
+                        status=PRFOStatus.FAILED_HESSIAN,
+                        iteration=iteration,
+                        energy=E_old,
+                        negative_modes=None,
+                        detail=f"Hessian backend failed: {type(exc).__name__}: {exc}",
+                    )
                 if H_cart.ndim == 3 and H_cart.shape[0] == 1:
                     H_cart = H_cart[0]
-                if H_cart.ndim != 2 or H_cart.shape[0] != H_cart.shape[1]:
-                    raise ValueError(f"Hessian must be square, got {H_cart.shape}")
+                if (
+                    H_cart.ndim != 2
+                    or H_cart.shape[0] != H_cart.shape[1]
+                    or H_cart.shape[0] != g_cart.size
+                ):
+                    return self._terminal_result(
+                        status=PRFOStatus.FAILED_HESSIAN,
+                        iteration=iteration,
+                        energy=E_old,
+                        negative_modes=None,
+                        detail=(
+                            f"Hessian shape {H_cart.shape} is incompatible with "
+                            f"gradient size {g_cart.size}."
+                        ),
+                    )
+                if not np.all(np.isfinite(H_cart)):
+                    return self._terminal_result(
+                        status=PRFOStatus.FAILED_NONFINITE,
+                        iteration=iteration,
+                        energy=E_old,
+                        negative_modes=None,
+                        detail="Hessian contains non-finite values.",
+                    )
+                H_cart = 0.5 * (H_cart + H_cart.T)
                 H_work = H_cart.copy()
             else:
                 H_cart = H_work
-            
+
             n3 = H_cart.shape[0]
-            if g_cart.size != n3:
-                raise ValueError(
-                    f"Gradient size {g_cart.size} != Hessian dim {n3}"
-                )
-            
-            # Eigenvalues for logging
-            eigvals_log, _ = np.linalg.eigh(H_cart)
-            eigvals_log = np.real(eigvals_log).astype(np.float64).squeeze()
-            
-            # Mass-weighting
             masses = to_numpy_f64(atoms.get_masses())
-            masses = np.where(masses > 0.0, masses, 1.0)
+            if (
+                not np.all(np.isfinite(masses))
+                or np.any(masses <= 0.0)
+            ):
+                return self._terminal_result(
+                    status=PRFOStatus.FAILED_HESSIAN,
+                    iteration=iteration,
+                    energy=E_old,
+                    negative_modes=None,
+                    detail="Atomic masses must be finite and positive.",
+                )
             D = vec1d(1.0 / np.sqrt(np.repeat(masses, 3)), n3)
-            
             g_mw = vec1d(D * g_cart, n3)
             H_mw = (D[:, None] * H_cart) * D[None, :]
-            
-            # Eigendecomposition in MW coords
-            w_mw, V_mw = np.linalg.eigh(H_mw)
-            gp_mw = vec1d(V_mw.T @ g_mw, n3)
-            
-            # Regularize tiny eigenvalues
-            tiny = (np.abs(w_mw) < 1e-10)
-            w_mw = np.where(tiny & (w_mw == 0.0), 1e-10, w_mw)
-            w_mw = np.where(tiny & (w_mw != 0.0),
-                          np.sign(w_mw) * 1e-10, w_mw)
-            
-            # Update mode tracking
-            tracked_mode_idx = self.update_mode_tracking(w_mw, V_mw, gp_mw)
-            
-            # RS loop: try step with current trust_radius, accept/reject by rho
+            try:
+                basis = (
+                    _rigid_internal_complement(atoms)
+                    if self._coordinate_space == "free_molecule"
+                    else np.eye(n3, dtype=np.float64)
+                )
+                H_physical = basis.T @ H_mw @ basis
+                H_physical = 0.5 * (H_physical + H_physical.T)
+                g_physical = basis.T @ g_mw
+                w_physical, V_physical = np.linalg.eigh(H_physical)
+            except (ValueError, np.linalg.LinAlgError, NotImplementedError) as exc:
+                return self._terminal_result(
+                    status=PRFOStatus.FAILED_HESSIAN,
+                    iteration=iteration,
+                    energy=E_old,
+                    negative_modes=None,
+                    detail=f"Physical Hessian eigensystem failed: {exc}",
+                )
+            n_physical = H_physical.shape[0]
+            gp_physical = vec1d(V_physical.T @ g_physical, n_physical)
+            V_modes_mw = basis @ V_physical
+            if (
+                not np.all(np.isfinite(H_physical))
+                or not np.all(np.isfinite(g_physical))
+                or not np.all(np.isfinite(w_physical))
+                or not np.all(np.isfinite(V_physical))
+                or not np.all(np.isfinite(gp_physical))
+                or not np.all(np.isfinite(V_modes_mw))
+            ):
+                return self._terminal_result(
+                    status=PRFOStatus.FAILED_HESSIAN,
+                    iteration=iteration,
+                    energy=E_old,
+                    negative_modes=None,
+                    detail="Hessian eigendecomposition contains non-finite values.",
+                )
+            negative_modes = int(
+                np.count_nonzero(w_physical < -self.params.inertia_threshold)
+            )
+
+            proximity_detail = None
+            if forces_converged:
+                if negative_modes == 1:
+                    near_stationary, proximity_detail = self._candidate_proximity(
+                        w_physical, V_physical, gp_physical, basis, D,
+                    )
+                    if near_stationary:
+                        return self._terminal_result(
+                            status=PRFOStatus.GEOMETRY_CONVERGED,
+                            iteration=iteration,
+                            energy=E_old,
+                            negative_modes=negative_modes,
+                            detail=(
+                                "Forces, current physical correction, "
+                                "and first-order inertia converged."
+                            ),
+                        )
+                else:
+                    return self._terminal_result(
+                        status=PRFOStatus.FAILED_WRONG_INERTIA,
+                        iteration=iteration,
+                        energy=E_old,
+                        negative_modes=negative_modes,
+                        detail=(
+                            "Geometry converged but the mass-weighted physical "
+                            "Hessian has "
+                            f"{negative_modes} significant negative modes; expected 1."
+                        ),
+                    )
+
+            if iteration >= self.params.max_iter:
+                return self._terminal_result(
+                    status=PRFOStatus.FAILED_MAXITER,
+                    iteration=iteration,
+                    energy=E_old,
+                    negative_modes=negative_modes,
+                    detail=proximity_detail or (
+                        "PRFO exhausted its accepted-step budget before force "
+                        "or current-correction and first-order-inertia convergence."
+                    ),
+                )
+
+            try:
+                tracked_mode_idx = self.update_mode_tracking(
+                    w_physical,
+                    V_modes_mw,
+                    gp_physical,
+                )
+            except Exception as exc:
+                return self._terminal_result(
+                    status=PRFOStatus.FAILED_MODE_TRACKING,
+                    iteration=iteration,
+                    energy=E_old,
+                    negative_modes=negative_modes,
+                    detail=f"Mode tracking failed: {type(exc).__name__}: {exc}",
+                )
+
             accepted = False
             max_attempts = 8
             attempts = 0
-            
             while not accepted and attempts < max_attempts:
                 attempts += 1
-                
-                # Compute PRFO step in MW coords
-                s_mw = prfo_step(
-                    H=H_mw,
-                    g=g_mw,
-                    is_ts=True,
-                    target_mode=tracked_mode_idx,
-                    trust_radius=trust_radius,
-                    evals_eps=self.params.evals_eps,
-                    mu_margin=self.params.mu_margin,
-                    max_bisect_it=self.params.max_bisect_it,
-                    pre_eig=(w_mw, V_mw, gp_mw)
-                )
+                try:
+                    s_physical = prfo_step(
+                        H=H_physical,
+                        g=g_physical,
+                        is_ts=True,
+                        target_mode=tracked_mode_idx,
+                        trust_radius=trust_radius,
+                        evals_eps=self.params.evals_eps,
+                        mu_margin=self.params.mu_margin,
+                        max_bisect_it=self.params.max_bisect_it,
+                        pre_eig=(w_physical, V_physical, gp_physical),
+                    )
+                    s_mw = basis @ s_physical
+                except Exception as exc:
+                    return self._terminal_result(
+                        status=PRFOStatus.FAILED_STEP_SOLVER,
+                        iteration=iteration,
+                        energy=E_old,
+                        negative_modes=negative_modes,
+                        detail=f"P-RFO step solver failed: {type(exc).__name__}: {exc}",
+                    )
                 norm_mw = float(np.linalg.norm(s_mw))
-                on_boundary = (abs(norm_mw - trust_radius) <=
-                             1e-6 * max(1.0, trust_radius))
-                
-                # Back to Cartesian
+                if not np.isfinite(norm_mw) or not np.all(np.isfinite(s_mw)):
+                    return self._terminal_result(
+                        status=PRFOStatus.FAILED_NONFINITE,
+                        iteration=iteration,
+                        energy=E_old,
+                        negative_modes=negative_modes,
+                        detail="P-RFO step contains non-finite values.",
+                    )
+                if norm_mw <= self.params.stagnation_threshold:
+                    return self._terminal_result(
+                        status=PRFOStatus.FAILED_STAGNATION,
+                        iteration=iteration,
+                        energy=E_old,
+                        negative_modes=negative_modes,
+                        detail="P-RFO produced a zero step before force convergence.",
+                    )
+                on_boundary = (
+                    abs(norm_mw - trust_radius)
+                    <= 1e-6 * max(1.0, trust_radius)
+                )
                 s_cart = vec1d(D * s_mw, n3)
-                
-                # Model agreement for trust-radius adaptation
+                if not np.all(np.isfinite(s_cart)):
+                    return self._terminal_result(
+                        status=PRFOStatus.FAILED_NONFINITE,
+                        iteration=iteration,
+                        energy=E_old,
+                        negative_modes=negative_modes,
+                        detail="Cartesian P-RFO step contains non-finite values.",
+                    )
                 Hs = H_cart @ s_cart
                 model_change = float(g_cart.dot(s_cart) + 0.5 * s_cart.dot(Hs))
-                
-                # Trial geometry
+                if not np.isfinite(model_change):
+                    return self._terminal_result(
+                        status=PRFOStatus.FAILED_NONFINITE,
+                        iteration=iteration,
+                        energy=E_old,
+                        negative_modes=negative_modes,
+                        detail="Predicted P-RFO model change is non-finite.",
+                    )
                 X_new = X.reshape(-1, 3) + s_cart.reshape(-1, 3)
+                if not np.all(np.isfinite(X_new)):
+                    return self._terminal_result(
+                        status=PRFOStatus.FAILED_NONFINITE,
+                        iteration=iteration,
+                        energy=E_old,
+                        negative_modes=negative_modes,
+                        detail="Trial coordinates contain non-finite values.",
+                    )
                 atoms.set_positions(X_new)
-                
-                # New energy
-                E_new = to_numpy_f64(
-                    atoms.get_potential_energy(force_consistent=True)
-                )
-                
-                actual_change = float(E_new - E_old)
-                rho = None
-                if abs(model_change) > 1e-16:
-                    rho = actual_change / model_change
-                
-                # Accept/reject decision
-                bad_model = (rho is None or rho < self.params.eta_shrink or
-                           not np.isfinite(rho))
-                
-                if bad_model and trust_radius > self.params.trust_min * (1.0 + 1e-12):
-                    # Reject: rollback geometry, shrink radius, retry
+                try:
+                    E_new = float(
+                        atoms.get_potential_energy(force_consistent=True)
+                    )
+                except Exception as exc:
                     atoms.set_positions(X)
-                    trust_radius = max(self.params.trust_min,
-                                     0.5 * trust_radius)
+                    return self._terminal_result(
+                        status=PRFOStatus.FAILED_BACKEND,
+                        iteration=iteration,
+                        energy=E_old,
+                        negative_modes=negative_modes,
+                        detail=f"Trial energy failed: {type(exc).__name__}: {exc}",
+                    )
+                if not np.isfinite(E_new):
+                    atoms.set_positions(X)
+                    return self._terminal_result(
+                        status=PRFOStatus.FAILED_NONFINITE,
+                        iteration=iteration,
+                        energy=E_old,
+                        negative_modes=negative_modes,
+                        detail="Trial energy is non-finite.",
+                    )
+                actual_change = float(E_new - E_old)
+                if not np.isfinite(actual_change):
+                    atoms.set_positions(X)
+                    return self._terminal_result(
+                        status=PRFOStatus.FAILED_NONFINITE,
+                        iteration=iteration,
+                        energy=E_old,
+                        negative_modes=negative_modes,
+                        detail="Actual trial energy change is non-finite.",
+                    )
+                rho, quality = _ts_step_quality(
+                    actual_change,
+                    model_change,
+                )
+                if quality <= self.params.eta_reject:
+                    atoms.set_positions(X)
+                    trust_radius = max(
+                        self.params.trust_min,
+                        0.5 * min(trust_radius, norm_mw),
+                    )
                     continue
-                else:
-                    # Accept the step
-                    accepted = True
-                    
-                    # Radius adaptation after acceptance
-                    if (rho is not None and rho > self.params.eta_expand and
-                        on_boundary):
-                        trust_radius = min(self.params.trust_max,
-                                         2.0 * trust_radius)
-                    
-                    # Get new forces for convergence check
+
+                accepted = True
+                if quality < self.params.eta_shrink:
+                    trust_radius = max(
+                        self.params.trust_min,
+                        0.5 * min(trust_radius, norm_mw),
+                    )
+                elif quality >= self.params.eta_expand and on_boundary:
+                    trust_radius = min(
+                        self.params.trust_max,
+                        np.sqrt(2.0) * trust_radius,
+                    )
+                try:
                     F_new = to_numpy_f64(atoms.get_forces())
-                    g_new_cart = vec1d(-F_new, n3)
-                    if not need_recalc:
-                        y_cart = g_new_cart - g_cart
-                        if self.params.hessian_update == "bfgs":
-                            H_work = _bfgs_update(H_work, s_cart, y_cart)
-                        else:
-                            H_work = _bofill_update(H_work, s_cart, y_cart)
-                    
-                    # Compute convergence metrics (per DOF RMS)
-                    dof = s_cart.size
-                    atoms.max_dp = abs(s_cart).max()
-                    atoms.rms_dp = np.sqrt((s_cart**2).sum() / dof)
-                    atoms.max_f = abs(F_new).max()
-                    atoms.rms_f = np.sqrt((F_new**2).sum() / dof)
-                    
-                    # Log iteration
-                    self.log_iteration(iteration + 1, atoms, E_new,
-                                     model_change, actual_change, rho,
-                                     trust_radius, norm_mw, on_boundary)
-                    
-                    # Write to trajectory
-                    append_xyz_trajectory(traj_file, atoms, energy=E_new,
-                                        iteration=iteration + 1)
-                    
-                    # Check convergence
-                    if self.check_convergence(atoms):
-                        converged = True
-                        info_message = [
-                            '\n\n' + '-' * 70 + '\n',
-                            f'{"Normal Termination".center(70)}\n\n'
-                        ]
-                        log_info(info_message, self.output)
-                        
-                        # Write final TS structure
-                        write_xyz(ts_file, atoms, energy=E_new,
-                                iteration=iteration + 1)
-                        
-                        return atoms
-            
+                except Exception as exc:
+                    atoms.set_positions(X)
+                    return self._terminal_result(
+                        status=PRFOStatus.FAILED_BACKEND,
+                        iteration=iteration,
+                        energy=E_old,
+                        negative_modes=negative_modes,
+                        detail=f"Trial force failed: {type(exc).__name__}: {exc}",
+                    )
+                if not np.all(np.isfinite(F_new)):
+                    atoms.set_positions(X)
+                    return self._terminal_result(
+                        status=PRFOStatus.FAILED_NONFINITE,
+                        iteration=iteration,
+                        energy=E_old,
+                        negative_modes=negative_modes,
+                        detail="Trial force contains non-finite values.",
+                    )
+                if F_new.shape != expected_force_shape:
+                    atoms.set_positions(X)
+                    return self._terminal_result(
+                        status=PRFOStatus.FAILED_BACKEND,
+                        iteration=iteration,
+                        energy=E_old,
+                        negative_modes=negative_modes,
+                        detail=(
+                            f"Trial force shape is {F_new.shape}; expected "
+                            f"{expected_force_shape}."
+                        ),
+                    )
+                g_new_cart = vec1d(-F_new, n3)
+                y_cart = g_new_cart - g_cart
+                if self.params.hessian_update == "bfgs":
+                    H_work = _bfgs_update(H_work, s_cart, y_cart)
+                else:
+                    H_work = _bofill_update(H_work, s_cart, y_cart)
+                if not np.all(np.isfinite(H_work)):
+                    atoms.set_positions(X)
+                    return self._terminal_result(
+                        status=PRFOStatus.FAILED_HESSIAN,
+                        iteration=iteration,
+                        energy=E_old,
+                        negative_modes=negative_modes,
+                        detail="Hessian update produced non-finite values.",
+                    )
+
+                dof = s_cart.size
+                last_max_dp = float(np.max(np.abs(s_cart)))
+                last_rms_dp = float(np.sqrt(np.sum(s_cart * s_cart) / dof))
+                atoms.max_dp = last_max_dp
+                atoms.rms_dp = last_rms_dp
+                atoms.max_f = float(np.max(np.abs(F_new)))
+                atoms.rms_f = float(np.sqrt(np.mean(F_new * F_new)))
+                self.log_iteration(iteration + 1, atoms, E_new,
+                                 model_change, actual_change, rho, quality,
+                                 trust_radius, norm_mw, on_boundary)
+                append_xyz_trajectory(traj_file, atoms, energy=E_new,
+                                    iteration=iteration + 1)
+
+            if not accepted:
+                atoms.set_positions(X)
+                return self._terminal_result(
+                    status=PRFOStatus.FAILED_STAGNATION,
+                    iteration=iteration,
+                    energy=E_old,
+                    negative_modes=negative_modes,
+                    detail=(
+                        f"No acceptable step after {max_attempts} trust-radius "
+                        "attempts."
+                    ),
+                )
             iteration += 1
-        
-        # Maximum iterations reached
-        log_info([f'\n\n{"Maximum Iterations Reached".center(70)}\n\n'],
-                self.output)
-        
-        # Write final structure even if not converged
-        E_final = atoms.get_potential_energy(force_consistent=True)
-        write_xyz(ts_file, atoms, energy=E_final, iteration=iteration)
-        
-        log_info([
-            f"\nWrote trajectory to: {traj_file}\n",
-            f"Wrote final TS structure to: {ts_file}\n"
-        ], self.output)
-        
-        return atoms

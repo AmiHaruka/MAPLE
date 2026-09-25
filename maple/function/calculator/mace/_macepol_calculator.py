@@ -7,7 +7,13 @@ import numpy as np
 import torch
 from ase.calculators.calculator import all_changes
 
+from .._batch_types import BatchResult
+from .._batch_utils import (
+    normalize_energy_forces_request,
+    sequential_calculate_many,
+)
 from ..calculator_base import CalcABC, hessian_via_double_autograd, register_calculator
+from ..electronic_state import attach_calculator_identity, solvation_identity_settings
 from ._common import one_hot_node_attrs, radius_graph_no_pbc
 
 
@@ -61,12 +67,16 @@ class MACEPolCalculator(CalcABC):
     SUPPORTS_PBC = False
     CHECKPOINT_FILENAME = None
     REQUIRES_LOCAL_MODEL_FILE = True
-    OPTION_KEYS = ()
+    OPTION_KEYS = ('batch_size', 'path_batch_size')
     MODEL_PATH_OPTION = 'model_path'
 
     @classmethod
     def build_kwargs_from_options(cls, model, options, *, resolved_model_path=None):
         kwargs = {}
+        if options.get('batch_size') is not None:
+            kwargs['batch_size'] = options.get('batch_size')
+        if options.get('path_batch_size') is not None:
+            kwargs['path_batch_size'] = options.get('path_batch_size')
         if resolved_model_path is not None:
             kwargs['model_path'] = resolved_model_path
         return kwargs
@@ -75,6 +85,8 @@ class MACEPolCalculator(CalcABC):
         device: torch.device,
         model: str = 'macepols',
         model_path: str = None,
+        batch_size=None,
+        path_batch_size=None,
         implicit: Literal['gbsa', 'none'] = 'none',
         solvent: str = 'none',
         ):
@@ -103,9 +115,18 @@ class MACEPolCalculator(CalcABC):
 
         self.device = device
         self.dtype = torch.float32  # MACE-POLAR traced models are f32
+        self.batch_size = batch_size
+        self.path_batch_size = path_batch_size
         self.r_max = float(self.model.r_max)
         self.atomic_numbers = [int(z) for z in self.model.atomic_numbers]
         self.hessian = 'analytic'
+
+        attach_calculator_identity(
+            self,
+            backend=self.model_name,
+            checkpoint_path=model_path,
+            relevant_settings=solvation_identity_settings(implicit, solvent),
+        )
 
         self.implicit_solv_init(implicit=implicit, solvent=solvent)
 
@@ -131,9 +152,9 @@ class MACEPolCalculator(CalcABC):
         # Charge and spin from atoms.info (default: 0, singlet)
         charge = float(atoms.info.get('charge', 0))
         mult = _integer_info(atoms, 'mult', 1)
-        spin = float(mult - 1)
         total_charge = torch.tensor([charge], dtype=dtype, device=device)
-        total_spin = torch.tensor([spin], dtype=dtype, device=device)
+        # PolarMACE subtracts one internally; total_spin is the multiplicity.
+        total_spin = torch.tensor([float(mult)], dtype=dtype, device=device)
 
         # No external field for pure MLIP
         external_field = torch.zeros(N, 3, dtype=dtype, device=device)
@@ -171,6 +192,26 @@ class MACEPolCalculator(CalcABC):
                 density_coefficients,
                 len(atoms),
             )
+
+    def calculate_many(self, atoms_list, properties=("energy", "forces")) -> BatchResult:
+        """Cache-safe batch contract for MACE-POLAR.
+
+        Current traced MACE-POLAR checkpoints specialize parts of their graph
+        reduction to a single graph.  Concatenating multiple structures as one
+        graph would change the physics, and passing a multi-graph batch has not
+        been validated for these exported checkpoints.  Keep the shared
+        ``calculate_many`` API by delegating to the single-structure path rather
+        than pretending to provide a native batch speedup.
+        """
+        _, want_energy, want_forces, request = normalize_energy_forces_request(
+            properties
+        )
+        if not request:
+            return BatchResult()
+        atoms_list = list(atoms_list)
+        return sequential_calculate_many(
+            self, atoms_list, request, want_energy, want_forces
+        )
 
     def _analytic_hessian(self, atoms) -> np.ndarray:
         """Analytic Hessian via autograd. Returns (3N, 3N) np.ndarray in Hartree/Å²."""
