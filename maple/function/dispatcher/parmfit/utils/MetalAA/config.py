@@ -81,8 +81,8 @@ def parse_metal_abinitio_config(
     raw = as_tracked(raw)
     vib_scale = float(raw.get("vib_scale", 1.0))
     raw.set_group("MetalAA run", "Site composition, force field, RESP settings and ligand declarations")
-    raw_pro_ff = raw.get("pro_ff", "ff14SB").strip()
-    resp_backend = raw.get("resp_backend", "gaussian").strip().lower()
+    raw_pro_ff = str(raw.get("pro_ff", "ff14SB")).strip()
+    resp_backend = str(raw.get("resp_backend", "gaussian")).strip().lower()
     if resp_backend not in {"gaussian"}:
         raise ValueError(f"Unsupported RESP backend {resp_backend!r}; expected one of 'gaussian'.")
 
@@ -90,17 +90,17 @@ def parse_metal_abinitio_config(
     if pro_ff is None:
         raise ValueError(f"Unsupported protein ff {raw_pro_ff!r}; expected one of {', '.join(SUPPORTED_PRO_FF)}.")
 
-    wat_ff = raw.get("wat_ff", "tip3p").strip().lower()
+    wat_ff = str(raw.get("wat_ff", "tip3p")).strip().lower()
     if wat_ff not in SUPPORTED_WATER_MODELS:
         raise ValueError(f"Unsupported water ff {wat_ff!r}; expected one of {', '.join(SUPPORTED_WATER_MODELS)}.")
 
-    ion_ff = raw.get("ion_ff", "12_6").strip().lower()
+    ion_ff = str(raw.get("ion_ff", "12_6")).strip().lower()
     if ion_ff not in SUPPORTED_ION_PARAMETER_SETS:
         raise ValueError(
             f"Unsupported ion ff {ion_ff!r}; expected one of {', '.join(SUPPORTED_ION_PARAMETER_SETS)}."
         )
 
-    bonded = raw.get("bonded", "mseminario").strip().lower()
+    bonded = str(raw.get("bonded", "mseminario")).strip().lower()
     if bonded not in SUPPORTED_BONDED_METHODS:
         raise ValueError(
             f"Unsupported bonded method {bonded!r}; expected one of {', '.join(SUPPORTED_BONDED_METHODS)}."
@@ -125,7 +125,7 @@ def parse_metal_abinitio_config(
     donor_cutoff = float(raw.get("donor_cutoff", 2.7))
     lig_resids = _split_entries(raw.get("lig_resids", ""))
     lig_charges = [int(token) for token in _split_entries(raw.get("lig_charges", ""))]
-    if lig_resids and len(lig_charges) != len(lig_resids):
+    if len(lig_charges) != len(lig_resids):
         raise ValueError(
             f"lig_charges ({len(lig_charges)} entries) must pair 1:1 with lig_resids ({len(lig_resids)} entries)."
         )
@@ -144,7 +144,7 @@ def parse_metal_abinitio_config(
     ncaa_resids = _split_entries(raw.get("ncaa_resids", ""))
     ncaa_charges_text = str(raw.get("ncaa_charges", "")).strip()
     ncaa_charges = [int(token) for token in _split_entries(ncaa_charges_text)]
-    if ncaa_resids and len(ncaa_charges) != len(ncaa_resids):
+    if len(ncaa_charges) != len(ncaa_resids):
         raise ValueError(
             f"ncaa_charges ({len(ncaa_charges)} entries) must pair 1:1 with ncaa_resids ({len(ncaa_resids)} entries)."
         )
@@ -192,8 +192,8 @@ def parse_metal_abinitio_config(
                     "theory": charge_theory,
                     "basis": charge_basis,
                     "route": chg_route,
-                    "nproc": int(raw.get("qm_nproc", 8)),
-                    "mem": int(raw.get("qm_mem", 16)),
+                    "nproc": qm.qm_nproc,
+                    "mem": qm.qm_mem,
                 }
             ),
             chgmod=chgmod,

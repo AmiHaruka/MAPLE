@@ -10,12 +10,12 @@ from typing import Any, Optional
 _KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
 
 
-def _auto_cast(value: str) -> Any:
+def _auto_cast(value: str, key: str = "") -> Any:
     lowered = value.lower()
     if lowered in {"true", "false"}:
         return lowered == "true"
-    if "_" in value:
-        # Underscored value tokens like 12_6 in ion_ff=12_6 are identifiers, not Python numeric literals.
+    if key == "ion_ff":
+        # ion_ff values like 12_6 are identifiers, not Python numeric literals.
         return value
     try:
         return int(value)
@@ -126,6 +126,6 @@ class ParmfitReader:
                 if key in cls.PATH_KEYS:
                     params[key] = _resolve_file_path(value, base_dir, label=key)
                 else:
-                    params[key] = _auto_cast(value)
+                    params[key] = _auto_cast(value, key)
 
         return params

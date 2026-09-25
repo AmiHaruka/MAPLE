@@ -112,7 +112,7 @@ def build_residue_parameters(
         config=charge_fit,
         source_atoms=source_atoms,
         pro_ff=pro_ff,
-            workflow=f"ncaa/{tag}",
+        workflow=f"ncaa/{tag}",
     )
 
     interface.run_antechamber(

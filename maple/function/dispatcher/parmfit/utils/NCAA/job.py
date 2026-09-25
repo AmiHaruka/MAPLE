@@ -47,13 +47,15 @@ class NCAA(JobABC):
                 raise ValueError(
                     "parmfit(method=ncaa) requires ncaa_resids=... (one residue selector per entry, comma-separated)."
                 )
+            keep_selectors = _split_entries(raw.get("keep", ""))
+            add_resid_selectors = _split_entries(raw.get("add_resid", ""))
             config = parse_ncaa_abinitio_config(raw, pdb_path=pdb)
             selectors = list(config.ncaa_resids)
             charges = list(config.ncaa_charges)
             rns = list(config.ncaa_resnames)
             multis = list(config.ncaa_mults)
 
-            altloc_selectors = [*selectors, *_split_entries(raw.get("keep", "")), *_split_entries(raw.get("add_resid", ""))]
+            altloc_selectors = [*selectors, *keep_selectors, *add_resid_selectors]
             pdb_result = read_pdb_result(
                 pdb,
                 pro_ff=raw.get("pro_ff", "ff14SB"),

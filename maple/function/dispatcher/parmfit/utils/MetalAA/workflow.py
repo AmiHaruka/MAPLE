@@ -517,7 +517,6 @@ def _build_large_resp_problem(
     core: _OptimizedCore,
     *,
     ncaa_frozen_charges: dict | None = None,
-    ligand_net_charges: dict | None = None,
 ) -> _RespProblem:
     flattened_large = flatten_model_atoms(bundle.large_model)
     index_by_residue_atom = {
@@ -527,14 +526,6 @@ def _build_large_resp_problem(
     large_entries_by_residue = _atom_entries_by_residue(bundle.large_model)
     core_keys = {get_resid_key(residue) for residue in core.core_residues}
     charge_groups: list[tuple[list[int], float]] = []
-    # Coordinating declared ligands sit inside the core, so their declared net charge
-    # is enforced as a group constraint — this is what makes each exported ligand
-    # mol2 carry exactly its declared charge.
-    for residue_key, net_charge in (ligand_net_charges or {}).items():
-        if residue_key not in core_keys:
-            continue
-        atom_indices = [atom_index for atom_index, _atom in large_entries_by_residue[residue_key]]
-        charge_groups.append((atom_indices, float(net_charge)))
     for residue in sorted(bundle.large_model["residues"], key=residue_sort_key):
         residue_key = get_resid_key(residue)
         if residue_key in core_keys:
@@ -744,7 +735,7 @@ def run_metal_abinitio(
             set_bonded=config.set_bonded,
             donor_cutoff=config.donor_cutoff,
         )
-        lig_net_charges = _resolve_participant_net_charges(structure, config, selection)
+        _resolve_participant_net_charges(structure, config, selection)
     with _timed_stage(stage_timings, "model build"):
         bundle = _build_metal_model_bundle(structure, config, selection=selection)
     cofactor_frcmod_by_residue = {key: build["frcmod_path"] for key, build in lig_builds.items()}
@@ -791,7 +782,6 @@ def run_metal_abinitio(
         bundle,
         core,
         ncaa_frozen_charges=ncaa_frozen_charges,
-        ligand_net_charges=lig_net_charges,
     )
 
     log_info(["  [MetalAA] large-model RESP ...\n"])

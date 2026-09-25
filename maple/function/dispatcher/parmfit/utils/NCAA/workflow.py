@@ -164,19 +164,18 @@ def _prepare_ncaa_models(
     )
 
 def _to_capped_model_indices(params, representative_model: dict):
-    """Convert residue-local torsion bond indices to capped-model flattened indices.
-
-    User-facing torsion-bonds numbers are 1-based serial-order indices into the
-    NCAA residue's own atoms. The capped model prepends ACE atoms, so the offset
-    is simply the ACE atom count.
-    """
-    if params.torsion_bonds is None:
-        return params
+    """Residue-local numbering (1-based over the NCAA residue's own atoms,
+    ACE/NME not counted) -> capped-model serials, for both user-facing keys."""
     ace_count = int(representative_model["segment_sizes"]["ace"])
-    converted = tuple(
-        (left + ace_count, right + ace_count) for left, right in params.torsion_bonds
+    torsion_bonds = (
+        None if params.torsion_bonds is None
+        else tuple((left + ace_count, right + ace_count) for left, right in params.torsion_bonds)
     )
-    return _dc_replace(params, torsion_bonds=converted)
+    radical_center = (
+        None if params.radical_center is None
+        else tuple(center + ace_count for center in params.radical_center)
+    )
+    return _dc_replace(params, torsion_bonds=torsion_bonds, radical_center=radical_center)
 
 
 def _refine_ncaa_parameters(
@@ -191,6 +190,7 @@ def _refine_ncaa_parameters(
     stage_timings: list[tuple[str, float]],
     qm_hessian=None,
     qm_runner=None,
+    log_info: Callable[[list], None] | None = None,
     work_dir: str = "ncaa",
 ) -> tuple[CorrectionParameterSet, TorsionWorkflowResult]:
     representative_atoms = model_to_atoms(
@@ -205,9 +205,17 @@ def _refine_ncaa_parameters(
     bonded_label = "Seminario" if config.bonded == "seminario" else "mSeminario"
     stage_label = f"{bonded_label} setup/Hessian" if bonded_enabled else "parameter setup"
     with _timed_stage(stage_timings, stage_label):
-        if bonded_enabled or torsion_enabled:
-            interface.patch_frcmod_crossterms(frcmod_path)
-        stage0_result = build_correction_paramset(representative_atoms, typed_mol2_path, frcmod_path, config.torsion.p_thresh)
+        # {rn}.frcmod is exported in every configuration, so the ff14SB/gaff2
+        # peptide-boundary cross terms it must carry never depend on whether
+        # the bonded refinement runs.
+        interface.patch_frcmod_crossterms(frcmod_path)
+        stage0_result = build_correction_paramset(
+            representative_atoms,
+            typed_mol2_path,
+            frcmod_path,
+            config.torsion.p_thresh,
+            torsion_enabled=torsion_enabled,
+        )
 
         if bonded_enabled:
             apply_bonded = apply_seminario if config.bonded == "seminario" else apply_mseminario
@@ -231,11 +239,37 @@ def _refine_ncaa_parameters(
                 config.vib_scale,
             )
 
+    if not torsion_enabled:
+        refit_impropers = [improper for improper in stage0_result.impropers if improper.refit]
+        if refit_impropers and log_info is not None:
+            log_info(
+                [
+                    "\n[TorsionFit] improper refit targets detected -> skipped because torsionfit=False.\n",
+                    f"  improper refit targets: {len(refit_impropers)} (parmchk2 estimates kept)\n",
+                ]
+            )
+
     if torsion_enabled:
         with _timed_stage(stage_timings, "TorsionFit"):
-            improper_targets = [improper for improper in stage0_result.impropers if improper.refit]
+            torsion_params = _to_capped_model_indices(config.torsion, representative_model)
+            ace_count = int(representative_model["segment_sizes"]["ace"])
+            residue_count = int(representative_model["segment_sizes"]["residue"])
+            residue_indices = set(range(ace_count + 1, ace_count + residue_count + 1))
+            improper_targets = [
+                improper for improper in stage0_result.impropers
+                if improper.refit and improper.atoms[2] in residue_indices
+            ]
+            skipped_impropers = [
+                improper for improper in stage0_result.impropers
+                if improper.refit and improper.atoms[2] not in residue_indices
+            ]
             improper_lines = [f"  improper refit: {imp.atom_types} {imp.atoms}" for imp in improper_targets]
-            for center in config.torsion.radical_center or ():
+            if skipped_impropers and log_info is not None:
+                log_info(
+                    ["  improper refit skipped (outside residue, cap atoms inherited): "
+                     f"{len(skipped_impropers)}\n"]
+                )
+            for center in torsion_params.radical_center or ():
                 neighbors = stage0_result.mol2.adjacency.get(center, set())
                 if len(neighbors) != 3:
                     improper_lines.append(f"  radical center {center} ignored (coordination != 3)")
@@ -256,7 +290,7 @@ def _refine_ncaa_parameters(
                 "atoms": representative_atoms,
                 "output": output,
                 "paramset": stage0_result,
-                "params": _to_capped_model_indices(config.torsion, representative_model),
+                "params": torsion_params,
                 "runtime": TorsionScanRuntime(
                     max_iter=config.opt_max_iter,
                     memory=int(max(config.qm.qm_mem, 1)),
@@ -270,7 +304,7 @@ def _refine_ncaa_parameters(
             }
             if improper_targets:
                 torsion_kwargs["improper_targets"] = improper_targets
-                torsion_kwargs["radical_centers"] = config.torsion.radical_center or ()
+                torsion_kwargs["radical_centers"] = torsion_params.radical_center or ()
             if qm_runner is not None:
                 torsion_kwargs["qm_runner"] = qm_runner
             # work_dir is the NCAA stage path (ncaa/{tag}); the torsion scans are
@@ -391,6 +425,7 @@ def run_ncaa_abinitio(
         stage_timings=stage_timings,
         qm_hessian=prepared.qm_hessian,
         qm_runner=qm_runner,
+        log_info=log_info,
         work_dir=work_dir,
     )
     log_info(["  [NCAA] writing refined templates + tleap input ...\n"])

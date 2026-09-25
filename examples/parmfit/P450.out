@@ -30,7 +30,7 @@ device         : gpu0
 **********************************************************************
 
 Group 1 (PDB File)
-Resolved PDB: /home/hungn/Desktop/MyRepo/MLP/MAPLE/examples/parmfit/4ZF6.pdb
+Resolved PDB: /home/hungn/Desktop/MyRepo/MLP/parmfit-example/4ZF6.pdb
 PDB coordinates are parsed by the parmfit route at runtime.
 --------------------
 
@@ -83,23 +83,23 @@ Main products:
 
 Renamed atom types:
   residue      atom  old   new   charge
-  _400:CYM     SG    SH    Z1    -0.728065
-  A461:HEM     NA    nc    Z2    -1.118188
-  A461:HEM     NB    nd    Z3    -0.938542
-  A461:HEM     ND    nc    Z4    -1.907202
-  A461:HEM     NC    nd    Z5    -0.846972
-  A462:FE      FE    FE    M1     2.694124
+  _400:CYM     SG    SH    Z1    -0.328133
+  A461:HEM     NA    nc    Z2    -0.120826
+  A461:HEM     NB    nd    Z3    -0.195708
+  A461:HEM     ND    nc    Z4    -0.163485
+  A461:HEM     NC    nd    Z5    -0.105670
+  A462:FE      FE    FE    M1     0.440945
 
 Stage timing:
-  large RESP/Gaussian ESP    21m 50s
-  lig building                2m 59s
-  Hessian + Seminario            57s
-  large optimization             15s
-  tleap validation                4s
-  site export                     0s
-  model build                     0s
-  site selection                  0s
-  ncaa building                   0s
+  RESP fitting           23m 18s
+  ligand building         2m 56s
+  Hessian + Seminario        54s
+  model optimization         23s
+  tleap validation            4s
+  site export                 0s
+  model build                 0s
+  site selection              0s
+  ncaa building               0s
 
 Next step:
   cd P450_work
@@ -107,7 +107,7 @@ Next step:
 
 Tleap status:
   Errors: 0
-  Warnings: 8
+  Warnings: 7
   Notes: 1
 
 Warnings:
@@ -116,23 +116,23 @@ Warnings:
 
 
 
-Program started: 2026-09-23 05:26:33
+Program started: 2026-09-26 01:13:14
 
 ======================================================================
                       TIMING SUMMARY
 ======================================================================
-Input Reading.......................................   1.341 s  (   0.1 %)
-  Settings Parsing....................................   1.340 s  (  99.9 %)
-  Coordinate Section Parsing..........................   0.001 s  (   0.0 %)
+Input Reading.......................................   1.138 s  (   0.1 %)
+  Settings Parsing....................................   1.137 s  (  99.9 %)
+  Coordinate Section Parsing..........................   0.000 s  (   0.0 %)
   Post-Processing Expansion...........................   0.000 s  (   0.0 %)
-MLP Initialization..................................   8.982 s  (   0.6 %)
-Job Dispatching..................................... 1565.909 s  (  99.3 %)
-  Parmfit optimization................................ 1565.908 s  ( 100.0 %)
-    Parmfit MetalAA..................................... 1565.847 s  ( 100.0 %)
+MLP Initialization..................................   8.115 s  (   0.5 %)
+Job Dispatching..................................... 1657.023 s  (  99.4 %)
+  Parmfit optimization................................ 1657.013 s  ( 100.0 %)
+    Parmfit MetalAA..................................... 1656.954 s  ( 100.0 %)
 ======================================================================
-Total wall time: 1576.233 s
-Total CPU time: 86.997 s
+Total wall time: 1666.276 s
+Total CPU time: 90.827 s
 ======================================================================
 
-Program ended: 2026-09-23 05:52:49
-TOTAL RUN TIME: 0 days 0 hours 26 minutes 16 seconds 232 msec
+Program ended: 2026-09-26 01:41:01
+TOTAL RUN TIME: 0 days 0 hours 27 minutes 46 seconds 275 msec

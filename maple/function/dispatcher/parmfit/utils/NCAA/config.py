@@ -76,16 +76,16 @@ def parse_ncaa_abinitio_config(
             f"ncaa_mults ({len(ncaa_mults)} entries) must pair 1:1 with ncaa_resids ({len(ncaa_resids)} entries)."
         )
 
-    raw_pro_ff = raw.get("pro_ff", "ff14SB").strip()
+    raw_pro_ff = str(raw.get("pro_ff", "ff14SB")).strip()
     pro_ff = next((item for item in SUPPORTED_PRO_FF if item.lower() == raw_pro_ff.lower()), None)
     if pro_ff is None:
         raise ValueError(f"Unsupported protein ff {raw_pro_ff!r}; expected one of {', '.join(SUPPORTED_PRO_FF)}.")
 
-    wat_ff = raw.get("wat_ff", "tip3p").strip().lower()
+    wat_ff = str(raw.get("wat_ff", "tip3p")).strip().lower()
     if wat_ff not in SUPPORTED_WATER_MODELS:
         raise ValueError(f"Unsupported water ff {wat_ff!r}; expected one of {', '.join(SUPPORTED_WATER_MODELS)}.")
 
-    bonded = raw.get("bonded", "mseminario").strip().lower()
+    bonded = str(raw.get("bonded", "mseminario")).strip().lower()
     if bonded not in SUPPORTED_BONDED_METHODS:
         raise ValueError(
             f"Unsupported bonded method {bonded!r}; expected one of {', '.join(SUPPORTED_BONDED_METHODS)}."

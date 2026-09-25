@@ -65,6 +65,20 @@ def as_tracked(raw: Optional[dict]) -> TrackedParams:
     return raw if isinstance(raw, TrackedParams) else TrackedParams(raw)
 
 
+# Rendered path-valued keys; written relative to the parmfitrun.in directory so
+# the snapshot stays usable via input= when moved across machines.
+PATH_KEYS = frozenset({"mol2"})
+
+
+def _render_path(value: str, run_dir: str) -> str:
+    if not os.path.isabs(value):
+        return value
+    try:
+        return os.path.relpath(value, run_dir)
+    except ValueError:
+        return value
+
+
 def _render_value(value: Any) -> str:
     if value is None:
         return ""
@@ -107,10 +121,10 @@ _KEY_NOTES = {
     "qm_compare": "run the MLIP-vs-QM comparison branch",
     "chg_fit": "(none, resp, MLIP models e.g. aimnet2, antechamber methods e.g. abcg2/bcc)",
     "chg_level": "charge level METHOD/BASIS (engine syntax)",
-    "torsion_bonds": "empty = auto-detect (i-j); ';' separates per-residue groups",
+    "torsion_bonds": "empty = auto-detect (i-j); ';' separates per-residue groups; NCAA: residue-local 1-based (ACE/NME not counted)",
     "p_thresh": "refit when parmchk2 penalty exceeds (!!experimental!!)",
     "torsion_steps": "scan points per full torsion rotation",
-    "radical_center": "radical centers for improper fitting (!!experimental!!)",
+    "radical_center": "radical centers for improper fitting (!!experimental!!); NCAA: residue-local 1-based (same space as torsion_bonds); CORR: mol2 serial",
     "backend": "(lbfgs, cgws, cgbs)",
     "constraint_mode": "(fixinternals, projected)",
     "bond_constraints": "frozen bond pairs (i-j)",
@@ -161,6 +175,7 @@ def write_parmfit_run(
     ]
     current_group = ""
     emitted_notes: set[str] = set()
+    run_dir = os.path.dirname(os.path.abspath(output))
     for key, value in tracked.consumed.items():
         if key in STRUCTURAL_KEYS or key in HIDDEN_KEYS:
             # Structure/dispatch keys (e.g. pdb from the PDB block) are runtime inputs,
@@ -180,9 +195,10 @@ def write_parmfit_run(
         if key_note:
             # mdout.mdp style: the explaining comment sits above the value line.
             lines.append(f"# {key_note}")
+        if key in PATH_KEYS and isinstance(value, str):
+            value = _render_path(value, run_dir)
         lines.append(f"{key:<24} = {_render_value(value)}")
 
-    run_dir = os.path.dirname(os.path.abspath(output))
     run_stem = os.path.splitext(os.path.basename(output))[0]
     path = os.path.join(run_dir, f"{run_stem}.parmfitrun.in")
     with open(path, "w", encoding="utf-8") as handle:

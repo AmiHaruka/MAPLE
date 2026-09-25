@@ -414,6 +414,7 @@ def build_correction_paramset(
     mol2_path: str,
     frcmod_path: str,
     p_thresh: float = 30.0,
+    torsion_enabled: bool = False,
 ) -> CorrectionParameterSet:
     """Build correction-mode parmfit instances from inp atoms, mol2 topology, and frcmod templates."""
     mol2 = parse_mol2(mol2_path)
@@ -481,10 +482,11 @@ def build_correction_paramset(
             Improper(
                 atoms=improper_atoms,
                 atom_types=atom_types,
-                # ATTN marks a parameter pending refit: record an n=2, k=0 seed
-                # so the instance stays complete for export and the fit starts
-                # from a free zero prior
-                terms=[FourierTerm(kPhi=0.0, period=2.0, phase=pi)] if has_attn else list(terms),
+                # ATTN marks a parameter pending refit. When the torsion fit
+                # will run, record an n=2, k=0 seed so the fit starts from a
+                # free zero prior; otherwise keep the parmchk2 estimate so the
+                # exported frcmod retains the planarity restraint.
+                terms=[FourierTerm(kPhi=0.0, period=2.0, phase=pi)] if has_attn and torsion_enabled else list(terms),
                 refit=refit,
             )
         )

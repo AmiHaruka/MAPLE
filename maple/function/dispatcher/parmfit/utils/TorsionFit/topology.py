@@ -22,13 +22,24 @@ def normalize_torsion_bond(torsion_bond: tuple[int, int]) -> tuple[int, int]:
 
 
 def _bond_type_map(paramset: CorrectionParameterSet) -> dict[tuple[int, int], str]:
-    # mol2 single bonds are type "1"; antechamber emits canonical types
-    # ("1"/"2"/"3"/"ar"/"am"), so no alias or case handling is needed.
+    # Antechamber emits canonical types ("1"/"2"/"3"/"ar"/"am"), but the
+    # correction route takes the mol2 from the user (OpenBabel / RDKit /
+    # hand edits), so values are normalized before any comparison; canonical
+    # spellings pass through unchanged.
     id_to_index = paramset.mol2.id_to_index
     return {
-        normalize_torsion_bond((id_to_index[bond.atom1], id_to_index[bond.atom2])): str(bond.bond_type)
+        normalize_torsion_bond((id_to_index[bond.atom1], id_to_index[bond.atom2])): str(bond.bond_type).strip().lower()
         for bond in paramset.mol2.bonds
     }
+
+
+_ROTATABLE_MOL2_BOND_TYPES = {"1", "1.0", "s", "single"}
+
+
+def _is_rotatable_mol2_bond_type(bond_type: str | None) -> bool:
+    if bond_type is None:
+        return False
+    return bond_type.strip().lower() in _ROTATABLE_MOL2_BOND_TYPES
 
 
 def _torsion_bond_dihedral_indices(
@@ -111,7 +122,7 @@ def enumerate_fittable_torsion_bonds(
     for torsion_bond in sorted(cache.proper_by_torsion_bond):
         if not cache.proper_by_torsion_bond[torsion_bond]:
             continue
-        if bond_types.get(torsion_bond) != "1":
+        if not _is_rotatable_mol2_bond_type(bond_types.get(torsion_bond)):
             continue
         if not include_ring and is_ring_bond(paramset, torsion_bond):
             continue
@@ -133,7 +144,7 @@ def resolve_torsion_bonds(
     torsion_bonds = [normalize_torsion_bond(bond) for bond in params.torsion_bonds]
     for torsion_bond in torsion_bonds:
         bond_type = bond_types.get(torsion_bond)
-        if bond_type != "1":
+        if not _is_rotatable_mol2_bond_type(bond_type):
             display_type = "missing" if bond_type is None else str(bond_type)
             raise ValueError(f"Explicit torsion bond {torsion_bond} is not rotatable: mol2 bond_type={display_type}.")
         if is_ring_bond(paramset, torsion_bond):

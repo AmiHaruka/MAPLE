@@ -322,11 +322,7 @@ def run_loss_mode(
     original_paramset = original_paramset if original_paramset is not None else base_paramset
     scan_mm_orig_rel_map = scan_mm_orig_rel_map or {}
     improper_targets = improper_targets or {}
-    profile_cache = _MMProfileCache(
-        base_paramset,
-        [bond for bond in normalized_torsion_bonds if not bond[0] == bond[1]],
-        scan_data_map,
-    )
+    profile_cache = _MMProfileCache(base_paramset, normalized_torsion_bonds, scan_data_map)
 
     stage1_paramset, fit_reports, stage1_diagnostics = _fit_stage1_cycle(
         current_paramset=base_paramset,

@@ -422,6 +422,8 @@ class _MMProfileCache:
         }
         self.dihedral_indices_by_center: dict[tuple[int, int], tuple[int, ...]] = {}
         for torsion_bond in self.torsion_bonds:
+            if torsion_bond[0] == torsion_bond[1]:
+                continue
             indices = tuple(_torsion_bond_dihedral_indices(reference_paramset, torsion_bond))
             if not indices:
                 raise ValueError(f"No proper torsions were found for torsion bond {torsion_bond}.")
@@ -434,6 +436,7 @@ class _MMProfileCache:
         self._ref_idx_by_scan: dict[tuple[int, int], int] = {}
         self._base_total_by_scan: dict[tuple[int, int], np.ndarray] = {}
         self._phi_by_scan: dict[tuple[int, int], dict[int, np.ndarray]] = {}
+        self._improper_phi_by_scan: dict[tuple[int, int], dict[tuple[int, ...], np.ndarray]] = {}
 
         for scan_center in self.torsion_bonds:
             if scan_center not in self.scan_map:
@@ -458,11 +461,45 @@ class _MMProfileCache:
             fitted_torsion_total = np.zeros(len(scan_data.frames), dtype=float)
             for target_center in self.torsion_bonds:
                 fitted_torsion_total += self._center_torsion_total(reference_paramset, scan_center, target_center)
+            # The fitted set is exactly what later cycles mutate (proper and
+            # improper torsion terms), so both are subtracted here and
+            # recomputed from the live paramset in full_total.
             self._base_total_by_scan[scan_center] = full_total - fitted_torsion_total
 
     def _relative(self, scan_center: tuple[int, int], total_values: np.ndarray) -> np.ndarray:
         totals = np.asarray(total_values, dtype=float)
         return totals - totals[self._ref_idx_by_scan[scan_center]]
+
+    def _improper_phi(self, scan_center: tuple[int, int], atoms_quartet: tuple[int, ...]) -> np.ndarray:
+        by_quartet = self._improper_phi_by_scan.setdefault(scan_center, {})
+        quartet = tuple(atoms_quartet)
+        if quartet not in by_quartet:
+            frames = self.scan_map[scan_center].frames
+            by_quartet[quartet] = np.asarray(
+                [dihedral_radians(atoms.get_positions(), *quartet) for atoms in frames],
+                dtype=float,
+            )
+        return by_quartet[quartet]
+
+    def _improper_center_total(
+        self,
+        paramset: CorrectionParameterSet,
+        scan_center: tuple[int, int],
+        center: int,
+    ) -> np.ndarray:
+        n_points = len(self.scan_map[scan_center].frames)
+        improper_total = np.zeros(n_points, dtype=float)
+        for improper in paramset.impropers:
+            if improper.atoms[2] != center:
+                continue
+            if not improper.terms:
+                continue
+            phi_values = self._improper_phi(scan_center, improper.atoms)
+            for term in improper.terms:
+                improper_total += float(term.kPhi) * (
+                    1.0 + np.cos(float(term.period) * phi_values - float(term.phase))
+                )
+        return improper_total
 
     def _center_torsion_total(
         self,
@@ -472,6 +509,8 @@ class _MMProfileCache:
     ) -> np.ndarray:
         scan_center = normalize_torsion_bond(scan_center)
         target_center = normalize_torsion_bond(target_center)
+        if target_center[0] == target_center[1]:
+            return self._improper_center_total(paramset, scan_center, target_center[0])
         if scan_center not in self._phi_by_scan:
             raise ValueError(f"No cached scan profile for torsion bond {scan_center}.")
         if target_center not in self.dihedral_indices_by_center:

@@ -24,4 +24,13 @@ def build_init_parmset(output: str, atoms: Atoms, config: CorrectionConfig) -> t
     ).frcmod_path
     final_init_frcmod = os.path.join(parmfit_output_dir(output), f"{base}_original.frcmod")
     shutil.move(init_frcmod, final_init_frcmod)
-    return build_correction_paramset(atoms, config.mol2, final_init_frcmod, config.torsion.p_thresh), final_init_frcmod
+    return (
+        build_correction_paramset(
+            atoms,
+            config.mol2,
+            final_init_frcmod,
+            config.torsion.p_thresh,
+            torsion_enabled=bool(config.torsion.enabled),
+        ),
+        final_init_frcmod,
+    )

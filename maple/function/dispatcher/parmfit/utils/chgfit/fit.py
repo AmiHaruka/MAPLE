@@ -1285,17 +1285,17 @@ def write_multiconformer_resp_input_files(
 
 
 def write_resp_input_files(
-    workdir,
-    model,
+    workdir: str,
+    model: dict,
     *,
-    total_charge,
-    chgmod,
-    fixchg_resids=None,
-    charge_groups=None,
-    pro_ff="ff14SB",
-    bond_pairs=None,
-    fixed_charges=None,
-):
+    total_charge: int,
+    chgmod: int,
+    fixchg_resids: list[str] | None = None,
+    charge_groups: list[tuple[list[int], float]] | None = None,
+    pro_ff: str = "ff14SB",
+    bond_pairs: list[tuple[int, int]] | None = None,
+    fixed_charges: dict[int, float] | None = None,
+) -> RespInputFiles:
     flattened = _flatten_model_atoms(model)
     constraints = collect_fixed_charge_constraints(
         model,
@@ -1308,7 +1308,7 @@ def write_resp_input_files(
     ivary_stage2 = build_stage2_equivalence_map(
         model,
         fixed_charge_indices=set(constraints),
-        bond_pairs=bond_pairs or [],
+        bond_pairs=bond_pairs,
     )
     resp1_in = Path(workdir) / "resp1.in"
     resp2_in = Path(workdir) / "resp2.in"
@@ -1582,22 +1582,22 @@ def run_resp_stage(
 
 
 def run_resp_pipeline(
-    output,
-    model,
+    output: str,
+    model: dict,
     *,
-    bond_pairs,
-    total_charge,
-    multiplicity,
-    chgmod,
-    qm,
-    fixchg_resids=None,
-    label="metal_site_resp",
-    wat_ff=None,
-    pro_ff="ff14SB",
-    charge_groups=None,
-    wfn_path=None,
-    fixed_charges=None,
-):
+    bond_pairs: list[tuple[int, int]],
+    total_charge: int,
+    multiplicity: int,
+    chgmod: int,
+    qm: QMMethod,
+    fixchg_resids: list[str] | None = None,
+    label: str = "metal_site_resp",
+    wat_ff: str | None = None,
+    pro_ff: str = "ff14SB",
+    charge_groups: list[tuple[list[int], float]] | None = None,
+    wfn_path: str | None = None,
+    fixed_charges: dict[int, float] | None = None,
+) -> RespPipelineResult:
     paths = _site_resp_paths(output, label=label)
     os.makedirs(paths["workdir"], exist_ok=True)
     interface.prepare_gaussian_esp_input(
@@ -1620,6 +1620,7 @@ def run_resp_pipeline(
         fixchg_resids=fixchg_resids,
         charge_groups=charge_groups,
         pro_ff=pro_ff,
+        bond_pairs=bond_pairs,
         fixed_charges=fixed_charges,
     )
     paths["resp1_in"] = resp_inputs.resp1_in
@@ -1780,7 +1781,7 @@ def run_multiconformer_resp(
             f"RESP returned {len(charges)} charges for a representative model with {n_atoms} atoms."
         )
     with open(paths["target_chg"], "w", encoding="utf-8") as handle:
-        handle.write(" ".join(str(value) for value in reference_charges))
+        handle.write(" ".join(f"{value:.10f}" for value in reference_charges))
         handle.write("\n")
     charged_model = apply_resp_charges(representative_model, reference_charges)
     write_resp_mol2(paths["mol2"], charged_model, bond_pairs, pro_ff=pro_ff)
