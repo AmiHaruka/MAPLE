@@ -7,12 +7,18 @@ from typing import Callable
 
 import numpy as np
 
-from ..mechanics import build_mm_topology_cache
-from ..readparm import CorrectionParameterSet
-from .topology import _clone_terms, apply_fitted_torsion, center_bond_dihedrals, normalize_center_bond
+from ..mechanics import build_mm_topology_cache, evaluate_mm_energy
+from ..readparm import CorrectionParameterSet, Improper
+from .topology import (
+    _clone_terms,
+    apply_fitted_improper,
+    apply_fitted_torsion,
+    torsion_bond_dihedrals,
+    normalize_torsion_bond,
+)
 from .records import TorsionEnsembleResult, TorsionFitReport, TorsionScanData, TorsionWorkflowResult
 from .config import TorsionFitParams
-from .basis import _MMProfileCache, build_global_torsion_problem, build_local_torsion_problem
+from .basis import _MMProfileCache, build_global_torsion_problem, build_improper_local_problem, build_local_torsion_problem
 from .report import format_torsion_final_point_table, format_torsion_fit_report, format_torsion_stage2_lines
 from .stage1 import _build_fit_report, local_fit_solver
 from .stage2 import _build_stage2_objective_cache, _global_mm_rel_map, apply_global_delta, evaluate_global_refit_objective, refine_torsion_scans_global
@@ -21,25 +27,41 @@ from .ensemble import attach_stage2_extra_targets
 
 def fit_torsion_scan(
     scan_data: TorsionScanData,
-    parameter_set: CorrectionParameterSet,
-    center_bond: tuple[int, int],
+    paramset: CorrectionParameterSet,
+    torsion_bond: tuple[int, int],
     topology_cache=None,
     *,
+    improper_target: Improper | None = None,
+    radical: bool = False,
     params: TorsionFitParams | None = None,
-    original_parameter_set: CorrectionParameterSet | None = None,
-    stage0_parameter_set: CorrectionParameterSet | None = None,
+    original_paramset: CorrectionParameterSet | None = None,
+    stage0_paramset: CorrectionParameterSet | None = None,
     original_mm_rel_override: np.ndarray | None = None,
     mm_base_rel_override: np.ndarray | None = None,
     stage0_mm_rel_override: np.ndarray | None = None,
 ) -> TorsionFitReport:
-    problem = build_local_torsion_problem(
-        scan_data,
-        parameter_set,
-        center_bond,
-        topology_cache=topology_cache,
-        mm_base_rel_override=mm_base_rel_override,
-        stage0_mm_rel_override=stage0_mm_rel_override,
-    )
+    if torsion_bond[0] == torsion_bond[1]:
+        center = torsion_bond[0]
+        stored = [improper for improper in paramset.impropers if improper.atoms[2] == center]
+        target = stored[0] if stored else improper_target
+        if target is None:
+            raise ValueError(f"No improper instance or target was supplied for center {center}.")
+        problem = build_improper_local_problem(
+            scan_data,
+            paramset,
+            target,
+            radical=radical,
+            topology_cache=topology_cache,
+        )
+    else:
+        problem = build_local_torsion_problem(
+            scan_data,
+            paramset,
+            torsion_bond,
+            topology_cache=topology_cache,
+            mm_base_rel_override=mm_base_rel_override,
+            stage0_mm_rel_override=stage0_mm_rel_override,
+        )
     solver_output = local_fit_solver(problem, params=params, return_problem=True)
     if isinstance(solver_output, tuple):
         solved_problem = solver_output[0]
@@ -51,85 +73,93 @@ def fit_torsion_scan(
         delta_kphi = np.asarray(solver_output, dtype=float)
         active_mask = np.asarray(problem.active_mask, dtype=bool).copy()
         diagnostics = {}
-    cache = topology_cache if topology_cache is not None else build_mm_topology_cache(parameter_set)
+    cache = topology_cache if topology_cache is not None else build_mm_topology_cache(paramset)
     return _build_fit_report(
         solved_problem,
         delta_kphi,
         active_mask,
         diagnostics,
         topology_cache=cache,
-        original_parameter_set=original_parameter_set,
-        stage0_parameter_set=stage0_parameter_set if stage0_parameter_set is not None else parameter_set,
+        original_paramset=original_paramset,
+        stage0_paramset=stage0_paramset if stage0_paramset is not None else paramset,
         mm_orig_rel_override=(
             np.asarray(original_mm_rel_override, dtype=float)
             if original_mm_rel_override is not None
-            else problem.orig_mm_rel if original_parameter_set is None or original_parameter_set is parameter_set else None
+            else problem.orig_mm_rel if original_paramset is None or original_paramset is paramset else None
         ),
-        mm_stage0_rel_override=problem.orig_mm_rel if stage0_parameter_set is None or stage0_parameter_set is parameter_set else None,
+        mm_stage0_rel_override=problem.orig_mm_rel if stage0_paramset is None or stage0_paramset is paramset else None,
     )
 
 
 def _stage2_fit_report_from_stage1(
     stage1_report: TorsionFitReport,
-    final_parameter_set: CorrectionParameterSet,
+    final_paramset: CorrectionParameterSet,
     *,
     mm_stage2_rel: np.ndarray,
     topology_cache=None,
 ) -> TorsionFitReport:
-    final_dihedrals = center_bond_dihedrals(final_parameter_set, stage1_report.center_bond, topology_cache=topology_cache)
+    final_dihedrals = torsion_bond_dihedrals(final_paramset, stage1_report.torsion_bond, topology_cache=topology_cache)
     fitted_terms = _clone_terms(final_dihedrals)
     return stage1_report.with_stage2_result(fitted_terms, mm_stage2_rel)
 
 
 def _fit_stage1_cycle(
     *,
-    current_parameter_set: CorrectionParameterSet,
-    original_parameter_set: CorrectionParameterSet,
-    normalized_center_bonds: list[tuple[int, int]],
+    current_paramset: CorrectionParameterSet,
+    original_paramset: CorrectionParameterSet,
+    normalized_torsion_bonds: list[tuple[int, int]],
     scan_data_map,
     scan_mm_orig_rel_map,
     params: TorsionFitParams,
     profile_cache: _MMProfileCache | None = None,
+    improper_targets: dict[tuple[int, int], Improper] | None = None,
+    radical_centers: tuple[int, ...] = (),
     log_info: Callable[[list[str]], None] | None = None,
 ) -> tuple[CorrectionParameterSet, list[TorsionFitReport], dict[str, object]]:
-    cache = build_mm_topology_cache(current_parameter_set)
+    cache = build_mm_topology_cache(current_paramset)
     fit_reports: list[TorsionFitReport] = []
-    stage1_parameter_set = deepcopy(current_parameter_set)
+    stage1_paramset = deepcopy(current_paramset)
     diagnostics: dict[str, object] = {
         "solver": "local_restrained_lls",
-        "center_bonds": {},
+        "torsion_bonds": {},
     }
 
-    for center_bond in normalized_center_bonds:
+    for torsion_bond in normalized_torsion_bonds:
+        improper = torsion_bond[0] == torsion_bond[1]
         mm_base_rel_override = None
         stage0_mm_rel_override = None
-        if profile_cache is not None:
-            mm_base_rel_override = profile_cache.center_zeroed_rel(current_parameter_set, center_bond, center_bond)
-            stage0_mm_rel_override = profile_cache.full_rel(current_parameter_set, center_bond)
+        if not improper and profile_cache is not None:
+            mm_base_rel_override = profile_cache.center_zeroed_rel(current_paramset, torsion_bond, torsion_bond)
+            stage0_mm_rel_override = profile_cache.full_rel(current_paramset, torsion_bond)
         fit_report = fit_torsion_scan(
-            scan_data_map[center_bond],
-            current_parameter_set,
-            center_bond,
+            scan_data_map[torsion_bond],
+            current_paramset,
+            torsion_bond,
             topology_cache=cache,
+            improper_target=improper_targets.get(torsion_bond) if improper else None,
+            radical=improper and int(torsion_bond[0]) in radical_centers,
             params=params,
-            original_parameter_set=original_parameter_set,
-            stage0_parameter_set=current_parameter_set,
-            original_mm_rel_override=scan_mm_orig_rel_map.get(center_bond),
+            original_paramset=original_paramset,
+            stage0_paramset=current_paramset,
+            original_mm_rel_override=scan_mm_orig_rel_map.get(torsion_bond),
             mm_base_rel_override=mm_base_rel_override,
             stage0_mm_rel_override=stage0_mm_rel_override,
         )
         fit_reports.append(fit_report)
         if log_info is not None:
             log_info(format_torsion_fit_report(fit_report))
-        stage1_parameter_set = apply_fitted_torsion(fit_report, stage1_parameter_set)
-        diagnostics["center_bonds"][str(center_bond)] = {
+        if improper:
+            stage1_paramset = apply_fitted_improper(fit_report, stage1_paramset)
+        else:
+            stage1_paramset = apply_fitted_torsion(fit_report, stage1_paramset)
+        diagnostics["torsion_bonds"][str(torsion_bond)] = {
             "active_slots": {
                 group.label: list(group.active_slots)
                 for group in fit_report.terms.shared_groups
             },
         }
 
-    return stage1_parameter_set, fit_reports, diagnostics
+    return stage1_paramset, fit_reports, diagnostics
 
 
 def _stage2_cycle_diagnostics(
@@ -146,7 +176,6 @@ def _stage2_cycle_diagnostics(
         if cycle.diagnostics.get("status") == "accepted":
             last_accepted = int(cycle.cycle)
     accepted = bool(last_accepted)
-    last_diagnostics = refine_cycles[-1].diagnostics if refine_cycles else {}
     return {
         "solver": "direct_k_phase" if requested_rounds > 0 else "disabled",
         "requested_fast_cycles": int(requested_rounds),
@@ -180,30 +209,51 @@ def _stage2_cycle_diagnostics(
     }
 
 
+def _stage2_improper_report_from_stage1(
+    stage1_report: TorsionFitReport,
+    final_paramset: CorrectionParameterSet,
+    scan_data: TorsionScanData,
+    *,
+    topology_cache=None,
+) -> TorsionFitReport:
+    center = stage1_report.torsion_bond[0]
+    cache = topology_cache if topology_cache is not None else build_mm_topology_cache(final_paramset)
+    instances = [improper for improper in final_paramset.impropers if improper.atoms[2] == center]
+    fitted_terms = _clone_terms(instances)
+    mm_stage2_total = np.asarray(
+        [evaluate_mm_energy(atoms, final_paramset, topology_cache=cache).total for atoms in scan_data.frames],
+        dtype=float,
+    )
+    mm_stage2_rel = mm_stage2_total - mm_stage2_total[int(scan_data.ref_idx)]
+    return stage1_report.with_stage2_result(fitted_terms, mm_stage2_rel)
+
+
 def _run_stage2_refinement(
     *,
-    stage1_parameter_set: CorrectionParameterSet,
+    stage1_paramset: CorrectionParameterSet,
     fit_reports: list[TorsionFitReport],
     scan_data_map,
     params: TorsionFitParams,
-    current_parameter_set: CorrectionParameterSet,
+    current_paramset: CorrectionParameterSet,
     ensemble_result: TorsionEnsembleResult | None = None,
+    radical_centers: tuple[int, ...] = (),
     log_info: Callable[[list[str]], None] | None = None,
 ) -> tuple[CorrectionParameterSet, list[TorsionFitReport], list, object, object, dict[str, object]]:
-    stage1_cache = build_mm_topology_cache(stage1_parameter_set)
+    stage1_cache = build_mm_topology_cache(stage1_paramset)
     problem = build_global_torsion_problem(
-        stage1_parameter_set,
-        [report.center_bond for report in fit_reports],
+        stage1_paramset,
+        [report.torsion_bond for report in fit_reports],
         scan_data_map,
         topology_cache=stage1_cache,
         typed_shared=True,
-        original_parameter_set=current_parameter_set,
+        original_paramset=current_paramset,
         params=params,
         stage_mm_rel_map={
-            normalize_center_bond(report.center_bond): np.asarray(report.curves.mm_stage1_rel, dtype=float)
+            normalize_torsion_bond(report.torsion_bond): np.asarray(report.curves.mm_stage1_rel, dtype=float)
             for report in fit_reports
             if report.curves.mm_stage1_rel is not None
         },
+        radical_centers=radical_centers,
     )
     problem = attach_stage2_extra_targets(problem, ensemble_result, params)
     vector_init = np.zeros(2 * len(problem.k_orig), dtype=float)
@@ -216,7 +266,7 @@ def _run_stage2_refinement(
         max_block_iter=params.refine_max_iter,
         tol=params.refine_tol,
     )
-    final_parameter_set = apply_global_delta(problem, vector_final)
+    final_paramset = apply_global_delta(problem, vector_final)
     final_eval = evaluate_global_refit_objective(problem, vector_final, cache=objective_cache)
     stage2_curves = _global_mm_rel_map(problem, vector_final, cache=objective_cache)
     diagnostics = _stage2_cycle_diagnostics(
@@ -226,54 +276,71 @@ def _run_stage2_refinement(
         final_eval=final_eval,
     )
 
-    final_topology_cache = build_mm_topology_cache(final_parameter_set)
+    final_topology_cache = build_mm_topology_cache(final_paramset)
     if log_info is not None:
         log_info(format_torsion_stage2_lines(params, refine_cycles))
         log_info(["\nFinal refined point tables after Stage 2:\n"])
     final_fit_reports = []
     for fit_report in fit_reports:
-        stage2_report = _stage2_fit_report_from_stage1(
-            fit_report,
-            final_parameter_set,
-            mm_stage2_rel=stage2_curves[normalize_center_bond(fit_report.center_bond)],
-            topology_cache=final_topology_cache,
-        )
+        if fit_report.torsion_bond[0] == fit_report.torsion_bond[1]:
+            stage2_report = _stage2_improper_report_from_stage1(
+                fit_report,
+                final_paramset,
+                scan_data_map[normalize_torsion_bond(fit_report.torsion_bond)],
+                topology_cache=final_topology_cache,
+            )
+        else:
+            stage2_report = _stage2_fit_report_from_stage1(
+                fit_report,
+                final_paramset,
+                mm_stage2_rel=stage2_curves[normalize_torsion_bond(fit_report.torsion_bond)],
+                topology_cache=final_topology_cache,
+            )
         final_fit_reports.append(stage2_report)
         if log_info is not None:
             log_info(format_torsion_final_point_table(stage2_report))
-    return final_parameter_set, final_fit_reports, refine_cycles, initial_eval, final_eval, diagnostics
+    return final_paramset, final_fit_reports, refine_cycles, initial_eval, final_eval, diagnostics
 
 
 def run_loss_mode(
     *,
-    base_parameter_set: CorrectionParameterSet,
-    center_bonds: list[tuple[int, int]] | tuple[tuple[int, int], ...],
+    base_paramset: CorrectionParameterSet,
+    torsion_bonds: list[tuple[int, int]] | tuple[tuple[int, int], ...],
     scan_data_map,
     scan_xyz_map,
     scan_mm_orig_rel_map=None,
     params: TorsionFitParams,
     topology_cache=None,
-    original_parameter_set: CorrectionParameterSet | None = None,
+    original_paramset: CorrectionParameterSet | None = None,
     ensemble_result: TorsionEnsembleResult | None = None,
+    improper_targets: dict[tuple[int, int], Improper] | None = None,
+    radical_centers: tuple[int, ...] = (),
     log_info: Callable[[list[str]], None] | None = None,
 ) -> TorsionWorkflowResult:
     del topology_cache
-    normalized_center_bonds = [normalize_center_bond(center_bond) for center_bond in center_bonds]
-    original_parameter_set = original_parameter_set if original_parameter_set is not None else base_parameter_set
+    normalized_torsion_bonds = [normalize_torsion_bond(torsion_bond) for torsion_bond in torsion_bonds]
+    original_paramset = original_paramset if original_paramset is not None else base_paramset
     scan_mm_orig_rel_map = scan_mm_orig_rel_map or {}
-    profile_cache = _MMProfileCache(base_parameter_set, normalized_center_bonds, scan_data_map)
+    improper_targets = improper_targets or {}
+    profile_cache = _MMProfileCache(
+        base_paramset,
+        [bond for bond in normalized_torsion_bonds if not bond[0] == bond[1]],
+        scan_data_map,
+    )
 
-    stage1_parameter_set, fit_reports, stage1_diagnostics = _fit_stage1_cycle(
-        current_parameter_set=base_parameter_set,
-        original_parameter_set=original_parameter_set,
-        normalized_center_bonds=normalized_center_bonds,
+    stage1_paramset, fit_reports, stage1_diagnostics = _fit_stage1_cycle(
+        current_paramset=base_paramset,
+        original_paramset=original_paramset,
+        normalized_torsion_bonds=normalized_torsion_bonds,
         scan_data_map=scan_data_map,
         scan_mm_orig_rel_map=scan_mm_orig_rel_map,
         params=params,
         profile_cache=profile_cache,
+        improper_targets=improper_targets,
+        radical_centers=radical_centers,
         log_info=log_info,
     )
-    final_parameter_set = deepcopy(stage1_parameter_set)
+    final_paramset = deepcopy(stage1_paramset)
     final_fit_reports = list(fit_reports)
     refine_cycles: list = []
     stage2_diagnostics: dict[str, object] = {
@@ -291,11 +358,11 @@ def run_loss_mode(
     if params.refine_rounds > 0 and fit_reports:
         if log_info is not None:
             log_info([f"\n[Stage 2] Running direct k/phase fast cycles ({int(params.refine_rounds)} max cycles)...\n"])
-        current_parameter_set = base_parameter_set
-        current_stage1_parameter_set = stage1_parameter_set
+        current_paramset = base_paramset
+        current_stage1_paramset = stage1_paramset
         current_fit_reports = fit_reports
         current_stage1_diagnostics = stage1_diagnostics
-        best_stage1_parameter_set = stage1_parameter_set
+        best_stage1_paramset = stage1_paramset
         best_stage1_diagnostics = stage1_diagnostics
         best_eval = None
         initial_eval = None
@@ -303,30 +370,33 @@ def run_loss_mode(
 
         for cycle_index in range(1, int(params.refine_rounds) + 1):
             if cycle_index > 1:
-                current_stage1_parameter_set, current_fit_reports, current_stage1_diagnostics = _fit_stage1_cycle(
-                    current_parameter_set=current_parameter_set,
-                    original_parameter_set=original_parameter_set,
-                    normalized_center_bonds=normalized_center_bonds,
+                current_stage1_paramset, current_fit_reports, current_stage1_diagnostics = _fit_stage1_cycle(
+                    current_paramset=current_paramset,
+                    original_paramset=original_paramset,
+                    normalized_torsion_bonds=normalized_torsion_bonds,
                     scan_data_map=scan_data_map,
                     scan_mm_orig_rel_map=scan_mm_orig_rel_map,
                     params=params,
                     profile_cache=profile_cache,
+                    improper_targets=improper_targets,
+                    radical_centers=radical_centers,
                     log_info=log_info,
                 )
             (
-                candidate_parameter_set,
+                candidate_paramset,
                 candidate_fit_reports,
                 cycle_reports,
                 cycle_initial_eval,
                 cycle_final_eval,
                 _cycle_diagnostics,
             ) = _run_stage2_refinement(
-                stage1_parameter_set=current_stage1_parameter_set,
+                stage1_paramset=current_stage1_paramset,
                 fit_reports=current_fit_reports,
                 scan_data_map=scan_data_map,
                 params=params,
-                current_parameter_set=current_parameter_set,
+                current_paramset=current_paramset,
                 ensemble_result=ensemble_result,
+                radical_centers=radical_centers,
                 log_info=log_info,
             )
             if initial_eval is None:
@@ -352,20 +422,20 @@ def run_loss_mode(
                 else:
                     cycle_report.diagnostics["status"] = "rejected"
                     cycle_report.accepted_blocks = 0
-                    cycle_report.rejected_blocks = len(normalized_center_bonds)
+                    cycle_report.rejected_blocks = len(normalized_torsion_bonds)
             refine_cycles.extend(cycle_reports)
 
             if improved:
-                final_parameter_set = candidate_parameter_set
+                final_paramset = candidate_paramset
                 final_fit_reports = candidate_fit_reports
-                best_stage1_parameter_set = current_stage1_parameter_set
+                best_stage1_paramset = current_stage1_paramset
                 best_stage1_diagnostics = current_stage1_diagnostics
-                current_parameter_set = candidate_parameter_set
+                current_paramset = candidate_paramset
                 best_eval = cycle_final_eval
                 continue
             break
 
-        stage1_parameter_set = best_stage1_parameter_set
+        stage1_paramset = best_stage1_paramset
         stage1_diagnostics = best_stage1_diagnostics
         stage2_diagnostics = _stage2_cycle_diagnostics(
             requested_rounds=int(params.refine_rounds),
@@ -377,11 +447,11 @@ def run_loss_mode(
         log_info(format_torsion_stage2_lines(params, refine_cycles))
 
     return TorsionWorkflowResult(
-        stage1_parameter_set=stage1_parameter_set,
-        final_parameter_set=final_parameter_set,
+        stage1_paramset=stage1_paramset,
+        final_paramset=final_paramset,
         refine_cycles=refine_cycles,
         scan_xyz=dict(scan_xyz_map),
-        center_bonds=list(normalized_center_bonds),
+        torsion_bonds=list(normalized_torsion_bonds),
         fit_reports=final_fit_reports,
         warnings=[],
         stage1_diagnostics=stage1_diagnostics,

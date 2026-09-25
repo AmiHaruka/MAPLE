@@ -1,0 +1,10 @@
+# MetalAA route settings; declare method=metalaa in #parmfit(...) and reference this file via input=
+# Only non-default entries are listed; the generated parmfitrun.in shows every resolved value.
+
+ion_resids=A462
+ion_charges=3
+ion_mults=6
+lig_resids=A461
+lig_charges=-4
+bonded=seminario
+chg_level=PBE1PBE/def2SV

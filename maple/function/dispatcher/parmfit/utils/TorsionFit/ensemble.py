@@ -17,7 +17,7 @@ from ..runtime import copy_thresholds, get_potential_energy, parmfit_work_prefix
 from .config import TorsionFitParams
 from .records import TorsionEnsembleResult, TorsionGlobalProblem, TorsionObjectiveTarget
 from .scanio import HARTREE_TO_KCAL_MOL
-from .topology import normalize_center_bond
+from .topology import normalize_torsion_bond
 
 _TORSION_STEP_DEG = 15.0
 _TORSION_OFFSETS_DEG = tuple(float(angle) for angle in range(-180, 181, int(_TORSION_STEP_DEG)) if angle)
@@ -35,8 +35,8 @@ _ENSEMBLE_MIN_NONBONDED_DISTANCE = 0.65
 _Candidate = tuple[tuple[int, int], np.ndarray, float, dict[tuple[int, int, int, int], float]]
 
 
-def _ensemble_output_path(output: str) -> str:
-    prefix = f"{parmfit_work_prefix(output, 'torsionfit')}_torsionfit"
+def _ensemble_output_path(output: str, workflow: str = "torsionfit") -> str:
+    prefix = f"{parmfit_work_prefix(output, workflow)}_torsionfit"
     return prefix + "_ensemble.xyz"
 
 
@@ -57,39 +57,39 @@ def _graph_side(adjacency: dict[int, set[int]], start: int, blocked: int) -> set
 
 
 def _rotation_mask(
-    parameter_set: CorrectionParameterSet,
+    paramset: CorrectionParameterSet,
     dihedral_atoms: tuple[int, int, int, int],
     mobile_atoms: set[int] | None,
     atom_count: int,
 ) -> list[bool]:
     _a, _b, c_atom, d_atom = (int(atom) for atom in dihedral_atoms)
-    side_atoms = _graph_side(parameter_set.mol2.adjacency, d_atom, c_atom)
+    side_atoms = _graph_side(paramset.mol2.adjacency, d_atom, c_atom)
     if mobile_atoms is not None:
         side_atoms &= mobile_atoms
     return [(index + 1) in side_atoms for index in range(atom_count)]
 
 
-def _is_hydrogen_atom(parameter_set: CorrectionParameterSet, atom_index: int) -> bool:
-    atom = parameter_set.mol2.atoms[int(atom_index) - 1]
+def _is_hydrogen_atom(paramset: CorrectionParameterSet, atom_index: int) -> bool:
+    atom = paramset.mol2.atoms[int(atom_index) - 1]
     return atom.name.strip().upper().startswith("H") or atom.atom_type.strip().lower().startswith("h")
 
 
-def _is_terminal_h_side(parameter_set: CorrectionParameterSet, side_atoms: set[int]) -> bool:
-    return len(side_atoms) == 1 and _is_hydrogen_atom(parameter_set, next(iter(side_atoms)))
+def _is_terminal_h_side(paramset: CorrectionParameterSet, side_atoms: set[int]) -> bool:
+    return len(side_atoms) == 1 and _is_hydrogen_atom(paramset, next(iter(side_atoms)))
 
 
-def _center_bond_rotor(
-    parameter_set: CorrectionParameterSet,
-    center_bond: tuple[int, int],
+def _torsion_bond_rotor(
+    paramset: CorrectionParameterSet,
+    torsion_bond: tuple[int, int],
     mobile_atoms: set[int] | None,
 ) -> tuple[int, int, int, int] | None:
-    left, right = normalize_center_bond(center_bond)
-    adjacency = parameter_set.mol2.adjacency
+    left, right = normalize_torsion_bond(torsion_bond)
+    adjacency = paramset.mol2.adjacency
     left_side = _graph_side(adjacency, left, right)
     right_side = _graph_side(adjacency, right, left)
     if left_side & right_side:
         return None
-    if _is_terminal_h_side(parameter_set, left_side) or _is_terminal_h_side(parameter_set, right_side):
+    if _is_terminal_h_side(paramset, left_side) or _is_terminal_h_side(paramset, right_side):
         return None
 
     def valid_rotating_side(side: set[int]) -> bool:
@@ -110,30 +110,30 @@ def _center_bond_rotor(
 
 
 def _eligible_rotors(
-    parameter_set: CorrectionParameterSet,
+    paramset: CorrectionParameterSet,
     mobile_atoms: set[int] | None,
     atom_count: int,
 ) -> tuple[tuple[int, int, int, int], ...]:
     del atom_count
-    rotor_by_center: dict[tuple[int, int], tuple[int, int, int, int]] = {}
-    for dihedral in parameter_set.dihedrals:
-        bond = normalize_center_bond((int(dihedral.atoms[1]), int(dihedral.atoms[2])))
-        if bond in rotor_by_center:
+    rotor_by_torsion_bond: dict[tuple[int, int], tuple[int, int, int, int]] = {}
+    for dihedral in paramset.dihedrals:
+        bond = normalize_torsion_bond((int(dihedral.atoms[1]), int(dihedral.atoms[2])))
+        if bond in rotor_by_torsion_bond:
             continue
-        rotor = _center_bond_rotor(parameter_set, bond, mobile_atoms)
+        rotor = _torsion_bond_rotor(paramset, bond, mobile_atoms)
         if rotor is None:
             continue
-        rotor_by_center[bond] = rotor
-    return tuple(rotor_by_center[bond] for bond in sorted(rotor_by_center))
+        rotor_by_torsion_bond[bond] = rotor
+    return tuple(rotor_by_torsion_bond[bond] for bond in sorted(rotor_by_torsion_bond))
 
 
 def _rotor_for_center(
     rotors: tuple[tuple[int, int, int, int], ...],
-    center_bond: tuple[int, int],
+    torsion_bond: tuple[int, int],
 ) -> tuple[int, int, int, int] | None:
-    center = normalize_center_bond(center_bond)
+    center = normalize_torsion_bond(torsion_bond)
     for rotor in rotors:
-        if normalize_center_bond((rotor[1], rotor[2])) == center:
+        if normalize_torsion_bond((rotor[1], rotor[2])) == center:
             return rotor
     return None
 
@@ -142,8 +142,8 @@ def _trial_budget(size: int) -> int:
     return min(max(_ENSEMBLE_TRIAL_MULTIPLIER * max(int(size), 1), _ENSEMBLE_MIN_TRIALS), _ENSEMBLE_MAX_TRIALS)
 
 
-def _effective_ensemble_size(params: TorsionFitParams, center_bonds) -> int:
-    center_count = len({normalize_center_bond(center) for center in center_bonds})
+def _effective_ensemble_size(params: TorsionFitParams, torsion_bonds) -> int:
+    center_count = len({normalize_torsion_bond(center) for center in torsion_bonds})
     if center_count <= 0:
         return 0
     scan_conf_count = center_count * (int(params.torsion_steps) + 1)
@@ -153,17 +153,17 @@ def _effective_ensemble_size(params: TorsionFitParams, center_bonds) -> int:
 
 def _trial_offset_maps(
     rotors: tuple[tuple[int, int, int, int], ...],
-    center_bonds,
+    torsion_bonds,
     *,
     size: int,
 ) -> list[tuple[tuple[int, int], dict[tuple[int, int, int, int], float]]]:
     if not rotors:
         return []
     rng = np.random.default_rng(_ENSEMBLE_RANDOM_SEED)
-    centers = tuple(normalize_center_bond(center) for center in center_bonds)
+    centers = tuple(normalize_torsion_bond(center) for center in torsion_bonds)
     trials: list[tuple[tuple[int, int], dict[tuple[int, int, int, int], float]]] = []
     for _ in range(_trial_budget(size)):
-        center = centers[int(rng.integers(0, len(centers)))] if centers else normalize_center_bond((rotors[0][1], rotors[0][2]))
+        center = centers[int(rng.integers(0, len(centers)))] if centers else normalize_torsion_bond((rotors[0][1], rotors[0][2]))
         target_rotor = _rotor_for_center(rotors, center)
         active_count = int(rng.integers(1, len(rotors) + 1))
         chosen: list[tuple[int, int, int, int]] = []
@@ -185,14 +185,14 @@ def _trial_offset_maps(
 
 def _apply_trial_offsets(
     atoms: Atoms,
-    parameter_set: CorrectionParameterSet,
+    paramset: CorrectionParameterSet,
     trial: dict[tuple[int, int, int, int], float],
     mobile_atoms: set[int] | None,
 ) -> Atoms:
     candidate = atoms.copy()
     positions = np.asarray(candidate.get_positions(), dtype=float).copy()
     for dihedral_atoms, offset in trial.items():
-        mask = _rotation_mask(parameter_set, dihedral_atoms, mobile_atoms, len(candidate))
+        mask = _rotation_mask(paramset, dihedral_atoms, mobile_atoms, len(candidate))
         if not any(mask):
             continue
         _a, b_atom, c_atom, _d = (int(atom) for atom in dihedral_atoms)
@@ -237,16 +237,16 @@ def _rotate_masked_positions(
     return rotated
 
 
-def _minimum_nonbonded_distance(atoms: Atoms, parameter_set: CorrectionParameterSet) -> float:
+def _minimum_nonbonded_distance(atoms: Atoms, paramset: CorrectionParameterSet) -> float:
     positions = np.asarray(atoms.get_positions(), dtype=float)
     bonded = {
-        normalize_center_bond((int(bond.atom1), int(bond.atom2)))
-        for bond in parameter_set.mol2.bonds
+        normalize_torsion_bond((int(bond.atom1), int(bond.atom2)))
+        for bond in paramset.mol2.bonds
     }
     minimum = float("inf")
     for left in range(1, len(atoms) + 1):
         for right in range(left + 1, len(atoms) + 1):
-            if normalize_center_bond((left, right)) in bonded:
+            if normalize_torsion_bond((left, right)) in bonded:
                 continue
             distance = float(np.linalg.norm(positions[left - 1] - positions[right - 1]))
             minimum = min(minimum, distance)
@@ -284,11 +284,11 @@ def _rmsd_to_accepted(candidate: Atoms, accepted: list[Atoms], mobile_atoms: set
 def _passes_geometry_filters(
     reference: Atoms,
     candidate: Atoms,
-    parameter_set: CorrectionParameterSet,
+    paramset: CorrectionParameterSet,
     mobile_atoms: set[int] | None,
     accepted: list[Atoms],
 ) -> bool:
-    if _minimum_nonbonded_distance(candidate, parameter_set) < _ENSEMBLE_MIN_NONBONDED_DISTANCE:
+    if _minimum_nonbonded_distance(candidate, paramset) < _ENSEMBLE_MIN_NONBONDED_DISTANCE:
         return False
     if _frozen_rmsd(reference, candidate, mobile_atoms) > _ENSEMBLE_FROZEN_RMSD:
         return False
@@ -300,10 +300,10 @@ def _passes_geometry_filters(
 def _passes_hard_geometry_filters(
     reference: Atoms,
     candidate: Atoms,
-    parameter_set: CorrectionParameterSet,
+    paramset: CorrectionParameterSet,
     mobile_atoms: set[int] | None,
 ) -> bool:
-    if _minimum_nonbonded_distance(candidate, parameter_set) < _ENSEMBLE_MIN_NONBONDED_DISTANCE:
+    if _minimum_nonbonded_distance(candidate, paramset) < _ENSEMBLE_MIN_NONBONDED_DISTANCE:
         return False
     if _frozen_rmsd(reference, candidate, mobile_atoms) > _ENSEMBLE_FROZEN_RMSD:
         return False
@@ -315,18 +315,18 @@ def _atoms_from_positions(symbols: list[str], positions: np.ndarray) -> Atoms:
 
 
 def _score_trial_with_mm(job) -> _Candidate | None:
-    symbols, positions, parameter_set, center, trial, mobile_atoms = job
+    symbols, positions, paramset, center, trial, mobile_atoms = job
     reference = _atoms_from_positions(list(symbols), np.asarray(positions, dtype=float))
-    candidate = _apply_trial_offsets(reference, parameter_set, trial, mobile_atoms)
-    if not _passes_hard_geometry_filters(reference, candidate, parameter_set, mobile_atoms):
+    candidate = _apply_trial_offsets(reference, paramset, trial, mobile_atoms)
+    if not _passes_hard_geometry_filters(reference, candidate, paramset, mobile_atoms):
         return None
     try:
-        energy = float(evaluate_mm_energy(candidate, parameter_set).total)
+        energy = float(evaluate_mm_energy(candidate, paramset).total)
     except Exception:
         return None
     if not np.isfinite(energy):
         return None
-    return normalize_center_bond(center), np.asarray(candidate.get_positions(), dtype=float).copy(), energy, dict(trial)
+    return normalize_torsion_bond(center), np.asarray(candidate.get_positions(), dtype=float).copy(), energy, dict(trial)
 
 
 def _ensemble_worker_count() -> int:
@@ -336,7 +336,7 @@ def _ensemble_worker_count() -> int:
 def _screen_trials_with_mm(
     *,
     atoms: Atoms,
-    parameter_set: CorrectionParameterSet,
+    paramset: CorrectionParameterSet,
     trials: list[tuple[tuple[int, int], dict[tuple[int, int, int, int], float]]],
     mobile_atoms: set[int] | None,
 ) -> list[_Candidate]:
@@ -344,7 +344,7 @@ def _screen_trials_with_mm(
         return []
     symbols = atoms.get_chemical_symbols()
     positions = np.asarray(atoms.get_positions(), dtype=float)
-    jobs = [(symbols, positions, parameter_set, center, trial, mobile_atoms) for center, trial in trials]
+    jobs = [(symbols, positions, paramset, center, trial, mobile_atoms) for center, trial in trials]
     max_workers = _ensemble_worker_count()
     if max_workers <= 1:
         scored = [_score_trial_with_mm(job) for job in jobs]
@@ -361,7 +361,7 @@ def _select_low_mm_energy_diverse(
     candidates: list[_Candidate],
     *,
     atoms: Atoms,
-    parameter_set: CorrectionParameterSet,
+    paramset: CorrectionParameterSet,
     mobile_atoms: set[int] | None,
     total_budget: int,
 ) -> list[_Candidate]:
@@ -386,7 +386,7 @@ def _select_low_mm_energy_diverse(
     for _mm_rel, candidate in filtered:
         center, positions, _mm_energy, _trial = candidate
         frame = _atoms_from_positions(symbols, positions)
-        if not _passes_geometry_filters(atoms, frame, parameter_set, mobile_atoms, accepted_frames.setdefault(center, [])):
+        if not _passes_geometry_filters(atoms, frame, paramset, mobile_atoms, accepted_frames.setdefault(center, [])):
             continue
         selected.append(candidate)
         accepted_frames[center].append(frame)
@@ -397,7 +397,7 @@ def _select_low_mm_energy_diverse(
 
 def _write_ensemble_xyz(
     path: str,
-    center_bond: tuple[int, int],
+    torsion_bond: tuple[int, int],
     frames: list[Atoms],
     mm_screen_rel: np.ndarray,
     mlip_stage_rel: np.ndarray,
@@ -406,7 +406,7 @@ def _write_ensemble_xyz(
     append: bool = False,
 ) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    center = normalize_center_bond(center_bond)
+    center = normalize_torsion_bond(torsion_bond)
     with open(path, "a" if append else "w", encoding="utf-8") as handle:
         for index, atoms in enumerate(frames):
             handle.write(f"{len(atoms)}\n")
@@ -424,9 +424,9 @@ def _write_ensemble_xyz(
                 handle.write(f"{symbol:2s} {xyz[0]: .8f} {xyz[1]: .8f} {xyz[2]: .8f}\n")
 
 
-def _scan_ref_mlip_kcal(scan_data_map, center_bond: tuple[int, int]) -> float:
-    center = normalize_center_bond(center_bond)
-    normalized_scan_map = {normalize_center_bond(key): value for key, value in dict(scan_data_map).items()}
+def _scan_ref_mlip_kcal(scan_data_map, torsion_bond: tuple[int, int]) -> float:
+    center = normalize_torsion_bond(torsion_bond)
+    normalized_scan_map = {normalize_torsion_bond(key): value for key, value in dict(scan_data_map).items()}
     scan_data = normalized_scan_map.get(center)
     if scan_data is None:
         raise ValueError(f"Cannot build torsion ensemble target for {center}: missing scan reference data.")
@@ -436,13 +436,14 @@ def _scan_ref_mlip_kcal(scan_data_map, center_bond: tuple[int, int]) -> float:
 def build_torsion_local_ensemble(
     *,
     atoms: Atoms,
-    parameter_set: CorrectionParameterSet,
-    center_bonds,
+    paramset: CorrectionParameterSet,
+    torsion_bonds,
     scan_data_map,
     params: TorsionFitParams,
     output: str,
     mobile_atoms=None,
     log_info=None,
+    workflow: str = "torsionfit",
 ) -> TorsionEnsembleResult:
     if not params.torsion_ensemble:
         return TorsionEnsembleResult()
@@ -453,14 +454,14 @@ def build_torsion_local_ensemble(
     xyz_paths: dict[tuple[int, int], str] = {}
     warnings: list[str] = []
 
-    centers = tuple(normalize_center_bond(center) for center in center_bonds)
+    centers = tuple(normalize_torsion_bond(center) for center in torsion_bonds)
     if len(set(centers)) < 2:
-        warnings.append("torsion ensemble skipped: only one fitted center bond.")
+        warnings.append("torsion ensemble skipped: only one fitted torsion bond.")
         if log_info is not None:
             log_info([f"  [TorsionFit] {warnings[-1]}\n"])
         return TorsionEnsembleResult(warnings=tuple(warnings))
 
-    rotors = _eligible_rotors(parameter_set, mobile_set, len(atoms))
+    rotors = _eligible_rotors(paramset, mobile_set, len(atoms))
     if not rotors:
         warnings.append("torsion ensemble skipped: no eligible rotatable torsions.")
     else:
@@ -472,14 +473,14 @@ def build_torsion_local_ensemble(
         )
         candidates = _screen_trials_with_mm(
             atoms=atoms,
-            parameter_set=parameter_set,
+            paramset=paramset,
             trials=trials,
             mobile_atoms=mobile_set,
         )
         selected = _select_low_mm_energy_diverse(
             candidates,
             atoms=atoms,
-            parameter_set=parameter_set,
+            paramset=paramset,
             mobile_atoms=mobile_set,
             total_budget=effective_size,
         )
@@ -508,7 +509,7 @@ def build_torsion_local_ensemble(
                 continue
             selected_by_center.setdefault(center, []).append((frame, float(mm_energy), mlip_energy, dict(trial)))
 
-        xyz_path = _ensemble_output_path(output)
+        xyz_path = _ensemble_output_path(output, workflow)
         wrote_xyz = False
         for center in centers:
             records = selected_by_center.get(center, [])
@@ -561,14 +562,14 @@ def _absolute_basis_for_frames(
     abs_const = np.zeros((len(frames), n_terms), dtype=float)
     abs_cos = np.zeros((len(frames), n_terms), dtype=float)
     abs_sin = np.zeros((len(frames), n_terms), dtype=float)
-    reference = problem.reference_parameter_set if problem.reference_parameter_set is not None else problem.stage0_parameter_set
+    reference = problem.reference_paramset if problem.reference_paramset is not None else problem.stage0_paramset
 
     if problem.grouped:
         for frame_index, atoms in enumerate(frames):
             positions = np.asarray(atoms.get_positions(), dtype=float)
             phi_cache: dict[int, float] = {}
-            for center_bond in problem.center_bonds:
-                for group in problem.shared_groups_map.get(center_bond, ()):
+            for torsion_bond in problem.torsion_bonds:
+                for group in problem.shared_groups_map.get(torsion_bond, ()):
                     for dihedral_index in group.dihedral_indices:
                         if dihedral_index not in phi_cache:
                             phi_cache[dihedral_index] = dihedral_radians(
@@ -608,11 +609,11 @@ def build_stage2_extra_targets(
 ) -> tuple[TorsionObjectiveTarget, ...]:
     if ensemble is None or not params.torsion_ensemble or params.torsion_ensemble_weight <= 0.0:
         return ()
-    reference = problem.reference_parameter_set if problem.reference_parameter_set is not None else problem.stage0_parameter_set
+    reference = problem.reference_paramset if problem.reference_paramset is not None else problem.stage0_paramset
     topology_cache = build_mm_topology_cache(reference)
     targets: list[TorsionObjectiveTarget] = []
-    for center_bond in problem.center_bonds:
-        center = normalize_center_bond(center_bond)
+    for torsion_bond in problem.torsion_bonds:
+        center = normalize_torsion_bond(torsion_bond)
         frames = tuple(ensemble.frames_by_center.get(center, ()))
         if len(frames) < _ENSEMBLE_MIN_FRAMES:
             continue
@@ -653,7 +654,7 @@ def build_stage2_extra_targets(
         targets.append(
             TorsionObjectiveTarget(
                 label=f"ensemble {center[0]}-{center[1]}",
-                center_bond=center,
+                torsion_bond=center,
                 qm_rel=qm_rel,
                 constant_rel=constant_total - ref_constant_total,
                 cos_basis=abs_cos - ref_cos[0],

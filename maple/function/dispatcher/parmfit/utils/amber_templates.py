@@ -64,6 +64,12 @@ class AmberResidueTemplate:
         return tuple(sorted(Counter(atom.element for atom in self.atoms).items()))
 
 
+# Names that declare one specific chemical state of an alias family. A template
+# match that overrides one of them is reported in the PDB read diagnostics;
+# resolving a generic family name (HIS/ASP/GLU/LYS/CYS) stays silent.
+EXPLICIT_STATE_NAMES = frozenset({"CYM", "CYX", "HID", "HIE", "HIP", "ASH", "GLH", "LYN"})
+
+
 class AmberTemplateRegistry:
     def __init__(self, templates: list[AmberResidueTemplate]):
         self.templates = tuple(templates)
@@ -85,6 +91,14 @@ class AmberTemplateRegistry:
             "ASP": ("ASP", "ASH"),
             "GLU": ("GLU", "GLH"),
             "LYS": ("LYS", "LYN"),
+            # Cysteine family: HG presence separates CYS from {CYM, CYX}; the
+            # disulfide tie-break in residue_matcher separates CYX from CYM.
+            # Terminal libs ship no NCYM/CCYM, so terminal deprotonated
+            # cysteines resolve to the NCYX/CCYX templates, whose net charge
+            # comes from the terminal zwitterion rather than the thiolate.
+            "CYS": ("CYS", "CYM", "CYX"),
+            "CYM": ("CYS", "CYM", "CYX"),
+            "CYX": ("CYS", "CYM", "CYX"),
         }
         names = aliases.get(upper, (upper,))
         result: list[AmberResidueTemplate] = []
@@ -210,10 +224,10 @@ def _validate_template(template: AmberResidueTemplate) -> None:
 
 
 @lru_cache(maxsize=2)
-def load_amber_template_registry(prom: str = "ff14SB") -> AmberTemplateRegistry:
-    model = str(prom).strip().lower()
+def load_amber_template_registry(pro_ff: str = "ff14SB") -> AmberTemplateRegistry:
+    model = str(pro_ff).strip().lower()
     if model not in {"ff14sb", "ff19sb"}:
-        raise ValueError(f"Unsupported protein model {prom!r}; expected ff14SB or ff19SB.")
+        raise ValueError(f"Unsupported protein ff {pro_ff!r}; expected ff14SB or ff19SB.")
     model = "ff19SB" if model == "ff19sb" else "ff14SB"
     suffix = "19" if model == "ff19SB" else "12"
     specifications = (
@@ -230,9 +244,9 @@ def load_amber_template_registry(prom: str = "ff14SB") -> AmberTemplateRegistry:
     return AmberTemplateRegistry(templates)
 
 
-def required_template_leaprcs(residues: list[dict], prom: str = "ff14SB") -> list[str]:
-    registry = load_amber_template_registry(prom)
-    base = f"leaprc.protein.{prom}"
+def required_template_leaprcs(residues: list[dict], pro_ff: str = "ff14SB") -> list[str]:
+    registry = load_amber_template_registry(pro_ff)
+    base = f"leaprc.protein.{pro_ff}"
     leaprcs: list[str] = []
     for residue in residues:
         template = registry.template_by_id(str(residue.get("template_id", "")))

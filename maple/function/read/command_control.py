@@ -50,9 +50,7 @@ class CommandControl:
         "ts": {},
         "irc": {"method": "gs"},
         "scan": {},
-        "parmfit": {
-            "method": "abinitio",
-        },
+        "parmfit": {},
         "freq": {
             "method": "mw",
             "temperature": 298.15,
@@ -103,7 +101,7 @@ class CommandControl:
         "sp": set(),
         "irc": {"gs", "hpc", "eulerpc", "lqa"},
         "md": {"nve", "nvt", "npt"},
-        "parmfit": {"abinitio", "correction"},
+        "parmfit": {"correction", "corr", "ncaa", "metalaa"},
     }
     GLOBAL_PARAMS = {
         "model",
@@ -351,6 +349,9 @@ class CommandControl:
     def _auto_cast(value: str) -> Any:
         if value.lower() in {"true", "false"}:
             return value.lower() == "true"
+        if "_" in value:
+            # Underscored value tokens like 12_6 in ion_ff=12_6 are identifiers, not Python numeric literals.
+            return value
         try:
             return int(value)
         except Exception:

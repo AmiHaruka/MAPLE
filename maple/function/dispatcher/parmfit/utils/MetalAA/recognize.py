@@ -2,17 +2,13 @@
 
 from __future__ import annotations
 
-import os
-import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 import numpy as np
 
-from .. import interface
 from ..context import collect_environment_residues, find_prev_next_peptide_residues, find_unique_residue
 from ..readparm import Mol2Topology, parse_mol2
-from ..runtime import parmfit_output_dir
 from ..structure import (
     METAL_SITE_DONOR_ELEMENTS,
     get_atom_xyz,
@@ -34,6 +30,8 @@ class MetalSiteSelection:
     donor_atoms: dict[tuple[str, int, str], list[str]]
     warnings: list[str]
     donor_cutoff: float
+    ncaa_residues: tuple[dict, ...] = ()
+    ncaa_resnames: dict[tuple[str, int, str], str] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -44,18 +42,12 @@ class MetalSiteSelection:
             "donor_atoms": self.donor_atoms,
             "warnings": self.warnings,
             "donor_cutoff": self.donor_cutoff,
+            "ncaa_residues": list(self.ncaa_residues),
+            "ncaa_resnames": dict(self.ncaa_resnames),
         }
 
 
 MetalSiteCore = MetalSiteSelection
-
-
-@dataclass(frozen=True)
-class CofactorMol2Template:
-    path: str
-    residue_key: tuple[str, int, str]
-    resname: str
-    mol2: Mol2Topology
 
 
 def _mol2_atoms_by_name(mol2: Mol2Topology, path: str) -> dict[str, object]:
@@ -67,49 +59,24 @@ def _mol2_atoms_by_name(mol2: Mol2Topology, path: str) -> dict[str, object]:
         atoms_by_name[atom.name] = atom
     if duplicates:
         joined = ", ".join(sorted(set(duplicates)))
-        raise ValueError(f"cfmol2 {path} has duplicate atom names: {joined}")
+        raise ValueError(f"typed ligand mol2 {path} has duplicate atom names: {joined}")
     return atoms_by_name
 
 
-def _match_residue_by_atom_names(
-    structure: dict,
-    mol2_names: set[str],
-    path: str,
-    claimed_keys: set[tuple[str, int, str]],
-) -> dict:
-    candidates = []
-    for residue in structure["residues"]:
-        if residue.get("kind") not in {"ligand", "cofactor"}:
-            continue
-        if get_resid_key(residue) in claimed_keys:
-            continue
-        residue_names = {atom["name"] for atom in residue["atoms"]}
-        if residue_names == mol2_names:
-            candidates.append(residue)
-
-    if not candidates:
-        joined = ", ".join(sorted(mol2_names))
-        raise ValueError(f"Could not match cfmol2 {path} to a ligand/cofactor residue by atom names: {joined}")
-    return sorted(candidates, key=residue_sort_key)[0]
-
-
-def _inject_atom_types_and_bonds(
-    structure: dict,
-    residue: dict,
-    mol2: Mol2Topology,
-    atoms_by_name: dict[str, object],
-    path: str,
-) -> None:
+def inject_ligand_typed_mol2(structure: dict, residue: dict, typed_mol2_path: str) -> dict[str, float]:
+    """Inject atom types, charges, and bond pairs from our own antechamber-typed ligand mol2."""
+    mol2 = parse_mol2(typed_mol2_path)
+    atoms_by_name = _mol2_atoms_by_name(mol2, typed_mol2_path)
     residue_atoms_by_name = {atom["name"]: atom for atom in residue["atoms"]}
+    atom_charges: dict[str, float] = {}
     for name, mol2_atom in atoms_by_name.items():
         residue_atoms_by_name[name]["atom_type"] = mol2_atom.atom_type
-        residue_atoms_by_name[name]["cfmol2_charge"] = mol2_atom.charge
-        residue_atoms_by_name[name]["_cfmol2_path"] = path
-    residue["_cfmol2_path"] = path
-    # Tips: A cfmol2 cofactor is the coordinating non-protein ligand of the metal 
-    # site, and its charge is already carried by cmo (config.charge = metal + coordinating ligand);
-    # the cfmol2 only supplies atom types and bonds. As a coordinating (core) donor
-    # it is skipped by the large-model charge groups and must contribute 0 to infer_model_charge.
+        residue_atoms_by_name[name]["charge"] = float(mol2_atom.charge)
+        atom_charges[name] = float(mol2_atom.charge)
+    residue["_ligand_mol2"] = typed_mol2_path
+    # Charges were fitted upstream via lig_chgfit and merged into this mol2; the
+    # site RESP may re-fit coordinating ligands under a sum constraint, while
+    # non-coordinating exports keep them as written here.
 
     atom_id_to_name = {atom.atom_id: atom.name for atom in mol2.atoms}
     bond_name_pairs: set[tuple[str, str]] = set()
@@ -117,52 +84,8 @@ def _inject_atom_types_and_bonds(
         left_name = atom_id_to_name[bond.atom1]
         right_name = atom_id_to_name[bond.atom2]
         bond_name_pairs.add(tuple(sorted((left_name, right_name))))
-    residue["_cfmol2_bond_name_pairs"] = bond_name_pairs
-
-
-def apply_cfmol2_templates(structure: dict, cfmol2_paths: list[str]) -> list[CofactorMol2Template]:
-    templates: list[CofactorMol2Template] = []
-    claimed_keys: set[tuple[str, int, str]] = set()
-    for path in cfmol2_paths:
-        mol2 = parse_mol2(path)
-        atoms_by_name = _mol2_atoms_by_name(mol2, path)
-        residue = _match_residue_by_atom_names(structure, set(atoms_by_name), path, claimed_keys)
-        _inject_atom_types_and_bonds(structure, residue, mol2, atoms_by_name, path)
-        residue_key = get_resid_key(residue)
-        claimed_keys.add(residue_key)
-        templates.append(
-            CofactorMol2Template(
-                path=path,
-                residue_key=residue_key,
-                resname=residue["resname"].upper(),
-                mol2=mol2,
-            )
-        )
-    return templates
-
-
-def build_cofactor_orig_frcmods(output: str, templates: list[CofactorMol2Template]) -> dict[tuple[str, int, str], str]:
-    if not templates:
-        return {}
-
-    final_dir = parmfit_output_dir(output)
-    base = os.path.splitext(os.path.basename(output))[0]
-    frcmods: dict[tuple[str, int, str], str] = {}
-    for index, template in enumerate(templates, start=1):
-        input_path = os.path.abspath(template.path)
-        workdir = os.path.dirname(input_path)
-        residue_name = f"{base}_{template.resname}_{index}_orig"
-        result = interface.run_parmchk2(
-            os.path.basename(input_path),
-            {"residue_name": residue_name},
-            True,
-            workdir,
-        )
-        final_path = os.path.join(final_dir, f"{residue_name}.frcmod")
-        if os.path.abspath(result.frcmod_path) != os.path.abspath(final_path):
-            shutil.move(result.frcmod_path, final_path)
-        frcmods[template.residue_key] = final_path
-    return frcmods
+    residue["_ligand_bond_pairs"] = bond_name_pairs
+    return atom_charges
 
 
 def _residue_has_formal_charge_hint(residue: dict) -> bool:
@@ -175,6 +98,8 @@ def find_metal_site_core(
     target: str | None = None,
     target_residue: dict | None = None,
     add_resid: Optional[list[str]] = None,
+    ncaa_resids: Optional[list[str]] = None,
+    ncaa_resnames: Optional[list[str]] = None,
     set_bonded: Optional[list[tuple[int, int]]] = None,
     donor_cutoff: float = 2.7,
     bond_policy: str = "auto",
@@ -189,6 +114,11 @@ def find_metal_site_core(
     metal_atom = target_residue["atoms"][0]
     metal_xyz = get_atom_xyz(metal_atom)
     manual_residues = [find_unique_residue(structure, selector) for selector in (add_resid or [])]
+    naa_residues: list[dict] = []
+    for selector in ncaa_resids or []:
+        residue = find_unique_residue(structure, selector, label="ncaa residue")
+        naa_residues.append(residue)
+    naa_keys = {get_resid_key(residue) for residue in naa_residues}
 
     auto_residues: list[dict] = []
     donor_atoms: dict[tuple[str, int, str], list[str]] = {}
@@ -221,11 +151,12 @@ def find_metal_site_core(
                 donor_residue, donor_atom = atom_by_serial[donor_serial]
             except KeyError as exc:
                 raise ValueError(f"set_bonded references unknown donor atom serial {donor_serial}.") from exc
-            typed_nonprotein = donor_residue.get("kind") in {"ligand", "cofactor"} and donor_residue.get("_cfmol2_path")
-            if donor_residue.get("kind") in {"ligand", "cofactor"} and not typed_nonprotein:
+            typed_nonprotein = donor_residue.get("kind") in {"ligand", "cofactor"} and donor_residue.get("_ligand_mol2")
+            declared_ncaa = get_resid_key(donor_residue) in naa_keys
+            if donor_residue.get("kind") in {"ligand", "cofactor"} and not typed_nonprotein and not declared_ncaa:
                 raise ValueError(
-                    f"Explicit non-protein metal donor {get_resid_label(donor_residue)} requires matching cfmol2 "
-                    "atom types."
+                    f"Explicit non-protein metal donor {get_resid_label(donor_residue)} requires typing; "
+                    "declare it via lig_resids (or ncaa_resids for non-standard amino acids)."
                 )
             donor_key = get_resid_key(donor_residue)
             donor_name_sets.setdefault(donor_key, set()).add(donor_atom["name"])
@@ -263,13 +194,14 @@ def find_metal_site_core(
                     donor_names.append(atom["name"])
             if donor_names:
                 donor_atoms[get_resid_key(residue)] = sorted(set(donor_names))
-                typed_nonprotein = residue["kind"] in {"ligand", "cofactor"} and residue.get("_cfmol2_path")
+                typed_nonprotein = residue["kind"] in {"ligand", "cofactor"} and residue.get("_ligand_mol2")
                 if residue["kind"] == "protein" or typed_nonprotein:
                     auto_residues.append(residue)
-                elif residue["kind"] in {"ligand", "cofactor"}:
+                elif residue["kind"] in {"ligand", "cofactor"} and get_resid_key(residue) not in naa_keys:
                     raise ValueError(
                         f"Non-protein metal donor {get_resid_label(residue)} was found within donor_cutoff, "
-                        "but no matching cfmol2 atom types were provided."
+                        "but has no typed parameters; declare it via lig_resids/lig_charges (or ncaa_resids "
+                        "for non-standard amino acids)."
                     )
 
     residues: list[dict] = [target_residue]
@@ -284,6 +216,18 @@ def find_metal_site_core(
         if key not in seen:
             residues.append(residue)
             seen.add(key)
+    for residue in sorted(naa_residues, key=residue_sort_key):
+        key = get_resid_key(residue)
+        if key not in seen:
+            residues.append(residue)
+            seen.add(key)
+
+    ncaa_rn_list = list(ncaa_resnames or [])
+    ncaa_resnames = {
+        get_resid_key(residue): ncaa_rn_list[index]
+        for index, residue in enumerate(naa_residues)
+        if index < len(ncaa_rn_list)
+    }
 
     warnings: list[str] = []
     for residue in manual_residues:
@@ -324,7 +268,15 @@ def find_metal_site_core(
         donor_atoms=donor_atoms,
         warnings=warnings,
         donor_cutoff=float(donor_cutoff),
+        ncaa_residues=tuple(naa_residues),
+        ncaa_resnames=ncaa_resnames,
     )
+
+
+def _split_entries(value) -> list[str]:
+    if isinstance(value, (list, tuple)):
+        return [str(token).strip() for token in value if str(token).strip()]
+    return [token.strip() for token in str(value).split(",") if token.strip()]
 
 
 def identify_metal_site_core(
@@ -337,12 +289,12 @@ def identify_metal_site_core(
     bond_policy: str = "auto",
 ) -> dict:
     structure = (
-        read_pdb(structure, keep_altloc=keep_altloc, altloc_selectors=[target, *add_resid.split()])
+        read_pdb(structure, keep_altloc=keep_altloc, altloc_selectors=[target, *_split_entries(add_resid)])
         if isinstance(structure, str)
         else structure
     )
     bonded_pairs = []
-    for token in set_bonded.replace(",", " ").split():
+    for token in _split_entries(set_bonded):
         parts = token.split("-")
         if len(parts) != 2:
             raise ValueError(f"Invalid set_bonded pair {token!r}; expected SERIAL-SERIAL.")
@@ -353,7 +305,7 @@ def identify_metal_site_core(
     return find_metal_site_core(
         structure,
         target=target,
-        add_resid=add_resid.split(),
+        add_resid=_split_entries(add_resid),
         set_bonded=bonded_pairs,
         donor_cutoff=donor_cutoff,
         bond_policy=bond_policy,
@@ -373,14 +325,14 @@ def extract_metal_cluster(
         raise ValueError(f"cluster_cutoff must be >= 0.0, got {cluster_cutoff}.")
 
     structure = (
-        read_pdb(structure, keep_altloc=keep_altloc, altloc_selectors=[target, *add_resid.split()])
+        read_pdb(structure, keep_altloc=keep_altloc, altloc_selectors=[target, *_split_entries(add_resid)])
         if isinstance(structure, str)
         else structure
     )
     core = find_metal_site_core(
         structure,
         target=target,
-        add_resid=add_resid.split(),
+        add_resid=_split_entries(add_resid),
         donor_cutoff=donor_cutoff,
         bond_policy=bond_policy,
     )

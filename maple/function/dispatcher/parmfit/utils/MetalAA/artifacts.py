@@ -13,7 +13,7 @@ import numpy as np
 from ..amber_templates import required_template_leaprcs
 from ..ionparams import infer_ion_frcmod_name
 from ..model import copy_structure_subset, flatten_model_atoms, infer_bond_pairs, rebuild_model_index, write_model_pdb
-from ..resp import lookup_standard_atom_entry, lookup_standard_residue_entry, write_resp_mol2
+from ..chgfit import lookup_standard_atom_entry, lookup_standard_residue_entry, write_resp_mol2
 from ..runtime import parmfit_output_dir
 from ..structure import copy_residue, get_resid_key, get_resid_label, residue_sort_key
 from .parameters import (
@@ -49,6 +49,8 @@ class MetalArtifacts:
     cofactor_frcmods: list[str] = field(default_factory=list)
     cofactor_frcmod_by_residue: dict[tuple[str, int, str], str] = field(default_factory=dict)
     tleap_lines: list[str] = field(default_factory=list)
+    ncaa_builds: dict = field(default_factory=dict)
+    lig_builds: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -73,12 +75,12 @@ class MetalSiteTyping:
     mol2_files: dict[str, str] = field(default_factory=dict)
     cofactor_frcmods: list[str] = field(default_factory=list)
     cofactor_frcmod_by_residue: dict[tuple[str, int, str], str] = field(default_factory=dict)
-    tleap_lines: list[str] = field(default_factory=list)
+    ncaa_frcmods: list[str] = field(default_factory=list)
     metal_formal_charge: int | None = None
     metal_fitted_charge: float | None = None
-    watm: str = "opc"
-    ionm: str = "12_6"
-    prom: str = "ff14SB"
+    wat_ff: str = "opc"
+    ion_ff: str = "12_6"
+    pro_ff: str = "ff14SB"
 
 
 def _output_paths(output: str) -> dict[str, str]:
@@ -239,18 +241,18 @@ def _lookup_reference_entry(
     *,
     name_to_atom: dict[str, dict],
     adjacency: dict[str, set[str]],
-    prom: str,
+    pro_ff: str,
 ) -> tuple[str, float] | None:
     resname = residue["resname"].upper()
     if resname == "ACE":
-        return lookup_standard_residue_entry(resname="ACE", atom_name=atom["name"], category="nterm", prom=prom)
+        return lookup_standard_residue_entry(resname="ACE", atom_name=atom["name"], category="nterm", pro_ff=pro_ff)
     if resname == "NME":
-        return lookup_standard_residue_entry(resname="NME", atom_name=atom["name"], category="cterm", prom=prom)
+        return lookup_standard_residue_entry(resname="NME", atom_name=atom["name"], category="cterm", pro_ff=pro_ff)
     if resname == "GLY" and residue.get("kind") != "protein":
-        return lookup_standard_residue_entry(resname="GLY", atom_name=atom["name"], category="internal", prom=prom)
+        return lookup_standard_residue_entry(resname="GLY", atom_name=atom["name"], category="internal", pro_ff=pro_ff)
 
     if residue.get("kind") != "protein":
-        return lookup_standard_atom_entry(residue, atom, prom=prom)
+        return lookup_standard_atom_entry(residue, atom, pro_ff=pro_ff)
 
     category = _protein_reference_category(residue)
     if category is None:
@@ -262,7 +264,7 @@ def _lookup_reference_entry(
             resname=residue_name,
             atom_name=atom["name"],
             category=category,
-            prom=prom,
+            pro_ff=pro_ff,
         )
         if entry is not None:
             return entry
@@ -285,20 +287,20 @@ def _lookup_reference_entry(
                     resname=residue_name,
                     atom_name=candidate_name,
                     category=category,
-                    prom=prom,
+                    pro_ff=pro_ff,
                 )
                 if entry is not None:
                     return entry
     return None
 
 
-def _resolve_old_type(residue: dict, atom: dict, *, watm: str, prom: str) -> str:
+def _resolve_old_type(residue: dict, atom: dict, *, wat_ff: str, pro_ff: str) -> str:
     explicit = str(atom.get("atom_type") or atom.get("amber_type") or "").strip()
     if explicit:
         return explicit
 
     name_to_atom, adjacency = _build_residue_adjacency(residue)
-    entry = _lookup_reference_entry(residue, atom, name_to_atom=name_to_atom, adjacency=adjacency, prom=prom)
+    entry = _lookup_reference_entry(residue, atom, name_to_atom=name_to_atom, adjacency=adjacency, pro_ff=pro_ff)
     if entry is not None and entry[0].strip():
         return entry[0].strip()
 
@@ -335,6 +337,7 @@ def _export_residue_code(residue: dict, counter: int) -> str:
 def _export_residue_names(
     site_model: dict,
     selected_names_by_key: dict[tuple[str, int, str], set[str]],
+    resname_overrides: dict[tuple[str, int, str], str] | None = None,
 ) -> dict[tuple[str, int, str], str]:
     counters: dict[str, int] = {}
     names: dict[tuple[str, int, str], str] = {}
@@ -345,17 +348,21 @@ def _export_residue_names(
         base = _canonical_export_resname(residue)
         counters[base] = counters.get(base, 0) + 1
         names[residue_key] = _export_residue_code(residue, counters[base])
+    for residue_key, resname in (resname_overrides or {}).items():
+        if residue_key in names:
+            names[residue_key] = resname
     return names
 
 
 def _build_site_typing(
     site_model: dict,
     *,
-    watm: str,
-    ionm: str,
-    prom: str = "ff14SB",
+    wat_ff: str,
+    ion_ff: str,
+    pro_ff: str = "ff14SB",
     cofactor_frcmods: list[str] | None = None,
     cofactor_frcmod_by_residue: dict[tuple[str, int, str], str] | None = None,
+    resname_overrides: dict[tuple[str, int, str], str] | None = None,
 ) -> MetalSiteTyping:
     flattened = flatten_model_atoms(site_model)
     donor_atoms = {key: set(names) for key, names in site_model.get("donor_atoms", {}).items()}
@@ -378,14 +385,14 @@ def _build_site_typing(
         donor_names = donor_atoms.get(residue_key)
         if donor_names:
             selected_names_by_key[residue_key] = {name for name in donor_names}
-    residue_names = _export_residue_names(site_model, selected_names_by_key)
+    residue_names = _export_residue_names(site_model, selected_names_by_key, resname_overrides)
 
     metal_index = 0
     site_index = 0
     metal_formal_charge: int | None = None
     metal_fitted_charge = 0.0
     for atom_index, (residue, atom) in enumerate(flattened, start=1):
-        old_type = _resolve_old_type(residue, atom, watm=watm, prom=prom)
+        old_type = _resolve_old_type(residue, atom, wat_ff=wat_ff, pro_ff=pro_ff)
         old_type_by_index[atom_index] = old_type
         mol2_atom_types[atom_index] = old_type
         used_types.add(old_type)
@@ -397,7 +404,7 @@ def _build_site_typing(
         renamed_atom_indices.add(atom_index)
         if residue.get("kind") == "ion":
             new_type, metal_index = _allocate_local_type(used_types, ("M",), metal_index)
-            frcmod_name = infer_ion_frcmod_name(watm=watm, ionm=ionm, residue=residue)
+            frcmod_name = infer_ion_frcmod_name(wat_ff=wat_ff, ion_ff=ion_ff, residue=residue)
             if "formal_charge" in residue:
                 metal_formal_charge = int(residue["formal_charge"])
             metal_fitted_charge += float(atom.get("charge", 0.0))
@@ -430,9 +437,9 @@ def _build_site_typing(
         residue_names=residue_names,
         metal_formal_charge=metal_formal_charge,
         metal_fitted_charge=metal_fitted_charge if metal_index else None,
-        watm=watm,
-        ionm=ionm,
-        prom=prom,
+        wat_ff=wat_ff,
+        ion_ff=ion_ff,
+        pro_ff=pro_ff,
         cofactor_frcmods=list(cofactor_frcmods or []),
         cofactor_frcmod_by_residue=dict(cofactor_frcmod_by_residue or {}),
     )
@@ -492,7 +499,7 @@ def _bond_pairs_from_names(
             left_index = index_by_name[left_name]
             right_index = index_by_name[right_name]
         except KeyError as exc:
-            raise ValueError(f"{label} cfmol2 bond references unknown atom {exc.args[0]!r}.") from exc
+            raise ValueError(f"{label} ligand bond references unknown atom {exc.args[0]!r}.") from exc
         pairs.add(tuple(sorted((left_index, right_index))))
     return sorted(pairs)
 
@@ -504,13 +511,13 @@ def _export_bond_pairs(site_model: dict) -> list[tuple[int, int]]:
     pairs: set[tuple[int, int]] = set()
     typed_cofactor_atom_indices: set[int] = set()
     for residue in site_model["residues"]:
-        if residue.get("_cfmol2_bond_name_pairs"):
+        if residue.get("_ligand_bond_pairs"):
             residue_key = get_resid_key(residue)
             index_by_name = {atom["name"]: atom_index for atom_index, atom in entries_by_residue[residue_key]}
             typed_cofactor_atom_indices.update(atom_index for atom_index, _atom in entries_by_residue[residue_key])
             pairs.update(
                 _bond_pairs_from_names(
-                    residue["_cfmol2_bond_name_pairs"],
+                    residue["_ligand_bond_pairs"],
                     index_by_name,
                     label=get_resid_label(residue),
                 )
@@ -724,8 +731,8 @@ def _ion_lookup_by_index(
         if residue.get("kind") != "ion" or atom_index not in site_typing.renamed_atom_indices:
             continue
         frcmod_name, _amber_type, mass, nonbond = lookup_ion_lj_from_frcmod(
-            watm=site_typing.watm,
-            ionm=site_typing.ionm,
+            wat_ff=site_typing.wat_ff,
+            ion_ff=site_typing.ion_ff,
             residue=residue,
         )
         lookup[atom_index] = (frcmod_name, mass, nonbond)
@@ -794,11 +801,16 @@ def _same_residue_reference_params(
     if len(residue_keys) != 1:
         return None
     residue = residues[0]
+    residue_key = get_resid_key(residue)
+    if residue_key in cofactor_params_by_residue:
+        # Declared NCAA residues carry their own built parameters even when the
+        # residue classifies as protein.
+        return cofactor_params_by_residue[residue_key]
     kind = residue.get("kind")
     if kind == "protein":
         return protein_params
     if kind in {"cofactor", "ligand"}:
-        return cofactor_params_by_residue.get(get_resid_key(residue))
+        return cofactor_params_by_residue.get(residue_key)
     return None
 
 
@@ -822,8 +834,8 @@ def _write_frcmod(path: str, site_model: dict, bond_terms, angle_terms, site_typ
         site_typing.cofactor_frcmod_by_residue
         or _default_cofactor_frcmod_by_residue(site_model, site_typing.cofactor_frcmods)
     )
-    system_reference_params = _copy_parameter_db(load_parameters(site_typing.prom, site_typing.watm))
-    protein_params = load_parameters(site_typing.prom)
+    system_reference_params = _copy_parameter_db(load_parameters(site_typing.pro_ff, site_typing.wat_ff))
+    protein_params = load_parameters(site_typing.pro_ff)
     _merge_parameter_db(system_reference_params, cofactor_params)
     metal_indices = _metal_atom_indices(flattened)
     ion_lookup = _ion_lookup_by_index(flattened, site_typing)
@@ -1149,17 +1161,17 @@ def _write_residue_mol2_files(
             start=1,
         ):
             atom_type_overrides[local_index] = site_typing.mol2_atom_types[global_index]
-        if export_residue.get("_cfmol2_bond_name_pairs"):
+        if export_residue.get("_ligand_bond_pairs"):
             index_by_name = {atom["name"]: atom_index for atom_index, atom in enumerate(export_atoms, start=1)}
             bond_pairs = _bond_pairs_from_names(
-                export_residue["_cfmol2_bond_name_pairs"],
+                export_residue["_ligand_bond_pairs"],
                 index_by_name,
                 label=get_resid_label(residue),
             )
         else:
             bond_pairs = infer_bond_pairs(local_model, source_structure=site_model)
         path = os.path.join(output_dir, f"{new_name}.mol2")
-        write_resp_mol2(path, local_model, bond_pairs, atom_type_overrides=atom_type_overrides, prom=site_typing.prom)
+        write_resp_mol2(path, local_model, bond_pairs, atom_type_overrides=atom_type_overrides, pro_ff=site_typing.pro_ff)
         mol2_files[new_name] = path
     artifacts.mol2_files.clear()
     artifacts.mol2_files.update(mol2_files)
@@ -1266,16 +1278,16 @@ def _build_tleap_lines(
     site_model: dict,
     structure: dict,
     site_typing: MetalSiteTyping,
-    watm: str,
+    wat_ff: str,
     resid_by_key: dict[tuple[str, int, str], int],
-    prom: str = "ff14SB",
+    pro_ff: str = "ff14SB",
 ) -> list[str]:
     lines: list[str] = [
-        f"source leaprc.protein.{prom}\n",
+        f"source leaprc.protein.{pro_ff}\n",
         "source leaprc.gaff2\n",
-        f"source leaprc.water.{watm}\n",
+        f"source leaprc.water.{wat_ff}\n",
     ]
-    lines[1:1] = [f"source {leaprc}\n" for leaprc in required_template_leaprcs(structure["residues"], prom)]
+    lines[1:1] = [f"source {leaprc}\n" for leaprc in required_template_leaprcs(structure["residues"], pro_ff)]
     lines.append("addAtomTypes {\n")
     for row in site_typing.atom_type_rows:
         element = row.element[:1].upper() + row.element[1:].lower()
@@ -1284,6 +1296,8 @@ def _build_tleap_lines(
     for name in site_typing.mol2_files:
         lines.append(f"{name} = loadmol2 {os.path.basename(site_typing.mol2_files[name])}\n")
     for frcmod in site_typing.ion_frcmods:
+        lines.append(f"loadamberparams {frcmod}\n")
+    for frcmod in site_typing.ncaa_frcmods:
         lines.append(f"loadamberparams {frcmod}\n")
     lines.append(f"loadamberparams {os.path.basename(artifacts.files['frcmod'])}\n")
     external_residues = [
@@ -1301,7 +1315,7 @@ def _build_tleap_lines(
     base = os.path.splitext(os.path.basename(artifacts.files["tleap_input"]))[0]
     lines.append(f"savepdb mol {base}_dry.pdb\n")
     lines.append(f"saveamberparm mol {base}_dry.prmtop {base}_dry.inpcrd\n")
-    lines.append(f"solvatebox mol {'SPCBOX' if watm == 'spce' else watm.upper() + 'BOX'} 10.0\n")
+    lines.append(f"solvatebox mol {'SPCBOX' if wat_ff == 'spce' else wat_ff.upper() + 'BOX'} 10.0\n")
     lines.append("addions mol Na+ 0\n")
     lines.append("addions mol Cl- 0\n")
     lines.append(f"savepdb mol {base}_solvated.pdb\n")
@@ -1309,8 +1323,6 @@ def _build_tleap_lines(
     lines.append("quit\n")
     artifacts.tleap_lines.clear()
     artifacts.tleap_lines.extend(lines)
-    site_typing.tleap_lines.clear()
-    site_typing.tleap_lines.extend(lines)
     return lines
 
 
@@ -1330,11 +1342,12 @@ def write_site_model_files(
     *,
     structure: dict,
     site_model: dict,
-    watm: str,
-    ionm: str,
-    prom: str = "ff14SB",
+    wat_ff: str,
+    ion_ff: str,
+    pro_ff: str = "ff14SB",
     cofactor_frcmods: list[str] | None = None,
     cofactor_frcmod_by_residue: dict[tuple[str, int, str], str] | None = None,
+    resname_overrides: dict[tuple[str, int, str], str] | None = None,
 ) -> tuple[str, str, MetalSiteTyping]:
     write_model_pdb(artifacts.files["site_pdb"], site_model)
     if cofactor_frcmods is not None:
@@ -1346,19 +1359,44 @@ def write_site_model_files(
         artifacts.cofactor_frcmod_by_residue.update(cofactor_frcmod_by_residue)
     site_typing = _build_site_typing(
         site_model,
-        watm=watm,
-        ionm=ionm,
-        prom=prom,
+        wat_ff=wat_ff,
+        ion_ff=ion_ff,
+        pro_ff=pro_ff,
         cofactor_frcmods=artifacts.cofactor_frcmods,
         cofactor_frcmod_by_residue=artifacts.cofactor_frcmod_by_residue,
+        resname_overrides=resname_overrides,
     )
+    # Fold declared-but-non-coordinating NCAA residues into the tleap export: they are
+    # not part of the site model, so their built mol2/frcmod are emitted alongside it.
+    site_residue_keys = {get_resid_key(residue) for residue in site_model["residues"]}
+    output_dir = os.path.dirname(artifacts.files["frcmod"])
+    folded_builds = {**artifacts.ncaa_builds, **artifacts.lig_builds}
+    for residue_key, build in folded_builds.items():
+        if residue_key in site_residue_keys:
+            continue
+        residue = next((item for item in structure["residues"] if get_resid_key(item) == residue_key), None)
+        if residue is None:
+            continue
+        export_residue = copy_residue(residue, resname=build["rn"])
+        for atom in export_residue["atoms"]:
+            if atom["name"] in build["atom_types"]:
+                atom["atom_type"] = build["atom_types"][atom["name"]]
+            if atom["name"] in build["atom_charges"]:
+                atom["charge"] = float(build["atom_charges"][atom["name"]])
+        fold_model = {"name": "ncaa_folded", "target_key": residue_key, "residues": [export_residue]}
+        mol2_path = os.path.join(output_dir, f"{build['rn']}.mol2")
+        write_resp_mol2(mol2_path, fold_model, infer_bond_pairs(fold_model))
+        site_typing.mol2_files[build["rn"]] = mol2_path
+        site_typing.residue_names[residue_key] = build["rn"]
+        site_typing.ncaa_frcmods.append(build["frcmod_path"])
+
     site_bond_pairs = _export_bond_pairs(site_model)
     write_resp_mol2(
         artifacts.files["mol2"],
         site_model,
         site_bond_pairs,
         atom_type_overrides=site_typing.mol2_atom_types,
-        prom=prom,
+        pro_ff=pro_ff,
     )
     _write_residue_mol2_files(artifacts, site_model=site_model, site_typing=site_typing)
     resid_by_key = _write_tleap_pdb(artifacts.files["tleap_pdb"], structure, site_typing)
@@ -1367,9 +1405,9 @@ def write_site_model_files(
         site_model=site_model,
         structure=structure,
         site_typing=site_typing,
-        watm=watm,
+        wat_ff=wat_ff,
         resid_by_key=resid_by_key,
-        prom=prom,
+        pro_ff=pro_ff,
     )
     with open(artifacts.files["tleap_input"], "w", encoding="utf-8") as handle:
         handle.writelines(tleap_lines)

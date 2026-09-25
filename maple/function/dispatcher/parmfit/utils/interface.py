@@ -39,8 +39,8 @@ class RespConfig:
     qm: QMMethod
     chgmod: int = 1
     fixchg_resids: list[str] = field(default_factory=list)
-    watm: str | None = None
-    prom: str = "ff14SB"
+    wat_ff: str | None = None
+    pro_ff: str = "ff14SB"
 
 
 @dataclass(frozen=True)
@@ -116,11 +116,11 @@ def prepare_gaussian_esp_input(
     multiplicity: int,
     decision: QMMethod,
     title: str = "MAPLE RESP",
-    watm: str | None = None,
+    wat_ff: str | None = None,
     wfn_path: str | os.PathLike[str] | None = None,
 ) -> str:
     atoms_flat = [atom for residue in model["residues"] for atom in sorted(residue["atoms"], key=lambda item: item["serial"])]
-    radii_entries = collect_gaussian_readradii_entries(model, watm=watm)
+    radii_entries = collect_gaussian_readradii_entries(model, wat_ff=wat_ff)
     chk_name = Path(path).with_suffix(".chk").name
     with open(path, "w", encoding="utf-8") as handle:
         if wfn_path is not None:
@@ -345,6 +345,9 @@ def run_parmchk2(input_file, cfg, ifmol2, workdir):
     rc, _, err = _run_cmd(cmd, cwd=workdir)
     if rc != 0:
         raise RuntimeError(f"parmchk2 failed:\n{err}")
+    scratch = os.path.join(workdir, "ANTECHAMBER.FRCMOD")
+    if os.path.isfile(scratch):
+        os.remove(scratch)
     return Parmchk2Result(
         frcmod_path=os.path.join(workdir, out),
         input_path=_result_path(input_file, workdir),
@@ -528,13 +531,13 @@ def patch_frcmod_crossterms(frcmod_path):
 
 
 def write_refined_frcmod(
-    parameter_set: CorrectionParameterSet,
+    paramset: CorrectionParameterSet,
     frcmod_path: str,
     *,
     mass_params: dict[str, float],
     remark: str = "REMARK MAPLE refined frcmod",
 ) -> str:
-    _validate_refined_frcmod_inputs(parameter_set, mass_params)
+    _validate_refined_frcmod_inputs(paramset, mass_params)
 
     bond_params: dict[tuple[str, str], tuple[float, float]] = {}
     angle_params: dict[tuple[str, str, str], tuple[float, float]] = {}
@@ -542,33 +545,33 @@ def write_refined_frcmod(
     improper_params: dict[tuple[str, str, str, str], list] = {}
     nonbond_params: dict[str, tuple[float, float]] = {}
 
-    for bond in parameter_set.bonds:
+    for bond in paramset.bonds:
         if bond.kBond is None or bond.rEq is None:
             continue
         reverse = (bond.atom_types[1], bond.atom_types[0])
         key = bond.atom_types if bond.atom_types <= reverse else reverse
         bond_params[key] = (float(bond.kBond), float(bond.rEq))
 
-    for angle in parameter_set.angles:
+    for angle in paramset.angles:
         if angle.kTheta is None or angle.thetaEq is None:
             continue
         reverse = (angle.atom_types[2], angle.atom_types[1], angle.atom_types[0])
         key = angle.atom_types if angle.atom_types <= reverse else reverse
         angle_params[key] = (float(angle.kTheta), float(angle.thetaEq))
 
-    for dihedral in parameter_set.dihedrals:
+    for dihedral in paramset.dihedrals:
         if not dihedral.terms:
             continue
         reverse = tuple(reversed(dihedral.atom_types))
         key = dihedral.atom_types if dihedral.atom_types <= reverse else reverse
         dihedral_params[key] = list(dihedral.terms)
 
-    for improper in parameter_set.impropers:
+    for improper in paramset.impropers:
         if not improper.terms:
             continue
         improper_params[improper.atom_types] = list(improper.terms)
 
-    for nonbond in parameter_set.nonbonds:
+    for nonbond in paramset.nonbonds:
         if nonbond.rmin_half is None or nonbond.epsilon is None:
             continue
         nonbond_params[nonbond.atom_type] = (float(nonbond.rmin_half), float(nonbond.epsilon))
@@ -618,10 +621,10 @@ def write_refined_frcmod(
 
 
 def _validate_refined_frcmod_inputs(
-    parameter_set: CorrectionParameterSet,
+    paramset: CorrectionParameterSet,
     mass_params: dict[str, float],
 ) -> None:
-    for nonbond in parameter_set.nonbonds:
+    for nonbond in paramset.nonbonds:
         if nonbond.atom_type not in mass_params:
             raise ValueError(f"Cannot write refined frcmod MASS for atom type {nonbond.atom_type!r}.")
         if nonbond.rmin_half is None or nonbond.epsilon is None:
@@ -630,23 +633,23 @@ def _validate_refined_frcmod_inputs(
                 "missing rmin_half/epsilon."
             )
 
-    for bond in parameter_set.bonds:
+    for bond in paramset.bonds:
         if bond.kBond is None or bond.rEq is None:
             raise ValueError(f"Cannot write refined frcmod BOND {'-'.join(map(str, bond.atoms))}: missing kBond/rEq.")
 
-    for angle in parameter_set.angles:
+    for angle in paramset.angles:
         if angle.kTheta is None or angle.thetaEq is None:
             raise ValueError(
                 f"Cannot write refined frcmod ANGLE {'-'.join(map(str, angle.atoms))}: missing kTheta/thetaEq."
             )
 
-    for dihedral in parameter_set.dihedrals:
+    for dihedral in paramset.dihedrals:
         if not dihedral.terms:
             raise ValueError(
                 f"Cannot write refined frcmod DIHE {'-'.join(map(str, dihedral.atoms))}: missing torsion terms."
             )
 
-    for improper in parameter_set.impropers:
+    for improper in paramset.impropers:
         if not improper.terms:
             raise ValueError(
                 f"Cannot write refined frcmod IMPROPER {'-'.join(map(str, improper.atoms))}: missing torsion terms."

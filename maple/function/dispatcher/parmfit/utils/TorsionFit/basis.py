@@ -7,13 +7,14 @@ from collections import OrderedDict, defaultdict
 import numpy as np
 
 from ..mechanics import build_mm_topology_cache, dihedral_radians, evaluate_mm_energy
-from ..readparm import CorrectionParameterSet
+from ..readparm import CorrectionParameterSet, Improper
 from .topology import (
-    _center_bond_dihedral_indices,
+    _bond_type_map,
+    _torsion_bond_dihedral_indices,
     _validate_fit_targets,
     canonical_torsion_atom_types,
-    center_bond_dihedrals,
-    normalize_center_bond,
+    torsion_bond_dihedrals,
+    normalize_torsion_bond,
 )
 from .records import TorsionGlobalProblem, TorsionLocalProblem, TorsionScanData, TorsionSharedGroupSpec
 from .config import TORSIONFIT_CANONICAL_PERIODS, TorsionFitParams
@@ -218,24 +219,14 @@ def _environment_atom_type(atom_type: str) -> str:
     return "H" if value.startswith("h") else value
 
 
-def _bond_type_map(parameter_set: CorrectionParameterSet) -> dict[tuple[int, int], str]:
-    # Keyed by sequential atom index, matching mol2.adjacency and the dihedral atom
-    # tuples these maps are looked up with; mol2 atom ids are a separate space.
-    id_to_index = parameter_set.mol2.id_to_index
-    return {
-        normalize_center_bond((id_to_index[bond.atom1], id_to_index[bond.atom2])): str(bond.bond_type).strip().lower()
-        for bond in parameter_set.mol2.bonds
-    }
-
-
 def _torsion_atom_environment(
-    parameter_set: CorrectionParameterSet,
+    paramset: CorrectionParameterSet,
     bond_types: dict[tuple[int, int], str],
     atom_types: dict[int, str],
     atom: int,
     excluded_atoms: set[int],
 ) -> tuple[tuple[str, str], ...]:
-    neighbors = parameter_set.mol2.adjacency.get(int(atom), set())
+    neighbors = paramset.mol2.adjacency.get(int(atom), set())
     environment: list[tuple[str, str]] = []
     for neighbor in neighbors:
         neighbor = int(neighbor)
@@ -244,52 +235,52 @@ def _torsion_atom_environment(
         environment.append(
             (
                 _environment_atom_type(atom_types[neighbor]),
-                bond_types.get(normalize_center_bond((int(atom), neighbor)), ""),
+                bond_types.get(normalize_torsion_bond((int(atom), neighbor)), ""),
             )
         )
     return tuple(sorted(environment))
 
 
 def _directed_torsion_environment_key(
-    parameter_set: CorrectionParameterSet,
+    paramset: CorrectionParameterSet,
     bond_types: dict[tuple[int, int], str],
     atom_types: dict[int, str],
     atoms: tuple[int, int, int, int],
 ) -> tuple[tuple[tuple[str, str], ...], ...]:
     atom_a, atom_b, atom_c, atom_d = (int(atom) for atom in atoms)
     return (
-        _torsion_atom_environment(parameter_set, bond_types, atom_types, atom_a, {atom_b}),
-        _torsion_atom_environment(parameter_set, bond_types, atom_types, atom_b, {atom_a, atom_c}),
-        _torsion_atom_environment(parameter_set, bond_types, atom_types, atom_c, {atom_b, atom_d}),
-        _torsion_atom_environment(parameter_set, bond_types, atom_types, atom_d, {atom_c}),
+        _torsion_atom_environment(paramset, bond_types, atom_types, atom_a, {atom_b}),
+        _torsion_atom_environment(paramset, bond_types, atom_types, atom_b, {atom_a, atom_c}),
+        _torsion_atom_environment(paramset, bond_types, atom_types, atom_c, {atom_b, atom_d}),
+        _torsion_atom_environment(paramset, bond_types, atom_types, atom_d, {atom_c}),
     )
 
 
 def _torsion_environment_key(
-    parameter_set: CorrectionParameterSet,
+    paramset: CorrectionParameterSet,
     bond_types: dict[tuple[int, int], str],
     atom_types: dict[int, str],
     atoms: tuple[int, int, int, int],
 ) -> tuple[tuple[tuple[str, str], ...], ...]:
-    forward = _directed_torsion_environment_key(parameter_set, bond_types, atom_types, atoms)
-    reverse = _directed_torsion_environment_key(parameter_set, bond_types, atom_types, tuple(reversed(atoms)))
+    forward = _directed_torsion_environment_key(paramset, bond_types, atom_types, atoms)
+    reverse = _directed_torsion_environment_key(paramset, bond_types, atom_types, tuple(reversed(atoms)))
     return forward if forward <= reverse else reverse
 
 
-def _group_center_bond_dihedrals(
+def _group_torsion_bond_dihedrals(
     dihedrals,
     *,
-    parameter_set: CorrectionParameterSet,
+    paramset: CorrectionParameterSet,
     preserve_distinct_template_k: bool = False,
 ) -> tuple[TorsionSharedGroupSpec, ...]:
-    bond_types = _bond_type_map(parameter_set)
+    bond_types = _bond_type_map(paramset)
     environment_atom_types = {
-        index: str(mol2_atom.atom_type) for index, mol2_atom in enumerate(parameter_set.mol2.atoms, start=1)
+        index: str(mol2_atom.atom_type) for index, mol2_atom in enumerate(paramset.mol2.atoms, start=1)
     }
     grouped: "OrderedDict[object, list[tuple[int, object]]]" = OrderedDict()
     for local_index, dihedral in enumerate(dihedrals):
         atom_types = canonical_torsion_atom_types(dihedral.atom_types)
-        environment_key = _torsion_environment_key(parameter_set, bond_types, environment_atom_types, dihedral.atoms)
+        environment_key = _torsion_environment_key(paramset, bond_types, environment_atom_types, dihedral.atoms)
         key = (atom_types, environment_key)
         if preserve_distinct_template_k:
             key = (atom_types, environment_key, _template_slot_signature(dihedral))
@@ -378,13 +369,13 @@ def _group_slot_initial_values(dihedrals, group_specs: tuple[TorsionSharedGroupS
 
 def _global_basis_matrix(
     scan_data: TorsionScanData,
-    parameter_set: CorrectionParameterSet,
+    paramset: CorrectionParameterSet,
     term_paths: tuple[tuple[int, int], ...],
 ) -> np.ndarray:
     n_points = len(scan_data.frames)
     n_terms = len(term_paths)
     basis = np.zeros((n_points, n_terms), dtype=float)
-    dihedrals = parameter_set.dihedrals
+    dihedrals = paramset.dihedrals
 
     for point_index, atoms in enumerate(scan_data.frames):
         positions = atoms.get_positions()
@@ -419,43 +410,43 @@ class _MMProfileCache:
 
     def __init__(
         self,
-        reference_parameter_set: CorrectionParameterSet,
-        center_bonds,
+        reference_paramset: CorrectionParameterSet,
+        torsion_bonds,
         scan_map: dict[tuple[int, int], TorsionScanData],
         topology_cache=None,
     ) -> None:
-        self.center_bonds = tuple(normalize_center_bond(center_bond) for center_bond in center_bonds)
+        self.torsion_bonds = tuple(normalize_torsion_bond(torsion_bond) for torsion_bond in torsion_bonds)
         self.scan_map = {
-            normalize_center_bond(center_bond): scan_data
-            for center_bond, scan_data in scan_map.items()
+            normalize_torsion_bond(torsion_bond): scan_data
+            for torsion_bond, scan_data in scan_map.items()
         }
         self.dihedral_indices_by_center: dict[tuple[int, int], tuple[int, ...]] = {}
-        for center_bond in self.center_bonds:
-            indices = tuple(_center_bond_dihedral_indices(reference_parameter_set, center_bond))
+        for torsion_bond in self.torsion_bonds:
+            indices = tuple(_torsion_bond_dihedral_indices(reference_paramset, torsion_bond))
             if not indices:
-                raise ValueError(f"No proper torsions were found for center bond {center_bond}.")
-            self.dihedral_indices_by_center[center_bond] = indices
+                raise ValueError(f"No proper torsions were found for torsion bond {torsion_bond}.")
+            self.dihedral_indices_by_center[torsion_bond] = indices
 
         tracked_dihedral_indices = tuple(
             sorted({index for indices in self.dihedral_indices_by_center.values() for index in indices})
         )
-        cache = topology_cache if topology_cache is not None else build_mm_topology_cache(reference_parameter_set)
+        cache = topology_cache if topology_cache is not None else build_mm_topology_cache(reference_paramset)
         self._ref_idx_by_scan: dict[tuple[int, int], int] = {}
         self._base_total_by_scan: dict[tuple[int, int], np.ndarray] = {}
         self._phi_by_scan: dict[tuple[int, int], dict[int, np.ndarray]] = {}
 
-        for scan_center in self.center_bonds:
+        for scan_center in self.torsion_bonds:
             if scan_center not in self.scan_map:
-                raise ValueError(f"No fixed scan data was supplied for center bond {scan_center}.")
+                raise ValueError(f"No fixed scan data was supplied for torsion bond {scan_center}.")
             scan_data = self.scan_map[scan_center]
             self._ref_idx_by_scan[scan_center] = int(scan_data.ref_idx)
             full_total = np.asarray(
-                [evaluate_mm_energy(atoms, reference_parameter_set, topology_cache=cache).total for atoms in scan_data.frames],
+                [evaluate_mm_energy(atoms, reference_paramset, topology_cache=cache).total for atoms in scan_data.frames],
                 dtype=float,
             )
             phi_by_dihedral: dict[int, np.ndarray] = {}
             for dihedral_index in tracked_dihedral_indices:
-                dihedral = reference_parameter_set.dihedrals[int(dihedral_index)]
+                dihedral = reference_paramset.dihedrals[int(dihedral_index)]
                 phi_by_dihedral[int(dihedral_index)] = np.asarray(
                     [
                         dihedral_radians(atoms.get_positions(), *dihedral.atoms)
@@ -465,8 +456,8 @@ class _MMProfileCache:
                 )
             self._phi_by_scan[scan_center] = phi_by_dihedral
             fitted_torsion_total = np.zeros(len(scan_data.frames), dtype=float)
-            for target_center in self.center_bonds:
-                fitted_torsion_total += self._center_torsion_total(reference_parameter_set, scan_center, target_center)
+            for target_center in self.torsion_bonds:
+                fitted_torsion_total += self._center_torsion_total(reference_paramset, scan_center, target_center)
             self._base_total_by_scan[scan_center] = full_total - fitted_torsion_total
 
     def _relative(self, scan_center: tuple[int, int], total_values: np.ndarray) -> np.ndarray:
@@ -475,21 +466,21 @@ class _MMProfileCache:
 
     def _center_torsion_total(
         self,
-        parameter_set: CorrectionParameterSet,
+        paramset: CorrectionParameterSet,
         scan_center: tuple[int, int],
         target_center: tuple[int, int],
     ) -> np.ndarray:
-        scan_center = normalize_center_bond(scan_center)
-        target_center = normalize_center_bond(target_center)
+        scan_center = normalize_torsion_bond(scan_center)
+        target_center = normalize_torsion_bond(target_center)
         if scan_center not in self._phi_by_scan:
-            raise ValueError(f"No cached scan profile for center bond {scan_center}.")
+            raise ValueError(f"No cached scan profile for torsion bond {scan_center}.")
         if target_center not in self.dihedral_indices_by_center:
-            raise ValueError(f"No cached torsion profile for center bond {target_center}.")
+            raise ValueError(f"No cached torsion profile for torsion bond {target_center}.")
         n_points = len(self.scan_map[scan_center].frames)
         torsion_total = np.zeros(n_points, dtype=float)
         phi_by_dihedral = self._phi_by_scan[scan_center]
         for dihedral_index in self.dihedral_indices_by_center[target_center]:
-            dihedral = parameter_set.dihedrals[int(dihedral_index)]
+            dihedral = paramset.dihedrals[int(dihedral_index)]
             phi_values = phi_by_dihedral[int(dihedral_index)]
             for term in dihedral.terms:
                 torsion_total += float(term.kPhi) * (
@@ -499,35 +490,35 @@ class _MMProfileCache:
 
     def center_torsion_rel(
         self,
-        parameter_set: CorrectionParameterSet,
+        paramset: CorrectionParameterSet,
         scan_center: tuple[int, int],
         target_center: tuple[int, int],
     ) -> np.ndarray:
-        scan_center = normalize_center_bond(scan_center)
-        return self._relative(scan_center, self._center_torsion_total(parameter_set, scan_center, target_center))
+        scan_center = normalize_torsion_bond(scan_center)
+        return self._relative(scan_center, self._center_torsion_total(paramset, scan_center, target_center))
 
-    def full_total(self, parameter_set: CorrectionParameterSet, scan_center: tuple[int, int]) -> np.ndarray:
-        scan_center = normalize_center_bond(scan_center)
+    def full_total(self, paramset: CorrectionParameterSet, scan_center: tuple[int, int]) -> np.ndarray:
+        scan_center = normalize_torsion_bond(scan_center)
         if scan_center not in self._base_total_by_scan:
-            raise ValueError(f"No cached scan profile for center bond {scan_center}.")
+            raise ValueError(f"No cached scan profile for torsion bond {scan_center}.")
         total = np.asarray(self._base_total_by_scan[scan_center], dtype=float).copy()
-        for target_center in self.center_bonds:
-            total += self._center_torsion_total(parameter_set, scan_center, target_center)
+        for target_center in self.torsion_bonds:
+            total += self._center_torsion_total(paramset, scan_center, target_center)
         return total
 
-    def full_rel(self, parameter_set: CorrectionParameterSet, scan_center: tuple[int, int]) -> np.ndarray:
-        scan_center = normalize_center_bond(scan_center)
-        return self._relative(scan_center, self.full_total(parameter_set, scan_center))
+    def full_rel(self, paramset: CorrectionParameterSet, scan_center: tuple[int, int]) -> np.ndarray:
+        scan_center = normalize_torsion_bond(scan_center)
+        return self._relative(scan_center, self.full_total(paramset, scan_center))
 
     def center_zeroed_rel(
         self,
-        parameter_set: CorrectionParameterSet,
+        paramset: CorrectionParameterSet,
         scan_center: tuple[int, int],
         target_center: tuple[int, int],
     ) -> np.ndarray:
-        scan_center = normalize_center_bond(scan_center)
-        zeroed_total = self.full_total(parameter_set, scan_center) - self._center_torsion_total(
-            parameter_set,
+        scan_center = normalize_torsion_bond(scan_center)
+        zeroed_total = self.full_total(paramset, scan_center) - self._center_torsion_total(
+            paramset,
             scan_center,
             target_center,
         )
@@ -536,25 +527,25 @@ class _MMProfileCache:
 
 def build_local_torsion_problem(
     scan_data: TorsionScanData,
-    parameter_set: CorrectionParameterSet,
-    center_bond: tuple[int, int],
+    paramset: CorrectionParameterSet,
+    torsion_bond: tuple[int, int],
     topology_cache=None,
     *,
     mm_base_rel_override: np.ndarray | None = None,
     stage0_mm_rel_override: np.ndarray | None = None,
 ) -> TorsionLocalProblem:
-    cache = topology_cache if topology_cache is not None else build_mm_topology_cache(parameter_set)
-    center = normalize_center_bond(center_bond)
-    target_dihedrals = center_bond_dihedrals(parameter_set, center, topology_cache=cache)
-    if not target_dihedrals:
-        raise ValueError(f"No proper dihedrals found for center bond {center}.")
+    cache = topology_cache if topology_cache is not None else build_mm_topology_cache(paramset)
+    center = normalize_torsion_bond(torsion_bond)
+    target_instances = torsion_bond_dihedrals(paramset, center, topology_cache=cache)
+    if not target_instances:
+        raise ValueError(f"No proper dihedrals found for torsion bond {center}.")
 
-    _validate_fit_targets(target_dihedrals)
-    shared_groups = _group_center_bond_dihedrals(target_dihedrals, parameter_set=parameter_set)
-    cos_basis, sin_basis = _group_slot_coefficient_basis(scan_data, target_dihedrals, shared_groups)
+    _validate_fit_targets(target_instances)
+    shared_groups = _group_torsion_bond_dihedrals(target_instances, paramset=paramset)
+    cos_basis, sin_basis = _group_slot_coefficient_basis(scan_data, target_instances, shared_groups)
     phase_orig = np.asarray([phase for group in shared_groups for phase in group.slot_phases], dtype=float)
     basis = (cos_basis * np.cos(phase_orig)[np.newaxis, :]) + (sin_basis * np.sin(phase_orig)[np.newaxis, :])
-    representative_dihedral = target_dihedrals[0].atoms
+    representative_dihedral = target_instances[0].atoms
     qm_rel = np.asarray(scan_data.qm_rel, dtype=float).copy()
 
     if mm_base_rel_override is None:
@@ -562,9 +553,9 @@ def build_local_torsion_problem(
             [
                 evaluate_mm_energy(
                     atoms,
-                    parameter_set,
+                    paramset,
                     topology_cache=cache,
-                    zero_proper_center_bond=center,
+                    zero_proper_torsion_bond=center,
                 ).total
                 for atoms in scan_data.frames
             ],
@@ -574,21 +565,21 @@ def build_local_torsion_problem(
     else:
         mm_base_rel = np.asarray(mm_base_rel_override, dtype=float).copy()
         if mm_base_rel.shape != qm_rel.shape:
-            raise ValueError(f"MM base relative profile for center bond {center} must match qm_rel shape.")
+            raise ValueError(f"MM base relative profile for torsion bond {center} must match qm_rel shape.")
     if stage0_mm_rel_override is None:
-        orig_mm_rel = mm_base_rel + _center_torsion_relative_profile(scan_data, target_dihedrals)
+        orig_mm_rel = mm_base_rel + _center_torsion_relative_profile(scan_data, target_instances)
     else:
         orig_mm_rel = np.asarray(stage0_mm_rel_override, dtype=float).copy()
         if orig_mm_rel.shape != qm_rel.shape:
-            raise ValueError(f"stage-0 MM relative profile for center bond {center} must match qm_rel shape.")
+            raise ValueError(f"stage-0 MM relative profile for torsion bond {center} must match qm_rel shape.")
     fit_target_rel = qm_rel - mm_base_rel
 
-    k_orig, scales, prior_weights = _group_slot_initial_values(target_dihedrals, shared_groups)
+    k_orig, scales, prior_weights = _group_slot_initial_values(target_instances, shared_groups)
     active_mask = np.ones(sum(len(group.slot_indices) for group in shared_groups), dtype=bool)
     return TorsionLocalProblem(
-        center_bond=center,
+        torsion_bond=center,
         scan_data=scan_data,
-        target_dihedrals=target_dihedrals,
+        target_instances=target_instances,
         representative_dihedral=representative_dihedral,
         basis=basis,
         qm_rel=qm_rel,
@@ -606,37 +597,142 @@ def build_local_torsion_problem(
     )
 
 
+_IMPROPER_RADICAL_ACTIVE_PERIODS = (1, 2)
+_IMPROPER_CONVENTIONAL_ACTIVE_PERIODS = (2,)
+# refit targets are scan-authoritative: the tether keeps the objective regularized without
+# overriding the data, which in this loss normalization is O(1e-3)
+_IMPROPER_ACTIVE_TERM_PRIOR_WEIGHT = 1.0e-4
+
+
+def _build_improper_group_spec(target: Improper, *, radical: bool) -> TorsionSharedGroupSpec:
+    """Single-member improper group: no parameter sharing, template slots as prior, active periods by kind."""
+    template_periods = tuple(sorted({
+        period
+        for period in (_integer_period(term.period) for term in target.terms)
+        if period is not None
+    }))
+    active = _IMPROPER_RADICAL_ACTIVE_PERIODS if radical else _IMPROPER_CONVENTIONAL_ACTIVE_PERIODS
+    periods = sorted(set(active) | set(template_periods))
+
+    slot_indices: list[int] = []
+    slot_periods: list[int] = []
+    slot_phases: list[float] = []
+    existing_slot_mask: list[bool] = []
+    slot_sources: list[str] = []
+    for offset, period in enumerate(periods):
+        coefficients = _aggregate_period_coefficients((target,), period)
+        slot_k, slot_phase = _coefficients_to_k_phase(coefficients, period)
+        is_existing = coefficients is not None and abs(slot_k) > 1.0e-10
+        slot_indices.append(offset)
+        slot_periods.append(period)
+        slot_phases.append(slot_phase)
+        existing_slot_mask.append(is_existing)
+        slot_sources.append("existing" if is_existing else "candidate")
+
+    return TorsionSharedGroupSpec(
+        label="-".join(target.atom_types),
+        atom_types=target.atom_types,
+        improper=True,
+        dihedral_indices=(0,),
+        instances=(target.atoms,),
+        slot_indices=tuple(slot_indices),
+        slot_periods=tuple(slot_periods),
+        slot_phases=tuple(slot_phases),
+        existing_slot_mask=tuple(existing_slot_mask),
+        slot_sources=tuple(slot_sources),
+    )
+
+
+def build_improper_local_problem(
+    scan_data: TorsionScanData,
+    paramset: CorrectionParameterSet,
+    target: Improper,
+    *,
+    radical: bool = False,
+    topology_cache=None,
+) -> TorsionLocalProblem:
+    cache = topology_cache if topology_cache is not None else build_mm_topology_cache(paramset)
+    center = target.atoms[2]
+    targets = [target]
+    group = _build_improper_group_spec(target, radical=radical)
+    shared_groups = (group,)
+    cos_basis, sin_basis = _group_slot_coefficient_basis(scan_data, targets, shared_groups)
+    phase_orig = np.asarray(group.slot_phases, dtype=float)
+    basis = (cos_basis * np.cos(phase_orig)[np.newaxis, :]) + (sin_basis * np.sin(phase_orig)[np.newaxis, :])
+    qm_rel = np.asarray(scan_data.qm_rel, dtype=float).copy()
+
+    mm_base_total = np.asarray(
+        [
+            evaluate_mm_energy(
+                atoms,
+                paramset,
+                topology_cache=cache,
+                zero_improper_center=center,
+            ).total
+            for atoms in scan_data.frames
+        ],
+        dtype=float,
+    )
+    mm_base_rel = mm_base_total - mm_base_total[int(scan_data.ref_idx)]
+    orig_mm_rel = mm_base_rel + _center_torsion_relative_profile(scan_data, targets)
+    fit_target_rel = qm_rel - mm_base_rel
+
+    k_orig, scales, prior_weights = _group_slot_initial_values(targets, shared_groups)
+    active_mask = np.ones(len(group.slot_indices), dtype=bool)
+    return TorsionLocalProblem(
+        torsion_bond=(center, center),
+        scan_data=scan_data,
+        target_instances=targets,
+        representative_dihedral=target.atoms,
+        basis=basis,
+        qm_rel=qm_rel,
+        orig_mm_rel=orig_mm_rel,
+        mm_zeroed_rel=mm_base_rel,
+        residual=fit_target_rel,
+        k_orig=k_orig,
+        scales=scales,
+        active_mask=active_mask,
+        prior_weights=prior_weights,
+        shared_groups=shared_groups,
+        phase_orig=phase_orig,
+        cos_basis=cos_basis,
+        sin_basis=sin_basis,
+    )
+
+
 def build_global_torsion_problem(
-    stage0_parameter_set: CorrectionParameterSet,
-    center_bonds: list[tuple[int, int]] | tuple[tuple[int, int], ...],
+    stage0_paramset: CorrectionParameterSet,
+    torsion_bonds: list[tuple[int, int]] | tuple[tuple[int, int], ...],
     scan_map: dict[tuple[int, int], TorsionScanData],
     topology_cache=None,
     *,
     typed_shared: bool = False,
-    original_parameter_set: CorrectionParameterSet | None = None,
+    original_paramset: CorrectionParameterSet | None = None,
     params: TorsionFitParams | None = None,
     stage_mm_rel_map: dict[tuple[int, int], np.ndarray] | None = None,
+    radical_centers: tuple[int, ...] = (),
 ) -> TorsionGlobalProblem:
     if typed_shared:
         return _build_grouped_global_torsion_problem(
-            stage0_parameter_set,
-            center_bonds,
+            stage0_paramset,
+            torsion_bonds,
             scan_map,
             topology_cache=topology_cache,
-            original_parameter_set=original_parameter_set,
+            original_paramset=original_paramset,
             params=params,
             stage_mm_rel_map=stage_mm_rel_map,
+            radical_centers=radical_centers,
         )
     del topology_cache
     normalized_scan_map = {
-        normalize_center_bond(center_bond): scan_data
-        for center_bond, scan_data in scan_map.items()
+        normalize_torsion_bond(torsion_bond): scan_data
+        for torsion_bond, scan_data in scan_map.items()
     }
-    normalized_center_bonds = tuple(normalize_center_bond(center_bond) for center_bond in center_bonds)
+    normalized_torsion_bonds = tuple(normalize_torsion_bond(torsion_bond) for torsion_bond in torsion_bonds)
     normalized_stage_mm_rel_map = (
         {
-            normalize_center_bond(center_bond): np.asarray(values, dtype=float)
-            for center_bond, values in stage_mm_rel_map.items()
+            normalize_torsion_bond(torsion_bond): np.asarray(values, dtype=float)
+            for torsion_bond, values in stage_mm_rel_map.items()
         }
         if stage_mm_rel_map is not None
         else {}
@@ -645,68 +741,68 @@ def build_global_torsion_problem(
     block_slices: dict[tuple[int, int], tuple[int, int]] = {}
     offset = 0
 
-    for center_bond in normalized_center_bonds:
-        if center_bond not in normalized_scan_map:
-            raise ValueError(f"No fixed scan data was supplied for center bond {center_bond}.")
-        dihedral_indices = _center_bond_dihedral_indices(stage0_parameter_set, center_bond)
+    for torsion_bond in normalized_torsion_bonds:
+        if torsion_bond not in normalized_scan_map:
+            raise ValueError(f"No fixed scan data was supplied for torsion bond {torsion_bond}.")
+        dihedral_indices = _torsion_bond_dihedral_indices(stage0_paramset, torsion_bond)
         if not dihedral_indices:
-            raise ValueError(f"No proper torsions were found for center bond {center_bond} in the stage-0 parameter set.")
+            raise ValueError(f"No proper torsions were found for torsion bond {torsion_bond} in the stage-0 parameter set.")
 
         start = offset
         for dihedral_index in dihedral_indices:
-            dihedral = stage0_parameter_set.dihedrals[dihedral_index]
+            dihedral = stage0_paramset.dihedrals[dihedral_index]
             if not dihedral.terms:
                 raise ValueError(f"Target dihedral {dihedral.atoms} has no torsion terms to fit.")
             for term_index in range(len(dihedral.terms)):
                 term_paths.append((dihedral_index, term_index))
                 offset += 1
-        block_slices[center_bond] = (start, offset)
+        block_slices[torsion_bond] = (start, offset)
 
     k_orig = np.asarray(
-        [stage0_parameter_set.dihedrals[dihedral_index].terms[term_index].kPhi for dihedral_index, term_index in term_paths],
+        [stage0_paramset.dihedrals[dihedral_index].terms[term_index].kPhi for dihedral_index, term_index in term_paths],
         dtype=float,
     )
     phase_orig = np.asarray(
-        [stage0_parameter_set.dihedrals[dihedral_index].terms[term_index].phase for dihedral_index, term_index in term_paths],
+        [stage0_paramset.dihedrals[dihedral_index].terms[term_index].phase for dihedral_index, term_index in term_paths],
         dtype=float,
     )
     period_orig = np.asarray(
-        [stage0_parameter_set.dihedrals[dihedral_index].terms[term_index].period for dihedral_index, term_index in term_paths],
+        [stage0_paramset.dihedrals[dihedral_index].terms[term_index].period for dihedral_index, term_index in term_paths],
         dtype=float,
     )
     scales = np.maximum(1.0, np.abs(k_orig))
-    cache = build_mm_topology_cache(stage0_parameter_set)
+    cache = build_mm_topology_cache(stage0_paramset)
     qm_rel_map = {
-        center_bond: np.asarray(normalized_scan_map[center_bond].qm_rel, dtype=float).copy()
-        for center_bond in normalized_center_bonds
+        torsion_bond: np.asarray(normalized_scan_map[torsion_bond].qm_rel, dtype=float).copy()
+        for torsion_bond in normalized_torsion_bonds
     }
     centered_basis_map: dict[tuple[int, int], np.ndarray] = {}
     centered_cos_basis_map: dict[tuple[int, int], np.ndarray] = {}
     centered_sin_basis_map: dict[tuple[int, int], np.ndarray] = {}
     constant_rel_map: dict[tuple[int, int], np.ndarray] = {}
 
-    for center_bond in normalized_center_bonds:
-        scan_data = normalized_scan_map[center_bond]
+    for torsion_bond in normalized_torsion_bonds:
+        scan_data = normalized_scan_map[torsion_bond]
         base_mm_total = None
-        stage_mm_rel = normalized_stage_mm_rel_map.get(center_bond)
-        if stage_mm_rel is not None and stage_mm_rel.shape != qm_rel_map[center_bond].shape:
-            raise ValueError(f"stage MM relative profile for center bond {center_bond} must match qm_rel shape.")
+        stage_mm_rel = normalized_stage_mm_rel_map.get(torsion_bond)
+        if stage_mm_rel is not None and stage_mm_rel.shape != qm_rel_map[torsion_bond].shape:
+            raise ValueError(f"stage MM relative profile for torsion bond {torsion_bond} must match qm_rel shape.")
         if stage_mm_rel is None:
             base_mm_total = np.asarray(
-                [evaluate_mm_energy(atoms, stage0_parameter_set, topology_cache=cache).total for atoms in scan_data.frames],
+                [evaluate_mm_energy(atoms, stage0_paramset, topology_cache=cache).total for atoms in scan_data.frames],
                 dtype=float,
             )
-        basis = _global_basis_matrix(scan_data, stage0_parameter_set, tuple(term_paths))
+        basis = _global_basis_matrix(scan_data, stage0_paramset, tuple(term_paths))
         abs_const = np.zeros((len(scan_data.frames), len(term_paths)), dtype=float)
         abs_cos = np.zeros((len(scan_data.frames), len(term_paths)), dtype=float)
         abs_sin = np.zeros((len(scan_data.frames), len(term_paths)), dtype=float)
-        start, end = block_slices[center_bond]
+        start, end = block_slices[torsion_bond]
         for point_index, atoms in enumerate(scan_data.frames):
             positions = atoms.get_positions()
             phi_cache: dict[int, float] = {}
             for global_index in range(start, end):
                 dihedral_index, term_index = term_paths[global_index]
-                dihedral = stage0_parameter_set.dihedrals[dihedral_index]
+                dihedral = stage0_paramset.dihedrals[dihedral_index]
                 if dihedral_index not in phi_cache:
                     phi_cache[dihedral_index] = dihedral_radians(positions, *dihedral.atoms)
                 phi = phi_cache[dihedral_index]
@@ -724,20 +820,20 @@ def build_global_torsion_problem(
             ),
             axis=1,
         )
-        centered_basis_map[center_bond] = basis - basis[ref_idx]
-        centered_cos_basis_map[center_bond] = abs_cos - abs_cos[ref_idx]
-        centered_sin_basis_map[center_bond] = abs_sin - abs_sin[ref_idx]
+        centered_basis_map[torsion_bond] = basis - basis[ref_idx]
+        centered_cos_basis_map[torsion_bond] = abs_cos - abs_cos[ref_idx]
+        centered_sin_basis_map[torsion_bond] = abs_sin - abs_sin[ref_idx]
         stage1_torsion_rel = stage1_torsion_total - stage1_torsion_total[ref_idx]
         if stage_mm_rel is not None:
-            constant_rel_map[center_bond] = np.asarray(stage_mm_rel, dtype=float) - stage1_torsion_rel
+            constant_rel_map[torsion_bond] = np.asarray(stage_mm_rel, dtype=float) - stage1_torsion_rel
         else:
             constant_total = np.asarray(base_mm_total, dtype=float) - stage1_torsion_total
-            constant_rel_map[center_bond] = constant_total - constant_total[ref_idx]
+            constant_rel_map[torsion_bond] = constant_total - constant_total[ref_idx]
 
     return TorsionGlobalProblem(
-        stage0_parameter_set=stage0_parameter_set,
-        center_bonds=normalized_center_bonds,
-        scan_map={center_bond: normalized_scan_map[center_bond] for center_bond in normalized_center_bonds},
+        stage0_paramset=stage0_paramset,
+        torsion_bonds=normalized_torsion_bonds,
+        scan_map={torsion_bond: normalized_scan_map[torsion_bond] for torsion_bond in normalized_torsion_bonds},
         term_paths=tuple(term_paths),
         block_slices=block_slices,
         k_orig=k_orig,
@@ -749,7 +845,7 @@ def build_global_torsion_problem(
         centered_cos_basis_map=centered_cos_basis_map,
         centered_sin_basis_map=centered_sin_basis_map,
         constant_rel_map=constant_rel_map,
-        reference_parameter_set=stage0_parameter_set,
+        reference_paramset=stage0_paramset,
         prior_weights=np.full_like(scales, 6.0, dtype=float),
         prior_weight=1.0,
         global_max_iter=50,
@@ -757,46 +853,97 @@ def build_global_torsion_problem(
 
 
 def _build_grouped_global_torsion_problem(
-    reference_parameter_set: CorrectionParameterSet,
-    center_bonds: list[tuple[int, int]] | tuple[tuple[int, int], ...],
+    reference_paramset: CorrectionParameterSet,
+    torsion_bonds: list[tuple[int, int]] | tuple[tuple[int, int], ...],
     scan_map: dict[tuple[int, int], TorsionScanData],
     topology_cache=None,
     *,
-    original_parameter_set: CorrectionParameterSet | None = None,
+    original_paramset: CorrectionParameterSet | None = None,
     params: TorsionFitParams | None = None,
     stage_mm_rel_map: dict[tuple[int, int], np.ndarray] | None = None,
+    radical_centers: tuple[int, ...] = (),
 ) -> TorsionGlobalProblem:
     del topology_cache
-    original_parameter_set = original_parameter_set if original_parameter_set is not None else reference_parameter_set
+    original_paramset = original_paramset if original_paramset is not None else reference_paramset
     normalized_scan_map = {
-        normalize_center_bond(center_bond): scan_data
-        for center_bond, scan_data in scan_map.items()
+        normalize_torsion_bond(torsion_bond): scan_data
+        for torsion_bond, scan_data in scan_map.items()
     }
-    normalized_center_bonds = tuple(normalize_center_bond(center_bond) for center_bond in center_bonds)
+    normalized_torsion_bonds = tuple(normalize_torsion_bond(torsion_bond) for torsion_bond in torsion_bonds)
     normalized_stage_mm_rel_map = (
         {
-            normalize_center_bond(center_bond): np.asarray(values, dtype=float)
-            for center_bond, values in stage_mm_rel_map.items()
+            normalize_torsion_bond(torsion_bond): np.asarray(values, dtype=float)
+            for torsion_bond, values in stage_mm_rel_map.items()
         }
         if stage_mm_rel_map is not None
         else {}
     )
-    reference_cache = build_mm_topology_cache(reference_parameter_set)
+    reference_cache = build_mm_topology_cache(reference_paramset)
     group_paths: list[tuple[int, int]] = []
     block_slices: dict[tuple[int, int], tuple[int, int]] = {}
     shared_groups_map: dict[tuple[int, int], tuple[TorsionSharedGroupSpec, ...]] = {}
+    improper_active_slots: set[int] = set()
     offset = 0
 
-    for center_bond in normalized_center_bonds:
-        if center_bond not in normalized_scan_map:
-            raise ValueError(f"No fixed scan data was supplied for center bond {center_bond}.")
-        dihedral_indices = _center_bond_dihedral_indices(reference_parameter_set, center_bond)
+    for torsion_bond in normalized_torsion_bonds:
+        if torsion_bond not in normalized_scan_map:
+            raise ValueError(f"No fixed scan data was supplied for torsion bond {torsion_bond}.")
+        if torsion_bond[0] == torsion_bond[1]:
+            center = torsion_bond[0]
+            instances = reference_cache.improper_by_center.get(center, [])
+            if not instances:
+                raise ValueError(f"No improper instance at center {center} in the stage-1 parameter set.")
+            instance = instances[0]
+            active = (
+                _IMPROPER_RADICAL_ACTIVE_PERIODS if center in radical_centers else _IMPROPER_CONVENTIONAL_ACTIVE_PERIODS
+            )
+            template_periods = {
+                period
+                for period in (_integer_period(term.period) for term in instance.terms)
+                if period is not None
+            }
+            dormant = (3, 4) if center in radical_centers else (1, 3, 4)
+            periods = sorted(set(active) | template_periods | set(dormant))
+            slot_indices: list[int] = []
+            slot_periods: list[int] = []
+            slot_phases: list[float] = []
+            existing_slot_mask: list[bool] = []
+            active_slot_flags: list[bool] = []
+            start = offset
+            for period in periods:
+                coefficients = _aggregate_period_coefficients((instance,), period)
+                slot_k, slot_phase = _coefficients_to_k_phase(coefficients, period)
+                group_paths.append((-1, len(slot_indices)))
+                slot_indices.append(offset)
+                slot_periods.append(period)
+                slot_phases.append(slot_phase)
+                is_existing = coefficients is not None and abs(slot_k) > 1.0e-10
+                existing_slot_mask.append(is_existing)
+                active_slot_flags.append(period in active or period in template_periods)
+                offset += 1
+            shared_groups_map[torsion_bond] = (
+                TorsionSharedGroupSpec(
+                    label="-".join(instance.atom_types),
+                    atom_types=instance.atom_types,
+                    improper=True,
+                    dihedral_indices=(),
+                    instances=(instance.atoms,),
+                    slot_indices=tuple(slot_indices),
+                    slot_periods=tuple(slot_periods),
+                    slot_phases=tuple(slot_phases),
+                    existing_slot_mask=tuple(existing_slot_mask),
+                ),
+            )
+            improper_active_slots.update(slot_index for slot_index, is_active in zip(slot_indices, active_slot_flags) if is_active)
+            block_slices[torsion_bond] = (start, offset)
+            continue
+        dihedral_indices = _torsion_bond_dihedral_indices(reference_paramset, torsion_bond)
         if not dihedral_indices:
-            raise ValueError(f"No proper torsions were found for center bond {center_bond} in the stage-1 parameter set.")
-        dihedrals = [reference_parameter_set.dihedrals[index] for index in dihedral_indices]
-        local_groups = _group_center_bond_dihedrals(
+            raise ValueError(f"No proper torsions were found for torsion bond {torsion_bond} in the stage-1 parameter set.")
+        dihedrals = [reference_paramset.dihedrals[index] for index in dihedral_indices]
+        local_groups = _group_torsion_bond_dihedrals(
             dihedrals,
-            parameter_set=reference_parameter_set,
+            paramset=reference_paramset,
             preserve_distinct_template_k=True,
         )
         shared_groups: list[TorsionSharedGroupSpec] = []
@@ -834,8 +981,8 @@ def _build_grouped_global_torsion_problem(
                     existing_slot_mask=tuple(existing_slot_mask),
                 )
             )
-        shared_groups_map[center_bond] = tuple(shared_groups)
-        block_slices[center_bond] = (start, offset)
+        shared_groups_map[torsion_bond] = tuple(shared_groups)
+        block_slices[torsion_bond] = (start, offset)
 
     n_slots = len(group_paths)
     k_orig = np.zeros(n_slots, dtype=float)
@@ -844,23 +991,23 @@ def _build_grouped_global_torsion_problem(
     scales = np.ones(n_slots, dtype=float)
     prior_weights = np.zeros(n_slots, dtype=float)
     qm_rel_map = {
-        center_bond: np.asarray(normalized_scan_map[center_bond].qm_rel, dtype=float).copy()
-        for center_bond in normalized_center_bonds
+        torsion_bond: np.asarray(normalized_scan_map[torsion_bond].qm_rel, dtype=float).copy()
+        for torsion_bond in normalized_torsion_bonds
     }
     centered_basis_map: dict[tuple[int, int], np.ndarray] = {}
     centered_cos_basis_map: dict[tuple[int, int], np.ndarray] = {}
     centered_sin_basis_map: dict[tuple[int, int], np.ndarray] = {}
     constant_rel_map: dict[tuple[int, int], np.ndarray] = {}
 
-    for center_bond in normalized_center_bonds:
-        scan_data = normalized_scan_map[center_bond]
+    for torsion_bond in normalized_torsion_bonds:
+        scan_data = normalized_scan_map[torsion_bond]
         base_mm_total = None
-        stage_mm_rel = normalized_stage_mm_rel_map.get(center_bond)
-        if stage_mm_rel is not None and stage_mm_rel.shape != qm_rel_map[center_bond].shape:
-            raise ValueError(f"stage MM relative profile for center bond {center_bond} must match qm_rel shape.")
+        stage_mm_rel = normalized_stage_mm_rel_map.get(torsion_bond)
+        if stage_mm_rel is not None and stage_mm_rel.shape != qm_rel_map[torsion_bond].shape:
+            raise ValueError(f"stage MM relative profile for torsion bond {torsion_bond} must match qm_rel shape.")
         if stage_mm_rel is None:
             base_mm_total = np.asarray(
-                [evaluate_mm_energy(atoms, reference_parameter_set, topology_cache=reference_cache).total for atoms in scan_data.frames],
+                [evaluate_mm_energy(atoms, reference_paramset, topology_cache=reference_cache).total for atoms in scan_data.frames],
                 dtype=float,
             )
 
@@ -868,58 +1015,78 @@ def _build_grouped_global_torsion_problem(
         abs_const = np.zeros((len(scan_data.frames), n_slots), dtype=float)
         abs_cos = np.zeros((len(scan_data.frames), n_slots), dtype=float)
         abs_sin = np.zeros((len(scan_data.frames), n_slots), dtype=float)
-        center_groups = shared_groups_map[center_bond]
+        center_groups = shared_groups_map[torsion_bond]
         ref_idx = int(scan_data.ref_idx)
+        improper_instance = None
+        if torsion_bond[0] == torsion_bond[1]:
+            improper_instance = reference_cache.improper_by_center[torsion_bond[0]][0]
         for point_index, atoms in enumerate(scan_data.frames):
             positions = atoms.get_positions()
             phi_cache: dict[int, float] = {}
+            if improper_instance is not None:
+                improper_phi = dihedral_radians(positions, *improper_instance.atoms)
             for group in center_groups:
                 for dihedral_index in group.dihedral_indices:
                     if dihedral_index not in phi_cache:
-                        phi_cache[dihedral_index] = dihedral_radians(positions, *reference_parameter_set.dihedrals[dihedral_index].atoms)
+                        phi_cache[dihedral_index] = dihedral_radians(positions, *reference_paramset.dihedrals[dihedral_index].atoms)
                 for slot_index, slot_period, slot_phase, slot_original in zip(
                     group.slot_indices,
                     group.slot_periods,
                     group.slot_phases,
                     group.existing_slot_mask,
                 ):
-                    abs_const[point_index, slot_index] = float(len(group.dihedral_indices))
-                    abs_cos[point_index, slot_index] = sum(
-                        np.cos(slot_period * phi_cache[dihedral_index])
-                        for dihedral_index in group.dihedral_indices
-                    )
-                    abs_sin[point_index, slot_index] = sum(
-                        np.sin(slot_period * phi_cache[dihedral_index])
-                        for dihedral_index in group.dihedral_indices
-                    )
+                    if improper_instance is not None:
+                        abs_const[point_index, slot_index] = 1.0
+                        abs_cos[point_index, slot_index] = np.cos(slot_period * improper_phi)
+                        abs_sin[point_index, slot_index] = np.sin(slot_period * improper_phi)
+                    else:
+                        abs_const[point_index, slot_index] = float(len(group.dihedral_indices))
+                        abs_cos[point_index, slot_index] = sum(
+                            np.cos(slot_period * phi_cache[dihedral_index])
+                            for dihedral_index in group.dihedral_indices
+                        )
+                        abs_sin[point_index, slot_index] = sum(
+                            np.sin(slot_period * phi_cache[dihedral_index])
+                            for dihedral_index in group.dihedral_indices
+                        )
                     basis[point_index, slot_index] = (
                         abs_const[point_index, slot_index]
                         + (abs_cos[point_index, slot_index] * np.cos(slot_phase))
                         + (abs_sin[point_index, slot_index] * np.sin(slot_phase))
                     )
                     if point_index == 0:
-                        reference_coefficients = _aggregate_period_coefficients(
-                            [reference_parameter_set.dihedrals[dihedral_index] for dihedral_index in group.dihedral_indices],
-                            slot_period,
-                        )
-                        original_coefficients = _aggregate_period_coefficients(
-                            [original_parameter_set.dihedrals[dihedral_index] for dihedral_index in group.dihedral_indices],
-                            slot_period,
-                        )
+                        if improper_instance is not None:
+                            reference_coefficients = _aggregate_period_coefficients((improper_instance,), slot_period)
+                            original_coefficients = None
+                        else:
+                            reference_coefficients = _aggregate_period_coefficients(
+                                [reference_paramset.dihedrals[dihedral_index] for dihedral_index in group.dihedral_indices],
+                                slot_period,
+                            )
+                            original_coefficients = _aggregate_period_coefficients(
+                                [original_paramset.dihedrals[dihedral_index] for dihedral_index in group.dihedral_indices],
+                                slot_period,
+                            )
                         slot_k, resolved_phase = _coefficients_to_k_phase(reference_coefficients, slot_period)
                         k_orig[slot_index] = float(slot_k)
                         phase_orig[slot_index] = float(resolved_phase)
                         period_orig[slot_index] = slot_period
                         scales[slot_index] = max(1.0, abs(float(slot_k)))
-                        if original_coefficients is not None:
+                        if improper_instance is not None:
+                            prior_weights[slot_index] = (
+                                _IMPROPER_ACTIVE_TERM_PRIOR_WEIGHT
+                                if slot_index in improper_active_slots
+                                else _GLOBAL_INACTIVE_TERM_PRIOR_WEIGHT
+                            )
+                        elif original_coefficients is not None:
                             prior_weights[slot_index] = _GLOBAL_EXISTING_TERM_PRIOR_WEIGHT
                         elif slot_original:
                             prior_weights[slot_index] = _GLOBAL_NEW_TERM_PRIOR_WEIGHT
                         else:
                             prior_weights[slot_index] = _GLOBAL_INACTIVE_TERM_PRIOR_WEIGHT
-        centered_basis_map[center_bond] = basis - basis[ref_idx]
-        centered_cos_basis_map[center_bond] = abs_cos - abs_cos[ref_idx]
-        centered_sin_basis_map[center_bond] = abs_sin - abs_sin[ref_idx]
+        centered_basis_map[torsion_bond] = basis - basis[ref_idx]
+        centered_cos_basis_map[torsion_bond] = abs_cos - abs_cos[ref_idx]
+        centered_sin_basis_map[torsion_bond] = abs_sin - abs_sin[ref_idx]
         stage1_torsion_total = np.sum(
             k_orig[np.newaxis, :]
             * (
@@ -931,15 +1098,15 @@ def _build_grouped_global_torsion_problem(
         )
         stage1_torsion_rel = stage1_torsion_total - stage1_torsion_total[ref_idx]
         if stage_mm_rel is not None:
-            constant_rel_map[center_bond] = np.asarray(stage_mm_rel, dtype=float) - stage1_torsion_rel
+            constant_rel_map[torsion_bond] = np.asarray(stage_mm_rel, dtype=float) - stage1_torsion_rel
         else:
             constant_total = np.asarray(base_mm_total, dtype=float) - stage1_torsion_total
-            constant_rel_map[center_bond] = constant_total - constant_total[ref_idx]
+            constant_rel_map[torsion_bond] = constant_total - constant_total[ref_idx]
 
     return TorsionGlobalProblem(
-        stage0_parameter_set=reference_parameter_set,
-        center_bonds=normalized_center_bonds,
-        scan_map={center_bond: normalized_scan_map[center_bond] for center_bond in normalized_center_bonds},
+        stage0_paramset=reference_paramset,
+        torsion_bonds=normalized_torsion_bonds,
+        scan_map={torsion_bond: normalized_scan_map[torsion_bond] for torsion_bond in normalized_torsion_bonds},
         term_paths=tuple(group_paths),
         block_slices=block_slices,
         k_orig=k_orig,
@@ -952,7 +1119,7 @@ def _build_grouped_global_torsion_problem(
         centered_sin_basis_map=centered_sin_basis_map,
         constant_rel_map=constant_rel_map,
         grouped=True,
-        reference_parameter_set=reference_parameter_set,
+        reference_paramset=reference_paramset,
         prior_weights=prior_weights,
         shared_groups_map=shared_groups_map,
         prior_weight=1.0,

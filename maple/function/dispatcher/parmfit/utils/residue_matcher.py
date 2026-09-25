@@ -184,8 +184,7 @@ def match_residue_template(
         if len(template.atoms) == len(atoms)
         if (match := _find_isomorphism(template, atoms, local_edges)) is not None
     ]
-    source_resname = residue.get("source_resname", residue["resname"]).strip().upper()
-    if not matches and preferred and source_resname not in {"CYM", "CYX"}:
+    if not matches and preferred:
         matches = [
             match
             for template in registry.templates_for_elements([atom["element"] for atom in atoms])

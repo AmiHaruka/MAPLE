@@ -8,11 +8,11 @@ from dataclasses import dataclass, field
 
 from ase import Atoms
 
-from ..utils.outputparm import format_corr_tleap, write_amber_files, write_gromacs_files
-from ..utils.readparm import CorrectionParameterSet
-from ..utils.runtime import parmfit_output_dir
-from ..utils.TorsionFit import TorsionWorkflowResult
-from ..utils.chargefit import ChargeFitResult
+from ..outputparm import format_corr_tleap, write_amber_files, write_gromacs_files
+from ..readparm import CorrectionParameterSet
+from ..runtime import parmfit_output_dir
+from ..TorsionFit import TorsionWorkflowResult
+from ..chgfit import ChargeFitResult
 from .config import CorrectionConfig
 
 

@@ -1,0 +1,4 @@
+# Correction route settings; declare method=correction in #parmfit(...) and reference this file via input=
+# Only non-default entries are listed; the generated parmfitrun.in shows every resolved value.
+
+mol2=toluene_ff.mol2

@@ -73,6 +73,7 @@ class Improper:
     atoms: tuple[int, int, int, int]
     atom_types: tuple[str, str, str, str]
     terms: list[FourierTerm] = field(default_factory=list)
+    refit: bool = False
 
     def __str__(self) -> str:
         return f"<{self.atoms}, n_terms={len(self.terms)}>"
@@ -97,6 +98,7 @@ class Nonbond:
 
 
 _NUM = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
+_PENALTY_RE = re.compile(r"penalty score\s*=\s*([0-9.]+)")
 
 
 @dataclass(frozen=True)
@@ -130,6 +132,7 @@ class FrcmodDB:
     angle_params: dict[tuple[str, str, str], tuple[float, float]] = field(default_factory=dict)
     dihedral_params: dict[tuple[str, str, str, str], list[FourierTerm]] = field(default_factory=dict)
     improper_params: dict[tuple[str, str, str, str], list[FourierTerm]] = field(default_factory=dict)
+    improper_annotations: dict[tuple[str, str, str, str], str] = field(default_factory=dict)
     nonbond_params: dict[str, tuple[float, float]] = field(default_factory=dict)
 
 
@@ -290,6 +293,9 @@ def parse_frcmod(path: str) -> FrcmodDB:
                         period=abs(float(match.group(7))),
                     )
                 )
+                annotation = raw[match.end():].strip()
+                if annotation:
+                    db.improper_annotations[key] = annotation
                 continue
 
             if section == "NONBON":
@@ -341,10 +347,10 @@ def _enumerate_dihedrals(topology: Mol2Topology) -> list[tuple[int, int, int, in
 def _enumerate_improper_candidates(topology: Mol2Topology) -> list[tuple[int, int, int, int]]:
     candidates: list[tuple[int, int, int, int]] = []
     for center, neighbors in topology.adjacency.items():
-        if len(neighbors) < 3:
+        if len(neighbors) != 3:
             continue
-        for trio in combinations(sorted(neighbors), 3):
-            candidates.append((trio[0], trio[1], center, trio[2]))
+        trio = tuple(sorted(neighbors))
+        candidates.append((trio[0], trio[1], center, trio[2]))
     return candidates
 
 
@@ -370,13 +376,14 @@ def _match_dihedral(
     return best_terms
 
 
-def _match_improper(
+def _match_improper_entry(
     atom_types: tuple[str, str, str, str],
     templates: dict[tuple[str, str, str, str], list[FourierTerm]],
-) -> list[FourierTerm]:
+) -> tuple[list[FourierTerm], tuple[str, str, str, str] | None]:
     outer = (atom_types[0], atom_types[1], atom_types[3])
     center = atom_types[2]
     best_terms: list[FourierTerm] = []
+    best_key: tuple[str, str, str, str] | None = None
     best_score = -1
 
     for template, terms in templates.items():
@@ -389,11 +396,25 @@ def _match_improper(
                 if score > best_score:
                     best_score = score
                     best_terms = list(terms)
+                    best_key = template
                 break
-    return best_terms
+    return best_terms, best_key
 
 
-def build_correction_parameter_set(atoms: Atoms, mol2_path: str, frcmod_path: str) -> CorrectionParameterSet:
+def _match_improper(
+    atom_types: tuple[str, str, str, str],
+    templates: dict[tuple[str, str, str, str], list[FourierTerm]],
+) -> list[FourierTerm]:
+    terms, _ = _match_improper_entry(atom_types, templates)
+    return terms
+
+
+def build_correction_paramset(
+    atoms: Atoms,
+    mol2_path: str,
+    frcmod_path: str,
+    p_thresh: float = 30.0,
+) -> CorrectionParameterSet:
     """Build correction-mode parmfit instances from inp atoms, mol2 topology, and frcmod templates."""
     mol2 = parse_mol2(mol2_path)
     frcmod = parse_frcmod(frcmod_path)
@@ -448,11 +469,25 @@ def build_correction_parameter_set(atoms: Atoms, mol2_path: str, frcmod_path: st
     unmatched_impropers: list[tuple[int, int, int, int]] = []
     for improper_atoms in _enumerate_improper_candidates(mol2):
         atom_types = _instance_atom_types(improper_atoms, mol2)
-        terms = _match_improper(atom_types, frcmod.improper_params)
+        terms, template_key = _match_improper_entry(atom_types, frcmod.improper_params)
         if not terms:
             unmatched_impropers.append(improper_atoms)
             continue
-        impropers.append(Improper(atoms=improper_atoms, atom_types=atom_types, terms=list(terms)))
+        annotation = frcmod.improper_annotations.get(template_key, "") if template_key else ""
+        has_attn = "ATTN" in annotation
+        penalty = _PENALTY_RE.search(annotation)
+        refit = has_attn or (penalty is not None and float(penalty.group(1)) > p_thresh)
+        impropers.append(
+            Improper(
+                atoms=improper_atoms,
+                atom_types=atom_types,
+                # ATTN marks a parameter pending refit: record an n=2, k=0 seed
+                # so the instance stays complete for export and the fit starts
+                # from a free zero prior
+                terms=[FourierTerm(kPhi=0.0, period=2.0, phase=pi)] if has_attn else list(terms),
+                refit=refit,
+            )
+        )
 
     nonbonds: list[Nonbond] = []
     unmatched_nonbonds: list[int] = []

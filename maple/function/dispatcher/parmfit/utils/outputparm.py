@@ -177,11 +177,11 @@ def _format_defaults_lines() -> list[str]:
     ]
 
 
-def _format_atomtypes_lines(parameter_set: CorrectionParameterSet, atoms: Atoms, meta: dict) -> list[str]:
+def _format_atomtypes_lines(paramset: CorrectionParameterSet, atoms: Atoms, meta: dict) -> list[str]:
     lines = [_comment("name    at.num    mass    charge ptype  sigma      epsilon")]
     symbols = atoms.get_chemical_symbols()
     seen: set[str] = set()
-    for nonbond in parameter_set.nonbonds:
+    for nonbond in paramset.nonbonds:
         if nonbond.atom_type in seen:
             continue
         seen.add(nonbond.atom_type)
@@ -202,13 +202,13 @@ def _format_atomtypes_lines(parameter_set: CorrectionParameterSet, atoms: Atoms,
     return lines
 
 
-def _format_atoms_lines(parameter_set: CorrectionParameterSet, atoms: Atoms) -> list[str]:
+def _format_atoms_lines(paramset: CorrectionParameterSet, atoms: Atoms) -> list[str]:
     lines = [
         _comment("nr       type  resnr residue  atom   cgnr    charge       mass"),
         _comment("residue    1 MOL rtp MOL q 0.0"),
     ]
     symbols = atoms.get_chemical_symbols()
-    for index, (mol2_atom, nonbond) in enumerate(zip(parameter_set.mol2.atoms, parameter_set.nonbonds), start=1):
+    for index, (mol2_atom, nonbond) in enumerate(zip(paramset.mol2.atoms, paramset.nonbonds), start=1):
         _, mass = _atomic_number_and_mass(symbols[index - 1])
         lines.append(
             f"{index:>5d}  {nonbond.atom_type:>9s}  {1:>5d}  {'MOL':>6s}  {mol2_atom.name:>5s}  {index:>5d}"
@@ -217,9 +217,9 @@ def _format_atoms_lines(parameter_set: CorrectionParameterSet, atoms: Atoms) -> 
     return lines
 
 
-def _format_bonds_lines(parameter_set: CorrectionParameterSet, meta: dict) -> list[str]:
+def _format_bonds_lines(paramset: CorrectionParameterSet, meta: dict) -> list[str]:
     lines = [_comment("ai     aj funct         c0         c1")]
-    for bond in parameter_set.bonds:
+    for bond in paramset.bonds:
         if bond.kBond is None or bond.rEq is None:
             meta["omitted_counts"]["bonds"] += 1
             warning = f"bond {bond.atoms} omitted from [ bonds ] because kBond/rEq is missing"
@@ -232,17 +232,17 @@ def _format_bonds_lines(parameter_set: CorrectionParameterSet, meta: dict) -> li
     return lines
 
 
-def _format_pairs_lines(parameter_set: CorrectionParameterSet) -> list[str]:
-    cache = build_mm_topology_cache(parameter_set)
+def _format_pairs_lines(paramset: CorrectionParameterSet) -> list[str]:
+    cache = build_mm_topology_cache(paramset)
     lines = [_comment("ai     aj funct")]
     for atom_i, atom_j in sorted(cache.scaled_14):
         lines.append(f"{atom_i:>6d}{atom_j:>7d}{1:>6d}\n")
     return lines
 
 
-def _format_angles_lines(parameter_set: CorrectionParameterSet, meta: dict) -> list[str]:
+def _format_angles_lines(paramset: CorrectionParameterSet, meta: dict) -> list[str]:
     lines = [_comment("ai     aj     ak funct         c0         c1")]
-    for angle in parameter_set.angles:
+    for angle in paramset.angles:
         if angle.kTheta is None or angle.thetaEq is None:
             meta["omitted_counts"]["angles"] += 1
             warning = f"angle {angle.atoms} omitted from [ angles ] because kTheta/thetaEq is missing"
@@ -266,9 +266,9 @@ def _period_to_mult(period: float, label: str, meta: dict) -> int:
     return rounded
 
 
-def _format_dihedrals_lines(parameter_set: CorrectionParameterSet, meta: dict) -> list[str]:
+def _format_dihedrals_lines(paramset: CorrectionParameterSet, meta: dict) -> list[str]:
     lines = [_comment("ai     aj     ak     al funct         c0         c1    mult")]
-    for dihedral in parameter_set.dihedrals:
+    for dihedral in paramset.dihedrals:
         if not dihedral.terms:
             meta["omitted_counts"]["dihedrals"] += 1
             warning = f"proper dihedral {dihedral.atoms} omitted from [ dihedrals ] because no torsion terms are assigned"
@@ -281,7 +281,7 @@ def _format_dihedrals_lines(parameter_set: CorrectionParameterSet, meta: dict) -
                 f"{degrees(float(term.phase)):>12.7f}{(float(term.kPhi) * _KCAL_TO_KJ):>12.7f}"
                 f"{_period_to_mult(term.period, f'proper dihedral {dihedral.atoms}', meta):>5d}\n"
             )
-    for improper in parameter_set.impropers:
+    for improper in paramset.impropers:
         if not improper.terms:
             meta["omitted_counts"]["impropers"] += 1
             continue
@@ -381,7 +381,7 @@ def format_corr_tleap(
 
 
 def write_top(
-    parameter_set: CorrectionParameterSet,
+    paramset: CorrectionParameterSet,
     atoms: Atoms,
     top_path: str,
     title: str | None = None,
@@ -415,13 +415,13 @@ def write_top(
         _comment("This is a standalone topology file"),
     ]
     lines.extend(_section("defaults", _format_defaults_lines()))
-    lines.extend(_section("atomtypes", _format_atomtypes_lines(parameter_set, atoms, meta)))
+    lines.extend(_section("atomtypes", _format_atomtypes_lines(paramset, atoms, meta)))
     lines.extend(_section("moleculetype", [_comment("Name            nrexcl"), f"{'MOL':<12}{3:>5d}\n"]))
-    lines.extend(_section("atoms", _format_atoms_lines(parameter_set, atoms)))
-    lines.extend(_section("bonds", _format_bonds_lines(parameter_set, meta)))
-    lines.extend(_section("pairs", _format_pairs_lines(parameter_set)))
-    lines.extend(_section("angles", _format_angles_lines(parameter_set, meta)))
-    lines.extend(_section("dihedrals", _format_dihedrals_lines(parameter_set, meta)))
+    lines.extend(_section("atoms", _format_atoms_lines(paramset, atoms)))
+    lines.extend(_section("bonds", _format_bonds_lines(paramset, meta)))
+    lines.extend(_section("pairs", _format_pairs_lines(paramset)))
+    lines.extend(_section("angles", _format_angles_lines(paramset, meta)))
+    lines.extend(_section("dihedrals", _format_dihedrals_lines(paramset, meta)))
     lines.extend(_section("system", _format_system_lines(title_str)))
     lines.extend(_section("molecules", _format_molecules_lines()))
 
@@ -436,7 +436,7 @@ def write_top(
 
 
 def write_gro(
-    parameter_set: CorrectionParameterSet,
+    paramset: CorrectionParameterSet,
     atoms: Atoms,
     gro_path: str,
     title: str | None = None,
@@ -448,7 +448,7 @@ def write_gro(
     with open(gro_path, "w", encoding="utf-8") as handle:
         handle.write(f"{title_str}\n")
         handle.write(f"{len(atoms):5d}\n")
-        for index, (mol2_atom, xyz_nm) in enumerate(zip(parameter_set.mol2.atoms, positions_nm), start=1):
+        for index, (mol2_atom, xyz_nm) in enumerate(zip(paramset.mol2.atoms, positions_nm), start=1):
             atom_name = mol2_atom.name[-5:]
             handle.write(
                 f"{1:5d}{'MOL':<5}{atom_name:>5}{index:5d}{xyz_nm[0]:8.3f}{xyz_nm[1]:8.3f}{xyz_nm[2]:8.3f}\n"
@@ -458,7 +458,7 @@ def write_gro(
 
 
 def write_gromacs_files(
-    parameter_set: CorrectionParameterSet,
+    paramset: CorrectionParameterSet,
     atoms: Atoms,
     output_base: str,
     title: str | None = None,
@@ -466,13 +466,13 @@ def write_gromacs_files(
     base = os.path.splitext(output_base)[0]
     top_path = base + "_maple.top"
     gro_path = base + "_maple.gro"
-    meta = write_top(parameter_set, atoms, top_path, title=title)
-    write_gro(parameter_set, atoms, gro_path, title=title)
+    meta = write_top(paramset, atoms, top_path, title=title)
+    write_gro(paramset, atoms, gro_path, title=title)
     return top_path, gro_path, meta
 
 
 def write_amber_files(
-    parameter_set: CorrectionParameterSet,
+    paramset: CorrectionParameterSet,
     atoms: Atoms,
     input_mol2_path: str,
     output_base: str,
@@ -482,14 +482,14 @@ def write_amber_files(
     frcmod_path = base + "_maple.frcmod"
     tleap_path = base + "_maple_tleap.in"
 
-    _validate_amber_export_inputs(parameter_set)
+    _validate_amber_export_inputs(paramset)
 
-    existing_types = {atom.atom_type for atom in parameter_set.mol2.atoms}
-    maple_types = allocate_maple_atom_types(len(parameter_set.mol2.atoms), existing_types)
+    existing_types = {atom.atom_type for atom in paramset.mol2.atoms}
+    maple_types = allocate_maple_atom_types(len(paramset.mol2.atoms), existing_types)
 
     charges_by_atom = {
         nonbond.atom: float(nonbond.charge)
-        for nonbond in parameter_set.nonbonds
+        for nonbond in paramset.nonbonds
     }
     write_updated_mol2(
         input_mol2_path,
@@ -497,15 +497,15 @@ def write_amber_files(
         positions=atoms.get_positions(),
         atom_types=[
             maple_types[index]
-            for index in range(1, len(parameter_set.mol2.atoms) + 1)
+            for index in range(1, len(paramset.mol2.atoms) + 1)
         ],
         charges=[
             charges_by_atom[index]
-            for index in range(1, len(parameter_set.mol2.atoms) + 1)
+            for index in range(1, len(paramset.mol2.atoms) + 1)
         ],
     )
 
-    mapped = deepcopy(parameter_set)
+    mapped = deepcopy(paramset)
     maple_mass_params: dict[str, float] = {}
     for bond in mapped.bonds:
         bond.atom_types = tuple(maple_types[index] for index in bond.atoms)
@@ -517,8 +517,8 @@ def write_amber_files(
         improper.atom_types = tuple(maple_types[index] for index in improper.atoms)
     for nonbond in mapped.nonbonds:
         nonbond.atom_type = maple_types[nonbond.atom]
-    for atom_index, mol2_atom in enumerate(parameter_set.mol2.atoms, start=1):
-        maple_mass_params[maple_types[atom_index]] = parameter_set.frcmod.mass_params[mol2_atom.atom_type]
+    for atom_index, mol2_atom in enumerate(paramset.mol2.atoms, start=1):
+        maple_mass_params[maple_types[atom_index]] = paramset.frcmod.mass_params[mol2_atom.atom_type]
 
     from .interface import write_refined_frcmod
 
@@ -528,11 +528,11 @@ def write_amber_files(
     atom_type_rows = [
         (
             mol2_atom.name,
-            _element_from_mass(parameter_set.frcmod.mass_params[mol2_atom.atom_type]),
+            _element_from_mass(paramset.frcmod.mass_params[mol2_atom.atom_type]),
             mol2_atom.atom_type,
             maple_types[atom_index],
         )
-        for atom_index, mol2_atom in enumerate(parameter_set.mol2.atoms, start=1)
+        for atom_index, mol2_atom in enumerate(paramset.mol2.atoms, start=1)
     ]
     with open(tleap_path, "w") as handle:
         handle.writelines(
@@ -547,20 +547,20 @@ def write_amber_files(
     return mol2_path, frcmod_path, tleap_path
 
 
-def _validate_amber_export_inputs(parameter_set: CorrectionParameterSet) -> None:
-    atom_count = len(parameter_set.mol2.atoms)
+def _validate_amber_export_inputs(paramset: CorrectionParameterSet) -> None:
+    atom_count = len(paramset.mol2.atoms)
     expected_atoms = set(range(1, atom_count + 1))
-    nonbond_atoms = {nonbond.atom for nonbond in parameter_set.nonbonds}
+    nonbond_atoms = {nonbond.atom for nonbond in paramset.nonbonds}
     missing_nonbond_atoms = sorted(expected_atoms - nonbond_atoms)
     if missing_nonbond_atoms:
         missing = ", ".join(str(atom) for atom in missing_nonbond_atoms)
         raise ValueError(f"Cannot write Amber NONBON: missing nonbond rows for atom(s) {missing}.")
 
-    for atom in parameter_set.mol2.atoms:
-        if atom.atom_type not in parameter_set.frcmod.mass_params:
+    for atom in paramset.mol2.atoms:
+        if atom.atom_type not in paramset.frcmod.mass_params:
             raise ValueError(f"Cannot write Amber MASS for atom type {atom.atom_type!r}.")
 
-    for nonbond in parameter_set.nonbonds:
+    for nonbond in paramset.nonbonds:
         if nonbond.atom not in expected_atoms:
             raise ValueError(f"Cannot write Amber NONBON for atom {nonbond.atom}: atom index is out of range.")
         if nonbond.rmin_half is None or nonbond.epsilon is None:
@@ -569,15 +569,15 @@ def _validate_amber_export_inputs(parameter_set: CorrectionParameterSet) -> None
                 "missing rmin_half/epsilon."
             )
 
-    for bond in parameter_set.bonds:
+    for bond in paramset.bonds:
         if bond.kBond is None or bond.rEq is None:
             raise ValueError(f"Cannot write Amber BOND {'-'.join(map(str, bond.atoms))}: missing kBond/rEq.")
-    for angle in parameter_set.angles:
+    for angle in paramset.angles:
         if angle.kTheta is None or angle.thetaEq is None:
             raise ValueError(f"Cannot write Amber ANGLE {'-'.join(map(str, angle.atoms))}: missing kTheta/thetaEq.")
-    for dihedral in parameter_set.dihedrals:
+    for dihedral in paramset.dihedrals:
         if not dihedral.terms:
             raise ValueError(f"Cannot write Amber DIHE {'-'.join(map(str, dihedral.atoms))}: missing torsion terms.")
-    for improper in parameter_set.impropers:
+    for improper in paramset.impropers:
         if not improper.terms:
             raise ValueError(f"Cannot write Amber IMPROPER {'-'.join(map(str, improper.atoms))}: missing torsion terms.")

@@ -448,7 +448,7 @@ def read_pdb(
     keep_altloc: str = "A",
     model: Optional[int] = None,
     *,
-    prom: str = "ff14SB",
+    pro_ff: str = "ff14SB",
     altloc_selectors: list[str] | None = None,
 ) -> dict:
     from maple.function.read.filereader.pdb_reader import read_pdb as _read_pdb
@@ -457,6 +457,6 @@ def read_pdb(
         path,
         keep_altloc=keep_altloc,
         model=model,
-        prom=prom,
+        pro_ff=pro_ff,
         altloc_selectors=altloc_selectors,
     )
