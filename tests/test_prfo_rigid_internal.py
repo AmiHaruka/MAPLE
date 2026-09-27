@@ -406,7 +406,7 @@ class PRFORigidInternalTests(unittest.TestCase):
                 atoms=atoms,
                 paras={"max_iter": 0, "rigid_symmetry": "free_molecule"},
             ).run_result()
-        self.assertEqual(result.status, PRFOStatus.FAILED_WRONG_INERTIA)
+        self.assertEqual(result.status, PRFOStatus.FAILED_NEAR_ZERO_CURVATURE)
         self.assertEqual(result.negative_modes, 0)
 
     def test_free_atom_has_no_internal_ts_coordinate(self):

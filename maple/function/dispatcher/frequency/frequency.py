@@ -121,6 +121,9 @@ class FrequencyParams:
     symmetry_number: int = 1
     thermochemistry: Literal["auto", "gas", "none"] = "auto"
     device: str = "cpu"
+    fd_batch_size: int | str | None = None
+    fd_hessian_antisymmetry_action: str | None = None
+    fd_hessian_antisymmetry_threshold: float | None = None
 
 @dataclass
 class PrintParams:
@@ -213,6 +216,9 @@ class FrequencyBase(JobABC):
         nu_floor_cm1: float = 1.0,
         thermochemistry: Literal["auto", "gas", "none"] = "auto",
         device: str = "cpu",            
+        fd_batch_size: int | str | None = None,
+        fd_hessian_antisymmetry_action: str | None = None,
+        fd_hessian_antisymmetry_threshold: float | None = None,
     ):
         """
         Initialize the frequency analysis job.
@@ -250,6 +256,11 @@ class FrequencyBase(JobABC):
         self.omega0_cm1 = omega0_cm1
         self.nu_floor_cm1 = max(float(nu_floor_cm1), 1e-6)
         self.thermochemistry = str(thermochemistry).lower()
+        self.fd_batch_size = fd_batch_size
+        self.fd_hessian_antisymmetry_action = fd_hessian_antisymmetry_action
+        self.fd_hessian_antisymmetry_threshold = (
+            fd_hessian_antisymmetry_threshold
+        )
         if self.thermochemistry not in {"auto", "gas", "none"}:
             raise ValueError("thermochemistry must be one of: auto, gas, none")
         if (
@@ -391,7 +402,19 @@ class FrequencyBase(JobABC):
         if calc is None or not hasattr(calc, "get_hessian"):
             raise RuntimeError("Atom calculator must implement get_hessian method")
 
-        hessian = calc.get_hessian(self.atoms)
+        kwargs = {}
+        for name in (
+            "fd_batch_size",
+            "fd_hessian_antisymmetry_action",
+            "fd_hessian_antisymmetry_threshold",
+        ):
+            value = getattr(self, name, None)
+            if value is not None:
+                kwargs[name] = value
+        hessian = calc.get_hessian(self.atoms, **kwargs)
+        self.fd_hessian_diagnostic = getattr(
+            calc, "_fd_hessian_last_antisymmetry", None
+        )
 
         # Convert to numpy array defensively.
         if _TORCH_OK and isinstance(hessian, torch.Tensor):
@@ -873,8 +896,6 @@ class FrequencyBase(JobABC):
         
         # Count frequency types
         n_zero = int(np.sum(freqs == 0.0))
-        n_imag = int(np.sum(freqs < 0.0))
-        n_real = len(freqs) - n_zero - n_imag
         
         self.log_info(["Scaling factor for frequencies = 1.000000000 (already applied!)\n\n"])
         
@@ -1258,6 +1279,13 @@ class Frequency:
                 "ilowfreq": self.params.ilowfreq,
                 "thermochemistry": self.params.thermochemistry,
                 "device": self.params.device,
+                "fd_batch_size": self.params.fd_batch_size,
+                "fd_hessian_antisymmetry_action": (
+                    self.params.fd_hessian_antisymmetry_action
+                ),
+                "fd_hessian_antisymmetry_threshold": (
+                    self.params.fd_hessian_antisymmetry_threshold
+                ),
             }
 
             if method == "both":

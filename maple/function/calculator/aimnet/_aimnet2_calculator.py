@@ -65,6 +65,9 @@ AIMNET2_BATCH_LAYOUT_BY_SHA256 = {
     digest: capabilities.batch_energy_layout
     for digest, capabilities in AIMNET2_CHECKPOINT_CAPABILITIES_BY_SHA256.items()
 }
+_AIMNET2_RIGID_INVARIANT_SHA256 = frozenset(
+    AIMNET2_CHECKPOINT_CAPABILITIES_BY_SHA256
+)
 
 
 def _checkpoint_sha256(model_path: str) -> str | None:
@@ -363,11 +366,32 @@ class AIMNet2Calculator(CalcABC):
     OPTION_KEYS = ('coulomb_method', 'batch_size', 'path_batch_size')
     MODEL_PATH_OPTION = 'model_path'
     supports_batch_energy_forces = False
-    supports_analytic_hessian = True
     batch_memory_model = 'concat_dense_neighbor'
     auto_batch_hard_cap = 8
     auto_path_batch_cap = 8
     BATCH_ENERGY_LAYOUT = None
+
+    @property
+    def rigid_body_invariant(self) -> bool | None:
+        """Structural free-molecule invariance for reviewed checkpoints only."""
+        identity = getattr(self, "maple_pes_identity", None)
+        if not isinstance(identity, dict):
+            return None
+        fingerprint = identity.get("model_fingerprint", {})
+        digest = fingerprint.get("digest") if isinstance(fingerprint, dict) else None
+        if digest not in _AIMNET2_RIGID_INVARIANT_SHA256:
+            return None
+        settings = identity.get("relevant_settings", {})
+        if not isinstance(settings, dict) or set(settings) != {"coulomb", "implicit"}:
+            return None
+        if settings.get("implicit") != "none":
+            return None
+        coulomb = settings.get("coulomb")
+        if not isinstance(coulomb, dict) or coulomb.get("method") not in {"simple", "dsf"}:
+            return None
+        if getattr(self, "external_field", None) is not None:
+            return None
+        return True
 
     @classmethod
     def build_kwargs_from_options(cls, model, options, *, resolved_model_path=None):
@@ -580,7 +604,7 @@ class AIMNet2Calculator(CalcABC):
 
         atoms_list = list(atoms_list)
         if not atoms_list:
-            return empty_batch_result(want_energy, want_forces)
+            return empty_batch_result(want_energy, want_forces, request)
 
         if atoms_list_has_pbc(atoms_list):
             return sequential_calculate_many(
@@ -671,6 +695,10 @@ class AIMNet2Calculator(CalcABC):
 
         return BatchResult(
             energies=energies,
+            energy_kind=next(
+                (prop for prop in request if prop in ("energy", "free_energy")),
+                None,
+            ) if energies is not None else None,
             forces=forces_list,
         ).validate_against(atoms_list, request)
 

@@ -6,6 +6,7 @@ import numpy as np
 
 import ase.calculators.calculator
 
+from ..units.units import EV_TO_HARTREE as EV2HARTREE
 from ._batch_types import BatchResult
 from ._batch_utils import (
     empty_batch_result,
@@ -126,7 +127,7 @@ def parse_bool_option(value, *, name='option'):
     )
 
 
-EV2HARTREE = 1.0 / 27.211386245988
+
 
 
 def _convert_energy_force_units(energy, forces, *, source_unit):
@@ -174,70 +175,6 @@ def reject_periodic_atoms(atoms, backend_name: str) -> None:
             f"{backend_name} is a no-PBC molecular wrapper. "
             "Use UMA or a backend-native PBC calculator for periodic systems."
         )
-
-
-def numerical_hessian_from_atoms(calc, atoms, delta=0.002):
-    """Numerical Hessian via central finite difference on forces.
-
-    Polymorphic: works for any calculator with the ASE protocol
-    (calc.calculate(atoms, properties=['forces'], system_changes=...) writes
-    calc.results['forces'] as a (N, 3) ndarray). Returns float64 ndarray of
-    shape (3N, 3N).
-    """
-    from ase.constraints import FixAtoms
-    from ase.calculators.calculator import all_changes
-
-    old_results = dict(getattr(calc, 'results', {}) or {})
-    old_atoms = getattr(calc, 'atoms', None)
-    try:
-        N = len(atoms)
-        pos0 = atoms.get_positions().copy()
-        fixed = {
-            i
-            for c in getattr(atoms, 'constraints', []) or []
-            if isinstance(c, FixAtoms)
-            for i in c.get_indices()
-        }
-        movable = [i for i in range(N) if i not in fixed]
-
-        H = np.zeros((3 * N, 3 * N), dtype=np.float64)
-        if not movable:
-            return H
-
-        def force_at(positions):
-            at = atoms.copy()
-            at.set_positions(positions)
-            if getattr(atoms, 'constraints', None):
-                at.set_constraint(atoms.constraints)
-            calc.calculate(at, properties=['forces'], system_changes=all_changes)
-            return np.asarray(calc.results['forces'], dtype=np.float64)
-
-        for a in movable:
-            for k in range(3):
-                # Displacing DOF j and measuring all forces yields -dF_i/dx_j = H[i, j],
-                # i.e. column j of the Hessian. Fill the column, then symmetrize to
-                # absorb finite-difference noise (the exact Hessian is symmetric).
-                col = 3 * a + k
-                pos_p = pos0.copy(); pos_p[a, k] += delta
-                Fp = force_at(pos_p)
-                pos_m = pos0.copy(); pos_m[a, k] -= delta
-                Fm = force_at(pos_m)
-                H[:, col] = (-(Fp - Fm) / (2.0 * delta)).reshape(-1)
-
-        H = 0.5 * (H + H.T)
-        if fixed:
-            # PHVA embedding: a frozen atom contributes no Hessian row/column.
-            # Symmetrization would otherwise smear the movable->fixed force
-            # couplings (read from the raw, unconstrained results['forces']) into
-            # the fixed DOFs; zero them so fixed atoms decouple cleanly. No-op when
-            # there are no constraints, so the common path is unchanged.
-            fixed_dofs = [3 * i + k for i in sorted(fixed) for k in range(3)]
-            H[fixed_dofs, :] = 0.0
-            H[:, fixed_dofs] = 0.0
-        return H
-    finally:
-        calc.results = old_results
-        calc.atoms = old_atoms
 
 
 def hessian_via_double_autograd(energy_fn, leaf):
@@ -288,7 +225,8 @@ class CalcABC(ase.calculators.calculator.Calculator):
     # Backends that implement a real model-level batch path override
     # ``calculate_many`` and flip this capability flag.
     supports_batch_energy_forces: bool = False
-    supports_analytic_hessian: bool = False
+    # CalcABC._finalize_results defines both ASE scalars from one PES value.
+    energy_free_energy_equal: bool = True
     supports_hvp: bool = False
     batch_memory_model: str | None = None
     auto_batch_hard_cap: int | None = None
@@ -369,7 +307,7 @@ class CalcABC(ase.calculators.calculator.Calculator):
 
         atoms_list = list(atoms_list)
         if not atoms_list:
-            return empty_batch_result(want_energy, want_forces)
+            return empty_batch_result(want_energy, want_forces, request)
 
         return sequential_calculate_many(
             self, atoms_list, request, want_energy, want_forces
@@ -441,6 +379,9 @@ class CalcABC(ase.calculators.calculator.Calculator):
         delta: float = 0.002,
         *,
         constraint_mode: str = "fixed_cartesian",
+        fd_batch_size=None,
+        fd_hessian_antisymmetry_action: str | None = None,
+        fd_hessian_antisymmetry_threshold: float | None = None,
     ):
         """Return a raw or fixed-Cartesian Hessian in Ha/Angstrom^2.
 
@@ -477,8 +418,18 @@ class CalcABC(ase.calculators.calculator.Calculator):
 
             return FDHessianEvaluator(
                 self,
-                fd_batch_size=getattr(self, "fd_batch_size", None),
+                fd_batch_size=(
+                    getattr(self, "fd_batch_size", None)
+                    if fd_batch_size is None
+                    else fd_batch_size
+                ),
                 constraint_mode=constraint_mode,
+                fd_hessian_antisymmetry_action=(
+                    fd_hessian_antisymmetry_action
+                ),
+                fd_hessian_antisymmetry_threshold=(
+                    fd_hessian_antisymmetry_threshold
+                ),
             ).hessian(atoms, delta)
         raise ValueError(f"Unknown hessian mode: {mode!r}")
 

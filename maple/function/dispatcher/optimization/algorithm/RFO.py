@@ -44,7 +44,9 @@ class RFOParams:
 
     # batched finite-difference Hessian: chunk size passed down to
     # FDHessianEvaluator via the calculator. None = single batch.
-    fd_batch_size: Optional[int] = None
+    fd_batch_size: int | str | None = None
+    fd_hessian_antisymmetry_action: str | None = None
+    fd_hessian_antisymmetry_threshold: float | None = None
 
 
 # ==============================================
@@ -85,21 +87,7 @@ class RFO(JobABC):
                     "use mode=rigid; constrained RFO is not implemented."
                 )
 
-        value = self.params.fd_batch_size
-        if value is None:
-            return self._run_optimization()
-
-        calc = self.atoms.calc
-        missing = object()
-        previous = getattr(calc, "fd_batch_size", missing)
-        calc.fd_batch_size = value
-        try:
-            return self._run_optimization()
-        finally:
-            if previous is missing:
-                del calc.fd_batch_size
-            else:
-                calc.fd_batch_size = previous
+        return self._run_optimization()
 
     def _run_optimization(self) -> Atoms:
         """Execute one job while any FD batch setting is scoped by ``run``."""
@@ -231,7 +219,16 @@ class RFO(JobABC):
     # ----------------------------------------------------------
     def _calculate_hessian(self, atoms: Atoms) -> np.ndarray:
         """Fetch Hessian from calculator and ensure square (3N x 3N) float64."""
-        H = atoms.calc.get_hessian(atoms)
+        kwargs = {}
+        for name in (
+            "fd_batch_size",
+            "fd_hessian_antisymmetry_action",
+            "fd_hessian_antisymmetry_threshold",
+        ):
+            value = getattr(self.params, name)
+            if value is not None:
+                kwargs[name] = value
+        H = atoms.calc.get_hessian(atoms, **kwargs)
         H = to_numpy_f64(H)
         if H.ndim == 3 and H.shape[0] == 1:
             H = H[0]

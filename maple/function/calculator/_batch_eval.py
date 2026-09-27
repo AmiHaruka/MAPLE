@@ -34,6 +34,7 @@ from ase.constraints import FixAtoms, FixCartesian
 from ._batch_types import BatchResult
 from ._batch_utils import (
     atoms_list_has_pbc,
+    declares_energy_free_energy_equal,
     normalize_energy_forces_request,
     preserve_calculator_state,
     sequential_calculate_many,
@@ -69,7 +70,15 @@ def _calculate_many_nonperiodic_batch_only(calc, atoms_list, properties) -> Batc
         return sequential_calculate_many(
             calc, atoms_list, request, want_energy, want_forces
         )
-    result = calc.calculate_many(atoms_list, properties=properties)
+    calculate_many = getattr(calc, "calculate_many", None)
+    if calculate_many is None:
+        _, want_energy, want_forces, request = normalize_energy_forces_request(
+            properties
+        )
+        return sequential_calculate_many(
+            calc, atoms_list, request, want_energy, want_forces
+        )
+    result = calculate_many(atoms_list, properties=properties)
     if not isinstance(result, BatchResult):
         raise TypeError(
             f"{type(calc).__name__}.calculate_many() must return BatchResult, "
@@ -114,10 +123,11 @@ def energy_forces_one(calc, atoms: Atoms, force_consistent: bool = True
                       ) -> Tuple[float, np.ndarray]:
     """One calculator invocation returning ``(energy, forces)``.
 
-    Ask the calculator for both properties in one ``calculate(...)`` call.
-    MAPLE calculators expose ``free_energy`` together with ``energy``; generic
-    ASE calculators that omit it use ``energy``. Constraint adjustments are
-    applied through the same public constraint hooks used by ASE.
+    Ask the calculator for forces plus exactly one ASE energy scalar in one
+    ``calculate(...)`` call. A calculator that cannot return ``free_energy``
+    may fall back to ``energy`` only when it explicitly declares
+    ``energy_free_energy_equal=True``. Constraint adjustments are applied
+    through the same public constraint hooks used by ASE.
 
     Returns
     -------
@@ -126,15 +136,27 @@ def energy_forces_one(calc, atoms: Atoms, force_consistent: bool = True
     forces
         ``(N, 3)`` float64 numpy array (Hartree/Å).
     """
+    energy_kind = "free_energy" if force_consistent else "energy"
     calc.calculate(
         atoms,
-        properties=["energy", "forces"],
+        properties=[energy_kind, "forces"],
         system_changes=all_changes,
     )
-    if force_consistent and "free_energy" in calc.results:
-        energy = float(calc.results["free_energy"])
-    else:
+    if energy_kind in calc.results:
+        energy = float(calc.results[energy_kind])
+    elif (
+        energy_kind == "free_energy"
+        and declares_energy_free_energy_equal(calc)
+        and "energy" in calc.results
+    ):
         energy = float(calc.results["energy"])
+    else:
+        raise RuntimeError(
+            f"{type(calc).__name__} did not return the requested "
+            f"{energy_kind!r} scalar; it may declare "
+            "energy_free_energy_equal=True only when that equality is part "
+            "of its reviewed calculator contract"
+        )
     forces = np.array(calc.results["forces"], dtype=np.float64, copy=True)
     expected_force_shape = (len(atoms), 3)
     if forces.shape != expected_force_shape:
@@ -605,6 +627,8 @@ class FDHessianEvaluator:
         respect_constraints: Optional[bool] = None,
         fd_context_mode: Optional[str] = None,
         constraint_mode: Optional[str] = None,
+        fd_hessian_antisymmetry_action: Optional[str] = None,
+        fd_hessian_antisymmetry_threshold: Optional[float] = None,
     ) -> None:
         self.calc = calc
         if fd_batch_size is None:
@@ -630,6 +654,32 @@ class FDHessianEvaluator:
         # name from the FixAtoms-only implementation.
         self.respect_fixatoms = self.respect_constraints
         self.fd_context_mode = fd_context_mode
+        self.fd_hessian_antisymmetry_action = (
+            None
+            if fd_hessian_antisymmetry_action is None
+            else str(fd_hessian_antisymmetry_action).lower()
+        )
+        self.fd_hessian_antisymmetry_threshold = (
+            fd_hessian_antisymmetry_threshold
+        )
+        if self.fd_hessian_antisymmetry_action not in (
+            None,
+            "ignore",
+            "warn",
+            "raise",
+        ):
+            raise ValueError(
+                "fd_hessian_antisymmetry_action must be 'ignore', 'warn', or "
+                f"'raise', got {fd_hessian_antisymmetry_action!r}"
+            )
+        if fd_hessian_antisymmetry_threshold is not None:
+            threshold = float(fd_hessian_antisymmetry_threshold)
+            if not np.isfinite(threshold) or threshold < 0.0:
+                raise ValueError(
+                    "fd_hessian_antisymmetry_threshold must be finite and "
+                    f"non-negative or None, got {threshold!r}"
+                )
+            self.fd_hessian_antisymmetry_threshold = threshold
 
     def hessian(self, atoms: Atoms, delta: float = 0.002) -> np.ndarray:
         if not np.isfinite(delta) or delta <= 0.0:
@@ -640,6 +690,7 @@ class FDHessianEvaluator:
         movable_dofs = _movable_dofs(atoms, self.respect_constraints)
         H = np.zeros((3 * N, 3 * N), dtype=np.float64)
         if not movable_dofs:
+            self._symmetrize(H)
             return H
 
         # A constraint-free reference guarantees raw force derivatives in both
@@ -830,6 +881,7 @@ class FDHessianEvaluator:
                 "scale_floor": 1.0,
                 "scale": max(1.0, float(np.max(np.abs(H)))) if H.size else 1.0,
                 "threshold": self._antisymmetry_threshold(),
+                "action": self._antisymmetry_action(),
             },
         )
         self._handle_antisymmetry_residual(abs_resid, rel_resid)
@@ -845,11 +897,13 @@ class FDHessianEvaluator:
         return abs_resid, abs_resid / scale
 
     def _antisymmetry_threshold(self) -> Optional[float]:
-        threshold = getattr(
-            self.calc,
-            "fd_hessian_antisymmetry_threshold",
-            FD_HESSIAN_ANTISYMMETRY_THRESHOLD,
-        )
+        threshold = self.fd_hessian_antisymmetry_threshold
+        if threshold is None:
+            threshold = getattr(
+                self.calc,
+                "fd_hessian_antisymmetry_threshold",
+                FD_HESSIAN_ANTISYMMETRY_THRESHOLD,
+            )
         if threshold is None:
             return None
         threshold = float(threshold)
@@ -859,6 +913,19 @@ class FDHessianEvaluator:
                 f"or None, got {threshold!r}"
             )
         return threshold
+
+    def _antisymmetry_action(self) -> str:
+        action = self.fd_hessian_antisymmetry_action
+        if action is None:
+            action = str(
+                getattr(self.calc, "fd_hessian_antisymmetry_action", "raise")
+            ).lower()
+        if action not in ("ignore", "warn", "raise"):
+            raise ValueError(
+                "fd_hessian_antisymmetry_action must be 'ignore', 'warn', or "
+                f"'raise', got {action!r}"
+            )
+        return action
 
     def _handle_antisymmetry_residual(
         self,
@@ -879,9 +946,7 @@ class FDHessianEvaluator:
             "forces, unit drift, or batch force-order/shape mismatch; the "
             "matrix will be symmetrized only after this diagnostic is surfaced."
         )
-        action = str(
-            getattr(self.calc, "fd_hessian_antisymmetry_action", "raise")
-        ).lower()
+        action = self._antisymmetry_action()
         if action == "ignore":
             return
         if action == "warn":
@@ -897,17 +962,59 @@ class FDHessianEvaluator:
 # ---------------------------------------------------------------------------
 # Path snapshots and HVP scaffolding
 # ---------------------------------------------------------------------------
+def _iter_evaluator_chunks(calc, images, properties, batch_size):
+    """Yield ordered validated batch chunks with shared CUDA-OOM backoff."""
+    n_total = len(images)
+    auto = batch_size == AUTO_BATCH_SIZE
+    sizer = (
+        _AutoBatchSizer(calc, images, properties, kind="path")
+        if auto
+        else None
+    )
+    if sizer is not None:
+        chunk = sizer.chunk
+    elif batch_size == ALL_BATCH_SIZE or batch_size is None:
+        chunk = n_total
+    else:
+        chunk = batch_size
+    start = 0
+    while start < n_total:
+        sub = list(images[start : start + chunk])
+        try:
+            result = _calculate_many_nonperiodic_batch_only(
+                calc,
+                sub,
+                properties=properties,
+            )
+        except RuntimeError as exc:
+            if sizer is None or not _is_cuda_oom(exc) or not sizer.backoff_after_oom():
+                raise
+            chunk = sizer.chunk
+            continue
+        yield sub, result
+        start += len(sub)
+        if sizer is not None:
+            chunk = max(1, min(sizer.chunk, n_total - start or sizer.chunk))
+
+
 class PathEvaluator:
     """Batch energy + force over a list of images (NEB / AutoNEB / GSM).
 
-    The implementation deliberately mirrors `FDHessianEvaluator._chunked_forces`
-    so both routes degrade gracefully on the sequential `calculate_many`
-    fallback.  The evaluator is deliberately model-agnostic: it only changes
-    how E/F values are fetched, not how a path optimizer uses those values.
+    ``force_consistent=True`` requests ASE ``free_energy`` (the path default);
+    callers such as verbose SP can explicitly request potential ``energy``.
+    The evaluator is model-agnostic: it changes only how E/F values are
+    fetched, not how a path optimizer uses those values.
     """
 
-    def __init__(self, calc, batch_size: Optional[int] = None) -> None:
+    def __init__(
+        self,
+        calc,
+        batch_size: Optional[int] = None,
+        *,
+        force_consistent: bool = True,
+    ) -> None:
         self.calc = calc
+        self.force_consistent = bool(force_consistent)
         if batch_size is None:
             batch_size = _calculator_batch_size(calc, "path_batch_size")
         else:
@@ -919,31 +1026,16 @@ class PathEvaluator:
         if n_total == 0:
             return np.zeros(0, dtype=np.float64), []
 
-        auto = self.batch_size == AUTO_BATCH_SIZE
-        sizer = _AutoBatchSizer(
-            self.calc, images, ("energy", "forces"), kind="path"
-        ) if auto else None
-        chunk = (
-            sizer.chunk if sizer is not None
-            else n_total if self.batch_size == ALL_BATCH_SIZE
-            else self.batch_size if self.batch_size is not None
-            else n_total
-        )
+        energy_kind = "free_energy" if self.force_consistent else "energy"
+        properties = (energy_kind, "forces")
         energies: List[float] = []
         forces: List[np.ndarray] = []
-        start = 0
-        while start < n_total:
-            sub = list(images[start : start + chunk])
-            try:
-                result = _calculate_many_nonperiodic_batch_only(
-                    self.calc,
-                    sub, properties=("energy", "forces")
-                )
-            except RuntimeError as exc:
-                if sizer is None or not _is_cuda_oom(exc) or not sizer.backoff_after_oom():
-                    raise
-                chunk = sizer.chunk
-                continue
+        for sub, result in _iter_evaluator_chunks(
+            self.calc,
+            images,
+            properties,
+            self.batch_size,
+        ):
             if result.energies is None or len(result.energies) != len(sub):
                 got = None if result.energies is None else len(result.energies)
                 raise RuntimeError(
@@ -958,9 +1050,6 @@ class PathEvaluator:
                 )
             energies.extend(float(e) for e in result.energies.tolist())
             forces.extend(np.asarray(f, dtype=np.float64) for f in result.forces)
-            start += len(sub)
-            if sizer is not None:
-                chunk = max(1, min(sizer.chunk, n_total - start or sizer.chunk))
         return np.asarray(energies, dtype=np.float64), forces
 
 
@@ -968,13 +1057,20 @@ class EnergyEvaluator:
     """Batch energy-only evaluation for independent structures.
 
     This is the right abstraction for SP trajectories, path-output summaries,
-    and endpoint ranking where forces are not needed.  It shares the same chunk
-    sizing and non-periodic-batch guard as :class:`PathEvaluator`, but requests
-    only ``("energy",)`` so force autograd graphs are not built unnecessarily.
+    and endpoint ranking where forces are not needed. It defaults to potential
+    ``energy``; path summaries whose scalar fallback is force-consistent must
+    pass ``force_consistent=True``. No force autograd graph is requested.
     """
 
-    def __init__(self, calc, batch_size: Optional[int] = None) -> None:
+    def __init__(
+        self,
+        calc,
+        batch_size: Optional[int] = None,
+        *,
+        force_consistent: bool = False,
+    ) -> None:
         self.calc = calc
+        self.force_consistent = bool(force_consistent)
         if batch_size is None:
             batch_size = _calculator_batch_size(calc, "path_batch_size")
         else:
@@ -986,31 +1082,16 @@ class EnergyEvaluator:
         if n_total == 0:
             return np.zeros(0, dtype=np.float64)
 
-        auto = self.batch_size == AUTO_BATCH_SIZE
-        sizer = _AutoBatchSizer(
-            self.calc, images, ("energy",), kind="path"
-        ) if auto else None
-        chunk = (
-            sizer.chunk if sizer is not None
-            else n_total if self.batch_size == ALL_BATCH_SIZE
-            else self.batch_size if self.batch_size is not None
-            else n_total
+        properties = (
+            "free_energy" if self.force_consistent else "energy",
         )
         energies: List[float] = []
-        start = 0
-        while start < n_total:
-            sub = list(images[start : start + chunk])
-            try:
-                result = _calculate_many_nonperiodic_batch_only(
-                    self.calc,
-                    sub,
-                    properties=("energy",),
-                )
-            except RuntimeError as exc:
-                if sizer is None or not _is_cuda_oom(exc) or not sizer.backoff_after_oom():
-                    raise
-                chunk = sizer.chunk
-                continue
+        for sub, result in _iter_evaluator_chunks(
+            self.calc,
+            images,
+            properties,
+            self.batch_size,
+        ):
             if result.energies is None or len(result.energies) != len(sub):
                 got = None if result.energies is None else len(result.energies)
                 raise RuntimeError(
@@ -1018,9 +1099,6 @@ class EnergyEvaluator:
                     f"for EnergyEvaluator: expected {len(sub)}, got {got}"
                 )
             energies.extend(float(e) for e in result.energies.tolist())
-            start += len(sub)
-            if sizer is not None:
-                chunk = max(1, min(sizer.chunk, n_total - start or sizer.chunk))
         return np.asarray(energies, dtype=np.float64)
 
 
@@ -1034,8 +1112,19 @@ class HVPEvaluator:
     `R` so the fallback matches the autograd contract exactly.
     """
 
-    def __init__(self, calc, batch_size: Optional[int] = None) -> None:
+    def __init__(
+        self,
+        calc,
+        batch_size: Optional[int] = None,
+        *,
+        use_analytic: bool = True,
+        require_analytic: bool = False,
+    ) -> None:
         self.calc = calc
+        self.use_analytic = bool(use_analytic)
+        self.require_analytic = bool(require_analytic)
+        if self.require_analytic and not self.use_analytic:
+            raise ValueError("require_analytic=True requires use_analytic=True")
         if batch_size is None:
             batch_size = _calculator_batch_size(calc, "hvp_batch_size")
         else:
@@ -1063,7 +1152,11 @@ class HVPEvaluator:
         if np.linalg.norm(n_flat) == 0.0:
             raise ValueError("HVP direction must be non-zero")
 
-        if getattr(self.calc, "supports_hvp", False) and hasattr(self.calc, "get_hvp"):
+        analytic_available = bool(getattr(self.calc, "supports_hvp", False)) and hasattr(
+            self.calc, "get_hvp"
+        )
+        if self.use_analytic and analytic_available:
+            self._validate_analytic_energy_identity()
             Hn_t, F_t, E_t = self.calc.get_hvp(atoms, n_flat)
 
             def _to_np(t):
@@ -1097,11 +1190,22 @@ class HVPEvaluator:
                 )
             return Hn, F, E
 
+        if self.require_analytic:
+            raise NotImplementedError(
+                f"{type(self.calc).__name__} does not declare analytic HVP support"
+            )
+
+        if getattr(atoms, "constraints", None):
+            raise NotImplementedError(
+                "Finite-difference HVP requires unconstrained raw Cartesian "
+                "forces; constrained Dimer HVP is not implemented"
+            )
+
         n_arr = n_flat.reshape(-1, 3)
         pos0 = atoms.get_positions().copy()
-        at_p = _copy_with_positions(atoms, pos0 + delta * n_arr)
-        at_m = _copy_with_positions(atoms, pos0 - delta * n_arr)
-        at_0 = _copy_with_positions(atoms, pos0)
+        at_p = _raw_copy_with_positions(atoms, pos0 + delta * n_arr)
+        at_m = _raw_copy_with_positions(atoms, pos0 - delta * n_arr)
+        at_0 = _raw_copy_with_positions(atoms, pos0)
 
         try:
             energies, forces = PathEvaluator(
@@ -1132,3 +1236,31 @@ class HVPEvaluator:
                 "Finite-difference HVP returned non-finite HVP, force, or energy values"
             )
         return Hn, F_0, E_0
+
+    def _validate_analytic_energy_identity(self) -> None:
+        """Require analytic HVP energy to represent force-consistent energy."""
+        kind = getattr(self.calc, "hvp_energy_kind", None)
+        if kind == "free_energy":
+            return
+        equal = declares_energy_free_energy_equal(self.calc)
+        if kind == "energy":
+            if equal:
+                return
+            raise RuntimeError(
+                f"{type(self.calc).__name__}.get_hvp returns 'energy', but "
+                "analytic HVP consumers require force-consistent free_energy; "
+                "declare energy_free_energy_equal=True only for a reviewed "
+                "equal-scalar contract"
+            )
+        if kind is None:
+            if equal:
+                return
+            raise RuntimeError(
+                f"{type(self.calc).__name__} must declare "
+                "hvp_energy_kind='free_energy' or an explicit reviewed "
+                "energy_free_energy_equal=True contract before analytic HVP use"
+            )
+        raise ValueError(
+            f"{type(self.calc).__name__}.hvp_energy_kind must be 'energy' or "
+            f"'free_energy', got {kind!r}"
+        )

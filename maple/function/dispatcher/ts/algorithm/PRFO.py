@@ -9,6 +9,9 @@ Features:
 """
 from __future__ import annotations
 import os
+import math
+import operator
+from pathlib import Path
 import sys
 from dataclasses import dataclass
 from enum import Enum
@@ -18,6 +21,9 @@ from typing import Optional
 import numpy as np
 from ase import Atoms
 
+from ._rfo_arrowhead import ArrowheadSolverError, prepare_extremal_root
+from ._artifacts import archive_artifacts
+from maple.function.calculator._batch_eval import reset_calculator_cache
 from .logger import log_info
 from ._pdb_compat import require_shared_pdb_writer
 from ...jobABC import JobABC
@@ -66,20 +72,49 @@ def vec1d(x, n_expected=None):
 def _ts_step_quality(
     actual_change: float,
     predicted_change: float,
+    *,
+    model_scale: float | None = None,
+    gradient: np.ndarray | None = None,
+    trial_gradient: np.ndarray | None = None,
+    hessian_step: np.ndarray | None = None,
 ) -> tuple[float | None, float]:
-    """Return ``rho`` and symmetric TS quality ``Q = 1 - |rho - 1|``."""
-    actual_change = float(actual_change)
-    predicted_change = float(predicted_change)
-    if (
-        not np.isfinite(actual_change)
-        or not np.isfinite(predicted_change)
-        or abs(predicted_change) <= 1.0e-16
+    """Model agreement for an ordinary or cancelling saddle step.
+
+    The target climbs while the complement descends. Their total quadratic
+    energy change may vanish for a useful step. In that case energy agreement
+    is scaled by the sum of absolute partition contributions, and independent
+    endpoint-gradient agreement and gradient progress are both required.
+    These qualities are trust-model tests, not derivative error estimates.
+    """
+    actual = float(actual_change)
+    predicted = float(predicted_change)
+    if not np.isfinite(actual) or not np.isfinite(predicted):
+        return None, float("-inf")
+    rho = actual / predicted if abs(predicted) > 1e-16 else None
+    scale = abs(predicted) if model_scale is None else float(model_scale)
+    if not np.isfinite(scale) or scale < 0.0:
+        return rho, float("-inf")
+    cancelling = abs(predicted) <= max(1e-16, np.sqrt(np.finfo(float).eps) * scale)
+    if not cancelling:
+        return rho, 1.0 - abs(rho - 1.0)
+    if scale <= 1e-16 or any(v is None for v in (gradient, trial_gradient, hessian_step)):
+        return rho, float("-inf")
+    g, gt, hs = (np.asarray(v, dtype=np.float64) for v in
+                 (gradient, trial_gradient, hessian_step))
+    if g.shape != gt.shape or g.shape != hs.shape or not all(
+        np.all(np.isfinite(v)) for v in (g, gt, hs)
     ):
-        return None, float("-inf")
-    rho = actual_change / predicted_change
-    if not np.isfinite(rho):
-        return None, float("-inf")
-    return rho, 1.0 - abs(rho - 1.0)
+        return rho, float("-inf")
+    norm_g, norm_trial, norm_hs = (float(np.linalg.norm(v)) for v in (g, gt, hs))
+    gradient_scale = max(norm_g, norm_hs)
+    if (not np.all(np.isfinite([norm_g, norm_trial, norm_hs]))
+            or gradient_scale == 0.0 or norm_trial >= norm_g):
+        return rho, float("-inf")
+    energy_quality = 1.0 - abs(actual - predicted) / scale
+    gradient_quality = 1.0 - float(np.linalg.norm(gt - (g + hs))) / gradient_scale
+    if not np.all(np.isfinite([energy_quality, gradient_quality])):
+        return rho, float("-inf")
+    return rho, min(energy_quality, gradient_quality)
 
 
 def write_xyz(filename: str, atoms: Atoms, energy: Optional[float] = None, 
@@ -197,7 +232,8 @@ def prfo_step(H, g, is_ts=False, target_mode=None, trust_radius=0.2,
     trust_radius : float
         Trust radius bound measured in coordinates of H,g
     evals_eps : float
-        Eigenvalue regularization threshold
+        Legacy positive control retained for call compatibility; nonzero
+        spectral gaps are never clipped to manufacture a step.
     mu_margin : float
         Retained for call compatibility; RS-P-RFO uses ``alpha`` bisection.
     max_bisect_it : int
@@ -266,6 +302,14 @@ def prfo_step(H, g, is_ts=False, target_mode=None, trust_radius=0.2,
         maximize_idx = np.zeros(0, dtype=int)
         minimize_idx = np.arange(n, dtype=int)
 
+    # Curvatures/coupling directions stay fixed through alpha iteration.
+    # Validate and deflate them once; only the coupling scale changes.
+    min_curvatures, min_gradients = w[minimize_idx], gp[minimize_idx]
+    min_active = min_gradients != 0.0
+    minimize_root = prepare_extremal_root(min_curvatures, min_gradients)
+    target_curvature = float(w[maximize_idx[0]]) if maximize_idx.size else 0.0
+    target_gradient = float(gp[maximize_idx[0]]) if maximize_idx.size else 0.0
+
     def augmented_subspace_step(
         indices: np.ndarray,
         *,
@@ -274,32 +318,44 @@ def prfo_step(H, g, is_ts=False, target_mode=None, trust_radius=0.2,
     ) -> np.ndarray:
         if indices.size == 0:
             return np.zeros(0, dtype=np.float64)
-        curvatures = w[indices]
-        gradients = gp[indices]
-        inv_sqrt_alpha = 1.0 / np.sqrt(alpha)
-        augmented = np.zeros(
-            (indices.size + 1, indices.size + 1),
-            dtype=np.float64,
-        )
-        augmented[0, 1:] = gradients * inv_sqrt_alpha
-        augmented[1:, 0] = gradients * inv_sqrt_alpha
-        augmented[1:, 1:] = np.diag(curvatures / alpha)
-        roots = np.linalg.eigvalsh(augmented)
-        root = float(roots[-1] if maximize else roots[0])
-        denominator = curvatures - alpha * root
-        replacement = np.where(
-            denominator < 0.0,
-            -evals_eps,
-            evals_eps,
-        )
-        denominator = np.where(
-            np.abs(denominator) < evals_eps,
-            replacement,
-            denominator,
-        )
-        return -gradients / denominator
+        # Solve for mu = alpha * lambda directly, avoiding a second
+        # multiplication of a rounded small root. This is the same generalized
+        # augmented eigenproblem, with an O(n) secular equation evaluation.
+        if maximize:
+            c, g = target_curvature, target_gradient
+            if g == 0.0:
+                return np.zeros(1, dtype=np.float64)
+            b = g * math.sqrt(alpha)
+            scale = max(abs(c), abs(b))
+            if not math.isfinite(scale):
+                raise ArrowheadSolverError("Unrepresentable augmented coupling")
+            cs, bs = c / scale, b / scale
+            length = math.hypot(cs, 2.0 * bs)
+            # Stable c-mu for the 1D maximization partition, without clipping.
+            gap = (-b * ((2.0 * bs) / (length + cs)) if c >= 0.0
+                   else 0.5 * (cs - length) * scale)
+            if not math.isfinite(gap) or gap >= 0.0:
+                raise ArrowheadSolverError("Unresolved maximization spectral gap")
+            value = -g / gap
+            if not math.isfinite(value):
+                raise ArrowheadSolverError("Unrepresentable maximization step")
+            return np.asarray([value])
+        mu = minimize_root(math.sqrt(alpha))
+        denominator = min_curvatures - mu
+        active = min_active
+        bad_sign = denominator <= 0.0
+        if np.any(active & (bad_sign | ~np.isfinite(denominator))):
+            raise ArrowheadSolverError("Nonzero gradient has an unresolved spectral gap")
+        step = np.zeros_like(min_gradients)
+        with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
+            np.divide(-min_gradients, denominator, out=step, where=active)
+        if not np.all(np.isfinite(step)):
+            raise ArrowheadSolverError("Unrepresentable augmented eigenvector step")
+        return step
 
     def step_for_alpha(alpha: float) -> np.ndarray:
+        if not np.isfinite(alpha) or alpha < 1.0:
+            raise ArrowheadSolverError("P-RFO alpha exceeds its representable domain")
         projected = np.zeros(n, dtype=np.float64)
         if maximize_idx.size:
             projected[maximize_idx] = augmented_subspace_step(
@@ -313,44 +369,45 @@ def prfo_step(H, g, is_ts=False, target_mode=None, trust_radius=0.2,
                 maximize=False,
                 alpha=alpha,
             )
-        step = V @ projected
-        if not np.all(np.isfinite(step)):
+        if not np.all(np.isfinite(projected)):
             raise FloatingPointError("P-RFO step solver produced non-finite values")
-        return step
+        return projected
 
     unrestricted = step_for_alpha(1.0)
-    if float(np.linalg.norm(unrestricted)) <= trust_radius:
-        return unrestricted
+    if float(np.hypot.reduce(unrestricted)) <= trust_radius:
+        return V @ unrestricted
 
     alpha_lo = 1.0
     alpha_hi = 2.0
     restricted = step_for_alpha(alpha_hi)
     brackets = 0
     while (
-        float(np.linalg.norm(restricted)) > trust_radius
+        float(np.hypot.reduce(restricted)) > trust_radius
         and brackets < max_bisect_it
     ):
         alpha_lo = alpha_hi
+        if alpha_hi > np.finfo(float).max / 2.0:
+            raise ArrowheadSolverError("P-RFO alpha bracketing exhausted float64 range")
         alpha_hi *= 2.0
         restricted = step_for_alpha(alpha_hi)
         brackets += 1
-    if float(np.linalg.norm(restricted)) > trust_radius:
+    if float(np.hypot.reduce(restricted)) > trust_radius:
         raise RuntimeError("P-RFO could not bracket the restricted step")
 
     for _ in range(max_bisect_it):
-        alpha_mid = 0.5 * (alpha_lo + alpha_hi)
+        alpha_mid = alpha_lo + 0.5 * (alpha_hi - alpha_lo)
         candidate = step_for_alpha(alpha_mid)
-        norm = float(np.linalg.norm(candidate))
+        norm = float(np.hypot.reduce(candidate))
         if norm > trust_radius:
             alpha_lo = alpha_mid
         else:
             alpha_hi = alpha_mid
             restricted = candidate
-        if abs(norm - trust_radius) <= 1.0e-10 * max(1.0, trust_radius):
+        if abs(norm - trust_radius) <= min(1.0e-10 * max(1.0, trust_radius), 0.1 * trust_radius):
             restricted = candidate
             break
 
-    return restricted
+    return V @ restricted
 
 def calculate_Hessian(atoms: Atoms):
     """
@@ -541,11 +598,25 @@ class PRFOStatus(str, Enum):
     FAILED_BACKEND = "failed_backend"
     FAILED_HESSIAN = "failed_hessian"
     FAILED_WRONG_INERTIA = "failed_wrong_inertia"
+    FAILED_NEAR_ZERO_CURVATURE = "failed_near_zero_curvature"
     FAILED_STAGNATION = "failed_stagnation"
     FAILED_STEP_SOLVER = "failed_step_solver"
     FAILED_MODE_TRACKING = "failed_mode_tracking"
     FAILED_MAXITER = "failed_maxiter"
 
+
+PRFO_SUFFIXES = {
+    PRFOStatus.GEOMETRY_CONVERGED: "_prfo_ts_candidate",
+    PRFOStatus.FAILED_NONFINITE: "_prfo_nonfinite",
+    PRFOStatus.FAILED_BACKEND: "_prfo_backend_failure",
+    PRFOStatus.FAILED_HESSIAN: "_prfo_hessian_failure",
+    PRFOStatus.FAILED_WRONG_INERTIA: "_prfo_wrong_inertia",
+    PRFOStatus.FAILED_NEAR_ZERO_CURVATURE: "_prfo_near_zero_curvature",
+    PRFOStatus.FAILED_STAGNATION: "_prfo_stagnation",
+    PRFOStatus.FAILED_STEP_SOLVER: "_prfo_step_failure",
+    PRFOStatus.FAILED_MODE_TRACKING: "_prfo_mode_failure",
+    PRFOStatus.FAILED_MAXITER: "_prfo_unconverged",
+}
 
 @dataclass(frozen=True)
 class PRFOResult:
@@ -598,7 +669,6 @@ class PRFO(JobABC):
                  paras: Optional[dict] = None):
         super().__init__(output)
         self.atoms = atoms
-        require_shared_pdb_writer([atoms], "PRFO")
         if bool(getattr(atoms, "constraints", None)):
             raise NotImplementedError(
                 "PRFO does not yet project fixed/constrained degrees of "
@@ -606,10 +676,19 @@ class PRFO(JobABC):
             )
 
         # Initialize params from paras dict
-        self.params = self._init_params(PRFOParams, paras, ("prfo", "PRFO", "ts"))
-        self.params.recalc = int(self.params.recalc)
-        self.params.max_iter = int(self.params.max_iter)
-        self.params.max_bisect_it = int(self.params.max_bisect_it)
+        self.params = self._init_params(
+            PRFOParams, paras, ("prfo", "PRFO", "ts"), strict=True,
+            context="PRFO", allowed_keys=self.TASK_ROUTING_PARAM_KEYS,
+        )
+        for name in ("recalc", "max_iter", "max_bisect_it"):
+            value = getattr(self.params, name)
+            try:
+                if isinstance(value, (bool, np.bool_)):
+                    raise TypeError
+                integer = operator.index(value)
+            except TypeError as exc:
+                raise ValueError(f"PRFO {name} must be an integer") from exc
+            setattr(self.params, name, integer)
         self.params.hessian_update = str(self.params.hessian_update).lower()
         if self.params.hessian_update not in {"bofill", "bfgs"}:
             raise ValueError("Hessian update method must be 'bofill' or 'bfgs'.")
@@ -619,6 +698,7 @@ class PRFO(JobABC):
             if hasattr(atoms, attr):
                 setattr(self.params, attr, getattr(atoms, attr))
         self._validate_params()
+        require_shared_pdb_writer([atoms], "PRFO")
         self._coordinate_space = self._resolve_coordinate_space(atoms)
         if self._coordinate_space == "free_molecule" and len(atoms) < 2:
             raise NotImplementedError(
@@ -705,11 +785,6 @@ class PRFO(JobABC):
         inverse_sqrt_mass: np.ndarray,
     ) -> tuple[bool, str]:
         """Check the current unrestricted correction, never a clipped step."""
-        if np.any(np.abs(eigenvalues) <= self.params.inertia_threshold):
-            return False, (
-                "Force/inertia criteria passed, but a physical Hessian mode "
-                "remains unresolved."
-            )
         with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
             correction = inverse_sqrt_mass * (
                 physical_basis @ (
@@ -743,6 +818,16 @@ class PRFO(JobABC):
             lines.append(f"{s:<2} {x:14.6f} {y:14.6f} {z:14.6f}")
         return "\n".join(lines) + "\n"
     
+    def _archive_previous_run(self) -> None:
+        """Preserve previous PRFO artifacts outside the active result namespace."""
+        base = Path(os.path.splitext(self.output)[0])
+        previous = [
+            Path(f"{base}{suffix}{ext}")
+            for suffix in (*PRFO_SUFFIXES.values(), "_prfo_traj", "_prfo_ts")
+            for ext in (".xyz", ".pdb")
+        ]
+        archive_artifacts(previous, Path(f"{base}_prfo_history"))
+
     def _terminal_result(
         self,
         *,
@@ -756,17 +841,7 @@ class PRFO(JobABC):
         extension = (
             ".pdb" if self.atoms.info.get("pdb_template") else ".xyz"
         )
-        suffix = {
-            PRFOStatus.GEOMETRY_CONVERGED: "_prfo_ts_candidate",
-            PRFOStatus.FAILED_NONFINITE: "_prfo_nonfinite",
-            PRFOStatus.FAILED_BACKEND: "_prfo_backend_failure",
-            PRFOStatus.FAILED_HESSIAN: "_prfo_hessian_failure",
-            PRFOStatus.FAILED_WRONG_INERTIA: "_prfo_wrong_inertia",
-            PRFOStatus.FAILED_STAGNATION: "_prfo_stagnation",
-            PRFOStatus.FAILED_STEP_SOLVER: "_prfo_step_failure",
-            PRFOStatus.FAILED_MODE_TRACKING: "_prfo_mode_failure",
-            PRFOStatus.FAILED_MAXITER: "_prfo_unconverged",
-        }[status]
+        suffix = PRFO_SUFFIXES[status]
         structure_path = base + suffix + extension
         safe_energy = (
             float(energy)
@@ -831,7 +906,8 @@ class PRFO(JobABC):
         rho : float or None
             Model agreement ratio
         quality : float
-            Symmetric TS model quality, ``1 - abs(rho - 1)``
+            Energy-ratio quality for ordinary steps; energy/gradient model
+            agreement on a partition scale for cancelling saddle steps.
         trust_radius : float
             Current trust radius
         norm_mw : float
@@ -994,6 +1070,7 @@ class PRFO(JobABC):
         sys.setrecursionlimit(1000)
 
         atoms = self.atoms
+        self._archive_previous_run()
         trust_radius = self.params.trust_radius
 
         iteration = 0
@@ -1007,7 +1084,8 @@ class PRFO(JobABC):
             "\nStarting Transition State Search (TS) with RS-PRFO...\n",
             f"Hessian recalc interval: {self.params.recalc}; "
             f"update method: {self.params.hessian_update}\n",
-            "Trust quality Q=1-|actual/predicted-1|: "
+            "Trust quality: ordinary energy ratio; cancellation uses partition "
+            "energy and endpoint-gradient agreement. "
             f"reject<={self.params.eta_reject}, "
             f"shrink<{self.params.eta_shrink}, "
             f"expand>={self.params.eta_expand}\n",
@@ -1182,6 +1260,17 @@ class PRFO(JobABC):
             )
 
             proximity_detail = None
+            if forces_converged and np.any(
+                np.abs(w_physical) <= self.params.inertia_threshold
+            ):
+                return self._terminal_result(
+                    status=PRFOStatus.FAILED_NEAR_ZERO_CURVATURE,
+                    iteration=iteration, energy=E_old,
+                    negative_modes=negative_modes,
+                    detail=("Forces converged, but a physical curvature lies within "
+                            "the configured spectral-significance interval. This "
+                            "is not a numerical uncertainty estimate or a TS candidate."),
+                )
             if forces_converged:
                 if negative_modes == 1:
                     near_stationary, proximity_detail = self._candidate_proximity(
@@ -1320,6 +1409,7 @@ class PRFO(JobABC):
                     )
                 except Exception as exc:
                     atoms.set_positions(X)
+                    reset_calculator_cache(atoms.calc)
                     return self._terminal_result(
                         status=PRFOStatus.FAILED_BACKEND,
                         iteration=iteration,
@@ -1329,6 +1419,7 @@ class PRFO(JobABC):
                     )
                 if not np.isfinite(E_new):
                     atoms.set_positions(X)
+                    reset_calculator_cache(atoms.calc)
                     return self._terminal_result(
                         status=PRFOStatus.FAILED_NONFINITE,
                         iteration=iteration,
@@ -1339,6 +1430,7 @@ class PRFO(JobABC):
                 actual_change = float(E_new - E_old)
                 if not np.isfinite(actual_change):
                     atoms.set_positions(X)
+                    reset_calculator_cache(atoms.calc)
                     return self._terminal_result(
                         status=PRFOStatus.FAILED_NONFINITE,
                         iteration=iteration,
@@ -1346,12 +1438,58 @@ class PRFO(JobABC):
                         negative_modes=negative_modes,
                         detail="Actual trial energy change is non-finite.",
                     )
+                try:
+                    F_new = to_numpy_f64(atoms.get_forces())
+                except Exception as exc:
+                    atoms.set_positions(X)
+                    reset_calculator_cache(atoms.calc)
+                    return self._terminal_result(
+                        status=PRFOStatus.FAILED_BACKEND,
+                        iteration=iteration,
+                        energy=E_old,
+                        negative_modes=negative_modes,
+                        detail=f"Trial force failed: {type(exc).__name__}: {exc}",
+                    )
+                if not np.all(np.isfinite(F_new)):
+                    atoms.set_positions(X)
+                    reset_calculator_cache(atoms.calc)
+                    return self._terminal_result(
+                        status=PRFOStatus.FAILED_NONFINITE,
+                        iteration=iteration,
+                        energy=E_old,
+                        negative_modes=negative_modes,
+                        detail="Trial force contains non-finite values.",
+                    )
+                if F_new.shape != expected_force_shape:
+                    atoms.set_positions(X)
+                    reset_calculator_cache(atoms.calc)
+                    return self._terminal_result(
+                        status=PRFOStatus.FAILED_BACKEND,
+                        iteration=iteration,
+                        energy=E_old,
+                        negative_modes=negative_modes,
+                        detail=(
+                            f"Trial force shape is {F_new.shape}; expected "
+                            f"{expected_force_shape}."
+                        ),
+                    )
+                step_eigen = V_physical.T @ s_physical
+                partition_changes = (
+                    gp_physical * step_eigen
+                    + 0.5 * w_physical * step_eigen * step_eigen
+                )
+                uphill = float(partition_changes[tracked_mode_idx])
+                downhill = float(np.sum(np.delete(partition_changes, tracked_mode_idx)))
+                model_change = uphill + downhill
                 rho, quality = _ts_step_quality(
-                    actual_change,
-                    model_change,
+                    actual_change, model_change,
+                    model_scale=abs(uphill) + abs(downhill),
+                    gradient=g_cart, trial_gradient=vec1d(-F_new, n3),
+                    hessian_step=Hs,
                 )
                 if quality <= self.params.eta_reject:
                     atoms.set_positions(X)
+                    reset_calculator_cache(atoms.calc)
                     trust_radius = max(
                         self.params.trust_min,
                         0.5 * min(trust_radius, norm_mw),
@@ -1369,38 +1507,6 @@ class PRFO(JobABC):
                         self.params.trust_max,
                         np.sqrt(2.0) * trust_radius,
                     )
-                try:
-                    F_new = to_numpy_f64(atoms.get_forces())
-                except Exception as exc:
-                    atoms.set_positions(X)
-                    return self._terminal_result(
-                        status=PRFOStatus.FAILED_BACKEND,
-                        iteration=iteration,
-                        energy=E_old,
-                        negative_modes=negative_modes,
-                        detail=f"Trial force failed: {type(exc).__name__}: {exc}",
-                    )
-                if not np.all(np.isfinite(F_new)):
-                    atoms.set_positions(X)
-                    return self._terminal_result(
-                        status=PRFOStatus.FAILED_NONFINITE,
-                        iteration=iteration,
-                        energy=E_old,
-                        negative_modes=negative_modes,
-                        detail="Trial force contains non-finite values.",
-                    )
-                if F_new.shape != expected_force_shape:
-                    atoms.set_positions(X)
-                    return self._terminal_result(
-                        status=PRFOStatus.FAILED_BACKEND,
-                        iteration=iteration,
-                        energy=E_old,
-                        negative_modes=negative_modes,
-                        detail=(
-                            f"Trial force shape is {F_new.shape}; expected "
-                            f"{expected_force_shape}."
-                        ),
-                    )
                 g_new_cart = vec1d(-F_new, n3)
                 y_cart = g_new_cart - g_cart
                 if self.params.hessian_update == "bfgs":
@@ -1409,6 +1515,7 @@ class PRFO(JobABC):
                     H_work = _bofill_update(H_work, s_cart, y_cart)
                 if not np.all(np.isfinite(H_work)):
                     atoms.set_positions(X)
+                    reset_calculator_cache(atoms.calc)
                     return self._terminal_result(
                         status=PRFOStatus.FAILED_HESSIAN,
                         iteration=iteration,
@@ -1432,6 +1539,7 @@ class PRFO(JobABC):
 
             if not accepted:
                 atoms.set_positions(X)
+                reset_calculator_cache(atoms.calc)
                 return self._terminal_result(
                     status=PRFOStatus.FAILED_STAGNATION,
                     iteration=iteration,

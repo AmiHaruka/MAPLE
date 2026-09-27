@@ -105,6 +105,31 @@ class FooCalculator(CalcABC):
   inside its analytic method); `FDHessianEvaluator` differentiates forces
   already expressed in Hartree / Å.
 
+## Batched evaluation
+
+`calculate_many(atoms_list, properties)` returns `BatchResult` without replacing
+ASE single-structure caches. The request may include exactly one of `energy` or
+`free_energy`, together with `forces`. Label returned arrays with the matching
+`energy_kind`. A backend may not substitute the other scalar merely because it
+is present in `results`; scalar and batched requests must denote the same PES.
+Bundled calculators whose scalar result explicitly supplies equal energy and
+free energy may reuse the same native forward. An external energy-only backend
+must declare `energy_free_energy_equal=True` to use that equivalence.
+
+Native capability, structural rigid invariance and derivative quality are
+separate contracts. `rigid_body_invariant=None` means unknown; `True` is a
+reviewed structural/configuration declaration, not a tolerance-based numerical
+certification. The initial automatic declaration is restricted to the existing
+two AIMNet2 checkpoint identities, gas phase, `simple`/`dsf`. Unknown model
+bytes or effective configurations do not inherit it from a model/class name.
+
+`get_hessian` accepts per-request `fd_batch_size`,
+`fd_hessian_antisymmetry_action`, and `fd_hessian_antisymmetry_threshold`.
+Defaults retain the calculator's existing strict diagnostic policy. Explicit
+request values override only that call: never mutate shared calculator settings
+to pass task options. Antisymmetry is recorded before symmetrization; a warning
+or symmetric matrix is not evidence of an accurate Hessian.
+
 ## PES identity for paths and restart
 
 Shipped calculators record the loaded checkpoint content hash and effective
@@ -212,12 +237,23 @@ run with `load_state`, but cannot prove an exact continuation.
 
 ## HVP override
 
+The third `get_hvp(atoms, direction)` tuple item must represent the
+force-consistent scalar used by its forces and Hessian-vector product. External
+backends must declare `hvp_energy_kind='free_energy'`, or declare
+`hvp_energy_kind='energy'` together with `energy_free_energy_equal=True`.
+An unlabeled tuple is accepted only when that equality is explicitly declared.
+The equality field must be a real boolean (including NumPy booleans), not a
+truthy string such as `'false'`. Undeclared or conflicting identities fail before
+analytic HVP evaluation; no unrelated center energy is substituted afterward.
+
+
 - `CalcABC.get_hvp` raises `NotImplementedError`. Override it only if this
   model will use the HVP-enabled Dimer path (`use_hvp=True`); regular Dimer can
-  fall back to finite-difference forces. `ANICalculator` is the only shipped
-  backend with an implementation (autograd over the `(species, coords)`
-  forward); the rest fail loudly rather than misread a differently-shaped
-  forward.
+  fall back to finite-difference forces. `ANICalculator` declares automatic analytic-HVP capability
+  (autograd over the `(species, coords)` forward). Other implementations,
+  including FeNNol, must expose a supported capability and the same energy-kind
+  contract before an evaluator may select them; method presence alone is not
+  a capability declaration.
 - Unlike the `calculate()` path, `get_hvp` does **not** route through
   `_finalize_results`, so the backend converts units itself: an eV-native
   backend must apply `EV2HARTREE` inside `get_hvp` and return Hartree-unit

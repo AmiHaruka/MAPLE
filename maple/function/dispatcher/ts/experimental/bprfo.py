@@ -5,16 +5,18 @@ from __future__ import annotations
 
 import math
 import os
+from pathlib import Path
 import numpy as np
 import torch
 from ase import Atoms
 
-from .PRFO import (
-    PRFOResult, PRFOStatus, _resolve_prfo_coordinate_space,
+from ..algorithm.PRFO import (
+    PRFOResult, PRFOStatus, PRFO_SUFFIXES, _resolve_prfo_coordinate_space,
     _rigid_internal_complement, _finite_positive_real,
     append_xyz_trajectory, write_xyz,
 )
-from ._prfo_batch_math import prfo_step_batched
+from ..algorithm._artifacts import archive_artifacts
+from .prfo_batch_math import prfo_step_batched
 
 DTYPE = torch.float64
 BIG = 1e8
@@ -91,17 +93,7 @@ def _atoms_snapshot(atoms: Atoms) -> Atoms:
 class BatchPRFO:
     """Batched RS-P-RFO prototype.  The public entry point stays disabled."""
 
-    _STATUS_SUFFIX = {
-        PRFOStatus.GEOMETRY_CONVERGED: "_prfo_ts_candidate",
-        PRFOStatus.FAILED_NONFINITE: "_prfo_nonfinite",
-        PRFOStatus.FAILED_BACKEND: "_prfo_backend_failure",
-        PRFOStatus.FAILED_HESSIAN: "_prfo_hessian_failure",
-        PRFOStatus.FAILED_WRONG_INERTIA: "_prfo_wrong_inertia",
-        PRFOStatus.FAILED_STAGNATION: "_prfo_stagnation",
-        PRFOStatus.FAILED_STEP_SOLVER: "_prfo_step_failure",
-        PRFOStatus.FAILED_MODE_TRACKING: "_prfo_mode_failure",
-        PRFOStatus.FAILED_MAXITER: "_prfo_unconverged",
-    }
+    _STATUS_SUFFIX = PRFO_SUFFIXES
 
     def __init__(
         self,
@@ -115,7 +107,7 @@ class BatchPRFO:
         max_inner_attempts: int = 10,
         max_outer_iter: int = 256,
         device: str = "cuda",
-        recalc: int = 4,
+        recalc: int = 1,
         hessian_update: str = "bofill",
         rigid_symmetry: str = "auto",
     ):
@@ -185,6 +177,7 @@ class BatchPRFO:
 
     def _run_experimental(self, mols) -> tuple[PRFOResult, ...]:
         original_atoms = list(mols.multiatoms)
+        self._archive_previous_run()
         results: list[PRFOResult | None] = [None] * len(original_atoms)
         valid_atoms, valid_orig, valid_spaces = [], [], []
         calc = mols.calc
@@ -256,12 +249,12 @@ class BatchPRFO:
                     break
                 g_cart = -F * self._real_mask.to(DTYPE)
                 force_done = self._force_converged(g_cart, atoms_list)
-                need_exact = (
-                    self._H_work is None or bool(force_done.any())
-                    or bool((iterations >= self.max_outer_iter).any())
-                    or bool(((iterations % self.recalc) == 0).any())
+                exhausted = iterations >= self.max_outer_iter
+                exact_due = self._exact_hessian_due(
+                    iterations, force_done, exhausted,
+                    has_working_hessian=self._H_work is not None,
                 )
-                if need_exact:
+                if bool(exact_due.any()):
                     try:
                         E, F, H, _ = calc.get_efh_gpu()
                         E, F, H = self._validate_efh(E, F, H, len(atoms_list))
@@ -272,11 +265,15 @@ class BatchPRFO:
                             f"Current E/F/H evaluation failed: {type(exc).__name__}: {exc}",
                         )
                         break
-                    H_cart, g_cart = self._build_cartesian_hg(F, H, self._real_mask)
-                    self._H_work = H_cart.clone()
+                    exact_hessian, g_cart = self._build_cartesian_hg(
+                        F, H, self._real_mask
+                    )
                     force_done = self._force_converged(g_cart, atoms_list)
-                else:
-                    H_cart = self._H_work
+                    exact_due = exact_due | force_done | exhausted
+                    self._H_work = self._replace_due_hessian_rows(
+                        self._H_work, exact_hessian, exact_due
+                    )
+                H_cart = self._H_work
                 try:
                     self._set_physical_bases(atoms_list)
                     H_mw, g_mw = self._mass_weight_hg(H_cart, g_cart)
@@ -299,16 +296,26 @@ class BatchPRFO:
                     w, V, gp, atoms_list,
                     force_done & (negative == 1) & (significant == self._P_vec),
                 )
+                near_zero = force_done & (
+                    ((w.abs() <= INERTIA_THRESHOLD) & physical_mask).any(1)
+                )
                 no_mode = significant == 0
                 exhausted = iterations >= self.max_outer_iter
-                wrong_inertia = force_done & (negative != 1)
-                terminal = candidate | wrong_inertia | exhausted | no_mode
+                wrong_inertia = force_done & ~near_zero & (negative != 1)
+                terminal = candidate | near_zero | wrong_inertia | exhausted | no_mode
                 for local in terminal.nonzero(as_tuple=False).flatten().tolist():
                     if bool(candidate[local]):
                         status = PRFOStatus.GEOMETRY_CONVERGED
                         detail = (
                             "Forces, resolved first-order inertia, and unrestricted "
                             "current-point correction converged."
+                        )
+                    elif bool(near_zero[local]):
+                        status = PRFOStatus.FAILED_NEAR_ZERO_CURVATURE
+                        detail = (
+                            "Force-converged geometry has at least one near-zero "
+                            "physical curvature within the inertia significance "
+                            "interval."
                         )
                     elif bool(wrong_inertia[local]):
                         status = PRFOStatus.FAILED_WRONG_INERTIA
@@ -569,6 +576,25 @@ class BatchPRFO:
             ], dtype=torch.bool, device=self.device,
         )
 
+    def _exact_hessian_due(
+        self, iterations, force_done, exhausted, *, has_working_hessian
+    ):
+        """Return independent exact-Hessian schedule decisions for each row."""
+        if not has_working_hessian:
+            return torch.ones_like(iterations, dtype=torch.bool)
+        return force_done | exhausted | ((iterations % self.recalc) == 0)
+
+    @staticmethod
+    def _replace_due_hessian_rows(working, exact, due):
+        """Replace only scheduled rows after a permitted full-batch EFH call."""
+        if working is None:
+            return exact.clone()
+        if working.shape != exact.shape or due.shape != exact.shape[:1]:
+            raise ValueError("working, exact, and due Hessian rows are misaligned")
+        result = working.clone()
+        result[due] = exact[due]
+        return result
+
     def _mass_weight_hg(self, H, g_cart):
         g_mw = self._D * g_cart
         H_mw = self._D.unsqueeze(-1) * H * self._D.unsqueeze(-2)
@@ -686,6 +712,9 @@ class BatchPRFO:
             if not bool(pending.any()):
                 break
             step_mw = torch.zeros_like(gp)
+            target_quadratic = torch.zeros(
+                batch, dtype=gp.dtype, device=gp.device
+            )
             solved = torch.zeros(batch, dtype=torch.bool, device=self.device)
             if self._L_vec is None:
                 self._L_vec = torch.full(
@@ -697,6 +726,19 @@ class BatchPRFO:
                     V[members, :width_physical, :width_physical],
                     gp[members, :width_physical], self.tracked_mode_idx[members],
                     trust_r[members],
+                )
+                projected_step = torch.bmm(
+                    V[members, :width_physical, :width_physical].transpose(1, 2),
+                    group_step.unsqueeze(-1),
+                ).squeeze(-1)
+                group_rows = torch.arange(members.numel(), device=self.device)
+                target = self.tracked_mode_idx[members]
+                target_displacement = projected_step[group_rows, target]
+                target_gradient = gp[members, :width_physical][group_rows, target]
+                target_curvature = w[members, :width_physical][group_rows, target]
+                target_quadratic[members] = (
+                    target_gradient * target_displacement
+                    + 0.5 * target_curvature * target_displacement.square()
                 )
                 basis = self._group_basis(length, width_physical, members)
                 if basis is not None:
@@ -743,10 +785,14 @@ class BatchPRFO:
             Hs = torch.einsum("bij,bj->bi", H, s_try)
             predicted = (g_cart * s_try).sum(1) + 0.5 * (s_try * Hs).sum(1)
             actual = E_new - E_old
-            rho = torch.full_like(predicted, float("nan"))
-            valid = pending & torch.isfinite(predicted) & torch.isfinite(actual) & (predicted.abs() > 1e-16)
-            rho[valid] = actual[valid] / predicted[valid]
-            quality = 1.0 - (rho - 1.0).abs()
+            rho, quality = self._model_quality_batched(
+                actual,
+                target_quadratic,
+                predicted - target_quadratic,
+                g_cart,
+                Hs,
+                -F_new * real_mask.to(DTYPE),
+            )
             boundary = (norm_mw - trust_r).abs() <= 1e-6 * torch.clamp(trust_r, min=1.0)
             last_rho = torch.where(pending, rho, last_rho)
             accept = pending & torch.isfinite(quality) & (quality > self.eta_reject)
@@ -802,6 +848,55 @@ class BatchPRFO:
                 raise
         self._trial_energy, self._trial_forces, self._trial_hessian = cached_E, cached_F, cached_H
         return trust_r, last_step, last_rho, accepted
+
+    @staticmethod
+    def _model_quality_batched(
+        actual, target_quadratic, complement_quadratic,
+        gradient, hessian_step, trial_gradient,
+    ):
+        """Cancellation-safe P-RFO model quality, evaluated independently by row."""
+        model = target_quadratic + complement_quadratic
+        scale = target_quadratic.abs() + complement_quadratic.abs()
+        rho = torch.full_like(model, float("nan"))
+        quality = torch.full_like(model, float("-inf"))
+        finite = (
+            torch.isfinite(actual) & torch.isfinite(target_quadratic)
+            & torch.isfinite(complement_quadratic) & torch.isfinite(model)
+            & torch.isfinite(scale)
+            & torch.isfinite(gradient).all(1)
+            & torch.isfinite(hessian_step).all(1)
+            & torch.isfinite(trial_gradient).all(1)
+        )
+        cancellation_guard = torch.maximum(
+            torch.full_like(scale, 1.0e-16),
+            math.sqrt(torch.finfo(torch.float64).eps) * scale,
+        )
+        cancellation = model.abs() <= cancellation_guard
+
+        valid_rho = finite & (model.abs() > 1.0e-16)
+        rho[valid_rho] = actual[valid_rho] / model[valid_rho]
+        ordinary = finite & ~cancellation
+        finite_rho = ordinary & torch.isfinite(rho)
+        quality[finite_rho] = 1.0 - (rho[finite_rho] - 1.0).abs()
+
+        gradient_norm = torch.linalg.norm(gradient, dim=1)
+        hessian_step_norm = torch.linalg.norm(hessian_step, dim=1)
+        trial_gradient_norm = torch.linalg.norm(trial_gradient, dim=1)
+        gradient_scale = torch.maximum(gradient_norm, hessian_step_norm)
+        informative = (
+            finite & cancellation & (scale > 1.0e-16)
+            & torch.isfinite(gradient_norm) & torch.isfinite(hessian_step_norm)
+            & torch.isfinite(trial_gradient_norm) & (gradient_scale > 0.0)
+            & (trial_gradient_norm < gradient_norm)
+        )
+        energy_quality = 1.0 - (actual - model).abs() / scale
+        gradient_quality = 1.0 - torch.linalg.norm(
+            trial_gradient - (gradient + hessian_step), dim=1
+        ) / gradient_scale
+        cancellation_quality = torch.minimum(energy_quality, gradient_quality)
+        valid_cancellation = informative & torch.isfinite(cancellation_quality)
+        quality[valid_cancellation] = cancellation_quality[valid_cancellation]
+        return rho, quality
 
     def _shrink(self, calc, atoms_list, confirmed, iterations, trust_r, keep):
         indices = keep.cpu().tolist()
@@ -859,6 +954,17 @@ class BatchPRFO:
     def _init_xyz_paths(self, count):
         base, _ = os.path.splitext(self.output)
         self.xyz_paths = [f"{base}_batch{i + 1:04d}_prfo_traj.xyz" for i in range(count)]
+
+    def _archive_previous_run(self):
+        """Move every prior per-member artifact out of the active namespace."""
+        base = Path(os.path.splitext(self.output)[0])
+        previous = sorted(
+            path for path in base.parent.glob(
+                f"{base.name}_batch[0-9][0-9][0-9][0-9]_prfo_*"
+            )
+            if path.suffix in {".xyz", ".pdb"}
+        )
+        archive_artifacts(previous, base.parent / f"{base.name}_batch_prfo_history")
 
     def _append_current_trajectories(self, atoms_list, energies, iterations):
         for local, atoms in enumerate(atoms_list):

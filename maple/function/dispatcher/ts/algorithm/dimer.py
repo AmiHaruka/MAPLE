@@ -3,7 +3,7 @@
 Dimer implementation with:
 - Minimum-mode following (rotation: minimize kappa = n^T H n)
 - Translation with parallel flip once kappa < 0
-- Optional HVP (autograd) callback to replace finite-difference (no Δ tuning)
+- Explicit analytic-HVP or central-force-difference evaluator selection
 - Trust-radius / max-step control
 - Detailed human-readable logging and XYZ outputs per iteration
 """
@@ -11,16 +11,19 @@ from __future__ import annotations
 
 import os
 import math
-import torch
 from dataclasses import dataclass
+from enum import Enum
 from typing import Optional, Callable, List, Tuple
 
 import numpy as np
 from ase import Atoms
 
 from .logger import log_info
+from ._artifacts import archive_artifacts
 from ...jobABC import JobABC
+from maple.function.calculator._batch_eval import HVPEvaluator, energy_forces_one
 from maple.function.read.filereader.pdb_reader import write_pdb_model, write_pdb_trajectory
+from maple.function.utility.rigid_body import mass_weighted_rigid_basis
 
 # =============================================================================
 # ------------------------------ Utilities ------------------------------------
@@ -109,8 +112,10 @@ class DimerParams:
     delta: float = 0.005                 # Angstrom; used only if not use_hvp
     rot_max_iter: int = 5               # rotation inner iterations per outer step
     rot_alpha: float = 0.5              # rotation step factor on F_rot (unitless); small ~ (0.1~1)
-    rot_f_max_th: float = 1.0e-3        # convergence threshold on max|F_rot| (Eh/Ang)
-    rot_f_rms_th: float = 5.0e-4        # convergence threshold on RMS(F_rot)
+    # Rotation-residual thresholds use Ha/Angstrom^2 when unweighted and
+    # Ha/(Angstrom^2 amu) when the mass metric is active.
+    rot_f_max_th: float = 1.0e-3
+    rot_f_rms_th: float = 5.0e-4
 
     # Translation / trust region
     step0: float = 0.2                  # initial step scaling on search direction
@@ -137,6 +142,44 @@ class DimerParams:
     save_traj: bool = True
     save_metrics: bool = True
 
+
+class DimerStatus(str, Enum):
+    """Terminal geometry-search status; neither value certifies a TS."""
+
+    GEOMETRY_CONVERGED = "geometry_converged"
+    FAILED_NONNEGATIVE_CURVATURE = "failed_nonnegative_curvature"
+    FAILED_MAX_ITER = "failed_max_iter"
+
+
+@dataclass(frozen=True)
+class DimerResult:
+    atoms: Atoms
+    status: DimerStatus
+    iterations: int
+    structure_path: str
+    energy: float
+
+    @property
+    def geometry_converged(self) -> bool:
+        return self.status is DimerStatus.GEOMETRY_CONVERGED
+
+    @property
+    def structure_file(self) -> str:
+        """Backward-compatible descriptive alias for ``structure_path``."""
+        return self.structure_path
+
+
+class DimerConvergenceError(RuntimeError):
+    """Raised by :meth:`Dimer.run` when no candidate geometry was produced."""
+
+    def __init__(self, result: DimerResult):
+        super().__init__(
+            "Dimer did not produce a geometry-converged negative-curvature "
+            f"candidate: status={result.status.value}, "
+            f"iterations={result.iterations}, diagnostic={result.structure_path}"
+        )
+        self.result = result
+
 # =============================================================================
 # ------------------------------ Metric helpers -------------------------------
 # =============================================================================
@@ -145,6 +188,8 @@ def _get_metric(atoms: Atoms, use_mass_weight: bool):
     if not use_mass_weight:
         return None
     m = to_numpy_f64(atoms.get_masses()).reshape(-1, 1)  # (N,1)
+    if not np.all(np.isfinite(m)) or np.any(m <= 0.0):
+        raise ValueError("Mass-weighted Dimer requires finite positive masses")
     M = np.repeat(m, 3, axis=1).reshape(-1)              # (3N,)
     return M                                             # diagonal metric entries
 
@@ -176,20 +221,21 @@ def _normalize(n, M=None, eps=1e-20):
 def _remove_rigid_body_components(n, atoms: Atoms, M=None):
     """
     Remove global translation & rotation components from direction n.
-    Only meaningful for molecules (non-periodic). For simplicity:
-    - Remove translation: subtract mean per axis (mass-weighted average if M given)
-    - Remove rotation: project out 3 rotational modes around COM using cross r x axis
-      (simple approximate projector; robust enough for search direction).
+    Weighted directions are projected in q=sqrt(M)x coordinates through the
+    shared orthonormal rigid basis. The unweighted path retains its historical
+    approximate Cartesian projector unchanged.
     """
-    # translation
-    N = len(atoms)
+    if M is not None:
+        sqrt_M = np.sqrt(M)
+        weighted = sqrt_M * n
+        rigid = mass_weighted_rigid_basis(atoms)
+        weighted -= rigid @ (rigid.T @ weighted)
+        return weighted / sqrt_M
+
+    # Preserve the historical unweighted projector exactly.
     X = to_numpy_f64(atoms.get_positions()).reshape(-1, 3)
     v = n.reshape(-1, 3).copy()
-    if M is None:
-        t = v.mean(axis=0, keepdims=True)
-    else:
-        mw = to_numpy_f64(atoms.get_masses()).reshape(-1, 1)
-        t = (mw * v).sum(axis=0, keepdims=True) / (mw.sum() + 1e-20)
+    t = v.mean(axis=0, keepdims=True)
     v -= t
 
     # rotation (approx): project out components proportional to r x omega, omega = basis unit vectors
@@ -228,13 +274,43 @@ class Dimer(JobABC):
         if self.atoms.calc is None:
             raise ValueError("atoms_init must have a working calculator set (atoms.calc).")
 
+        if getattr(self.atoms, "constraints", None):
+            raise NotImplementedError(
+                "constrained Dimer search is unsupported until a validated "
+                "constraint-tangent projection is implemented"
+            )
+
         # Initialize params from paras dict
-        self.params = self._init_params(DimerParams, paras, ("dimer", "DIMER", "ts"))
+        self.params = self._init_params(
+            DimerParams,
+            paras,
+            ("dimer", "DIMER", "ts"),
+            strict=True,
+            context="Dimer",
+            allowed_keys=self.TASK_ROUTING_PARAM_KEYS,
+        )
 
         self.hvp_fn = hvp_fn if self.params.use_hvp else None
-
-        # metric
+        if self.params.use_hvp and self.hvp_fn is None:
+            has_analytic_hvp = bool(
+                getattr(self.atoms.calc, "supports_hvp", False)
+                and callable(getattr(self.atoms.calc, "get_hvp", None))
+            )
+            if not has_analytic_hvp:
+                raise NotImplementedError(
+                    "Dimer(use_hvp=True) requires a declared analytic HVP "
+                    "calculator or an explicit hvp_fn"
+                )
+        # Validate the mass metric before constructing/evaluating a backend.
         self.M = _get_metric(self.atoms, self.params.use_mass_weight)
+        use_calculator_analytic = self.params.use_hvp and self.hvp_fn is None
+        self._evaluator = HVPEvaluator(
+            self.atoms.calc,
+            use_analytic=use_calculator_analytic,
+            require_analytic=use_calculator_analytic,
+        )
+        self.status = None
+        self.result = None
 
         # init direction n
         self.n = self._init_direction()
@@ -252,8 +328,8 @@ class Dimer(JobABC):
         if p.n_init.lower() == "given" and (p.n_given is not None):
             n = vec1d(p.n_given, D)
         elif p.n_init.lower() == "force":
-            F = -vec1d(self.atoms.get_forces(), D)  # gradient = -F; here use force itself
-            n = F
+            gradient = -vec1d(self.atoms.get_forces(), D)
+            n = gradient if self.M is None else gradient / self.M
         else:  # random
             rng = np.random.default_rng()
             n = rng.normal(size=D)
@@ -265,66 +341,73 @@ class Dimer(JobABC):
 
     # ----------------------- curvature & rotation helpers ---------------------
 
-    def _finite_diff_Hn_and_F(self, x_flat: np.ndarray, n: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """
-        Return (Hn, F_avg, F_diff) with central difference using forces at R ± Δ n.
-        """
-        p = self.params
-        Δ = float(p.delta)
+    def _evaluate_current(self, n: np.ndarray) -> Tuple[np.ndarray, np.ndarray, float]:
+        """Return ``(Hn, forces, energy)`` at the atoms' current coordinates."""
+        n_flat = vec1d(n, 3 * len(self.atoms))
+        if not np.all(np.isfinite(n_flat)):
+            raise ValueError("Dimer direction must contain only finite values")
 
-        # save & perturb positions
-        X = x_flat.reshape(-1, 3)
-        # +Δ
-        self.atoms.set_positions((X + Δ * n.reshape(-1, 3)))
-        F_plus = to_numpy_f64(self.atoms.get_forces()).reshape(-1)
-        # -Δ
-        self.atoms.set_positions((X - Δ * n.reshape(-1, 3)))
-        F_minus = to_numpy_f64(self.atoms.get_forces()).reshape(-1)
-        # restore
-        self.atoms.set_positions(X)
-
-        F_avg = 0.5 * (F_plus + F_minus)
-        F_diff = 0.5 * (F_plus - F_minus)
-        Hn = -(F_plus - F_minus) / (2.0 * Δ)  # central difference for Hn
-        return Hn, F_avg, F_diff
-
-    def _hvp_Hn_and_F(self, x_flat: np.ndarray, n: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Return (Hn, F) using autograd HVP for Hn, and single force at R for F.
-        """
-        # force at current R
-        F = to_numpy_f64(self.atoms.get_forces()).reshape(-1)
-        # Hn via callback
         if self.hvp_fn is None:
-            raise RuntimeError("use_hvp=True but hvp_fn is not provided.")
-        Hn = vec1d(self.hvp_fn(self.atoms, n), n.size)
-        return Hn, F
+            Hn, forces, energy = self._evaluator.hn(
+                self.atoms, n_flat, delta=float(self.params.delta)
+            )
+        else:
+            Hn = vec1d(self.hvp_fn(self.atoms, n_flat), n_flat.size)
+            energy, force_array = energy_forces_one(
+                self.atoms.calc, self.atoms, force_consistent=True
+            )
+            forces = force_array.reshape(-1)
 
-    def _rotate_minimize_kappa(self, x_flat: np.ndarray, n: np.ndarray) -> Tuple[np.ndarray, float, float]:
+        Hn = vec1d(Hn, n_flat.size)
+        forces = vec1d(forces, n_flat.size)
+        energy = float(energy)
+        if (
+            not np.all(np.isfinite(Hn))
+            or not np.all(np.isfinite(forces))
+            or not np.isfinite(energy)
+        ):
+            raise FloatingPointError(
+                "Dimer evaluator returned non-finite HVP, force, or energy values"
+            )
+        return Hn, forces, energy
+
+    def _rotational_metrics(
+        self, Hn: np.ndarray, n: np.ndarray
+    ) -> Tuple[np.ndarray, float, float]:
+        action = Hn if self.M is None else Hn / self.M
+        F_rot = action - _proj_parallel(action, n, M=self.M)
+        residual = F_rot if self.M is None else np.sqrt(self.M) * F_rot
+        max_frot = float(np.max(np.abs(residual)))
+        rms_frot = float(math.sqrt(np.mean(residual * residual)))
+        return F_rot, max_frot, rms_frot
+
+    @staticmethod
+    def _curvature(Hn: np.ndarray, n: np.ndarray) -> float:
+        """Cartesian Rayleigh quotient for an M-normalized direction."""
+        return float(np.dot(n, Hn))
+
+    def _translation_force(
+        self, forces: np.ndarray, n: np.ndarray, mode_flip: bool
+    ) -> np.ndarray:
+        """Return the Cartesian update vector from preconditioned forces."""
+        preconditioned = forces if self.M is None else forces / self.M
+        parallel = _proj_parallel(preconditioned, n, M=self.M)
+        perpendicular = preconditioned - parallel
+        return perpendicular - parallel if mode_flip else perpendicular
+
+    def _rotate_minimize_kappa(self, n: np.ndarray) -> Tuple[np.ndarray, float, float]:
         """
         Do up to rot_max_iter steps of rotation to minimize kappa = n^T H n.
         Returns (n_new, max|F_rot|, rms(F_rot)).
         """
         p = self.params
         n_cur = n.copy()
+        Hn, _, _ = self._evaluate_current(n_cur)
+        F_rot, max_frot, rms_frot = self._rotational_metrics(Hn, n_cur)
 
         for _ in range(p.rot_max_iter):
-            if self.hvp_fn is not None and p.use_hvp:
-                Hn, F = self._hvp_Hn_and_F(x_flat, n_cur)
-                # we only need Hn for rotation; F used later for translation
-            else:
-                Hn, F_avg, _ = self._finite_diff_Hn_and_F(x_flat, n_cur)
-                F = F_avg  # keep F_avg for later translation when using FD
-
-            # rotation force: (I - nn^T) Hn
-            F_par = _proj_parallel(Hn, n_cur, M=self.M)
-            F_rot = Hn - F_par
-
-            max_frot = float(np.max(np.abs(F_rot)))
-            rms_frot = float(math.sqrt(np.mean(F_rot * F_rot)))
-
             # convergence of rotation
-            if (max_frot < p.rot_f_max_th) and (rms_frot < p.rot_f_rms_th):
+            if (max_frot <= p.rot_f_max_th) and (rms_frot <= p.rot_f_rms_th):
                 return n_cur, max_frot, rms_frot
 
             # gradient descent on kappa: n <- n - α * F_rot (and renormalize)
@@ -333,6 +416,8 @@ class Dimer(JobABC):
                 n_next = _remove_rigid_body_components(n_next, self.atoms, M=self.M)
             n_next = _normalize(n_next, M=self.M)
             n_cur = n_next
+            Hn, _, _ = self._evaluate_current(n_cur)
+            F_rot, max_frot, rms_frot = self._rotational_metrics(Hn, n_cur)
 
         # after max rot steps return last
         return n_cur, max_frot, rms_frot
@@ -348,31 +433,49 @@ class Dimer(JobABC):
         return "\n".join(lines) + "\n"
 
     def run(self):
+        """Return converged atoms or raise with the non-candidate result."""
+        result = self.run_result()
+        if not result.geometry_converged:
+            raise DimerConvergenceError(result)
+        return result.atoms
+
+    def run_result(self) -> DimerResult:
         """
-        Main Dimer optimization loop with autograd-based Hessian-vector product (Hn).
-        - Rotation uses atoms.calc.get_hvp(atoms, n) to compute Hn (no finite difference)
-        - Translation also uses get_hvp to obtain (Hn, forces, energy) in one pass
-        - No duplicate energy/force evaluations
+        Main Dimer optimization loop with an explicitly selected HVP evaluator.
+        - ``use_hvp=False`` always uses central force differences plus center E/F
+        - ``use_hvp=True`` requires a declared analytic HVP or explicit callback
+        - Post-step E/F/Hn, metrics, log coordinates, and output share one point
         - Logs curvature, rotational force, mode flip, 4 PRFO-style criteria, and trust region
         """
-        import torch
-
         p = self.params
         base, _ = os.path.splitext(self.output)
         ext = ".pdb" if self.atoms.info.get("pdb_template") else ".xyz"
         traj_file = base + "_dimer_traj" + ext
-        ts_file = base + "_dimer_ts" + ext
-        kcal_per_Eh = 627.509
+        candidate_file = base + "_dimer_ts_candidate" + ext
+        curvature_file = base + "_dimer_failed_nonnegative_curvature" + ext
+        failed_file = base + "_dimer_failed_max_iter" + ext
+        artifact_suffixes = (
+            "_dimer_traj",
+            "_dimer_ts",
+            "_dimer_ts_candidate",
+            "_dimer_failed_nonnegative_curvature",
+            "_dimer_failed_max_iter",
+        )
+        archive_artifacts(
+            (
+                base + suffix + artifact_ext
+                for suffix in artifact_suffixes
+                for artifact_ext in (".xyz", ".pdb")
+            ),
+            base + "_dimer_history",
+        )
 
         # ------------------ init direction & step size ------------------
         n = self.n.copy()        # initial dimer orientation (assumed normalized & rigid-body removed if requested)
         alpha = float(self.alpha)
 
-        # ------------------ initial eval via autograd HVP ------------------
-        # get forces & energy once (Hn unused for initial report)
-        _, forces_t, energy_t = self.atoms.calc.get_hvp(self.atoms, n)
-        forces_np = forces_t.detach().cpu().numpy()
-        E0 = float(energy_t.detach().cpu().item())
+        # ------------------ initial same-point evaluation ------------------
+        _, forces_np, E0 = self._evaluate_current(n)
         maxF0 = float(np.max(np.linalg.norm(forces_np.reshape(-1, 3), axis=1)))
         rmsF0  = float(np.sqrt(np.mean(np.linalg.norm(forces_np.reshape(-1, 3), axis=1) ** 2)))
 
@@ -399,67 +502,27 @@ class Dimer(JobABC):
             "----------------------------------------------------------------------\n"
         ], self.output)
 
-        # ------------------ rotation helper (HVP-based) ------------------
-        def rotate_minimize_kappa(n_vec: np.ndarray):
-            """
-            Up to rot_max_iter inner steps to reduce kappa, using autograd Hn.
-            Returns: n_new (np.ndarray), max|F_rot| (float), RMS(F_rot) (float)
-            """
-            n_curr = n_vec.copy()
-            max_frot = np.inf
-            rms_frot = np.inf
-
-            for _ in range(p.rot_max_iter):
-                # Hn from autograd; discard forces/energy here
-                Hn_t, _, _ = self.atoms.calc.get_hvp(self.atoms, n_curr)
-                dev, dty = Hn_t.device, Hn_t.dtype
-                n_th = torch.tensor(n_curr, device=dev, dtype=dty)
-
-                # rotational force: (I - n n^T) Hn
-                Hn_par = torch.dot(Hn_t, n_th) * n_th
-                F_rot_t = Hn_t - Hn_par
-
-                # metrics
-                max_frot = float(torch.max(torch.abs(F_rot_t)).detach().cpu().item())
-                rms_frot = float(torch.sqrt(torch.mean(F_rot_t * F_rot_t)).detach().cpu().item())
-
-                # convergence of rotation
-                if (max_frot <= p.rot_f_max_th) and (rms_frot <= p.rot_f_rms_th):
-                    break
-
-                # gradient descent on kappa in orientation space, then re-normalize (and rigid-body remove if requested)
-                n_next = (n_th - p.rot_alpha * F_rot_t).detach().cpu().numpy()
-                if p.remove_rigid:
-                    n_next = _remove_rigid_body_components(n_next, self.atoms, M=self.M)
-                n_next = _normalize(n_next, M=self.M)
-                n_curr = n_next
-
-            return n_curr, max_frot, rms_frot
-
         # ======================= main iteration loop =======================
+        converged = False
+        nonnegative_curvature = False
+        completed_iterations = 0
+        E = E0
         for it in range(1, p.max_iter + 1):
 
-            # (1) rotation step using autograd HVP
-            n, max_frot, rms_frot = rotate_minimize_kappa(n)
+            # (1) rotation at the current point
+            n, _, _ = self._rotate_minimize_kappa(n)
 
-            # (2) translation-side evaluation in one pass
-            Hn_t, forces_t, energy_t = self.atoms.calc.get_hvp(self.atoms, n)
-            forces_np = forces_t.detach().cpu().numpy()
-            E = float(energy_t.detach().cpu().item())
+            # (2) translation-side evaluation at the pre-step point
+            Hn, forces_np, _ = self._evaluate_current(n)
 
             # curvature kappa = n^T H n
-            dev, dty = Hn_t.device, Hn_t.dtype
-            n_th = torch.tensor(n, device=dev, dtype=dty)
-            kappa = float(torch.dot(n_th, Hn_t).detach().cpu().item())
+            kappa = self._curvature(Hn, n)
 
-            # project forces parallel / perpendicular to n (torch tensors)
-            Fpar_t  = torch.dot(forces_t, n_th) * n_th
-            Fperp_t = forces_t - Fpar_t
             mode_flip = (kappa < p.kappa_to_flip)
-            Ftrans_t = (Fperp_t - Fpar_t) if mode_flip else Fperp_t
+            Ftrans = self._translation_force(forces_np, n, mode_flip)
 
-            # (3) trust-region step (convert only the step to numpy)
-            step_vec = (alpha * Ftrans_t).detach().cpu().numpy()
+            # (3) trust-region step
+            step_vec = alpha * Ftrans
             step_norm_inf = float(np.max(np.abs(step_vec)))
             on_boundary = False
             max_allow = min(p.trust_radius, p.step_max)
@@ -472,7 +535,13 @@ class Dimer(JobABC):
             alpha = (max(0.5 * alpha, 0.1 * p.step0) if on_boundary
                     else min(1.2 * alpha, p.step_max))
 
-            # (4) PRFO-style metrics
+            # (4) Re-evaluate the new state before any metric/log/write.
+            Hn, forces_np, E = self._evaluate_current(n)
+            kappa = self._curvature(Hn, n)
+            _, max_frot, rms_frot = self._rotational_metrics(Hn, n)
+            mode_flip = (kappa < p.kappa_to_flip)
+
+            # (5) PRFO-style metrics
             max_dp = float(np.max(np.linalg.norm(step_vec.reshape(-1, 3), axis=1)))
             rms_dp = float(np.sqrt(np.mean(np.linalg.norm(step_vec.reshape(-1, 3), axis=1) ** 2)))
             max_f  = float(np.max(np.linalg.norm(forces_np.reshape(-1, 3), axis=1)))
@@ -483,8 +552,17 @@ class Dimer(JobABC):
             self.atoms.max_dp = max_dp
             self.atoms.rms_dp = rms_dp
 
-            # (5) report one iteration block
+            # (6) report one iteration block
             coords_block = self.atoms_to_xyz_block(self.atoms)
+            curvature_unit = (
+                "Ha/(Angstrom^2 amu)"
+                if self.M is not None else "Ha/Angstrom^2"
+            )
+            rotation_unit = curvature_unit
+            rotation_label = (
+                "mass-weighted rotation residual"
+                if self.M is not None else "rotation residual"
+            )
             info = [
                 "\n----------------------------------------------------------------------\n",
                 f"                             Iteration: {it:<3d}                              \n\n",
@@ -497,41 +575,86 @@ class Dimer(JobABC):
                 f"RMS Force:             {rms_f:>12.6f} {self.atoms.f_rms_th:>12.6f}                {'Yes' if rms_f <= self.atoms.f_rms_th else 'No'}\n",
                 f"Maximum Displacement:  {max_dp:>12.6f} {self.atoms.dp_max_th:>12.6f}                {'Yes' if max_dp <= self.atoms.dp_max_th else 'No'}\n",
                 f"RMS Displacement:      {rms_dp:>12.6f} {self.atoms.dp_rms_th:>12.6f}                {'Yes' if rms_dp <= self.atoms.dp_rms_th else 'No'}\n",
-                f"\nTrust radius (MW): {max_allow: .6f}  Step norm (MW): {step_norm_inf: .6f}  On boundary: {on_boundary}\n"
-                f"Curvature (kappa):      {kappa:>12.6f} Eh/Å²\n",
-                f"Max Rotational Force:   {max_frot:>12.6f} Eh/Angstrom\n",
-                f"RMS Rotational Force:   {rms_frot:>12.6f} Eh/Angstrom\n",
+                f"\nCartesian trust radius (Angstrom): {max_allow: .6f}  "
+                f"Cartesian step max component (Angstrom): {step_norm_inf: .6f}  "
+                f"On boundary: {on_boundary}\n"
+                f"Curvature (kappa):      {kappa:>12.6f} {curvature_unit}\n",
+                f"Max {rotation_label}: {max_frot:>12.6f} {rotation_unit}\n",
+                f"RMS {rotation_label}: {rms_frot:>12.6f} {rotation_unit}\n",
                 f"Mode Flip:              {'Yes' if mode_flip else 'No'}\n\n",
             ]
             log_info(info, self.output)
 
             if p.save_traj:
-                # Your local helper supports single Atoms; keeping your current call signature
                 write_all_images_xyz(traj_file, self.atoms, energy=E, iteration=it)
 
-            # (6) convergence: all 4 PRFO-style criteria
-            if (max_f <= self.atoms.f_max_th and
-                rms_f <= self.atoms.f_rms_th and
-                max_dp <= self.atoms.dp_max_th and
-                rms_dp <= self.atoms.dp_rms_th):
-                log_info([f"\nDimer optimization converged at iteration {it}.\n"], self.output)
+            completed_iterations = it
+
+            # (7) convergence: all 4 PRFO-style criteria
+            geometry_converged = (
+                max_f <= self.atoms.f_max_th
+                and rms_f <= self.atoms.f_rms_th
+                and max_dp <= self.atoms.dp_max_th
+                and rms_dp <= self.atoms.dp_rms_th
+            )
+            if geometry_converged:
+                if kappa < 0.0:
+                    log_info(
+                        [f"\nDimer geometry converged at iteration {it}.\n"],
+                        self.output,
+                    )
+                    converged = True
+                else:
+                    log_info(
+                        [
+                            "\nDimer geometry thresholds were reached without "
+                            "negative curvature; no TS candidate will be emitted.\n"
+                        ],
+                        self.output,
+                    )
+                    nonnegative_curvature = True
                 break
 
-        # ------------------ final write & brief summary ------------------
-        _, _, E_final_t = self.atoms.calc.get_hvp(self.atoms, n)
-        E_final = float(E_final_t.detach().cpu().item())
-        write_xyz(ts_file, [self.atoms], energies=[E_final])
+        # ------------------ terminal diagnostic/candidate ------------------
+        _, _, E_final = self._evaluate_current(n)
+        if converged:
+            self.status = DimerStatus.GEOMETRY_CONVERGED
+            structure_file = candidate_file
+        elif nonnegative_curvature:
+            self.status = DimerStatus.FAILED_NONNEGATIVE_CURVATURE
+            structure_file = curvature_file
+        else:
+            self.status = DimerStatus.FAILED_MAX_ITER
+            structure_file = failed_file
+        write_xyz(structure_file, [self.atoms], energies=[E_final])
+        self.result = DimerResult(
+            atoms=self.atoms,
+            status=self.status,
+            iterations=completed_iterations,
+            structure_path=structure_file,
+            energy=E_final,
+        )
 
-        log_info([
+        terminal_label = (
+            "GEOMETRY-CONVERGED DIMER CANDIDATE"
+            if converged
+            else "DIMER DIAGNOSTIC (NOT A TS CANDIDATE)"
+        )
+        terminal_info = [
             "\n---------------------------------------------------------------\n",
-            "                 INFORMATION ABOUT SADDLE POINT                \n",
+            f"{terminal_label:^63s}\n",
             "---------------------------------------------------------------\n",
             f"Energy (final)                           ....  {E_final: .8f} Eh\n",
             "\n-----------------------------------------\n",
-            "  SADDLE GUESS (ANGSTROEM)\n",
+            "  FINAL GEOMETRY (ANGSTROEM)\n",
             "-----------------------------------------\n",
             self.atoms_to_xyz_block(self.atoms),
-            f"\nWrote Dimer trajectory to: {traj_file}\n",
-            f"Wrote TS guess to:         {ts_file}\n"
-        ], self.output)
-
+        ]
+        if p.save_traj:
+            terminal_info.append(f"\nWrote Dimer trajectory to: {traj_file}\n")
+        terminal_info.extend([
+            f"Terminal status:           {self.status.value}\n",
+            f"Wrote terminal structure:  {structure_file}\n"
+        ])
+        log_info(terminal_info, self.output)
+        return self.result

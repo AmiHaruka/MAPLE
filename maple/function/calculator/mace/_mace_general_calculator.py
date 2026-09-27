@@ -76,7 +76,6 @@ class MACEModelCalculator(CalcABC):
     OPTION_KEYS = ('batch_size', 'path_batch_size')
     MODEL_PATH_OPTION = 'model_path'
     supports_batch_energy_forces = True
-    supports_analytic_hessian = True
     batch_memory_model = 'disconnected_graph'
     auto_path_batch_cap = 8
 
@@ -182,7 +181,7 @@ class MACEModelCalculator(CalcABC):
 
         atoms_list = list(atoms_list)
         if not atoms_list:
-            return empty_batch_result(want_energy, want_forces)
+            return empty_batch_result(want_energy, want_forces, request)
 
         if atoms_list_has_pbc(atoms_list):
             return sequential_calculate_many(
@@ -243,6 +242,10 @@ class MACEModelCalculator(CalcABC):
 
         return BatchResult(
             energies=energies,
+            energy_kind=next(
+                (prop for prop in request if prop in ("energy", "free_energy")),
+                None,
+            ) if energies is not None else None,
             forces=forces_list,
         ).validate_against(atoms_list, request)
 

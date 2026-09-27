@@ -140,7 +140,14 @@ class AutoNEB(JobABC):
             raise ValueError("Need at least 2 images (reactant + product)")
 
         # Initialize parameters
-        self.params = self._init_params(AutoNEBParams, paras, ("autoneb", "AutoNEB", "ts"))
+        self.params = self._init_params(
+            AutoNEBParams,
+            paras,
+            ("autoneb", "AutoNEB", "ts"),
+            strict=True,
+            context="AutoNEB",
+            allowed_keys=self.TASK_ROUTING_PARAM_KEYS,
+        )
 
         # Path tree management
         self.path_tree: Dict[str, PathNode] = {}
@@ -369,6 +376,7 @@ class AutoNEB(JobABC):
             energies = EnergyEvaluator(
                 calc,
                 batch_size=getattr(calc, "path_batch_size", None),
+                force_consistent=True,
             ).energies(images)
             return [float(e) for e in energies]
         return [float(at.get_potential_energy(force_consistent=True)) for at in images]

@@ -9,9 +9,12 @@ clobbering ASE's single-structure result cache that other modules
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Sequence
+from typing import Literal, Optional, Sequence
 
 import numpy as np
+
+
+EnergyKind = Literal["energy", "free_energy"]
 
 
 @dataclass(frozen=True)
@@ -22,8 +25,12 @@ class BatchResult:
     ----------
     energies
         (B,) float64 array of energies (Hartree if the calculator's
-        single-structure path returns Hartree). `None` when 'energy' was not
-        requested.
+        single-structure path returns Hartree). `None` when neither ASE energy
+        scalar was requested.
+    energy_kind
+        The exact ASE scalar represented by ``energies``: ``"energy"`` or
+        ``"free_energy"``. Backends must label returned energy arrays; the
+        label is validated against the request before evaluator use.
     forces
         Length-B list of (N_i, 3) float64 arrays in Hartree/Å. Per-structure
         atom counts may differ across the list; the caller is responsible for
@@ -40,11 +47,20 @@ class BatchResult:
     """
 
     energies: Optional[np.ndarray] = None
+    energy_kind: Optional[EnergyKind] = None
     forces: Optional[tuple[np.ndarray, ...]] = None
     hessians: Optional[tuple[np.ndarray, ...]] = None
     padding_counts: Optional[np.ndarray] = None
 
     def __post_init__(self) -> None:
+        if self.energy_kind not in (None, "energy", "free_energy"):
+            raise ValueError(
+                "BatchResult.energy_kind must be 'energy', 'free_energy', or None"
+            )
+        if self.energies is None and self.energy_kind is not None:
+            raise ValueError(
+                "BatchResult.energy_kind must be None when energies is None"
+            )
         lengths = []
         if self.energies is not None:
             energies = np.array(self.energies, dtype=np.float64, copy=True)
@@ -169,20 +185,46 @@ class BatchResult:
         else:
             requested_props = tuple(requested)
 
-        allowed = {"energy", "forces", "hessian"}
+        allowed = {"energy", "free_energy", "forces", "hessian"}
         unknown = sorted({str(prop) for prop in requested_props} - allowed)
         if unknown:
             raise ValueError(
                 "BatchResult cannot validate unsupported requested properties: "
                 + ", ".join(unknown)
             )
+        if self.energies is not None and self.energy_kind is None:
+            raise ValueError(
+                "BatchResult.energy_kind is required when energies are returned"
+            )
+
+        energy_requests = tuple(
+            prop for prop in requested_props if prop in ("energy", "free_energy")
+        )
+        if len(energy_requests) > 1:
+            raise ValueError(
+                "BatchResult requests must contain exactly one of 'energy' or "
+                "'free_energy' when an energy scalar is requested"
+            )
+        if energy_requests:
+            requested_kind = energy_requests[0]
+            if self.energies is None:
+                raise ValueError(
+                    f"BatchResult requested property {requested_kind!r} but "
+                    "energies is None"
+                )
+            if self.energy_kind != requested_kind:
+                raise ValueError(
+                    f"BatchResult.energy_kind={self.energy_kind!r} does not match "
+                    f"requested property {requested_kind!r}"
+                )
 
         required_fields = {
-            "energy": ("energies", self.energies),
             "forces": ("forces", self.forces),
             "hessian": ("hessians", self.hessians),
         }
         for prop in requested_props:
+            if prop in ("energy", "free_energy"):
+                continue
             field_name, value = required_fields[prop]
             if value is None:
                 raise ValueError(

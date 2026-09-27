@@ -1,5 +1,4 @@
 import re
-import os
 from difflib import get_close_matches
 from math import isfinite
 from typing import Dict, Any, List, Optional
@@ -61,6 +60,9 @@ class CommandControl:
             "verbosity": 1,
             "treat_imag_as_real": False,
             "device": "cpu",
+            "fd_batch_size": None,
+            "fd_hessian_antisymmetry_action": None,
+            "fd_hessian_antisymmetry_threshold": None,
         },
         "md": {
             "ensemble": "nve",
@@ -133,6 +135,9 @@ class CommandControl:
         "max_bisect_it",
         "verbose",
         "log_final_paths",
+        "fd_batch_size",
+        "fd_hessian_antisymmetry_action",
+        "fd_hessian_antisymmetry_threshold",
     }
     SDCG_PARAMS = {
         "max_step",
@@ -157,7 +162,60 @@ class CommandControl:
         "cg": SDCG_PARAMS,
         "sdcg": SDCG_PARAMS,
     }
-    SCAN_PARAMS = {"method", "mode"}
+    SCAN_PARAMS = {"method", "mode", "scan_batch_size"}
+
+    # Kept explicit and dependency-light: command parsing must not import TS
+    # implementations (some have optional Torch/backend imports).
+    PRFO_PARAMS = {
+        "max_iter", "trust_radius", "trust_min", "trust_max",
+        "eta_reject", "eta_shrink", "eta_expand", "evals_eps",
+        "mu_margin", "max_bisect_it", "recalc", "hessian_update",
+        "inertia_threshold", "stagnation_threshold", "rigid_symmetry",
+        "f_max_th", "f_rms_th", "dp_max_th", "dp_rms_th",
+    }
+    DIMER_PARAMS = {
+        "use_hvp", "delta", "rot_max_iter", "rot_alpha", "rot_f_max_th",
+        "rot_f_rms_th", "step0", "step_max", "trust_radius", "f_max_th",
+        "f_rms_th", "kappa_to_flip", "max_iter", "use_mass_weight",
+        "remove_rigid", "n_init", "n_given", "save_traj", "save_metrics",
+    }
+    NEB_PARAMS = {
+        "n_images", "k_min", "k_max", "use_dynamic_k", "k_decay",
+        "max_iter", "lbfgs_m", "step0", "ifidpp", "neb_f_max_th",
+        "neb_f_rms_th", "initial_opt", "refine", "cineb_f_max_th",
+        "cineb_f_rms_th", "cilbfgs_m", "cistep0",
+    }
+    STRING_PARAMS = {
+        "grow_step", "grow_step_min", "grow_backtrack", "grow_relax_iters",
+        "grow_relax_tol", "grow_energy_tol", "pause_imbalance",
+        "refine_end_every", "merge_threshold", "n_images", "max_iter_relax",
+        "string_f_max_th", "string_f_rms_th", "lbfgs_memory",
+        "lbfgs_curvature", "lbfgs_max_step", "reparam_every", "refine",
+        "cistring_f_max_th", "cistring_f_rms_th", "max_iter_grow",
+        "log_every", "guide_conn_min", "guide_d_switch", "guide_inc_trigger",
+    }
+    AUTONEB_PARAMS = {
+        "n_images", "k_min", "k_max", "use_dynamic_k", "k_decay",
+        "max_iter", "lbfgs_m", "step0", "ifidpp", "ang_max", "ang_iter",
+        "path_iter", "min_e_drop", "ep_iter", "ep_e_drop",
+        "autoneb_f_max_th", "autoneb_f_rms_th", "max_depth", "max_paths",
+        "do_final_refine", "final_refine_factor", "final_refine_max_iter",
+        "final_refine_ep_iter", "verbose",
+    }
+    DMF_PARAMS = {
+        "backend", "beta", "nmove", "nsegs", "dspl", "update_teval",
+        "coefs", "t_eval", "w_eval", "init_path", "fbenm_correlated",
+        "ipopt_out", "mass_weighted", "remove_rotation_and_translation",
+        "tol", "max_iter", "refine",
+    }
+    TS_METHOD_PARAMS = {
+        "prfo": PRFO_PARAMS,
+        "dimer": DIMER_PARAMS,
+        "neb": NEB_PARAMS,
+        "string": STRING_PARAMS,
+        "autoneb": AUTONEB_PARAMS,
+        "dmf": DMF_PARAMS,
+    }
     SOLV_PARAMS = {
         "method",
         "implicit",
@@ -193,7 +251,7 @@ class CommandControl:
         ),
     }
 
-    VALIDATED_TASK_PARAMS = {"opt", "scan", "freq", "md"}
+    VALIDATED_TASK_PARAMS = {"opt", "ts", "scan", "freq", "md"}
 
     TS_REFINE_MAP = {
         "neb": {"cineb", "nebts"},
@@ -313,13 +371,22 @@ class CommandControl:
 
     @staticmethod
     def _parse_nested(target: Dict[str, Any], inner: str) -> None:
+        seen = set()
         for kv in inner.split(","):
             kv = kv.strip()
             if "=" in kv:
                 k, v = kv.split("=", 1)
-                target[CommandControl._normalize_key(k)] = CommandControl._auto_cast(v.strip())
+                key = CommandControl._normalize_key(k)
+                if key in seen:
+                    raise ValueError(f"Duplicate nested parameter: '{key}'.")
+                seen.add(key)
+                target[key] = CommandControl._auto_cast(v.strip())
             else:
-                target[CommandControl._normalize_key(kv)] = True
+                key = CommandControl._normalize_key(kv)
+                if key in seen:
+                    raise ValueError(f"Duplicate nested parameter: '{key}'.")
+                seen.add(key)
+                target[key] = True
 
     @classmethod
     def _parse_pbc(cls, inner: str, output_path: Optional[str]) -> List[float]:
@@ -436,6 +503,14 @@ class CommandControl:
         if "ensemble" in params and isinstance(params["ensemble"], str):
             params["ensemble"] = params["ensemble"].lower()
 
+        for key in (
+            "fd_batch_size",
+            "scan_batch_size",
+            "fd_hessian_antisymmetry_action",
+        ):
+            if key in params and isinstance(params[key], str):
+                params[key] = params[key].strip().lower()
+
     @classmethod
     def _normalize_method_flags(
         cls, params: Dict[str, Any], task: str, output_path: Optional[str]
@@ -478,6 +553,16 @@ class CommandControl:
         raise ValueError(msg)
 
     @classmethod
+    def _effective_ts_params(cls, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Mirror constructor precedence: flat values, then method block."""
+        effective = dict(params)
+        method = str(effective.get("method") or "").lower()
+        nested = effective.get(method)
+        if isinstance(nested, dict):
+            effective.update(nested)
+        return effective
+
+    @classmethod
     def _allowed_task_params(cls, task: str, params: Dict[str, Any]) -> Optional[set[str]]:
         if task not in cls.VALIDATED_TASK_PARAMS:
             return None
@@ -489,6 +574,28 @@ class CommandControl:
         if task == "freq":
             allowed.update(cls.DEFAULTS["freq"])
             allowed.update({"n_freqs_to_print", "sort_ascending", "imag_tol_cm1"})
+            return allowed
+
+        if task == "ts":
+            effective = cls._effective_ts_params(params)
+            method = str(effective.get("method") or "").lower()
+            method_params = cls.TS_METHOD_PARAMS.get(method)
+            if method_params is None:
+                method_params = set().union(*cls.TS_METHOD_PARAMS.values())
+            allowed.add("method")
+            allowed.update(method_params)
+            # A method-specific nested block is an alternative to flat
+            # options. Refiners receive their own nested block unchanged.
+            if method:
+                allowed.add(method)
+            refine = str(effective.get("refine") or "").lower()
+            if method in {"neb", "string"} and refine in {"nebts", "stringts"}:
+                allowed.add("prfo")
+                allowed.add("rigid_symmetry")  # historical flat forwarding
+            elif method == "dmf" and refine in {"prfo", "dimer"}:
+                allowed.add(refine)
+                if refine == "prfo":
+                    allowed.add("rigid_symmetry")  # historical flat forwarding
             return allowed
 
         method = str(params.get("method") or "lbfgs").lower()
@@ -512,6 +619,34 @@ class CommandControl:
             for key in params:
                 if key not in allowed:
                     cls._raise_unknown_param(output_path, context, key, allowed)
+
+        if task == "ts":
+            effective = cls._effective_ts_params(params)
+            method = str(effective.get("method") or "").lower()
+            nested_methods = {method}
+            refine = str(effective.get("refine") or "").lower()
+            if method in {"neb", "string"} and refine in {"nebts", "stringts"}:
+                nested_methods.add("prfo")
+            elif method == "dmf" and refine in {"prfo", "dimer"}:
+                nested_methods.add(refine)
+            for nested_method in nested_methods:
+                nested = params.get(nested_method)
+                if nested is None:
+                    continue
+                if not isinstance(nested, dict):
+                    raise ValueError(
+                        f"TS {nested_method} options must use "
+                        f"'#{nested_method}(key=value,...)' syntax."
+                    )
+                nested_allowed = cls.TS_METHOD_PARAMS[nested_method]
+                for key in nested:
+                    if key not in nested_allowed:
+                        cls._raise_unknown_param(
+                            output_path,
+                            f"TS {nested_method}",
+                            key,
+                            nested_allowed,
+                        )
 
         if "solv" in params:
             solv_params = params["solv"]
@@ -845,6 +980,45 @@ class CommandControl:
         cls._validate_unknown_params(params, task, output_path)
         cls._validate_solvation(params, task, output_path)
 
+        for key in ("fd_batch_size", "scan_batch_size"):
+            if key not in params:
+                continue
+            value = params[key]
+            if value is None:
+                continue
+            valid_literal = isinstance(value, str) and value in {"auto", "all"}
+            valid_integer = type(value) is int and value > 0
+            if not (valid_literal or valid_integer):
+                msg = (
+                    f"{key} must be a positive integer, 'auto', or 'all'; "
+                    f"got {value!r}."
+                )
+                cls._log_error(output_path, msg)
+                raise ValueError(msg)
+
+        action = params.get("fd_hessian_antisymmetry_action")
+        if action is not None and action not in {"raise", "warn", "ignore"}:
+            msg = (
+                "fd_hessian_antisymmetry_action must be one of: "
+                "raise, warn, ignore."
+            )
+            cls._log_error(output_path, msg)
+            raise ValueError(msg)
+
+        threshold = params.get("fd_hessian_antisymmetry_threshold")
+        if threshold is not None and (
+            isinstance(threshold, bool)
+            or not isinstance(threshold, (int, float))
+            or not isfinite(threshold)
+            or threshold < 0
+        ):
+            msg = (
+                "fd_hessian_antisymmetry_threshold must be a finite "
+                "non-negative number."
+            )
+            cls._log_error(output_path, msg)
+            raise ValueError(msg)
+
         if "gpuid" in params and params["gpuid"] is not None and not isinstance(params["gpuid"], int):
             cls._log_error(output_path, "GPU ID must be an integer.")
             raise ValueError("GPU ID must be an integer.")
@@ -873,15 +1047,16 @@ class CommandControl:
                 cls._log_error(output_path, f"Method '{params['method']}' not implemented for task '{task}'.")
                 raise ValueError(f"Method '{params['method']}' not implemented for task '{task}'.")
 
-        if task == "ts" and "refine" in params:
-            method = params.get("method")
+        effective_ts = cls._effective_ts_params(params) if task == "ts" else {}
+        if task == "ts" and "refine" in effective_ts:
+            method = effective_ts.get("method")
             allowed_refines = cls.TS_REFINE_MAP.get(method)
             if allowed_refines is None:
                 cls._log_error(output_path, f"'refine' is not valid for TS method '{method}'.")
                 raise ValueError(f"'refine' is not valid for TS method '{method}'.")
-            if params["refine"] not in allowed_refines:
-                cls._log_error(output_path, f"Refine '{params['refine']}' not implemented for TS method '{method}'.")
-                raise ValueError(f"Refine '{params['refine']}' not implemented for TS method '{method}'.")
+            if effective_ts["refine"] not in allowed_refines:
+                cls._log_error(output_path, f"Refine '{effective_ts['refine']}' not implemented for TS method '{method}'.")
+                raise ValueError(f"Refine '{effective_ts['refine']}' not implemented for TS method '{method}'.")
 
         if task == "md":
             ensemble = params.get("ensemble", "nve")

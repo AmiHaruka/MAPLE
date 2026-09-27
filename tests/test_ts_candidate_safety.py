@@ -11,7 +11,7 @@ from ase import Atoms
 from ase.calculators.calculator import Calculator, all_changes
 from ase.constraints import FixAtoms
 
-from maple.function.dispatcher.ts.algorithm.BPRFO import (
+from maple.function.dispatcher.ts.experimental.bprfo import (
     BatchPRFO,
     _regularize_signed,
 )

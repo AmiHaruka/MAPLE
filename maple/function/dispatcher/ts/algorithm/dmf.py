@@ -23,7 +23,7 @@ from typing import Any, List, Optional
 import cyipopt
 import numpy as np
 from ase import Atoms
-from ase.calculators.calculator import Calculator, PropertyNotImplementedError
+from ase.calculators.calculator import Calculator
 from ase.calculators.mixing import SumCalculator
 from ase.data import covalent_radii
 from ase.data.vdw_alvarez import vdw_radii
@@ -31,18 +31,49 @@ from numpy.polynomial import polynomial as P
 from scipy.interpolate import BSpline, interp1d
 from scipy.spatial.transform import Rotation
 
+from maple.function.units.units import (
+    EV_TO_HARTREE as EV2HARTREE, HARTREE_TO_EV as EV_PER_HARTREE,
+)
 from ...jobABC import JobABC
+from ....calculator._batch_eval import energy_forces_one
 from maple.function.utility import Molecules
 from maple.function.read.filereader.pdb_reader import write_pdb_trajectory
 from maple.function.calculator.electronic_state import validate_path_contract
+from ._artifacts import archive_artifacts
 
 # =============================================================================
 # ------------------------------ Utilities ------------------------------------
 # =============================================================================
 
-EV2HARTREE = 1.0 / 27.211386245988
-EV_PER_HARTREE = 27.211386245988
+
 KCAL_PER_EH = 627.509474
+
+_DMF_REFINEMENT_ARTIFACT_SUFFIXES = (
+    # Historical DMF-owned duplicate refinement outputs.
+    "_dmf_refine_prfo_ts",
+    "_dmf_refine_prfo_ts_candidate",
+    "_dmf_refine_dimer_ts",
+    "_dmf_refine_dimer_ts_candidate",
+    # PRFO-managed active and diagnostic outputs for the shared job basename.
+    "_prfo_ts_candidate",
+    "_prfo_nonfinite",
+    "_prfo_backend_failure",
+    "_prfo_hessian_failure",
+    "_prfo_wrong_inertia",
+    "_prfo_near_zero_curvature",
+    "_prfo_stagnation",
+    "_prfo_step_failure",
+    "_prfo_mode_failure",
+    "_prfo_unconverged",
+    "_prfo_traj",
+    "_prfo_ts",
+    # Dimer-managed active and diagnostic outputs for the shared job basename.
+    "_dimer_traj",
+    "_dimer_ts",
+    "_dimer_ts_candidate",
+    "_dimer_failed_nonnegative_curvature",
+    "_dimer_failed_max_iter",
+)
 
 
 def _load_torch_backend():
@@ -677,7 +708,41 @@ class DMF(JobABC):
         self._paras = paras
 
         # Initialise params from paras dict
-        self.params = self._init_params(DMFParams, paras, ("dmf", "DMF", "ts"))
+        aliases = ("dmf", "DMF", "ts")
+        self._refinement_paras = self._effective_param_dict(paras, aliases)
+        refine = str(
+            self._refinement_paras.get("refine") or ""
+        ).strip().lower()
+        if refine == "prfo":
+            refinement_keys = ("prfo", "rigid_symmetry")
+        elif refine == "dimer":
+            refinement_keys = ("dimer",)
+        else:
+            refinement_keys = ()
+        self.params = self._init_params(
+            DMFParams,
+            paras,
+            aliases,
+            strict=True,
+            context="DMF",
+            allowed_keys=self.TASK_ROUTING_PARAM_KEYS + refinement_keys,
+        )
+        if refine == "prfo":
+            from .PRFO import PRFOParams
+            self._validate_nested_dataclass_params(
+                self._refinement_paras,
+                "prfo",
+                PRFOParams,
+                context="DMF PRFO refinement",
+            )
+        elif refine == "dimer":
+            from .dimer import DimerParams
+            self._validate_nested_dataclass_params(
+                self._refinement_paras,
+                "dimer",
+                DimerParams,
+                context="DMF Dimer refinement",
+            )
 
         # Safety: minimal guard
         if self.params.nmove < 1:
@@ -731,8 +796,22 @@ class DMF(JobABC):
         torch_backend = _load_torch_backend()
         return torch_backend, torch_backend.resolve_torch_device_from_calc(base_calc)
 
+    @staticmethod
+    def _archive_refinement_artifacts(base: str) -> None:
+        """Retire explicit DMF/PRFO/Dimer refinement artifacts together."""
+        archive_artifacts(
+            (
+                base + suffix + extension
+                for suffix in _DMF_REFINEMENT_ARTIFACT_SUFFIXES
+                for extension in (".xyz", ".pdb")
+            ),
+            base + "_dmf_refine_history",
+        )
+
     # ------------------------------------------------------------------ run --
     def run(self):
+        base, _ = os.path.splitext(self.output)
+        self._archive_refinement_artifacts(base)
         validate_path_contract(self.input_images, method="DMF")
         n_input = len(self.input_images)
         if n_input < 2:
@@ -746,7 +825,6 @@ class DMF(JobABC):
             raise ValueError("DMF requires a calculator attached to the input structures.")
 
         p = self.params
-        base, _ = os.path.splitext(self.output)
         ext = ".pdb" if ref_images[0].info.get("pdb_template") else ".xyz"
         coefs, t_eval, w_eval = self._prepare_path_parameters(len(ref_images[0]))
         init_path = str(p.init_path).strip().lower()
@@ -892,7 +970,7 @@ class DMF(JobABC):
         if mxflx.history.images_tmax:
             _write_xyz(traj_file, list(mxflx.history.images_tmax))
 
-        # --------------------------------------- optional TS refinement -------
+        # ------------------------------ optional candidate refinement -------
         refine_result = None
         if p.refine:
             refine_result = self._refine_ts(ts_atoms, base_calc, base)
@@ -929,11 +1007,12 @@ class DMF(JobABC):
                 "\n---------------------------------------------------------------\n",
                 f"                      DMF-{refine_result['method_label']} REFINEMENT\n",
                 "---------------------------------------------------------------\n",
-                f"Energy (refined TS)                  ....  {refine_result['energy']: .8f} Eh\n",
-                f"max|F| (refined TS)                  ....  {refine_result['max_force']: .6f} Eh/Angstrom\n",
-                f"RMS |F| (refined TS)                 ....  {refine_result['rms_force']: .6f} Eh/Angstrom\n",
+                "Geometry-refined candidate; not frequency/IRC-verified.\n",
+                f"Energy (refined candidate)           ....  {refine_result['energy']: .8f} Eh\n",
+                f"max|F| (refined candidate)           ....  {refine_result['max_force']: .6f} Eh/Angstrom\n",
+                f"RMS |F| (refined candidate)          ....  {refine_result['rms_force']: .6f} Eh/Angstrom\n",
                 "\n-----------------------------------------\n",
-                "  REFINED TS STRUCTURE (ANGSTROEM)\n",
+                "  REFINED CANDIDATE STRUCTURE (ANGSTROEM)\n",
                 "-----------------------------------------\n",
                 _atoms_to_xyz(refine_result["atoms"]),
             ]
@@ -944,16 +1023,19 @@ class DMF(JobABC):
             f"Wrote t_max trajectory to : {traj_file}\n",
         ]
         if refine_result is not None:
-            write_info.append(f"Wrote refined TS structure to:  {refine_result['ts_file']}\n")
+            write_info.append(
+                "Wrote refined candidate structure (not frequency/IRC-verified) "
+                f"to:  {refine_result['ts_file']}\n"
+            )
         self.log_info(write_info)
 
     # ---------------------------------------------------------- refinement --
     def _refine_ts(self, ts_atoms: Atoms, base_calc, base: str):
         """
-        Optionally refine the DMF TS guess to a true first-order saddle using an
-        existing MAPLE single-ended optimiser (PRFO or Dimer). This only *calls*
-        those algorithms; it does not modify them. Failures are logged and do not
-        invalidate the DMF result above.
+        Optionally geometry-refine the DMF TS guess with a MAPLE single-ended
+        optimiser (PRFO or Dimer). The result remains a candidate and is not
+        frequency/IRC-verified. This only *calls* those algorithms; it does not
+        modify them. Failures are logged and do not invalidate the DMF result.
         """
         method = (self.params.refine or "").strip().lower()
         if method not in ("prfo", "dimer"):
@@ -961,54 +1043,68 @@ class DMF(JobABC):
             return
 
         refine_out = self.output
-        refine_base = base + "_dmf_refine"
-        ext = ".pdb" if ts_atoms.info.get("pdb_template") else ".xyz"
-        refine_ts = refine_base + f"_{method}_ts" + ext
+        self._archive_refinement_artifacts(base)
         method_label = method.upper()
         guess = ts_atoms.copy()
         guess.calc = base_calc
 
         self.log_info([
             "\n---------------------------------------------------------------\n",
-            f"Starting DMF TS refinement with {method_label} from t_max guess\n",
+            f"Starting DMF candidate refinement with {method_label} from t_max guess\n",
             "---------------------------------------------------------------\n",
         ])
         try:
             if method == "prfo":
                 from .PRFO import PRFO
-                job = PRFO(atoms=guess, output=refine_out, paras=self._paras)
+                job = PRFO(
+                    atoms=guess,
+                    output=refine_out,
+                    paras=self._select_refinement_params(
+                        getattr(self, "_refinement_paras", self._paras),
+                        "prfo",
+                    ),
+                )
             else:
                 from .dimer import Dimer
-                job = Dimer(output=refine_out, atoms_init=guess, paras=self._paras)
+                job = Dimer(
+                    output=refine_out,
+                    atoms_init=guess,
+                    paras=self._select_refinement_params(
+                        getattr(self, "_refinement_paras", self._paras),
+                        "dimer",
+                    ),
+                )
             refined = job.run()
-            if refined is None:
-                refined = getattr(job, "atoms", None)
-            if refined is None:
-                self.log_info([f"DMF TS refinement with {method_label} finished. See {refine_out}.\n"])
-                return
+            child_result = getattr(job, "result", None)
+            structure_path = getattr(child_result, "structure_path", None)
+            if not structure_path or not os.path.isfile(structure_path):
+                raise RuntimeError(
+                    f"{method_label} refinement did not return a managed "
+                    "candidate artifact"
+                )
 
             if refined.calc is None:
                 refined.calc = base_calc
-            try:
-                E_ref = float(refined.get_potential_energy(force_consistent=True))
-            except (PropertyNotImplementedError, TypeError):
-                E_ref = float(refined.get_potential_energy())
-            F_ref = _to_f64(refined.get_forces())
+            E_ref, F_ref = energy_forces_one(
+                refined.calc,
+                refined,
+                force_consistent=True,
+            )
+            E_ref = float(E_ref)
+            F_ref = _to_f64(F_ref)
             F_norm = np.linalg.norm(F_ref, axis=1)
             maxF_ref = float(np.max(F_norm))
             rmsF_ref = float(np.sqrt(np.mean(F_norm**2)))
-            _write_xyz(refine_ts, [refined], energies=[E_ref])
-
             return {
                 "atoms": refined,
                 "energy": E_ref,
                 "max_force": maxF_ref,
                 "rms_force": rmsF_ref,
                 "method_label": method_label,
-                "ts_file": refine_ts,
+                "ts_file": str(structure_path),
             }
         except Exception as e:
-            self.log_error(f"DMF TS refinement with '{method}' failed: {e}")
+            self.log_error(f"DMF candidate refinement with '{method}' failed: {e}")
             self.log_info([f"Refinement ({method}) failed: {e}\n"])
 
 

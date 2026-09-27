@@ -121,19 +121,17 @@ transition-state contracts; it is not a transparent scheduling-only update.
   `auto` never rounds above its memory estimate, and recognized CUDA OOMs
   retry in ordered half-size chunks. Rigid scans flush bounded chunks instead
   of retaining the full grid of `Atoms` objects.
-- Multi-structure optimization invokes the new BatchLBFGS path explicitly by
-  supplying multiple structures. It rejects constraints/empty structures,
-  rejects non-finite search state, applies per-structure Armijo backtracking
-  plus step clipping, records failure status by original structure index, and
-  does not write `_opt.xyz` for non-finite, rejected-step, or max-iteration
-  failures. The generic ASE-compatible adapter still crosses a CPU NumPy
-  boundary; this is a compatibility path rather than an end-to-end GPU claim.
+- Multi-structure optimization is not currently supported. Both `lbfgs` and
+  `blbfgs` inputs with multiple structures are rejected before constructing a
+  batch optimizer. Run the unchanged scalar L-BFGS separately for each structure;
+  the former implicit Armijo batch algorithm is not an equivalent acceleration.
+  Independent E/F batching remains available for SP and path evaluation.
 
 Batch evaluation does not certify a transition state. NEB/PRFO convergence
 produces `_ts_candidate.xyz`; max-iteration PRFO termination produces only
 `_prfo_unconverged.xyz` and fails closed. Production first-order-saddle claims
 still require an independent frequency check (exactly one imaginary mode) and
-forward/reverse IRC endpoint validation. Experimental `BatchPRFO` remains
+forward/reverse IRC endpoint validation. Experimental `BatchPRFO` lives under `ts/experimental/` and remains
 runtime-disabled. Scalar `PRFO` now requires an explicit rigid-symmetry
 contract when the calculator does not declare one: use
 `rigid_symmetry=free_molecule` only for a validated isolated, rigid-motion-
@@ -150,14 +148,21 @@ symmetry fails closed rather than guessing from geometry.
   curvature,
   and a small *unrestricted current-point* Newton correction in Cartesian
   coordinates. A small previous or trust-limited step alone is not a proximity
-  test. These checks do not replace independent frequency and IRC validation.
-- `rigid_symmetry=auto` rejects calculators without an explicit
-  `rigid_body_invariant` capability. No packaged backend currently declares
-  this capability; even bundled AIMNet2 checkpoints did not pass the frozen
-  E/F/H covariance screen for automatic admission. Existing PRFO and TS
-  refinement inputs therefore need a scientifically justified explicit
-  `rigid_symmetry` setting until their backend is admitted. Unknown or
-  laboratory-frame potentials must not be assumed to be free molecules.
+  test. Near-zero physical curvature has its own non-candidate status; the
+  significance cutoff is not a numerical uncertainty estimate. Cancelling
+  uphill/downhill model energies are judged with partition-scaled energy and
+  endpoint-gradient agreement, rather than dividing by a vanishing total change.
+  Nonzero spectral gaps are no longer clipped to `evals_eps` to manufacture
+  finite steps; that legacy argument is retained for call compatibility.
+  Unrepresentable root/gap/alpha cases return explicit solver failures.
+  These checks do not replace independent frequency and IRC validation.
+- `rigid_symmetry=auto` uses an explicit structural capability. The two
+  hash-identified packaged AIMNet2/NSE checkpoints declare free-molecule
+  symmetry for gas-phase `simple`/`dsf` inputs. Unknown checkpoints, plugins,
+  and other as-yet-undeclared backends still require a justified explicit
+  `rigid_symmetry` setting. This declaration concerns the form of the PES;
+  it does **not** certify Hessian accuracy or a transition state. Floating-point
+  covariance diagnostics remain independent evidence.
 - `get_hessian()` defaults to `constraint_mode='fixed_cartesian'`. It supports
   `FixAtoms` and `FixCartesian` but rejects nonlinear `FixInternals` rather than
   return a misleading Cartesian matrix. `raw_cartesian` is an explicit
@@ -175,7 +180,32 @@ symmetry fails closed rather than guessing from geometry.
   `_stringts_ts_candidate` instead of the former `_ts` filenames. No success
   alias is written. Single-point trajectories flush completed frame windows in
   input order; on a later failure the valid prefix remains in the output,
-  without a success summary.
+  without a success summary. Repeated PRFO basenames archive previous geometry
+  artifacts under `<base>_prfo_history/` before a new run, preventing stale
+  candidate/trajectory reuse.
+
+### Evaluation and input semantics
+
+- `calculate_many` requests either ASE `energy` or `free_energy`, never both.
+  Returned `BatchResult.energy_kind` must match. SP uses potential energy;
+  force-consistent path, scan, and HVP evaluation uses free energy. An external
+  energy-only calculator must explicitly declare `energy_free_energy_equal=True`
+  if it supplies the same scalar for both. Missing or mislabeled quantities fail.
+- Dimer defaults to finite-difference HVPs (`use_hvp=false`); explicit analytic
+  HVP requires backend support. Energy, forces, curvature and written geometry
+  are evaluated at one point. Max-iteration, near-minimum and invalid-backend
+  results are diagnostics, not successful TS candidates.
+- TS parameters are validated by method. Refinements have independent options:
+  put PRFO settings in `#prfo(max_iter=...)` rather than relying on the parent
+  NEB/String budget. Existing `rigid_symmetry` forwarding remains supported.
+- `fd_batch_size` on RFO and `scan_batch_size` on scan accept positive integers,
+  `auto` and `all`. FD diagnostic overrides use
+  `fd_hessian_antisymmetry_action` and `fd_hessian_antisymmetry_threshold` on
+  the individual RFO/frequency request; they do not modify a shared calculator.
+  The default is still `raise` at the existing `1e-4` scaled diagnostic limit.
+- PR/push CI runs a dependency-light lane and the complete synthetic CPU/Torch
+  suite. Synthetic success is not real-checkpoint parity or TS admission;
+  real-backend artifacts report missing assets separately from passing cases.
 
 ## Quick Start
 

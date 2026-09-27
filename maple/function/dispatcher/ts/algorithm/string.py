@@ -137,6 +137,7 @@ def get_energies(images: List[Atoms]) -> List[float]:
         energies = EnergyEvaluator(
             calc,
             batch_size=getattr(calc, "path_batch_size", None),
+            force_consistent=True,
         ).energies(images)
         return [float(e) for e in energies]
     return [float(at.get_potential_energy(force_consistent=True)) for at in images]
@@ -397,10 +398,33 @@ class GSM(JobABC):
         self.raw_paras = paras if isinstance(paras, dict) else {}
         self.atoms_R.calc = atoms_R.calc
         self.atoms_P.calc = atoms_P.calc
-        require_shared_pdb_writer([atoms_R, atoms_P], "String")
 
         # Initialize params from paras dict
-        self.params = self._init_params(GSMParams, paras, ("gsm", "GSM", "string", "STRING", "ts"))
+        aliases = ("gsm", "GSM", "string", "STRING", "ts")
+        self._refinement_paras = self._effective_param_dict(paras, aliases)
+        refine = str(
+            self._refinement_paras.get("refine") or ""
+        ).strip().lower()
+        refinement_keys = (
+            ("prfo", "rigid_symmetry") if refine == "stringts" else ()
+        )
+        self.params = self._init_params(
+            GSMParams,
+            paras,
+            aliases,
+            strict=True,
+            context="String",
+            allowed_keys=self.TASK_ROUTING_PARAM_KEYS + refinement_keys,
+        )
+        if refine == "stringts":
+            from .PRFO import PRFOParams
+            self._validate_nested_dataclass_params(
+                self._refinement_paras,
+                "prfo",
+                PRFOParams,
+                context="String PRFO refinement",
+            )
+        require_shared_pdb_writer([atoms_R, atoms_P], "String")
 
         if self.params.n_images < 2:
             raise ValueError("n_images must be >= 2")
@@ -577,7 +601,14 @@ class GSM(JobABC):
         inherit_attrs(images[0], ts_guess)
 
         # Run PRFO to refine the candidate geometry.
-        prfo = PRFO(output=self.output, atoms=ts_guess, paras=self.raw_paras)
+        prfo = PRFO(
+            output=self.output,
+            atoms=ts_guess,
+            paras=self._select_refinement_params(
+                getattr(self, "_refinement_paras", self.raw_paras),
+                "prfo",
+            ),
+        )
         prfo_result = prfo.run_result()
         if not prfo_result.geometry_converged:
             log_info([

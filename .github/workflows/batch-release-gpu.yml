@@ -26,6 +26,8 @@ jobs:
           test -n "${MAPLE_RELEASE_CHECKPOINT_DIR:-}"
           test -f "${MAPLE_RELEASE_CHECKPOINT_DIR}/aimnet2.pt"
           test -f "${MAPLE_RELEASE_CHECKPOINT_DIR}/aimnet2nse.pt"
+          test -f "${MAPLE_RELEASE_CHECKPOINT_DIR}/ani2x.pt"
+          test -f "${MAPLE_RELEASE_CHECKPOINT_DIR}/maceoff23m.pt"
 
       - name: Install MAPLE without replacing the runner CUDA stack
         run: python -m pip install -e .
@@ -39,10 +41,21 @@ jobs:
             --checkpoint-dir "${MAPLE_RELEASE_CHECKPOINT_DIR}" \
             --artifact artifacts/aimnet2-batch-release.json
 
+      - name: Require native backend parity over sizes, orders and chunks
+        run: |
+          python scripts/verify_batch_backends.py \
+            --checkpoint-dir "${MAPLE_RELEASE_CHECKPOINT_DIR}" \
+            --models aimnet2 aimnet2nse ani2x maceoff23m --device cuda \
+            --require-complete --artifact artifacts/native-batch-parity.json
+          python scripts/verify_batch_backends.py \
+            --checkpoint-dir "${MAPLE_RELEASE_CHECKPOINT_DIR}" \
+            --models aimnet2 aimnet2nse --device cuda --coulomb dsf \
+            --require-complete --artifact artifacts/aimnet-dsf-parity.json
+
       - name: Upload verification artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: aimnet2-batch-release-${{ github.sha }}
-          path: artifacts/aimnet2-batch-release.json
+          path: artifacts/*.json
           if-no-files-found: error

@@ -7,6 +7,7 @@ from unittest.mock import patch
 import numpy as np
 import torch
 from ase import Atoms
+from ase.calculators.calculator import Calculator
 from ase.constraints import FixAtoms
 
 from maple.function.calculator._batch_eval import (
@@ -16,6 +17,7 @@ from maple.function.calculator._batch_eval import (
     FDHessianEvaluator,
     HVPEvaluator,
     PathEvaluator,
+    energy_forces_one,
     _copy_with_positions,
     _estimate_auto_batch_size_from_item_bytes,
 )
@@ -39,6 +41,8 @@ from maple.function.calculator.aimnet._aimnet2_batch_calculator import (
     AIMNet2BatchCalc,
 )
 from maple.function.calculator.ani._ani_calculator import ANICalculator
+from maple.function.dispatcher.sp.sp import SinglePoint
+from maple.function.dispatcher.ts.algorithm.dimer import Dimer
 
 
 def _require_or_skip_real_checkpoints(test_case, *paths):
@@ -78,8 +82,56 @@ class _CacheCalculator:
             raise RuntimeError("synthetic backend failure")
 
 
+class _DistinctEnergyCalculator(Calculator):
+    """Synthetic ASE calculator whose potential and free energies differ."""
+
+    energy_free_energy_equal = False
+    implemented_properties = ("energy", "free_energy", "forces")
+    supports_batch_energy_forces = True
+
+    def __init__(self, *, native=False, pbc=False):
+        super().__init__()
+        self.native = native
+        self.pbc = pbc
+        self.requests = []
+
+    def calculate(self, atoms, properties, system_changes):
+        super().calculate(atoms, properties, system_changes)
+        self.requests.append(tuple(properties))
+        x = float(np.sum(atoms.get_positions()))
+        self.results = {"forces": np.full((len(atoms), 3), -x)}
+        if "energy" in properties:
+            self.results["energy"] = 10.0 + x
+        if "free_energy" in properties:
+            self.results["free_energy"] = 20.0 + x
+
+    def calculate_many(self, atoms_list, properties=("energy", "forces")):
+        if not self.native:
+            raise AssertionError("native path was not expected")
+        props, want_energy, want_forces, request = normalize_energy_forces_request(
+            properties
+        )
+        energy_kind = next(
+            (prop for prop in props if prop in {"energy", "free_energy"}), None
+        )
+        energies = [] if want_energy else None
+        forces = [] if want_forces else None
+        for atoms in atoms_list:
+            self.calculate(atoms, request, None)
+            if energies is not None:
+                energies.append(self.results[energy_kind])
+            if forces is not None:
+                forces.append(self.results["forces"])
+        return BatchResult(
+            energies=energies,
+            energy_kind=energy_kind,
+            forces=forces,
+        )
+
+
 class _QuadraticCalculator:
     supports_hvp = False
+    energy_free_energy_equal = True
 
     def calculate_many(self, atoms_list, properties=("energy", "forces")):
         energies = []
@@ -90,12 +142,21 @@ class _QuadraticCalculator:
             forces.append(-positions)
         return BatchResult(
             energies=np.asarray(energies, dtype=np.float64),
+            energy_kind=next(
+                (
+                    prop
+                    for prop in properties
+                    if prop in ("energy", "free_energy")
+                ),
+                None,
+            ),
             forces=forces,
         )
 
 
 class _BadAnalyticHVP:
     supports_hvp = True
+    hvp_energy_kind = "free_energy"
 
     def get_hvp(self, atoms, n):
         size = 3 * len(atoms)
@@ -133,6 +194,21 @@ class _RecordingAIMNetModel:
 
 
 class BatchResultContractTests(unittest.TestCase):
+    def test_energy_kind_is_required_and_must_match_the_request(self):
+        atoms = [Atoms("H")]
+        unlabeled = BatchResult(energies=np.array([1.0]))
+        with self.assertRaisesRegex(ValueError, "energy_kind"):
+            unlabeled.validate_against(atoms, ("energy",))
+
+        mislabeled = BatchResult(
+            energies=np.array([1.0]), energy_kind="free_energy"
+        )
+        with self.assertRaisesRegex(ValueError, "energy_kind.*requested"):
+            mislabeled.validate_against(atoms, ("energy",))
+
+        with self.assertRaisesRegex(ValueError, "energy_kind"):
+            BatchResult(forces=[np.zeros((1, 3))], energy_kind="energy")
+
     def test_required_real_checkpoint_gate_fails_instead_of_skipping(self):
         missing = Path("/definitely/missing/maple-checkpoint.pt")
         with (
@@ -162,13 +238,16 @@ class BatchResultContractTests(unittest.TestCase):
         atoms = [Atoms("H"), Atoms("H2")]
         result = BatchResult(
             energies=np.array([1.0, 2.0]),
+            energy_kind="energy",
             forces=[np.zeros((1, 3)), np.zeros((1, 3))],
         )
         with self.assertRaisesRegex(ValueError, r"forces\[1\].*expected"):
             result.validate_against(atoms, ("energy", "forces"))
 
         with self.assertRaisesRegex(ValueError, "requested.*forces"):
-            BatchResult(energies=np.array([1.0, 2.0])).validate_against(
+            BatchResult(
+                energies=np.array([1.0, 2.0]), energy_kind="energy"
+            ).validate_against(
                 atoms, ("energy", "forces")
             )
 
@@ -176,6 +255,7 @@ class BatchResultContractTests(unittest.TestCase):
         atoms = [Atoms("H")]
         result = BatchResult(
             energies=np.array([1.0]),
+            energy_kind="energy",
             forces=[np.zeros((1, 3))],
         )
         self.assertIsInstance(result.forces, tuple)
@@ -191,6 +271,27 @@ class BatchResultContractTests(unittest.TestCase):
 
 
 class BatchUtilityContractTests(unittest.TestCase):
+    def test_energy_request_is_exactly_one_ase_scalar(self):
+        self.assertEqual(
+            normalize_energy_forces_request(("free_energy", "forces"))[0],
+            ("free_energy", "forces"),
+        )
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            normalize_energy_forces_request(("energy", "free_energy", "forces"))
+
+    def test_sequential_fallback_selects_only_the_requested_energy_kind(self):
+        calc = _DistinctEnergyCalculator()
+        atoms = [Atoms("H", positions=[[0.25, 0.0, 0.0]])]
+        potential = sequential_calculate_many(
+            calc, atoms, ("energy", "forces"), True, True
+        )
+        free = sequential_calculate_many(
+            calc, atoms, ("free_energy", "forces"), True, True
+        )
+        self.assertEqual(potential.energy_kind, "energy")
+        self.assertEqual(free.energy_kind, "free_energy")
+        np.testing.assert_allclose(potential.energies, [10.25])
+        np.testing.assert_allclose(free.energies, [20.25])
     def test_unknown_properties_fail_closed(self):
         with self.assertRaisesRegex(ValueError, "Unsupported calculate_many"):
             normalize_energy_forces_request(("energy", "stress"))
@@ -255,7 +356,147 @@ class BatchUtilityContractTests(unittest.TestCase):
         self.assertIsNot(displaced.constraints[0], atoms.constraints[0])
 
 
+class EnergyEvaluatorIdentityTests(unittest.TestCase):
+    def test_scalar_helper_requests_the_exact_selected_ase_energy(self):
+        calc = _DistinctEnergyCalculator()
+        atoms = Atoms("H", positions=[[0.5, 0.0, 0.0]])
+
+        potential, _ = energy_forces_one(calc, atoms, force_consistent=False)
+        free, _ = energy_forces_one(calc, atoms, force_consistent=True)
+
+        self.assertEqual(calc.requests, [
+            ("energy", "forces"),
+            ("free_energy", "forces"),
+        ])
+        self.assertEqual(potential, 10.5)
+        self.assertEqual(free, 20.5)
+
+    def test_scalar_free_energy_fallback_requires_explicit_equality(self):
+        class _EnergyOnly(Calculator):
+            implemented_properties = ("energy", "forces")
+
+            def __init__(self, declares_equal):
+                super().__init__()
+                if declares_equal:
+                    self.energy_free_energy_equal = True
+
+            def calculate(self, atoms, properties, system_changes):
+                super().calculate(atoms, properties, system_changes)
+                self.results = {
+                    "energy": 10.5,
+                    "forces": np.zeros((len(atoms), 3)),
+                }
+
+        atoms = Atoms("H", positions=[[0.5, 0.0, 0.0]])
+        with self.assertRaisesRegex(RuntimeError, "energy_free_energy_equal=True"):
+            energy_forces_one(_EnergyOnly(False), atoms, force_consistent=True)
+        malformed = _EnergyOnly(False)
+        malformed.energy_free_energy_equal = "false"
+        with self.assertRaisesRegex(TypeError, "must be boolean"):
+            energy_forces_one(malformed, atoms, force_consistent=True)
+        energy, _ = energy_forces_one(
+            _EnergyOnly(True), atoms, force_consistent=True
+        )
+        self.assertEqual(energy, 10.5)
+
+    def test_dimer_callback_center_evaluation_requests_free_energy(self):
+        calc = _DistinctEnergyCalculator()
+        atoms = Atoms("H", positions=[[0.5, 0.0, 0.0]], calculator=calc)
+        with tempfile.TemporaryDirectory() as directory:
+            dimer = Dimer(
+                output=str(Path(directory) / "dimer.out"),
+                atoms_init=atoms,
+                paras={"dimer": {
+                    "use_hvp": True,
+                    "remove_rigid": False,
+                    "n_init": "given",
+                    "n_given": [1.0, 0.0, 0.0],
+                }},
+                hvp_fn=lambda _atoms, direction: np.asarray(direction),
+            )
+            _, _, energy = dimer._evaluate_current(dimer.n)
+
+        self.assertEqual(energy, 20.5)
+        self.assertIn(("free_energy", "forces"), calc.requests)
+
+    def test_native_backend_cannot_relabel_potential_energy_as_free_energy(self):
+        calc = _DistinctEnergyCalculator(native=True)
+        calc.calculate_many = lambda atoms_list, properties: BatchResult(
+            energies=np.array([10.5]),
+            energy_kind="energy",
+            forces=[np.zeros((1, 3))],
+        )
+        with self.assertRaisesRegex(ValueError, "energy_kind.*requested"):
+            PathEvaluator(calc, batch_size="all").energy_forces(
+                [Atoms("H", positions=[[0.5, 0.0, 0.0]])]
+            )
+
+    def test_native_path_and_energy_evaluators_keep_distinct_scalars(self):
+        calc = _DistinctEnergyCalculator(native=True)
+        images = [Atoms("H", positions=[[0.5, 0.0, 0.0]])]
+        path_e, _ = PathEvaluator(calc, batch_size="all").energy_forces(images)
+        sp_e = EnergyEvaluator(calc, batch_size="all").energies(images)
+        path_summary_e = EnergyEvaluator(
+            calc,
+            batch_size="all",
+            force_consistent=True,
+        ).energies(images)
+        np.testing.assert_allclose(path_e, [20.5])
+        np.testing.assert_allclose(sp_e, [10.5])
+        np.testing.assert_allclose(path_summary_e, [20.5])
+
+    def test_periodic_fallback_preserves_requested_energy_kind(self):
+        calc = _DistinctEnergyCalculator(native=True)
+        atoms = Atoms("H", positions=[[0.75, 0.0, 0.0]], cell=[4, 4, 4], pbc=True)
+        path_e, _ = PathEvaluator(calc, batch_size="all").energy_forces([atoms])
+        sp_e = EnergyEvaluator(calc, batch_size="all").energies([atoms])
+        np.testing.assert_allclose(path_e, [20.75])
+        np.testing.assert_allclose(sp_e, [10.75])
+
+    def test_sp_always_uses_potential_energy_for_verbose_and_sequential_routes(self):
+        cases = []
+        for native, constrained in ((True, False), (False, True)):
+            calc = _DistinctEnergyCalculator(native=native)
+            frames = [Atoms("H", positions=[[0.5, 0.0, 0.0]])]
+            if constrained:
+                frames[0].set_constraint(FixAtoms(indices=[0]))
+            frames[0].calc = calc
+            for verbose in (0, 1):
+                with tempfile.TemporaryDirectory() as directory:
+                    output = Path(directory) / "sp.out"
+                    SinglePoint(
+                        str(output), frames, paras={"verbose": verbose}
+                    ).run()
+                    cases.append(output.read_text())
+        for text in cases:
+            self.assertIn("Energy: 10.5000000000 Hartree", text)
+            self.assertNotIn("Energy: 20.5000000000 Hartree", text)
+
+
 class BackendContractTests(unittest.TestCase):
+    def test_aimnet_rigid_invariance_is_exact_hash_and_configuration_bound(self):
+        calc = AIMNet2Calculator.__new__(AIMNet2Calculator)
+        calc.external_field = None
+        for known in AIMNET2_CHECKPOINT_CAPABILITIES_BY_SHA256:
+            for method in ("simple", "dsf"):
+                calc.maple_pes_identity = {
+                    "model_fingerprint": {"digest": known},
+                    "relevant_settings": {
+                        "implicit": "none",
+                        "coulomb": {"method": method},
+                    },
+                }
+                self.assertIs(calc.rigid_body_invariant, True)
+
+        calc.maple_pes_identity["model_fingerprint"]["digest"] = "0" * 64
+        self.assertIsNone(calc.rigid_body_invariant)
+        calc.maple_pes_identity["model_fingerprint"]["digest"] = known
+        calc.maple_pes_identity["relevant_settings"]["implicit"] = "gbsa"
+        self.assertIsNone(calc.rigid_body_invariant)
+        calc.maple_pes_identity["relevant_settings"]["implicit"] = "none"
+        calc.external_field = np.ones(3)
+        self.assertIsNone(calc.rigid_body_invariant)
+
     def test_aimnet_batch_schema_is_bound_to_checkpoint_identity(self):
         self.assertEqual(
             set(AIMNET2_BATCH_LAYOUT_BY_SHA256.values()),
@@ -531,6 +772,51 @@ class BackendContractTests(unittest.TestCase):
 
 
 class EvaluatorSafetyTests(unittest.TestCase):
+    def test_analytic_hvp_requires_explicit_energy_identity_before_call(self):
+        class _AnalyticEnergyIdentity:
+            supports_hvp = True
+
+            def __init__(self, *, kind=None, equal=False):
+                if kind is not None:
+                    self.hvp_energy_kind = kind
+                if equal:
+                    self.energy_free_energy_equal = True
+                self.calls = 0
+
+            def get_hvp(self, atoms, direction):
+                self.calls += 1
+                energy = 20.0 if getattr(
+                    self, "hvp_energy_kind", None
+                ) == "free_energy" else 10.0
+                return np.asarray(direction), np.zeros(3), energy
+
+        atoms = Atoms("H", positions=[[0.0, 0.0, 0.0]])
+        direction = np.array([1.0, 0.0, 0.0])
+
+        free = _AnalyticEnergyIdentity(kind="free_energy")
+        self.assertEqual(HVPEvaluator(free).hn(atoms, direction)[2], 20.0)
+        self.assertEqual(free.calls, 1)
+
+        potential = _AnalyticEnergyIdentity(kind="energy")
+        with self.assertRaisesRegex(RuntimeError, "energy_free_energy_equal"):
+            HVPEvaluator(potential).hn(atoms, direction)
+        self.assertEqual(potential.calls, 0)
+
+        unknown = _AnalyticEnergyIdentity()
+        with self.assertRaisesRegex(RuntimeError, "hvp_energy_kind"):
+            HVPEvaluator(unknown).hn(atoms, direction)
+        self.assertEqual(unknown.calls, 0)
+
+        malformed = _AnalyticEnergyIdentity()
+        malformed.energy_free_energy_equal = "false"
+        with self.assertRaisesRegex(TypeError, "must be boolean"):
+            HVPEvaluator(malformed).hn(atoms, direction)
+        self.assertEqual(malformed.calls, 0)
+
+        equal = _AnalyticEnergyIdentity(equal=True)
+        self.assertEqual(HVPEvaluator(equal).hn(atoms, direction)[2], 10.0)
+        self.assertEqual(equal.calls, 1)
+
     def test_unset_evaluator_batch_sizes_default_to_auto(self):
         calc = _QuadraticCalculator()
         self.assertEqual(
@@ -608,6 +894,21 @@ class EvaluatorSafetyTests(unittest.TestCase):
             HVPEvaluator(_BadAnalyticHVP()).hn(
                 atoms, np.ones(3), delta=0.005
             )
+
+    def test_hvp_fd_selection_never_touches_analytic_backend(self):
+        class _AnalyticSpy(_QuadraticCalculator):
+            supports_hvp = True
+
+            def get_hvp(self, atoms, n):
+                raise AssertionError("analytic HVP must not be called")
+
+        atoms = Atoms("H", positions=[[0.1, 0.0, 0.0]])
+        hn, force, energy = HVPEvaluator(
+            _AnalyticSpy(), use_analytic=False
+        ).hn(atoms, np.array([1.0, 0.0, 0.0]), delta=0.005)
+        np.testing.assert_allclose(hn, [1.0, 0.0, 0.0], atol=1e-12)
+        np.testing.assert_allclose(force, [-0.1, 0.0, 0.0], atol=1e-12)
+        self.assertAlmostEqual(energy, 0.005)
 
 
 if __name__ == "__main__":

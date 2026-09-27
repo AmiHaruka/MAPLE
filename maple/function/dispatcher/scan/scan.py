@@ -271,7 +271,11 @@ class Scan(JobABC):
             return
 
         batch_size = self.params.get("scan_batch_size", self.params.get("batch_size"))
-        batch_energies = EnergyEvaluator(calc, batch_size=batch_size).energies(atoms_list)
+        batch_energies = EnergyEvaluator(
+            calc,
+            batch_size=batch_size,
+            force_consistent=True,
+        ).energies(atoms_list)
         for (index, coord, atoms), energy in zip(records, batch_energies):
             self._current_index = index
             self._print_progress(index, self._total_combinations, coord)
@@ -354,6 +358,27 @@ class Scan(JobABC):
             self._record_rigid_results(records, coords_list, energies)
             records.clear()
 
+    def _record_scan_point(
+        self,
+        atoms: Atoms,
+        coord: List[float],
+        *,
+        batch_rigid: bool,
+        rigid_records: list,
+        coords_list: list,
+        energies: list,
+    ) -> None:
+        """Record one point immediately or through the rigid batch buffer."""
+        if batch_rigid:
+            self._buffer_rigid_result(
+                rigid_records,
+                (self._current_index, coord[:], self._safe_copy(atoms)),
+                coords_list,
+                energies,
+            )
+        else:
+            self._record_result(atoms, coord, coords_list, energies)
+
     def _uses_rigid_batch(self) -> bool:
         """Return True only for a validated native batch calculator."""
         if self.mode != "rigid":
@@ -385,15 +410,11 @@ class Scan(JobABC):
             else:
                 atoms_current = self._apply_constraints(atoms_current, coord)
             atoms_current = self._run_optimizer(atoms_current)
-            if batch_rigid:
-                self._buffer_rigid_result(
-                    rigid_records,
-                    (self._current_index, coord[:], self._safe_copy(atoms_current)),
-                    coords_list,
-                    energies,
-                )
-            else:
-                self._record_result(atoms_current, coord, coords_list, energies)
+            self._record_scan_point(
+                atoms_current, coord, batch_rigid=batch_rigid,
+                rigid_records=rigid_records, coords_list=coords_list,
+                energies=energies,
+            )
 
         if batch_rigid:
             self._flush_rigid_results(rigid_records, coords_list, energies)
@@ -423,15 +444,11 @@ class Scan(JobABC):
             atoms_current = self._run_optimizer(atoms_current)
             
             grid_xy[(ix, 0)] = self._safe_copy(atoms_current)  # Keep initial line
-            if batch_rigid:
-                self._buffer_rigid_result(
-                    rigid_records,
-                    (self._current_index, coord[:], self._safe_copy(atoms_current)),
-                    coords_list,
-                    energies,
-                )
-            else:
-                self._record_result(atoms_current, coord, coords_list, energies)
+            self._record_scan_point(
+                atoms_current, coord, batch_rigid=batch_rigid,
+                rigid_records=rigid_records, coords_list=coords_list,
+                energies=energies,
+            )
 
         # Step 2: for each X, scan along Y (no need to keep these)
         for ix, xv in enumerate(x_values):
@@ -447,15 +464,11 @@ class Scan(JobABC):
                 else:
                     atoms_current = self._apply_constraints(atoms_current, coord)
                 atoms_current = self._run_optimizer(atoms_current)
-                if batch_rigid:
-                    self._buffer_rigid_result(
-                        rigid_records,
-                        (self._current_index, coord[:], self._safe_copy(atoms_current)),
-                        coords_list,
-                        energies,
-                    )
-                else:
-                    self._record_result(atoms_current, coord, coords_list, energies)
+                self._record_scan_point(
+                    atoms_current, coord, batch_rigid=batch_rigid,
+                    rigid_records=rigid_records, coords_list=coords_list,
+                    energies=energies,
+                )
 
         if batch_rigid:
             self._flush_rigid_results(rigid_records, coords_list, energies)
@@ -485,15 +498,11 @@ class Scan(JobABC):
             atoms_current = self._run_optimizer(atoms_current)
             
             grid_xy[(ix, 0)] = self._safe_copy(atoms_current)
-            if batch_rigid:
-                self._buffer_rigid_result(
-                    rigid_records,
-                    (self._current_index, coord[:], self._safe_copy(atoms_current)),
-                    coords_list,
-                    energies,
-                )
-            else:
-                self._record_result(atoms_current, coord, coords_list, energies)
+            self._record_scan_point(
+                atoms_current, coord, batch_rigid=batch_rigid,
+                rigid_records=rigid_records, coords_list=coords_list,
+                energies=energies,
+            )
 
         # Step 2: scan along Y (z=z0) for each X - build the initial plane
         for ix, xv in enumerate(x_values):
@@ -511,18 +520,11 @@ class Scan(JobABC):
                 atoms_current = self._run_optimizer(atoms_current)
                 
                 grid_xy[(ix, iy)] = self._safe_copy(atoms_current)  # Keep initial plane
-                if batch_rigid:
-                    self._buffer_rigid_result(
-                        rigid_records,
-                        (self._current_index, coord[:], self._safe_copy(atoms_current)),
-                        coords_list,
-                        energies,
-                    )
-                else:
-                    self._record_result(atoms_current, coord, coords_list, energies)
-            
-            # Can delete the first line point now (initial plane is complete)
-            del grid_xy[(ix, 0)]
+                self._record_scan_point(
+                    atoms_current, coord, batch_rigid=batch_rigid,
+                    rigid_records=rigid_records, coords_list=coords_list,
+                    energies=energies,
+                )
 
         # Step 3: scan along Z for each (X, Y)
         for ix, xv in enumerate(x_values):
@@ -543,15 +545,11 @@ class Scan(JobABC):
                     else:
                         atoms_current = self._apply_constraints(atoms_current, coord)
                     atoms_current = self._run_optimizer(atoms_current)
-                    if batch_rigid:
-                        self._buffer_rigid_result(
-                            rigid_records,
-                            (self._current_index, coord[:], self._safe_copy(atoms_current)),
-                            coords_list,
-                            energies,
-                        )
-                    else:
-                        self._record_result(atoms_current, coord, coords_list, energies)
+                    self._record_scan_point(
+                        atoms_current, coord, batch_rigid=batch_rigid,
+                        rigid_records=rigid_records, coords_list=coords_list,
+                        energies=energies,
+                    )
                 
                 # Delete this (x,y) plane point after finishing its z-scan
                 del grid_xy[(ix, iy)]
@@ -566,7 +564,8 @@ class Scan(JobABC):
         if self.mode == "relaxed" and self.method == "rfo":
             raise NotImplementedError(
                 "Relaxed RFO scans create FixInternals constraints, but a "
-                "constrained RFO Hessian is not implemented. Use "
+                "constrained RFO Hessian is not implemented; support requires "
+                "a tangent-space/Lagrangian Hessian. Use "
                 "#scan(method=lbfgs,mode=relaxed) explicitly, or mode=rigid."
             )
 

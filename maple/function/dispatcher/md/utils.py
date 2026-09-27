@@ -16,6 +16,7 @@ import numpy as np
 from ase import Atoms
 from ase.calculators.calculator import PropertyNotImplementedError
 
+from maple.function.units import units as _energy_units
 from ...utility.active_dof import active_atom_mask
 from ...utility.rigid_body import (
     is_linear_geometry,
@@ -23,6 +24,10 @@ from ...utility.rigid_body import (
 )
 
 # ========== Physical Constants and Unit Conversions ==========
+
+# Retain the public MD names while sharing the conversion convention.
+HARTREE_TO_EV = _energy_units.HARTREE_TO_EV
+EV_TO_HARTREE = _energy_units.EV_TO_HARTREE
 
 # Temperature conversions
 KELVIN_TO_HARTREE = 3.1668114e-6  # k_B in Hartree/K
@@ -34,10 +39,6 @@ AMU_TO_AU = 1822.888486209  # atomic mass unit to atomic units
 # Time conversions
 FS_TO_AU = 41.341374575751  # femtoseconds to atomic units
 AU_TO_FS = 1.0 / FS_TO_AU
-
-# Energy conversions
-HARTREE_TO_EV = 27.211386245988
-EV_TO_HARTREE = 1.0 / HARTREE_TO_EV
 
 # Length conversions
 # NIST CODATA 2018: 1 Bohr = 0.529177210903 Å (exact to 12 sig. fig.)
@@ -52,7 +53,7 @@ ANGSTROM_TO_BOHR = 1.0 / BOHR_TO_ANGSTROM
 HA_PER_ANG_TO_AU = BOHR_TO_ANGSTROM  # Ha/Å → Ha/Bohr ≈ 0.5292
 
 # Legacy alias kept for backward compatibility (was used when forces were assumed eV/Å)
-EV_PER_ANG_TO_AU = 1.0 / (27.211386245988 * BOHR_TO_ANGSTROM)  # ≈ 0.019447
+EV_PER_ANG_TO_AU = 1.0 / (HARTREE_TO_EV * BOHR_TO_ANGSTROM)  # ≈ 0.019447
 
 # Pressure unit conversions
 # Derivation: 1 eV = 1.6021766208e-19 J, 1 Å³ = 1e-30 m³ → 1 eV/Å³ = 1.6021766208e11 Pa = 1.6021766208e6 bar

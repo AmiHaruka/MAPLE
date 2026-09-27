@@ -586,11 +586,34 @@ class NEB(JobABC):
             self.atoms_P = None
         else:
             raise ValueError("Please provide Molecules object containing all images")
-        require_shared_pdb_writer(self.input_images, "NEB")
 
         # Initialize params from paras dict
         self.raw_paras = paras if isinstance(paras, dict) else {}
-        self.params = self._init_params(NEBParams, paras, ("neb", "NEB", "ts"))
+        aliases = ("neb", "NEB", "ts")
+        self._refinement_paras = self._effective_param_dict(paras, aliases)
+        refine = str(
+            self._refinement_paras.get("refine") or ""
+        ).strip().lower()
+        refinement_keys = (
+            ("prfo", "rigid_symmetry") if refine == "nebts" else ()
+        )
+        self.params = self._init_params(
+            NEBParams,
+            paras,
+            aliases,
+            strict=True,
+            context="NEB",
+            allowed_keys=self.TASK_ROUTING_PARAM_KEYS + refinement_keys,
+        )
+        if refine == "nebts":
+            from .PRFO import PRFOParams
+            self._validate_nested_dataclass_params(
+                self._refinement_paras,
+                "prfo",
+                PRFOParams,
+                context="NEB PRFO refinement",
+            )
+        require_shared_pdb_writer(self.input_images, "NEB")
 
         # Safety: minimal guard
         if self.params.n_images < 1:
@@ -707,6 +730,7 @@ class NEB(JobABC):
             energies = EnergyEvaluator(
                 calc,
                 batch_size=getattr(calc, "path_batch_size", None),
+                force_consistent=True,
             ).energies(imgs)
             return [float(e) for e in energies]
         return [float(at.get_potential_energy(force_consistent=True)) for at in imgs]
@@ -1103,7 +1127,14 @@ class NEB(JobABC):
             ts_guess.dp_max_th = images[0].dp_max_th
             ts_guess.dp_rms_th = images[0].dp_rms_th
 
-            prfo = PRFO(output=self.output, atoms=ts_guess, paras=self.raw_paras)
+            prfo = PRFO(
+                output=self.output,
+                atoms=ts_guess,
+                paras=self._select_refinement_params(
+                    getattr(self, "_refinement_paras", self.raw_paras),
+                    "prfo",
+                ),
+            )
             prfo_result = prfo.run_result()
             if not prfo_result.geometry_converged:
                 log_info([

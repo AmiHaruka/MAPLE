@@ -142,7 +142,11 @@ class SinglePoint(JobABC):
 
         batch_size = getattr(calc, "path_batch_size", None)
         if self.verbose >= 1:
-            evaluator = PathEvaluator(calc, batch_size=batch_size)
+            evaluator = PathEvaluator(
+                calc,
+                batch_size=batch_size,
+                force_consistent=False,
+            )
         else:
             evaluator = EnergyEvaluator(calc, batch_size=batch_size)
         window = evaluator.batch_size

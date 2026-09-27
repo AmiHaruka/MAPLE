@@ -258,6 +258,7 @@ class CalculateManyBatchCalc:
 
         return BatchResult(
             energies=np.asarray(energies, dtype=np.float64),
+            energy_kind="energy",
             forces=forces,
         ).validate_against(atoms_batch, ("energy", "forces"))
 

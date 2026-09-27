@@ -22,6 +22,19 @@ from ase.calculators.calculator import all_changes
 from ._batch_types import BatchResult
 
 
+def declares_energy_free_energy_equal(calc) -> bool:
+    """Return a strictly typed reviewed equality declaration."""
+    value = getattr(calc, "energy_free_energy_equal", None)
+    if value is None:
+        return False
+    if not isinstance(value, (bool, np.bool_)):
+        raise TypeError(
+            f"{type(calc).__name__}.energy_free_energy_equal must be boolean, "
+            f"got {type(value).__name__}"
+        )
+    return bool(value)
+
+
 def atoms_has_pbc(atoms) -> bool:
     """Return True when an ASE Atoms object has any periodic axis enabled."""
     if atoms is None:
@@ -53,21 +66,46 @@ def normalize_energy_forces_request(properties) -> tuple[tuple[str, ...], bool, 
             "calculate_many does not assemble Hessians; use FDHessianEvaluator "
             "for numerical Hessians or a backend-specific analytic Hessian path."
         )
-    unknown = [repr(prop) for prop in props if prop not in {"energy", "forces"}]
+    unknown = [
+        repr(prop)
+        for prop in props
+        if prop not in {"energy", "free_energy", "forces"}
+    ]
     if unknown:
         raise ValueError(
             "Unsupported calculate_many properties: " + ", ".join(unknown)
         )
 
-    want_energy = "energy" in props
+    energy_kinds = tuple(
+        prop for prop in props if prop in ("energy", "free_energy")
+    )
+    if len(energy_kinds) > 1:
+        raise ValueError(
+            "calculate_many requests must contain exactly one of 'energy' or "
+            "'free_energy' when an energy scalar is requested"
+        )
+    want_energy = bool(energy_kinds)
     want_forces = "forces" in props
     request = list(dict.fromkeys(props))
     return props, want_energy, want_forces, request
 
 
-def empty_batch_result(want_energy: bool, want_forces: bool) -> BatchResult:
+def requested_energy_kind(request: Sequence[str]) -> str | None:
+    """Return the single ASE energy property in a normalized request."""
+    return next(
+        (prop for prop in request if prop in ("energy", "free_energy")),
+        None,
+    )
+
+
+def empty_batch_result(
+    want_energy: bool,
+    want_forces: bool,
+    request: Sequence[str] = ("energy",),
+) -> BatchResult:
     return BatchResult(
         energies=np.zeros(0, dtype=np.float64) if want_energy else None,
+        energy_kind=requested_energy_kind(request) if want_energy else None,
         forces=[] if want_forces else None,
     )
 
@@ -126,15 +164,27 @@ def sequential_calculate_many(
     atoms_list = list(atoms_list)
     energies = [] if want_energy else None
     forces_list = [] if want_forces else None
+    energy_kind = requested_energy_kind(request)
 
     with preserve_calculator_state(calc):
         for at in atoms_list:
             calc.calculate(at, properties=list(request), system_changes=all_changes)
             if want_energy:
-                if "free_energy" in calc.results:
-                    energies.append(float(calc.results["free_energy"]))
-                else:
+                if energy_kind in calc.results:
+                    energies.append(float(calc.results[energy_kind]))
+                elif (
+                    energy_kind == "free_energy"
+                    and declares_energy_free_energy_equal(calc)
+                    and "energy" in calc.results
+                ):
                     energies.append(float(calc.results["energy"]))
+                else:
+                    raise RuntimeError(
+                        f"{type(calc).__name__} did not return the requested "
+                        f"{energy_kind!r} scalar; it may declare "
+                        "energy_free_energy_equal=True only when that equality "
+                        "is part of its reviewed calculator contract"
+                    )
             if want_forces:
                 forces_list.append(
                     np.array(calc.results["forces"], dtype=np.float64, copy=True)
@@ -142,6 +192,7 @@ def sequential_calculate_many(
 
     return BatchResult(
         energies=np.asarray(energies, dtype=np.float64) if energies is not None else None,
+        energy_kind=energy_kind if energies is not None else None,
         forces=forces_list,
     ).validate_against(atoms_list, request)
 

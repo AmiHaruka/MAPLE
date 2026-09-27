@@ -34,6 +34,14 @@ class _RecordingBatchCalculator:
             energies.pop()
         return BatchResult(
             energies=np.asarray(energies),
+            energy_kind=next(
+                (
+                    prop
+                    for prop in properties
+                    if prop in ("energy", "free_energy")
+                ),
+                None,
+            ),
             forces=forces if "forces" in properties else None,
         )
 

@@ -138,6 +138,9 @@ class UMACalculator(FAIRChemCalculator):
     )
     MODEL_PATH_OPTION = 'checkpoint_path'
     supports_batch_energy_forces = True
+    # UMA exposes a deterministic potential, not a separate thermodynamic
+    # free-energy surface; its two ASE scalar names are identical by contract.
+    energy_free_energy_equal = True
     batch_memory_model = 'disconnected_graph'
     auto_batch_hard_cap = 8
     auto_path_batch_cap = 8
@@ -532,6 +535,9 @@ class UMACalculator(FAIRChemCalculator):
         delta: float = 0.002,
         *,
         constraint_mode: str = "fixed_cartesian",
+        fd_batch_size=None,
+        fd_hessian_antisymmetry_action: str | None = None,
+        fd_hessian_antisymmetry_threshold: float | None = None,
     ) -> np.ndarray:
         """Numerical fixed-Cartesian or explicitly raw Hessian in Ha/Angstrom^2."""
         from .._batch_eval import FDHessianEvaluator
@@ -541,8 +547,16 @@ class UMACalculator(FAIRChemCalculator):
         self._validate_charge_spin_task_compatibility(atoms)
         return FDHessianEvaluator(
             self,
-            fd_batch_size=getattr(self, "fd_batch_size", None),
+            fd_batch_size=(
+                getattr(self, "fd_batch_size", None)
+                if fd_batch_size is None
+                else fd_batch_size
+            ),
             constraint_mode=constraint_mode,
+            fd_hessian_antisymmetry_action=fd_hessian_antisymmetry_action,
+            fd_hessian_antisymmetry_threshold=(
+                fd_hessian_antisymmetry_threshold
+            ),
         ).hessian(atoms, delta)
 
     def calculate_many(self, atoms_list, properties=("energy", "forces")) -> BatchResult:
@@ -562,7 +576,7 @@ class UMACalculator(FAIRChemCalculator):
 
         atoms_list = list(atoms_list)
         if not atoms_list:
-            return empty_batch_result(want_energy, want_forces)
+            return empty_batch_result(want_energy, want_forces, request)
 
         if (
             atomicdata_list_to_batch is None
@@ -616,6 +630,10 @@ class UMACalculator(FAIRChemCalculator):
 
         return BatchResult(
             energies=energies,
+            energy_kind=next(
+                (prop for prop in request if prop in ("energy", "free_energy")),
+                None,
+            ) if energies is not None else None,
             forces=forces_list,
         ).validate_against(atoms_list, request)
 

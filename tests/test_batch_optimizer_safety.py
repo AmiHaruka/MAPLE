@@ -1,8 +1,10 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
+import pytest
 import torch
 from ase import Atoms
 
@@ -11,12 +13,26 @@ from maple.function.dispatcher.optimization.algorithm.blbfgs import BatchLBFGS
 from maple.function.dispatcher.optimization.algorithm.calculate_many_batch import (
     CalculateManyBatchCalc,
 )
+from maple.function.dispatcher.optimization.optimization import Optimization
+from maple.function.utility import Molecules
 
 
 class _Molecules:
     def __init__(self, atoms, calc):
         self.multiatoms = atoms
         self.calc = calc
+
+
+@pytest.mark.parametrize("method", ["lbfgs", "blbfgs"])
+def test_public_multi_structure_optimization_fails_before_batch_import(method):
+    molecules = Molecules([Atoms("H"), Atoms("H")])
+    with patch("builtins.__import__", wraps=__import__) as import_spy:
+        with pytest.raises(NotImplementedError, match="Split the input structures"):
+            Optimization(
+                params={"method": method}, output="unused.out", atoms=molecules
+            ).run()
+    imported = [call.args[0] for call in import_spy.call_args_list]
+    assert not any(name.endswith("blbfgs") for name in imported)
 
 
 class _SyntheticBatchCalculator:
@@ -158,6 +174,7 @@ class _OOMCalculateMany:
                 np.full((len(atoms), 3), atoms.positions[0, 0])
                 for atoms in atoms_list
             ],
+            energy_kind="energy",
         ).validate_against(atoms_list, properties)
 
 

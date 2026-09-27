@@ -18,6 +18,7 @@ from .._batch_eval import (
     _calculator_batch_size,
     _is_cuda_oom,
 )
+from ...units.units import HARTREE_TO_EV as EH2EV
 from ..calculator_base import EV2HARTREE
 from ..electronic_state import requested_electronic_state
 from ._aimnet2_calculator import (
@@ -27,7 +28,7 @@ from ._aimnet2_calculator import (
     pad_dim0,
 )
 
-EH2EV = 27.211386245988
+
 
 def _ptr_from_atoms(atoms_list: List[Atoms], device) -> torch.Tensor:
     ptr = [0]

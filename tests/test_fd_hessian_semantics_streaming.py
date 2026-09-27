@@ -20,6 +20,8 @@ from maple.function.calculator._batch_eval import (
     _copy_with_positions,
 )
 from maple.function.calculator.calculator_base import CalcABC
+from maple.function.calculator import calculator_base
+from maple.function.dispatcher.frequency.frequency import MWFrequency
 
 
 def test_cpu_hessian_contracts_collect_without_optional_fairchem():
@@ -68,6 +70,16 @@ def test_neb_imports_do_not_require_removed_lib2to3_module():
         )
     ]
     assert not removed_imports
+
+
+def test_dead_hessian_helpers_are_removed_while_live_fd_hooks_remain():
+    repo_root = Path(__file__).resolve().parents[1]
+    assert not (repo_root / "maple/function/calculator/_metadata.py").exists()
+    assert not hasattr(calculator_base, "numerical_hessian_from_atoms")
+    assert not hasattr(CalcABC, "supports_analytic_hessian")
+    assert callable(CalcABC.make_fd_context)
+    assert hasattr(CalcABC, "fd_context_mode")
+    assert CalcABC.SUPPORTED_HESSIAN_MODES
 
 
 class _PolynomialCalculator(CalcABC):
@@ -148,6 +160,33 @@ def test_fixed_cartesian_mode_embeds_only_the_active_hessian_block():
     assert raw.shape == (6, 6)
     np.testing.assert_allclose(raw[0, 3], 0.2, atol=3e-13, rtol=0)
     assert sum(map(len, calc.batches)) == 22
+
+
+def test_all_fixed_hessian_replaces_stale_diagnostic_without_model_evaluation():
+    atoms = Atoms("H", positions=[[0.2, -0.3, 0.1]])
+    atoms.set_constraint(FixAtoms(indices=[0]))
+    calc = _PolynomialCalculator(np.eye(3))
+    calc._fd_hessian_last_antisymmetry = {
+        "absolute": 9.0,
+        "relative": 9.0,
+        "action": "raise",
+        "threshold": 1e-4,
+    }
+
+    hessian = FDHessianEvaluator(
+        calc,
+        fd_hessian_antisymmetry_action="warn",
+        fd_hessian_antisymmetry_threshold=2e-4,
+    ).hessian(atoms)
+
+    np.testing.assert_array_equal(hessian, np.zeros((3, 3)))
+    assert calc.calls == 0
+    assert calc.batches == []
+    diagnostic = calc._fd_hessian_last_antisymmetry
+    assert diagnostic["absolute"] == 0.0
+    assert diagnostic["relative"] == 0.0
+    assert diagnostic["action"] == "warn"
+    assert diagnostic["threshold"] == 2e-4
 
 
 def test_invalid_constraint_mode_rejected_before_calculator_invocation():
@@ -424,3 +463,98 @@ def test_fd_delta_sweep_matches_analytic_quartic_error_and_unit_metadata():
     assert diag["absolute_unit"] == "Ha/Angstrom^2"
     assert diag["scale_unit"] == "Ha/Angstrom^2"
     assert diag["scale_floor"] == 1.0
+
+
+def test_request_scoped_fd_diagnostic_policy_does_not_mutate_calculator():
+    atoms = Atoms("H", positions=[[0.25, -0.36, 0.42]])
+    calc = _PolynomialCalculator(np.diag([2.0, 3.0, 4.0]))
+    calc.fd_hessian_antisymmetry_action = "raise"
+    calc.fd_hessian_antisymmetry_threshold = 1e-4
+
+    evaluator = FDHessianEvaluator(
+        calc,
+        fd_hessian_antisymmetry_action="warn",
+        fd_hessian_antisymmetry_threshold=2e-4,
+    )
+    evaluator.hessian(atoms, delta=0.01)
+
+    assert calc.fd_hessian_antisymmetry_action == "raise"
+    assert calc.fd_hessian_antisymmetry_threshold == 1e-4
+    diagnostic = calc._fd_hessian_last_antisymmetry
+    assert diagnostic["action"] == "warn"
+    assert diagnostic["threshold"] == 2e-4
+
+
+def test_request_scoped_fd_policy_is_not_visible_during_model_calls_or_after_failure():
+    class _PolicySpy(_PolynomialCalculator):
+        def calculate(self, atoms=None, properties=None, system_changes=None):
+            assert self.fd_hessian_antisymmetry_action == "raise"
+            assert self.fd_hessian_antisymmetry_threshold == 1e-4
+            return super().calculate(atoms, properties, system_changes)
+
+    atoms = Atoms("H", positions=[[0.25, -0.36, 0.42]])
+    calc = _PolicySpy(np.eye(3), fail_at=2)
+    calc.fd_hessian_antisymmetry_action = "raise"
+    calc.fd_hessian_antisymmetry_threshold = 1e-4
+    with pytest.raises(RuntimeError, match="synthetic force failure"):
+        calc.get_hessian(
+            atoms,
+            fd_hessian_antisymmetry_action="warn",
+            fd_hessian_antisymmetry_threshold=2e-4,
+        )
+    assert calc.fd_hessian_antisymmetry_action == "raise"
+    assert calc.fd_hessian_antisymmetry_threshold == 1e-4
+
+
+def test_frequency_explicitly_requests_warn_without_mutating_shared_policy(tmp_path):
+    class _HessianSpy:
+        fd_hessian_antisymmetry_action = "raise"
+        fd_hessian_antisymmetry_threshold = 1e-4
+
+        def __init__(self):
+            self.kwargs = None
+            self._fd_hessian_last_antisymmetry = {
+                "action": "warn",
+                "threshold": 1e-4,
+            }
+
+        def get_hessian(self, atoms, **kwargs):
+            assert self.fd_hessian_antisymmetry_action == "raise"
+            self.kwargs = kwargs
+            return np.eye(3 * len(atoms))
+
+    atoms = Atoms("H", positions=[[0.0, 0.0, 0.0]])
+    calc = _HessianSpy()
+    atoms.calc = calc
+    frequency = MWFrequency(
+        str(tmp_path / "freq.out"),
+        atoms,
+        fd_batch_size=3,
+        fd_hessian_antisymmetry_action="warn",
+        fd_hessian_antisymmetry_threshold=2e-4,
+    )
+    np.testing.assert_array_equal(frequency.get_hessian(), np.eye(3))
+    assert calc.kwargs == {
+        "fd_batch_size": 3,
+        "fd_hessian_antisymmetry_action": "warn",
+        "fd_hessian_antisymmetry_threshold": 2e-4,
+    }
+    assert calc.fd_hessian_antisymmetry_action == "raise"
+    assert frequency.fd_hessian_diagnostic["action"] == "warn"
+
+
+def test_frequency_default_keeps_legacy_get_hessian_signature(tmp_path):
+    class _LegacyHessian:
+        def __init__(self):
+            self.called = False
+
+        def get_hessian(self, atoms):
+            self.called = True
+            return np.eye(3 * len(atoms))
+
+    atoms = Atoms("H", positions=[[0.0, 0.0, 0.0]])
+    calc = _LegacyHessian()
+    atoms.calc = calc
+    frequency = MWFrequency(str(tmp_path / "legacy-freq.out"), atoms)
+    np.testing.assert_array_equal(frequency.get_hessian(), np.eye(3))
+    assert calc.called

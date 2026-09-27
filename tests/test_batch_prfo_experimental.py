@@ -15,7 +15,7 @@ import torch
 from ase import Atoms
 from ase.constraints import FixAtoms
 
-from maple.function.dispatcher.ts.algorithm.BPRFO import (
+from maple.function.dispatcher.ts.experimental.bprfo import (
     BIG, BatchPRFO, prfo_step_batched,
 )
 from maple.function.dispatcher.ts.algorithm.PRFO import (
@@ -563,9 +563,9 @@ class BatchPRFOExperimentalTests(unittest.TestCase):
             SimpleNamespace(multiatoms=[atoms], calc=adapter)
         )
 
-        self.assertIs(result.status, PRFOStatus.FAILED_MAXITER)
+        self.assertIs(result.status, PRFOStatus.FAILED_NEAR_ZERO_CURVATURE)
         self.assertEqual(result.negative_modes, 1)
-        self.assertIn("unresolved physical curvature", result.detail)
+        self.assertIn("near-zero physical curvature", result.detail)
 
     def test_ragged_soft_member_does_not_inherit_stationary_peers_candidate(self):
         class RaggedSoftAdapter(_RaggedShrinkingAdapter):
@@ -677,7 +677,7 @@ class BatchPRFOExperimentalTests(unittest.TestCase):
         (result,) = self._optimizer(
             max_outer_iter=0, rigid_symmetry="free_molecule"
         )._run_experimental(SimpleNamespace(multiatoms=[atoms], calc=adapter))
-        self.assertIs(result.status, PRFOStatus.FAILED_WRONG_INERTIA)
+        self.assertIs(result.status, PRFOStatus.FAILED_NEAR_ZERO_CURVATURE)
         self.assertEqual(result.negative_modes, 0)
 
     def test_mixed_analytic_internal_members_keep_independent_inertia_and_order(self):
@@ -764,7 +764,7 @@ class BatchPRFOExperimentalTests(unittest.TestCase):
 
         adapter.step_cart_ = record_step
         with patch(
-            "maple.function.dispatcher.ts.algorithm.BPRFO.prfo_step_batched",
+            "maple.function.dispatcher.ts.experimental.bprfo.prfo_step_batched",
             wraps=prfo_step_batched,
         ) as kernel:
             optimizer._inner_rs_prfo_loop(
@@ -932,7 +932,7 @@ class BatchPRFOExperimentalTests(unittest.TestCase):
         adapter = _ScaledQuadraticAdapter(scale=1.0)
         atoms = self._one_atom()
         with patch(
-            "maple.function.dispatcher.ts.algorithm.BPRFO.prfo_step_batched",
+            "maple.function.dispatcher.ts.experimental.bprfo.prfo_step_batched",
             return_value=(
                 torch.zeros((1, 3), dtype=torch.float64),
                 torch.zeros(1, dtype=torch.bool),
@@ -1061,6 +1061,70 @@ class BatchPRFOExperimentalTests(unittest.TestCase):
         self.assertEqual(optimizer.eta_reject, 0.0)
         self.assertEqual(optimizer.eta_shrink, 0.5)
         self.assertEqual(optimizer.eta_expand, 0.75)
+        self.assertEqual(optimizer.recalc, 1)
+
+    def test_per_member_exact_hessian_schedule_is_independent(self):
+        optimizer = self._optimizer(recalc=2)
+        iterations = torch.tensor([1, 2, 3], dtype=torch.long)
+        force_done = torch.tensor([False, False, True])
+        exhausted = torch.tensor([False, False, False])
+
+        mixed = optimizer._exact_hessian_due(
+            iterations, force_done, exhausted, has_working_hessian=True
+        )
+        standalone = torch.cat([
+            optimizer._exact_hessian_due(
+                iterations[index:index + 1],
+                force_done[index:index + 1],
+                exhausted[index:index + 1],
+                has_working_hessian=True,
+            )
+            for index in range(3)
+        ])
+
+        self.assertEqual(mixed.tolist(), [False, True, True])
+        torch.testing.assert_close(mixed, standalone)
+
+        working = torch.diag_embed(torch.tensor(
+            [[11.0, 12.0], [21.0, 22.0], [31.0, 32.0]], dtype=torch.float64
+        ))
+        exact = torch.diag_embed(torch.tensor(
+            [[101.0, 102.0], [201.0, 202.0], [301.0, 302.0]], dtype=torch.float64
+        ))
+        merged = optimizer._replace_due_hessian_rows(working, exact, mixed)
+        torch.testing.assert_close(merged[0], working[0])
+        torch.testing.assert_close(merged[1:], exact[1:])
+
+    def test_cancelling_model_quality_requires_energy_and_gradient_parity(self):
+        actual = torch.tensor([0.0, 2.0e-2, 0.0], dtype=torch.float64)
+        target = torch.tensor([5.0e-3, 5.0e-3, 0.0], dtype=torch.float64)
+        complement = torch.tensor([-5.0e-3, -5.0e-3, 0.0], dtype=torch.float64)
+        gradient = torch.tensor(
+            [[1.0, 0.0], [1.0, 0.0], [1.0, 0.0]], dtype=torch.float64
+        )
+        hessian_step = torch.tensor(
+            [[-0.75, 0.0], [-0.75, 0.0], [-0.75, 0.0]], dtype=torch.float64
+        )
+        trial_gradient = torch.tensor(
+            [[0.25, 0.0], [0.25, 0.0], [0.25, 0.0]], dtype=torch.float64
+        )
+
+        rho, quality = BatchPRFO._model_quality_batched(
+            actual, target, complement, gradient, hessian_step, trial_gradient
+        )
+
+        self.assertTrue(torch.isnan(rho).all())
+        self.assertAlmostEqual(float(quality[0]), 1.0)
+        self.assertAlmostEqual(float(quality[1]), -1.0)
+        self.assertEqual(float(quality[2]), float("-inf"))
+
+        inconsistent_gradient = trial_gradient.clone()
+        inconsistent_gradient[0] = gradient[0]
+        _, bad_quality = BatchPRFO._model_quality_batched(
+            actual, target, complement, gradient, hessian_step,
+            inconsistent_gradient,
+        )
+        self.assertEqual(float(bad_quality[0]), float("-inf"))
 
     def test_accepted_trial_commits_once_without_duplicate_energy_evaluation(self):
         optimizer = self._optimizer(
@@ -1565,12 +1629,37 @@ class BatchPRFOExperimentalTests(unittest.TestCase):
             ["first_batch0001_prfo_traj.xyz", "first_batch0002_prfo_traj.xyz"],
         )
 
+    def test_previous_member_artifacts_are_archived_before_validation(self):
+        output = Path(self.tmpdir.name) / "repeat.out"
+        candidate = output.with_name("repeat_batch0001_prfo_ts_candidate.xyz")
+        trajectory = output.with_name("repeat_batch0001_prfo_traj.xyz")
+        candidate.write_text("old candidate", encoding="utf-8")
+        trajectory.write_text("old trajectory", encoding="utf-8")
+        adapter = _ForbiddenPrepareAdapter()
+
+        (result,) = BatchPRFO(output=str(output), device="cpu")._run_experimental(
+            SimpleNamespace(multiatoms=[Atoms()], calc=adapter)
+        )
+
+        self.assertIs(result.status, PRFOStatus.FAILED_HESSIAN)
+        self.assertFalse(candidate.exists())
+        self.assertFalse(trajectory.exists())
+        archived = list(
+            output.with_name("repeat_batch_prfo_history").glob("run-*/*")
+        )
+        self.assertEqual(
+            {path.read_text(encoding="utf-8") for path in archived},
+            {"old candidate", "old trajectory"},
+        )
+        self.assertEqual(adapter.prepare_calls, 0)
+
     def test_every_terminal_status_uses_exact_scalar_compatible_suffix(self):
         suffixes = {
             PRFOStatus.GEOMETRY_CONVERGED: "_prfo_ts_candidate",
             PRFOStatus.FAILED_NONFINITE: "_prfo_nonfinite",
             PRFOStatus.FAILED_BACKEND: "_prfo_backend_failure",
             PRFOStatus.FAILED_HESSIAN: "_prfo_hessian_failure",
+            PRFOStatus.FAILED_NEAR_ZERO_CURVATURE: "_prfo_near_zero_curvature",
             PRFOStatus.FAILED_WRONG_INERTIA: "_prfo_wrong_inertia",
             PRFOStatus.FAILED_STAGNATION: "_prfo_stagnation",
             PRFOStatus.FAILED_STEP_SOLVER: "_prfo_step_failure",
@@ -1841,7 +1930,7 @@ class BatchPRFOExperimentalTests(unittest.TestCase):
 class BatchPRFOBatchMathTests(unittest.TestCase):
     @staticmethod
     def _kernel():
-        from maple.function.dispatcher.ts.algorithm._prfo_batch_math import (
+        from maple.function.dispatcher.ts.experimental.prfo_batch_math import (
             prfo_step_batched,
         )
 
@@ -1860,6 +1949,195 @@ class BatchPRFOBatchMathTests(unittest.TestCase):
             max_bisect_it=max_bisect_it,
             pre_eig=(w, V, gp),
         )
+
+    def test_torch_extremal_roots_match_dense_repeated_and_decoupled_oracles(self):
+        from maple.function.dispatcher.ts.experimental.prfo_batch_math import (
+            _extremal_arrowhead_root_batched,
+        )
+
+        diagonal = torch.tensor([
+            [1.0, 1.0, 3.0],
+            [-2.0, 0.5, 4.0],
+            [0.0, 0.0, 0.0],
+        ], dtype=torch.float64)
+        coupling = torch.tensor([
+            [0.2, -0.3, 0.0],
+            [0.0, 0.4, -0.1],
+            [0.0, 0.0, 0.0],
+        ], dtype=torch.float64)
+        for maximum in (False, True):
+            roots, success = _extremal_arrowhead_root_batched(
+                diagonal, coupling, maximum=maximum
+            )
+            dense = torch.zeros((3, 4, 4), dtype=torch.float64)
+            dense[:, 0, 1:] = coupling
+            dense[:, 1:, 0] = coupling
+            dense[:, 1:, 1:] = torch.diag_embed(diagonal)
+            oracle = torch.linalg.eigvalsh(dense)[:, -1 if maximum else 0]
+            self.assertEqual(success.tolist(), [True, True, True])
+            torch.testing.assert_close(roots, oracle, rtol=1e-10, atol=1e-12)
+
+    def test_torch_extremal_root_kernel_never_calls_dense_eigensolver(self):
+        from maple.function.dispatcher.ts.experimental.prfo_batch_math import (
+            _extremal_arrowhead_root_batched,
+        )
+
+        diagonal = torch.tensor([[0.5, 1.5, 2.5]], dtype=torch.float64)
+        coupling = torch.tensor([[0.1, -0.2, 0.3]], dtype=torch.float64)
+        with patch("torch.linalg.eigvalsh", side_effect=AssertionError("dense")):
+            roots, success = _extremal_arrowhead_root_batched(
+                diagonal, coupling, maximum=False
+            )
+        self.assertEqual(success.tolist(), [True])
+        self.assertTrue(torch.isfinite(roots).all())
+
+    def test_extremal_root_ignores_decoupled_huge_pole_when_scaling_active_block(self):
+        from maple.function.dispatcher.ts.experimental.prfo_batch_math import (
+            _extremal_arrowhead_root_batched,
+        )
+
+        diagonal = torch.tensor([[0.0, 1.0e308]], dtype=torch.float64)
+        coupling = torch.tensor([[1.0, 0.0]], dtype=torch.float64)
+        root, success = _extremal_arrowhead_root_batched(
+            diagonal, coupling, maximum=False
+        )
+
+        self.assertEqual(success.tolist(), [True])
+        torch.testing.assert_close(
+            root, torch.tensor([-1.0], dtype=torch.float64), rtol=0.0, atol=1e-14
+        )
+
+    def test_extremal_root_preserves_tiny_active_block_beside_huge_inactive_pole(self):
+        from maple.function.dispatcher.ts.experimental.prfo_batch_math import (
+            _extremal_arrowhead_root_batched,
+        )
+
+        diagonal = torch.tensor([[0.0, 1.0e308]], dtype=torch.float64)
+        coupling = torch.tensor([[1.0e-100, 0.0]], dtype=torch.float64)
+        root, success = _extremal_arrowhead_root_batched(
+            diagonal, coupling, maximum=False
+        )
+
+        self.assertEqual(success.tolist(), [True])
+        torch.testing.assert_close(
+            root, torch.tensor([-1.0e-100], dtype=torch.float64),
+            rtol=1e-14, atol=0.0,
+        )
+
+    def test_extremal_root_fails_if_active_coupling_is_lost_to_scaling(self):
+        from maple.function.dispatcher.ts.experimental.prfo_batch_math import (
+            _extremal_arrowhead_root_batched,
+        )
+
+        diagonal = torch.tensor([[1.0e308]], dtype=torch.float64)
+        coupling = torch.tensor([[1.0e-100]], dtype=torch.float64)
+        _, success = _extremal_arrowhead_root_batched(
+            diagonal, coupling, maximum=False
+        )
+
+        self.assertEqual(success.tolist(), [False])
+
+        _, underflowed_effect = _extremal_arrowhead_root_batched(
+            torch.tensor([[1.0e308]], dtype=torch.float64),
+            torch.tensor([[1.0]], dtype=torch.float64),
+            maximum=False,
+        )
+        self.assertEqual(underflowed_effect.tolist(), [False])
+
+    def test_width_one_tiny_coupling_uses_stable_analytic_root(self):
+        from maple.function.dispatcher.ts.experimental.prfo_batch_math import (
+            _extremal_arrowhead_root_batched,
+        )
+
+        diagonal = torch.tensor([[1.0], [1.0]], dtype=torch.float64)
+        coupling = torch.tensor([[1.0e-30], [1.0e-100]], dtype=torch.float64)
+        roots, success = _extremal_arrowhead_root_batched(
+            diagonal, coupling, maximum=False
+        )
+
+        self.assertEqual(success.tolist(), [True, True])
+        torch.testing.assert_close(
+            roots,
+            torch.tensor([-1.0e-60, -1.0e-200], dtype=torch.float64),
+            rtol=1e-14,
+            atol=0.0,
+        )
+
+    def test_multi_active_tiny_root_is_accurate_or_explicitly_unresolved(self):
+        from maple.function.dispatcher.ts.experimental.prfo_batch_math import (
+            _extremal_arrowhead_root_batched,
+        )
+
+        roots, success = _extremal_arrowhead_root_batched(
+            torch.tensor([[1.0, 2.0]], dtype=torch.float64),
+            torch.tensor([[1.0e-30, 1.0e-30]], dtype=torch.float64),
+            maximum=False,
+        )
+
+        if bool(success[0]):
+            self.assertAlmostEqual(float(roots[0] / -1.5e-60), 1.0, places=10)
+        else:
+            self.assertEqual(success.tolist(), [False])
+
+    def test_multi_active_huge_positive_block_cannot_round_to_false_zero_root(self):
+        from maple.function.dispatcher.ts.experimental.prfo_batch_math import (
+            _extremal_arrowhead_root_batched,
+        )
+
+        root, success = _extremal_arrowhead_root_batched(
+            torch.tensor([[1.0e308, 1.0e308]], dtype=torch.float64),
+            torch.tensor([[1.0, 1.0]], dtype=torch.float64),
+            maximum=False,
+        )
+
+        self.assertEqual(success.tolist(), [False])
+        self.assertTrue(torch.isfinite(root).all())
+
+    def test_negative_complement_requires_positive_minimization_gap(self):
+        kernel = self._kernel()
+        steps, success = kernel(
+            torch.tensor(
+                [[-20.0, -5.172519156024633, 81.35946416804362]],
+                dtype=torch.float64,
+            ),
+            torch.eye(3, dtype=torch.float64).unsqueeze(0),
+            torch.tensor([[0.0, 1.0e-30, 1.0e-30]], dtype=torch.float64),
+            torch.tensor([0], dtype=torch.long),
+            torch.tensor([0.2], dtype=torch.float64),
+        )
+
+        self.assertEqual(success.tolist(), [False])
+        torch.testing.assert_close(steps, torch.zeros_like(steps))
+
+    def test_positive_target_near_pole_keeps_uphill_trust_boundary_sign(self):
+        kernel = self._kernel()
+        steps, success = kernel(
+            torch.tensor([[1.0]], dtype=torch.float64),
+            torch.ones((1, 1, 1), dtype=torch.float64),
+            torch.tensor([[1.0e-12]], dtype=torch.float64),
+            torch.tensor([0], dtype=torch.long),
+            torch.tensor([1.0e-2], dtype=torch.float64),
+        )
+
+        self.assertEqual(success.tolist(), [True])
+        torch.testing.assert_close(
+            steps, torch.tensor([[1.0e-2]], dtype=torch.float64),
+            rtol=0.0, atol=1e-10,
+        )
+
+    def test_alpha_overflow_fails_row_instead_of_returning_wrong_step(self):
+        kernel = self._kernel()
+        steps, success = kernel(
+            torch.tensor([[1.0]], dtype=torch.float64),
+            torch.ones((1, 1, 1), dtype=torch.float64),
+            torch.tensor([[1.0]], dtype=torch.float64),
+            torch.tensor([0], dtype=torch.long),
+            torch.tensor([1.0e-300], dtype=torch.float64),
+            max_bisect_it=1100,
+        )
+
+        self.assertEqual(success.tolist(), [False])
+        torch.testing.assert_close(steps, torch.zeros_like(steps))
 
     def test_positive_curvature_target_matches_scalar_uphill_step(self):
         kernel = self._kernel()
