@@ -167,6 +167,18 @@ def _to_capped_model_indices(params, representative_model: dict):
     """Residue-local numbering (1-based over the NCAA residue's own atoms,
     ACE/NME not counted) -> capped-model serials, for both user-facing keys."""
     ace_count = int(representative_model["segment_sizes"]["ace"])
+    residue_count = int(representative_model["segment_sizes"]["residue"])
+    user_numbers = [
+        ("torsion_bonds", number)
+        for pair in (params.torsion_bonds or ())
+        for number in pair
+    ] + [("radical_center", center) for center in (params.radical_center or ())]
+    for key, number in user_numbers:
+        if not 1 <= number <= residue_count:
+            raise ValueError(
+                f"{key} entry {number} is outside the NCAA residue "
+                f"(valid range 1..{residue_count}; residue-local numbering, ACE/NME caps excluded)."
+            )
     torsion_bonds = (
         None if params.torsion_bonds is None
         else tuple((left + ace_count, right + ace_count) for left, right in params.torsion_bonds)

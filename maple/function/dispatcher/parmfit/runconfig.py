@@ -12,6 +12,8 @@ from __future__ import annotations
 import os
 from typing import Any, Callable, Optional
 
+from maple.function.read.filereader.parmfit_reader import ParmfitReader
+
 
 # Keys owned by the read layer / dispatcher, never by a route config builder:
 # structure/dispatch keys plus the global task keys the reader already rejects in files.
@@ -63,11 +65,6 @@ class TrackedParams(dict):
 
 def as_tracked(raw: Optional[dict]) -> TrackedParams:
     return raw if isinstance(raw, TrackedParams) else TrackedParams(raw)
-
-
-# Rendered path-valued keys; written relative to the parmfitrun.in directory so
-# the snapshot stays usable via input= when moved across machines.
-PATH_KEYS = frozenset({"mol2"})
 
 
 def _render_path(value: str, run_dir: str) -> str:
@@ -195,7 +192,9 @@ def write_parmfit_run(
         if key_note:
             # mdout.mdp style: the explaining comment sits above the value line.
             lines.append(f"# {key_note}")
-        if key in PATH_KEYS and isinstance(value, str):
+        # Path-valued keys share the reader's PATH_KEYS so the relativized
+        # rendering can never drift from what the reader resolves.
+        if key in ParmfitReader.PATH_KEYS and isinstance(value, str):
             value = _render_path(value, run_dir)
         lines.append(f"{key:<24} = {_render_value(value)}")
 

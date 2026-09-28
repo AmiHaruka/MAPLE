@@ -252,7 +252,10 @@ def run_correction_workflow(
         )
     if improper_lines:
         log_info(stage_lines("\n[Correction] TorsionFit improper target selection ..."))
-        log_info([f"improper refit targets: {len(improper_targets)}\n"] + improper_lines)
+        selection_lines = [f"improper refit targets: {len(improper_targets)}\n"]
+        if not torsion_enabled:
+            selection_lines.append("  -> skipped because torsionfit=False (parmchk2 estimates kept)\n")
+        log_info(selection_lines + improper_lines)
 
     mlip_torsion = None
     mlip_final_parmset = None
@@ -321,9 +324,6 @@ def run_correction_workflow(
                 final_paramset=mlip_stage0_parmset or deepcopy(init_parmset),
             )
             mlip_final_parmset = mlip_torsion.final_paramset
-
-    if improper_targets and not torsion_enabled:
-        log_info(stage_lines("[TorsionFit] improper refit targets detected -> skipped because torsionfit=False."))
 
     if has_parameter_changes(
         route_baseline_parmset,
