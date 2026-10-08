@@ -1,4 +1,4 @@
-"""Usage: run the correction parameter refinement workflow."""
+"""Usage: run the parmfit refinement workflow."""
 
 from __future__ import annotations
 
@@ -14,14 +14,14 @@ from ..mSeminario import apply_mseminario
 from ..chgfit import apply_atomic_charges, fit_molecule_charges
 from ..QMInterface import build_qm_reference_runner
 from ..mlip_tools import release_charge_calculator_cache
-from ..readparm import CorrectionParameterSet, Improper
+from ..readparm import RefinementParameterSet, Improper
 from ..runtime import get_cartesian_hessian, parmfit_work_prefix, run_silent_lbfgs
 from ..Scan.optimizer import LBFGS
 from ..TorsionFit import TorsionScanRuntime, TorsionWorkflowResult, run_torsion_workflow
-from .artifacts import CorrectionWorkflowResult, export_amber, export_gromacs
-from .config import CorrectionConfig
+from .artifacts import RefinementWorkflowResult, export_amber, export_gromacs
+from .config import RefinementConfig
 from .parameters import build_init_parmset
-from .report import correction_result_lines, has_parameter_changes, parameter_change_lines, stage_lines, summary_lines
+from .report import refinement_result_lines, has_parameter_changes, parameter_change_lines, stage_lines, summary_lines
 
 
 @contextmanager
@@ -33,7 +33,7 @@ def _timed_stage(name: str, timings: list[tuple[str, float]]):
         timings.append((name, perf_counter() - start))
 
 
-def run_geometry_optimization(atoms: Atoms, output: str, config: CorrectionConfig) -> LBFGS:
+def run_geometry_optimization(atoms: Atoms, output: str, config: RefinementConfig) -> LBFGS:
     return run_silent_lbfgs(atoms, output=output, params=config.lbfgs)
 
 
@@ -43,12 +43,12 @@ def _bonded_refinement_label(method: str) -> str:
 
 def run_bonded_refinement(
     atoms: Atoms,
-    parmset: CorrectionParameterSet,
-    config: CorrectionConfig,
+    parmset: RefinementParameterSet,
+    config: RefinementConfig,
     *,
     output: str,
     qm_runner=None,
-) -> CorrectionParameterSet:
+) -> RefinementParameterSet:
     stage0_parmset = deepcopy(parmset)
     if qm_runner is not None:
         freq = qm_runner.opt_frequency(atoms, f"{parmfit_work_prefix(output, 'qm')}_ref")
@@ -69,7 +69,7 @@ def run_bonded_refinement(
     return stage0_parmset
 
 
-def build_torsion_runtime(config: CorrectionConfig) -> TorsionScanRuntime:
+def build_torsion_runtime(config: RefinementConfig) -> TorsionScanRuntime:
     return TorsionScanRuntime(
         max_iter=int(config.scan_opt.max_iter),
         memory=int(config.scan_opt.memory),
@@ -80,20 +80,20 @@ def build_torsion_runtime(config: CorrectionConfig) -> TorsionScanRuntime:
     )
 
 
-def _needs_refine(config: CorrectionConfig) -> bool:
+def _needs_refine(config: RefinementConfig) -> bool:
     return config.bonded != "none" or bool(config.torsion.enabled)
 
 
-def run_correction_workflow(
+def run_refinement_workflow(
     *,
     output: str,
     atoms: Atoms,
-    config: CorrectionConfig,
+    config: RefinementConfig,
     log_info: Callable[[list[str]], None],
     torsion_workflow_fn=run_torsion_workflow,
-) -> CorrectionWorkflowResult:
+) -> RefinementWorkflowResult:
     stage_timings: list[tuple[str, float]] = []
-    log_info(stage_lines("\n[Correction] initial parameter assignment ..."))
+    log_info(stage_lines("\n[Refinement] initial parameter assignment ..."))
     with _timed_stage("initial parameter assignment", stage_timings):
         init_parmset, init_frcmod_path = build_init_parmset(output, atoms, config)
     log_info(summary_lines(config, init_parmset, init_frcmod_path))
@@ -106,7 +106,7 @@ def run_correction_workflow(
     mlip_atoms = None
 
     if refine_enabled:
-        log_info(stage_lines("\n[Correction] MLIP geometry optimization ..."))
+        log_info(stage_lines("\n[Refinement] MLIP geometry optimization ..."))
         with _timed_stage("geometry optimization", stage_timings):
             optimizer = run_geometry_optimization(atoms, output, config)
         if not optimizer.converged:
@@ -114,7 +114,7 @@ def run_correction_workflow(
         mlip_atoms = atoms.copy()
         mlip_atoms.calc = atoms.calc
         if qm_runner is not None and config.bonded == "none" and torsion_enabled:
-            log_info(stage_lines("[Correction] QM reference optimization ..."))
+            log_info(stage_lines("[Refinement] QM reference optimization ..."))
             with _timed_stage("QM reference optimization", stage_timings):
                 qm_opt = qm_runner.optimize(atoms, f"{parmfit_work_prefix(output, 'qm')}_ref")
             atoms.set_positions(qm_opt.atoms.get_positions())
@@ -124,11 +124,11 @@ def run_correction_workflow(
         stage0_parmset = deepcopy(init_parmset)
         if qm_compare_enabled:
             mlip_stage0_parmset = deepcopy(init_parmset)
-        log_info(stage_lines("[Correction] bond/angle refinement skipped ..."))
+        log_info(stage_lines("[Refinement] bond/angle refinement skipped ..."))
     else:
         bonded_label = _bonded_refinement_label(config.bonded)
         if qm_compare_enabled:
-            log_info(stage_lines(f"[Correction] MLIP Hessian + {bonded_label} (comparison) ..."))
+            log_info(stage_lines(f"[Refinement] MLIP Hessian + {bonded_label} (comparison) ..."))
             with _timed_stage(f"MLIP Hessian + {bonded_label}", stage_timings):
                 mlip_ref_atoms = (mlip_atoms or atoms).copy()
                 mlip_ref_atoms.calc = (mlip_atoms or atoms).calc
@@ -148,10 +148,10 @@ def run_correction_workflow(
                 )
             )
         if qm_runner is not None:
-            log_info(stage_lines("[Correction] QM reference optimization ..."))
-            log_info(stage_lines(f"[Correction] QM Hessian + {bonded_label} ..."))
+            log_info(stage_lines("[Refinement] QM reference optimization ..."))
+            log_info(stage_lines(f"[Refinement] QM Hessian + {bonded_label} ..."))
         else:
-            log_info(stage_lines(f"[Correction] MLIP Hessian + {bonded_label} ..."))
+            log_info(stage_lines(f"[Refinement] MLIP Hessian + {bonded_label} ..."))
         with _timed_stage(f"Hessian + {bonded_label}", stage_timings):
             stage0_parmset = run_bonded_refinement(
                 atoms,
@@ -173,7 +173,7 @@ def run_correction_workflow(
     charge_fit_configured = config.charge_fit.method != "none"
     try:
         if charge_fit_configured:
-            log_info(stage_lines("\n[Correction] atomic charge fitting ..."))
+            log_info(stage_lines("\n[Refinement] atomic charge fitting ..."))
         with _timed_stage("charge fitting", stage_timings):
             charge_result = fit_molecule_charges(
                 output=output,
@@ -199,7 +199,7 @@ def run_correction_workflow(
         if qm_compare_enabled:
             mlip_charge_atoms = mlip_atoms or atoms
             if charge_fit_configured:
-                log_info(stage_lines("[Correction] atomic charge fitting (MLIP comparison) ..."))
+                log_info(stage_lines("[Refinement] atomic charge fitting (MLIP comparison) ..."))
             with _timed_stage("charge fitting (MLIP comparison)", stage_timings):
                 mlip_charge_result = fit_molecule_charges(
                     output=output,
@@ -251,7 +251,7 @@ def run_correction_workflow(
             "  open-shell system detected; radical_center is not set, radical-specific improper refinement is not enabled."
         )
     if improper_lines:
-        log_info(stage_lines("\n[Correction] TorsionFit improper target selection ..."))
+        log_info(stage_lines("\n[Refinement] TorsionFit improper target selection ..."))
         selection_lines = [f"improper refit targets: {len(improper_targets)}\n"]
         if not torsion_enabled:
             selection_lines.append("  -> skipped because torsionfit=False (parmchk2 estimates kept)\n")
@@ -261,7 +261,7 @@ def run_correction_workflow(
     mlip_final_parmset = None
     if torsion_enabled:
         if qm_compare_enabled:
-            log_info(stage_lines("\n[Correction] TorsionFit (MLIP comparison) ..."))
+            log_info(stage_lines("\n[Refinement] TorsionFit (MLIP comparison) ..."))
             with _timed_stage("TorsionFit (MLIP comparison)", stage_timings):
                 mlip_torsion_atoms = (mlip_atoms or atoms).copy()
                 mlip_torsion_atoms.calc = (mlip_atoms or atoms).calc
@@ -283,10 +283,10 @@ def run_correction_workflow(
                     sections=("dihedrals",),
                 )
             )
-        log_info(stage_lines("\n[Correction] TorsionFit ..."))
+        log_info(stage_lines("\n[Refinement] TorsionFit ..."))
         if qm_runner is not None:
             qm_mode = int(getattr(config.qm, "qm_mode", 1))
-            log_info(stage_lines(f"[Correction] Using QM reference data for TorsionFit (mode={qm_mode}) ..."))
+            log_info(stage_lines(f"[Refinement] Using QM reference data for TorsionFit (mode={qm_mode}) ..."))
         with _timed_stage("TorsionFit", stage_timings):
             torsion_kwargs = {
                 "atoms": atoms,
@@ -339,11 +339,11 @@ def run_correction_workflow(
             )
         )
 
-    log_info(stage_lines("\n[Correction] export GROMACS ..."))
+    log_info(stage_lines("\n[Refinement] export GROMACS ..."))
     with _timed_stage("export GROMACS", stage_timings):
         gromacs = export_gromacs(output, atoms, final_parmset)
 
-    log_info(stage_lines("[Correction] export Amber ..."))
+    log_info(stage_lines("[Refinement] export Amber ..."))
     export_config = deepcopy(config)
     export_config.mol2 = charge_result.work_mol2
     with _timed_stage("export Amber", stage_timings):
@@ -359,7 +359,7 @@ def run_correction_workflow(
     mlip_gromacs = None
     mlip_amber = None
     if qm_compare_enabled and mlip_final_parmset is not None:
-        log_info(stage_lines("[Correction] export GROMACS (MLIP comparison) ..."))
+        log_info(stage_lines("[Refinement] export GROMACS (MLIP comparison) ..."))
         with _timed_stage("export GROMACS (MLIP comparison)", stage_timings):
             mlip_gromacs = export_gromacs(
                 output,
@@ -367,7 +367,7 @@ def run_correction_workflow(
                 mlip_final_parmset,
                 output_suffix="_mlip",
             )
-        log_info(stage_lines("[Correction] export Amber (MLIP comparison) ..."))
+        log_info(stage_lines("[Refinement] export Amber (MLIP comparison) ..."))
         mlip_export_config = deepcopy(config)
         if mlip_charge_result is not None:
             mlip_export_config.mol2 = mlip_charge_result.work_mol2
@@ -382,7 +382,7 @@ def run_correction_workflow(
                 output_suffix="_mlip",
             )
 
-    result = CorrectionWorkflowResult(
+    result = RefinementWorkflowResult(
         init_parmset=init_parmset,
         stage0_parmset=stage0_parmset,
         final_parmset=final_parmset,
@@ -401,5 +401,5 @@ def run_correction_workflow(
         mlip_charge_result=mlip_charge_result,
         mlip_charge_timing=mlip_charge_timing,
     )
-    log_info(correction_result_lines(config, result))
+    log_info(refinement_result_lines(config, result))
     return result

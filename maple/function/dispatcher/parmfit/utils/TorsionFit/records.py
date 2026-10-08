@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 
-from ..readparm import CorrectionParameterSet, Dihedral, FourierTerm
+from ..readparm import RefinementParameterSet, Dihedral, FourierTerm
 
 
 @dataclass(frozen=True)
@@ -136,7 +136,7 @@ class TorsionObjectiveTarget:
 
 @dataclass(frozen=True)
 class TorsionGlobalProblem:
-    stage0_paramset: CorrectionParameterSet
+    stage0_paramset: RefinementParameterSet
     torsion_bonds: tuple[tuple[int, int], ...]
     scan_map: dict[tuple[int, int], TorsionScanData]
     term_paths: tuple[tuple[int, int], ...]
@@ -151,7 +151,7 @@ class TorsionGlobalProblem:
     centered_sin_basis_map: dict[tuple[int, int], np.ndarray] = field(default_factory=dict)
     constant_rel_map: dict[tuple[int, int], np.ndarray] = field(default_factory=dict)
     grouped: bool = False
-    reference_paramset: CorrectionParameterSet | None = None
+    reference_paramset: RefinementParameterSet | None = None
     prior_weights: np.ndarray | None = None
     shared_groups_map: dict[tuple[int, int], tuple[TorsionSharedGroupSpec, ...]] = field(default_factory=dict)
     prior_weight: float = 1.0
@@ -329,8 +329,8 @@ class TorsionRefineCycle:
 
 @dataclass
 class TorsionWorkflowResult:
-    stage1_paramset: CorrectionParameterSet | None
-    final_paramset: CorrectionParameterSet
+    stage1_paramset: RefinementParameterSet | None
+    final_paramset: RefinementParameterSet
     refine_cycles: list[TorsionRefineCycle] = field(default_factory=list)
     scan_xyz: dict[tuple[int, int], str] = field(default_factory=dict)
     torsion_bonds: list[tuple[int, int]] = field(default_factory=list)

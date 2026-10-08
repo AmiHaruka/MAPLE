@@ -22,14 +22,14 @@ class Parmfit(JobABC):
         self.atoms = atoms
         self.output = output
         self.params = params if params is not None else {}
-        self.method = (method or self.params.get("method") or ("" if self.params.get("input") else "correction")).lower()
+        self.method = (method or self.params.get("method") or ("" if self.params.get("input") else "refinement")).lower()
         self.extra = extra if extra is not None else {}
 
     def run(self):
         with timer("Parmfit optimization"):
             self._load_external_config()
             if not self.method:
-                raise ValueError("parmfit requires method=corr|ncaa|metalaa in #parmfit(...) when input=<config> is used.")
+                raise ValueError("parmfit requires method=refinement|ncaa|metalaa in #parmfit(...) when input=<config> is used.")
             self._normalize_paths()
 
             if self.method.lower() == "ncaa":
@@ -42,12 +42,12 @@ class Parmfit(JobABC):
 
                 parmfit = MetalAA(output=self.output, atoms=self.atoms, params=self.params)
                 return parmfit.run()
-            elif self.method.lower() in ("correction", "corr"):
+            elif self.method.lower() == "refinement":
                 # Old setting
                 #self._apply_cmo(use_oxy=False, info_fallback=True)
-                from .utils.CORR import Correction
+                from .utils.Refinement import Refinement
 
-                parmfit = Correction(output=self.output, atoms=self.atoms, params=self.params)
+                parmfit = Refinement(output=self.output, atoms=self.atoms, params=self.params)
                 return parmfit.run()
             else:
                 raise NotImplementedError(f"Other parmfit strategy '{self.method}' not implemented yet.")
@@ -109,20 +109,20 @@ class Parmfit(JobABC):
         normalized = path if os.path.isabs(path) else os.path.join(self._input_base_dir(), path)
         normalized = os.path.abspath(normalized)
         if not os.path.isfile(normalized):
-            if self.method in ("correction", "corr"):
+            if self.method == "refinement":
                 raise ValueError(
-                    f"parmfit(method=correction) requires the following file inputs: {key} "
+                    f"parmfit(method=refinement) requires the following file inputs: {key} "
                     f"(not found: {path})"
                 )
             raise ValueError(f"parmfit input file not found for '{key}': {path}")
         self.params[key] = normalized
 
     def _normalize_paths(self) -> None:
-        if self.method in ("correction", "corr"):
+        if self.method == "refinement":
             mol2_path = self.params.get("mol2")
             if not mol2_path:
                 raise ValueError(
-                    "parmfit(method=correction) requires the 'mol2' input file."
+                    "parmfit(method=refinement) requires the 'mol2' input file."
             )
             self._resolve_input_file("mol2")
             return

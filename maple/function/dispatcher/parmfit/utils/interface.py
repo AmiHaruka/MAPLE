@@ -11,7 +11,7 @@ import shutil
 import subprocess as sp
 
 from .ionparams import collect_gaussian_readradii_entries
-from .readparm import CorrectionParameterSet
+from .readparm import RefinementParameterSet
 from .structure import parse_pdb_coord
 
 """
@@ -531,7 +531,7 @@ def patch_frcmod_crossterms(frcmod_path):
 
 
 def write_refined_frcmod(
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     frcmod_path: str,
     *,
     mass_params: dict[str, float],
@@ -621,7 +621,7 @@ def write_refined_frcmod(
 
 
 def _validate_refined_frcmod_inputs(
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     mass_params: dict[str, float],
 ) -> None:
     for nonbond in paramset.nonbonds:

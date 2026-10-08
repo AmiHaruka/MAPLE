@@ -119,7 +119,7 @@ class ParmfitReader:
                 if key == "input":
                     raise ValueError("Do not set 'input=' inside a parmfit input config.")
                 if key == "frcmod":
-                    raise ValueError("Do not set 'frcmod=' in parmfit input config. Correction frcmod files are generated automatically.")
+                    raise ValueError("Do not set 'frcmod=' in parmfit input config. frcmod files are generated automatically.")
                 if key in cls.FORBIDDEN_KEYS:
                     raise ValueError(f"Parmfit input config only accepts parmfit parameters; unsupported global key {key!r}.")
 

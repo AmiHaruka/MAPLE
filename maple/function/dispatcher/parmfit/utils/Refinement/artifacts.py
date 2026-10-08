@@ -1,4 +1,4 @@
-"""Usage: hold correction workflow results and write correction artifact files."""
+"""Usage: hold refinement workflow results and write refinement artifact files."""
 
 from __future__ import annotations
 
@@ -8,12 +8,12 @@ from dataclasses import dataclass, field
 
 from ase import Atoms
 
-from ..outputparm import format_corr_tleap, write_amber_files, write_gromacs_files
-from ..readparm import CorrectionParameterSet
+from ..outputparm import format_refinement_tleap, write_amber_files, write_gromacs_files
+from ..readparm import RefinementParameterSet
 from ..runtime import parmfit_output_dir
 from ..TorsionFit import TorsionWorkflowResult
 from ..chgfit import ChargeFitResult
-from .config import CorrectionConfig
+from .config import RefinementConfig
 
 
 @dataclass(frozen=True)
@@ -33,10 +33,10 @@ class AmberExportResult:
 
 
 @dataclass(frozen=True)
-class CorrectionWorkflowResult:
-    init_parmset: CorrectionParameterSet
-    stage0_parmset: CorrectionParameterSet
-    final_parmset: CorrectionParameterSet
+class RefinementWorkflowResult:
+    init_parmset: RefinementParameterSet
+    stage0_parmset: RefinementParameterSet
+    final_parmset: RefinementParameterSet
     torsion: TorsionWorkflowResult
     gromacs: GromacsExportResult
     amber: AmberExportResult
@@ -44,8 +44,8 @@ class CorrectionWorkflowResult:
     stage_timings: list[tuple[str, float]] = field(default_factory=list)
     charge_result: ChargeFitResult | None = None
     charge_timing: float | None = None
-    mlip_stage0_parmset: CorrectionParameterSet | None = None
-    mlip_final_parmset: CorrectionParameterSet | None = None
+    mlip_stage0_parmset: RefinementParameterSet | None = None
+    mlip_final_parmset: RefinementParameterSet | None = None
     mlip_torsion: TorsionWorkflowResult | None = None
     mlip_gromacs: GromacsExportResult | None = None
     mlip_amber: AmberExportResult | None = None
@@ -56,7 +56,7 @@ class CorrectionWorkflowResult:
 def export_gromacs(
     output: str,
     atoms: Atoms,
-    parmset: CorrectionParameterSet,
+    parmset: RefinementParameterSet,
     *,
     output_suffix: str = "",
 ) -> GromacsExportResult:
@@ -79,8 +79,8 @@ def export_gromacs(
 def export_amber(
     output: str,
     atoms: Atoms,
-    config: CorrectionConfig,
-    parmset: CorrectionParameterSet,
+    config: RefinementConfig,
+    parmset: RefinementParameterSet,
     *,
     use_refined_parameters: bool = True,
     source_frcmod: str = "",
@@ -100,7 +100,7 @@ def export_amber(
         gas_base = os.path.basename(output_base) + "_maple_gas"
         with open(maple_tleap, "w") as handle:
             handle.writelines(
-                format_corr_tleap(
+                format_refinement_tleap(
                     [],
                     mol2_name=os.path.basename(maple_mol2),
                     frcmod_name=os.path.basename(maple_frcmod),

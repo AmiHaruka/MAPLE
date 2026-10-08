@@ -15,7 +15,7 @@ from ..amber_templates import required_template_leaprcs
 from ..chgfit import ChargeFitResult
 from ..model import write_model_pdb
 from ..outputparm import allocate_maple_atom_types, format_tleap_add_atom_types
-from ..readparm import Angle, Bond, Dihedral, Improper, Nonbond, CorrectionParameterSet, FrcmodDB, Mol2Atom, Mol2Topology
+from ..readparm import Angle, Bond, Dihedral, Improper, Nonbond, RefinementParameterSet, FrcmodDB, Mol2Atom, Mol2Topology
 from ..runtime import parmfit_output_dir, parmfit_workdir
 from ..structure import copy_residue, covalent_cutoff, get_atom_xyz, get_resid_key, residue_sort_key, search_atom
 from .config import NCAAAbinitioConfig
@@ -430,7 +430,7 @@ def _build_maple_residue_mapping(
     amber: NCAAAmberArtifacts,
     representative_model: dict,
     charged_residue: dict,
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
 ) -> _MapleResidueMapping:
     with open(amber.prepin, "r", encoding="utf-8", errors="replace") as handle:
         prepin_lines = handle.readlines()
@@ -510,9 +510,9 @@ def _build_maple_residue_mapping(
 
 
 def _build_residue_paramset(
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     mapping: _MapleResidueMapping,
-) -> CorrectionParameterSet:
+) -> RefinementParameterSet:
     residue_indices = set(mapping.global_to_local_index)
     residue_mol2_atoms = [
         Mol2Atom(
@@ -571,7 +571,7 @@ def _build_residue_paramset(
         for improper in paramset.impropers
         if set(improper.atoms).issubset(residue_indices)
     ]
-    return CorrectionParameterSet(
+    return RefinementParameterSet(
         mol2=Mol2Topology(
             atoms=residue_mol2_atoms,
             bonds=[],
@@ -597,7 +597,7 @@ def write_ncaa_amber_files(
     amber: NCAAAmberArtifacts,
     representative_model: dict,
     charged_residue: dict,
-    final_paramset: CorrectionParameterSet,
+    final_paramset: RefinementParameterSet,
     structure: dict,
     target_residue: dict,
     pro_ff: str = "ff14SB",
@@ -930,7 +930,7 @@ def build_ncaa_export_bundle(
     representative_model: dict,
     charged_residue: dict,
     conformers: list[NCAAConformer],
-    final_paramset: CorrectionParameterSet,
+    final_paramset: RefinementParameterSet,
     config: NCAAAbinitioConfig,
     structure: dict,
     target_residue: dict,

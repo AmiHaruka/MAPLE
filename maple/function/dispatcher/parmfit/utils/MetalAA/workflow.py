@@ -363,7 +363,7 @@ def _run_ncaa_building(
         if residue.get("_ligand_mol2"):
             continue
         tag = f"{residue['resname'].upper()}{residue['resseq']}"
-        rn = config.ncaa_resnames[index] if index < len(config.ncaa_resnames) else tag
+        rn = config.ncaa_resnames[index] if index < len(config.ncaa_resnames) else residue["resname"].upper()
         result = build_residue_parameters(
             structure,
             residue,
@@ -433,7 +433,6 @@ def _reselect_optimized_core(
     metal_atom = _single_atom_residue_atom(target_residue, label="MetalAA target metal residue")
     metal_xyz = get_atom_xyz(metal_atom)
     manual_core_keys = {get_resid_key(residue) for residue in selection.manual_core_residues}
-    manual_core_keys |= {get_resid_key(residue) for residue in selection.ncaa_residues}
     donor_atoms: dict[tuple[str, int, str], list[str]] = {}
     auto_core_keys: set[tuple[str, int, str]] = set()
     if config.set_bonded:
@@ -530,6 +529,10 @@ def _build_large_resp_problem(
         residue_key = get_resid_key(residue)
         if residue_key in core_keys:
             continue
+        if residue_key in (ncaa_frozen_charges or {}):
+            # Declared NCAA residues are pinned atom-by-atom below; a net-charge
+            # group on top of that would only duplicate the same constraint.
+            continue
         atom_indices = [atom_index for atom_index, _atom in large_entries_by_residue[residue_key]]
         if residue.get("kind") in {"ligand", "cofactor"} and not {
             "formal_charge",
@@ -580,13 +583,15 @@ def _build_large_resp_problem(
     large_bond_pairs_set.update(donor_metal_pairs)
     fixed_charges: dict[int, float] = {}
     for residue_key, charges in (ncaa_frozen_charges or {}).items():
+        if residue_key not in large_entries_by_residue:
+            # Outside the cluster: the independent NCAA build reaches the export
+            # through the folded mol2, there is nothing to pin in this RESP.
+            continue
+        if residue_key in core_keys:
+            # Coordinating NCAA is fitted freely with the site, like a standard residue.
+            continue
         for atom_name, charge in charges.items():
-            atom_index = index_by_residue_atom.get((residue_key, atom_name))
-            if atom_index is None:
-                raise ValueError(
-                    f"NCAA frozen-charge atom {residue_key}:{atom_name} is absent from the large model."
-                )
-            fixed_charges[atom_index] = float(charge)
+            fixed_charges[index_by_residue_atom[(residue_key, atom_name)]] = float(charge)
     return _RespProblem(
         bond_pairs=sorted(large_bond_pairs_set),
         charge_groups=charge_groups,
@@ -778,6 +783,18 @@ def run_metal_abinitio(
         config=config,
     )
     selection = core.selection
+    core_keys = {get_resid_key(residue) for residue in core.core_residues}
+    large_keys = {get_resid_key(residue) for residue in bundle.large_model["residues"]}
+    for residue_key in (ncaa_frozen_charges or {}):
+        if residue_key in large_keys and residue_key not in core_keys:
+            continue
+        scope = (
+            "folded into the tleap export" if residue_key not in large_keys
+            else "fitted freely with the metal site"
+        )
+        log_info([
+            f"  [MetalAA] NCAA {residue_key} was fitted independently; {scope} instead of pinned in RESP.\n"
+        ])
     resp_problem = _build_large_resp_problem(
         bundle,
         core,
@@ -794,6 +811,20 @@ def run_metal_abinitio(
         opt_theory, opt_basis = (part.strip() for part in config.qm.opt_level.strip().split("/", 1))
         if config.resp.qm.theory == opt_theory and config.resp.qm.basis == opt_basis:
             resp_wfn = getattr(qm_runner, "last_wfn_path", None)
+    fixchg_resids: list[str] = []
+    for selector in config.resp.fixchg_resids:
+        try:
+            find_unique_residue(bundle.large_model, selector, label="fixchg residue")
+        except ValueError as error:
+            if "was not found" not in str(error):
+                raise
+            log_info([
+                f"  [MetalAA] WARNING: fixchg residue {selector} is outside the large model "
+                f"(cluster_cutoff={config.cluster_cutoff}); it is not part of the RESP fit "
+                "and keeps its standard charges.\n"
+            ])
+            continue
+        fixchg_resids.append(selector)
     with _timed_stage(stage_timings, "large RESP"):
         with _timed_stage(stage_timings, "RESP fitting"):
             resp_result = run_resp_pipeline(
@@ -803,7 +834,7 @@ def run_metal_abinitio(
                 total_charge=bundle.large_charge,
                 multiplicity=bundle.large_mult,
                 chgmod=config.resp.chgmod,
-                fixchg_resids=config.resp.fixchg_resids,
+                fixchg_resids=fixchg_resids,
                 qm=config.resp.qm,
                 label="metal_large_resp",
                 wat_ff=config.wat_ff,

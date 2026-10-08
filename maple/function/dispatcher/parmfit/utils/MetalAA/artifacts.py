@@ -1175,7 +1175,6 @@ def _write_residue_mol2_files(
         mol2_files[new_name] = path
     artifacts.mol2_files.clear()
     artifacts.mol2_files.update(mol2_files)
-    site_typing.mol2_files.clear()
     site_typing.mol2_files.update(mol2_files)
     return mol2_files
 
@@ -1355,8 +1354,11 @@ def write_site_model_files(
         artifacts.cofactor_frcmods.clear()
         artifacts.cofactor_frcmods.extend(incoming_cofactor_frcmods)
     if cofactor_frcmod_by_residue is not None:
+        # Snapshot before clearing: the caller may pass artifacts' own dict, in
+        # which case clear() would empty the argument itself.
+        incoming_frcmod_by_residue = dict(cofactor_frcmod_by_residue)
         artifacts.cofactor_frcmod_by_residue.clear()
-        artifacts.cofactor_frcmod_by_residue.update(cofactor_frcmod_by_residue)
+        artifacts.cofactor_frcmod_by_residue.update(incoming_frcmod_by_residue)
     site_typing = _build_site_typing(
         site_model,
         wat_ff=wat_ff,

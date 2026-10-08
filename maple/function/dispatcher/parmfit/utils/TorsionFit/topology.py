@@ -7,7 +7,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from ..mechanics import build_mm_topology_cache
-from ..readparm import CorrectionParameterSet, Dihedral, FourierTerm, Improper
+from ..readparm import RefinementParameterSet, Dihedral, FourierTerm, Improper
 
 if TYPE_CHECKING:
     from .config import TorsionFitParams
@@ -21,9 +21,9 @@ def normalize_torsion_bond(torsion_bond: tuple[int, int]) -> tuple[int, int]:
     return (i, j) if i < j else (j, i)
 
 
-def _bond_type_map(paramset: CorrectionParameterSet) -> dict[tuple[int, int], str]:
+def _bond_type_map(paramset: RefinementParameterSet) -> dict[tuple[int, int], str]:
     # Antechamber emits canonical types ("1"/"2"/"3"/"ar"/"am"), but the
-    # correction route takes the mol2 from the user (OpenBabel / RDKit /
+    # refinement route takes the mol2 from the user (OpenBabel / RDKit /
     # hand edits), so values are normalized before any comparison; canonical
     # spellings pass through unchanged.
     id_to_index = paramset.mol2.id_to_index
@@ -43,7 +43,7 @@ def _is_rotatable_mol2_bond_type(bond_type: str | None) -> bool:
 
 
 def _torsion_bond_dihedral_indices(
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     torsion_bond: tuple[int, int],
 ) -> list[int]:
     center = normalize_torsion_bond(torsion_bond)
@@ -58,7 +58,7 @@ def _torsion_bond_dihedral_indices(
 
 
 def torsion_bond_dihedrals(
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     torsion_bond: tuple[int, int],
     topology_cache=None,
 ) -> list[Dihedral]:
@@ -66,7 +66,7 @@ def torsion_bond_dihedrals(
 
 
 def representative_dihedral_for_torsion_bond(
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     torsion_bond: tuple[int, int],
     topology_cache=None,
 ) -> Dihedral:
@@ -77,7 +77,7 @@ def representative_dihedral_for_torsion_bond(
 
 
 def torsion_bond_group_atoms(
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     torsion_bond: tuple[int, int],
     topology_cache=None,
 ) -> tuple[int, ...]:
@@ -89,7 +89,7 @@ def torsion_bond_group_atoms(
     return tuple(sorted(atoms))
 
 
-def is_ring_bond(paramset: CorrectionParameterSet, torsion_bond: tuple[int, int]) -> bool:
+def is_ring_bond(paramset: RefinementParameterSet, torsion_bond: tuple[int, int]) -> bool:
     start, end = normalize_torsion_bond(torsion_bond)
     adjacency = paramset.mol2.adjacency
     if end not in adjacency.get(start, set()):
@@ -112,7 +112,7 @@ def is_ring_bond(paramset: CorrectionParameterSet, torsion_bond: tuple[int, int]
 
 
 def enumerate_fittable_torsion_bonds(
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     topology_cache=None,
     include_ring: bool = False,
 ) -> list[tuple[int, int]]:
@@ -131,7 +131,7 @@ def enumerate_fittable_torsion_bonds(
 
 
 def resolve_torsion_bonds(
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     params: TorsionFitParams,
     topology_cache=None,
 ) -> tuple[list[tuple[int, int]], list[str]]:
@@ -172,10 +172,10 @@ def _validate_fit_targets(dihedrals: list[Dihedral]) -> None:
 
 
 def apply_torsion_bond_terms(
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     torsion_bond: tuple[int, int],
     fitted_terms: list[list[FourierTerm]],
-) -> CorrectionParameterSet:
+) -> RefinementParameterSet:
     center = normalize_torsion_bond(torsion_bond)
     target_indices = _torsion_bond_dihedral_indices(paramset, center)
     if len(target_indices) != len(fitted_terms):
@@ -195,10 +195,10 @@ def apply_torsion_bond_terms(
     return replace(paramset, dihedrals=dihedrals)
 
 
-def apply_fitted_torsion(result: "TorsionFitReport", paramset: CorrectionParameterSet) -> CorrectionParameterSet:
+def apply_fitted_torsion(result: "TorsionFitReport", paramset: RefinementParameterSet) -> RefinementParameterSet:
     return apply_torsion_bond_terms(paramset, result.torsion_bond, result.terms.fitted_terms)
 
-def apply_fitted_improper(result: "TorsionFitReport", paramset: CorrectionParameterSet) -> CorrectionParameterSet:
+def apply_fitted_improper(result: "TorsionFitReport", paramset: RefinementParameterSet) -> RefinementParameterSet:
     """Replace terms on the center's matched instances; append the transient target when none exist."""
     target = result.target_instances[0]
     center = target.atoms[2]

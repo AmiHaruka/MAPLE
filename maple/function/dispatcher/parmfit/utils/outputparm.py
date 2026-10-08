@@ -11,7 +11,7 @@ from ase import Atoms
 
 from .mechanics import build_mm_topology_cache
 from .mol2_tools import write_updated_mol2
-from .readparm import CorrectionParameterSet
+from .readparm import RefinementParameterSet
 
 
 _KCAL_TO_KJ = 4.184
@@ -177,7 +177,7 @@ def _format_defaults_lines() -> list[str]:
     ]
 
 
-def _format_atomtypes_lines(paramset: CorrectionParameterSet, atoms: Atoms, meta: dict) -> list[str]:
+def _format_atomtypes_lines(paramset: RefinementParameterSet, atoms: Atoms, meta: dict) -> list[str]:
     lines = [_comment("name    at.num    mass    charge ptype  sigma      epsilon")]
     symbols = atoms.get_chemical_symbols()
     seen: set[str] = set()
@@ -202,7 +202,7 @@ def _format_atomtypes_lines(paramset: CorrectionParameterSet, atoms: Atoms, meta
     return lines
 
 
-def _format_atoms_lines(paramset: CorrectionParameterSet, atoms: Atoms) -> list[str]:
+def _format_atoms_lines(paramset: RefinementParameterSet, atoms: Atoms) -> list[str]:
     lines = [
         _comment("nr       type  resnr residue  atom   cgnr    charge       mass"),
         _comment("residue    1 MOL rtp MOL q 0.0"),
@@ -217,7 +217,7 @@ def _format_atoms_lines(paramset: CorrectionParameterSet, atoms: Atoms) -> list[
     return lines
 
 
-def _format_bonds_lines(paramset: CorrectionParameterSet, meta: dict) -> list[str]:
+def _format_bonds_lines(paramset: RefinementParameterSet, meta: dict) -> list[str]:
     lines = [_comment("ai     aj funct         c0         c1")]
     for bond in paramset.bonds:
         if bond.kBond is None or bond.rEq is None:
@@ -232,7 +232,7 @@ def _format_bonds_lines(paramset: CorrectionParameterSet, meta: dict) -> list[st
     return lines
 
 
-def _format_pairs_lines(paramset: CorrectionParameterSet) -> list[str]:
+def _format_pairs_lines(paramset: RefinementParameterSet) -> list[str]:
     cache = build_mm_topology_cache(paramset)
     lines = [_comment("ai     aj funct")]
     for atom_i, atom_j in sorted(cache.scaled_14):
@@ -240,7 +240,7 @@ def _format_pairs_lines(paramset: CorrectionParameterSet) -> list[str]:
     return lines
 
 
-def _format_angles_lines(paramset: CorrectionParameterSet, meta: dict) -> list[str]:
+def _format_angles_lines(paramset: RefinementParameterSet, meta: dict) -> list[str]:
     lines = [_comment("ai     aj     ak funct         c0         c1")]
     for angle in paramset.angles:
         if angle.kTheta is None or angle.thetaEq is None:
@@ -266,7 +266,7 @@ def _period_to_mult(period: float, label: str, meta: dict) -> int:
     return rounded
 
 
-def _format_dihedrals_lines(paramset: CorrectionParameterSet, meta: dict) -> list[str]:
+def _format_dihedrals_lines(paramset: RefinementParameterSet, meta: dict) -> list[str]:
     lines = [_comment("ai     aj     ak     al funct         c0         c1    mult")]
     for dihedral in paramset.dihedrals:
         if not dihedral.terms:
@@ -324,7 +324,7 @@ def allocate_maple_atom_types(count: int, existing_types: set[str]) -> dict[int,
 def _element_from_mass(mass: float) -> str:
     """Recover an element symbol from an atom type's mass.
 
-    Correction mol2 atoms carry no element column, so the frcmod MASS section --
+    The refinement mol2 atoms carry no element column, so the frcmod MASS section --
     which the export already validates for every type -- is the only per-type
     element evidence available.
     """
@@ -354,7 +354,7 @@ def format_tleap_add_atom_types(
     return lines
 
 
-def format_corr_tleap(
+def format_refinement_tleap(
     atom_type_rows: list[tuple[str, str, str, str]],
     *,
     mol2_name: str,
@@ -363,7 +363,7 @@ def format_corr_tleap(
     inpcrd_name: str,
     unit: str = "lig",
 ) -> list[str]:
-    """Gas-phase tleap script for a correction export.
+    """Gas-phase tleap script for a refinement export.
 
     addAtomTypes must precede loadamberparams and loadmol2: teLeap applies the
     table only to types it has not resolved yet, and a block placed after them is
@@ -381,7 +381,7 @@ def format_corr_tleap(
 
 
 def write_top(
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     atoms: Atoms,
     top_path: str,
     title: str | None = None,
@@ -436,7 +436,7 @@ def write_top(
 
 
 def write_gro(
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     atoms: Atoms,
     gro_path: str,
     title: str | None = None,
@@ -458,7 +458,7 @@ def write_gro(
 
 
 def write_gromacs_files(
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     atoms: Atoms,
     output_base: str,
     title: str | None = None,
@@ -472,7 +472,7 @@ def write_gromacs_files(
 
 
 def write_amber_files(
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     atoms: Atoms,
     input_mol2_path: str,
     output_base: str,
@@ -522,7 +522,7 @@ def write_amber_files(
 
     from .interface import write_refined_frcmod
 
-    write_refined_frcmod(mapped, frcmod_path, mass_params=maple_mass_params, remark="REMARK MAPLE correction refined frcmod")
+    write_refined_frcmod(mapped, frcmod_path, mass_params=maple_mass_params)
 
     gas_base = os.path.basename(base) + "_maple_gas"
     atom_type_rows = [
@@ -536,7 +536,7 @@ def write_amber_files(
     ]
     with open(tleap_path, "w") as handle:
         handle.writelines(
-            format_corr_tleap(
+            format_refinement_tleap(
                 atom_type_rows,
                 mol2_name=os.path.basename(mol2_path),
                 frcmod_name=os.path.basename(frcmod_path),
@@ -547,7 +547,7 @@ def write_amber_files(
     return mol2_path, frcmod_path, tleap_path
 
 
-def _validate_amber_export_inputs(paramset: CorrectionParameterSet) -> None:
+def _validate_amber_export_inputs(paramset: RefinementParameterSet) -> None:
     atom_count = len(paramset.mol2.atoms)
     expected_atoms = set(range(1, atom_count + 1))
     nonbond_atoms = {nonbond.atom for nonbond in paramset.nonbonds}

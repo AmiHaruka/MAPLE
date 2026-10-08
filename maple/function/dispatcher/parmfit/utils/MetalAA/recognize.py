@@ -216,11 +216,10 @@ def find_metal_site_core(
         if key not in seen:
             residues.append(residue)
             seen.add(key)
-    for residue in sorted(naa_residues, key=residue_sort_key):
-        key = get_resid_key(residue)
-        if key not in seen:
-            residues.append(residue)
-            seen.add(key)
+    # Declared NCAA residues enter the core only through the donor-detection
+    # branches above (a coordinating NCAA residue is already in auto_residues);
+    # non-coordinating ones stay out of the site model and are folded into the
+    # tleap export by write_site_model_files.
 
     ncaa_rn_list = list(ncaa_resnames or [])
     ncaa_resnames = {
@@ -245,17 +244,6 @@ def find_metal_site_core(
         prev_residue, next_residue = find_prev_next_peptide_residues(structure, residue, bond_policy=bond_policy)
         residue["_prev_peptide_key"] = get_resid_key(prev_residue) if prev_residue is not None else None
         residue["_next_peptide_key"] = get_resid_key(next_residue) if next_residue is not None else None
-
-    environment_charge_hints = [
-        get_resid_label(residue)
-        for residue in structure["residues"]
-        if get_resid_key(residue) not in seen and _residue_has_formal_charge_hint(residue)
-    ]
-    if environment_charge_hints:
-        warnings.append(
-            "Environment contains potentially charged standard residues outside the site core: "
-            + ", ".join(environment_charge_hints[:8])
-        )
 
     return MetalSiteSelection(
         target=target_residue,

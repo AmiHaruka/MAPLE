@@ -7,7 +7,7 @@ from typing import Optional
 
 from ..context import collect_environment_residues
 from ..model import build_capped_selected_model, copy_structure_subset
-from ..structure import get_resid_key, residue_sort_key
+from ..structure import get_resid_key, get_resid_label, get_resid_mindist, residue_sort_key
 from .recognize import MetalSiteSelection, find_metal_site_core
 
 
@@ -73,6 +73,21 @@ def build_metal_large_model(
     model["environment_keys"] = [get_resid_key(residue) for residue in sorted(environment, key=residue_sort_key)]
     model["donor_atoms"] = dict(selection.donor_atoms)
     model["warnings"] = list(selection.warnings)
+    large_keys = {get_resid_key(residue) for residue in model["residues"]}
+    charged_hints = [
+        get_resid_label(residue)
+        for residue in structure["residues"]
+        if get_resid_key(residue) not in large_keys
+        and (residue.get("formal_charge") or residue.get("net_charge"))
+        and get_resid_mindist(selection.target, residue) <= 8.0
+    ]
+    if charged_hints:
+        # 8 Å: charged residues this close to the metal but left out of the fit
+        # are worth naming; farther ones belong to the standard force field.
+        model["warnings"].append(
+            "Potentially charged standard residues within 8 Å of the metal but outside the large model: "
+            + ", ".join(charged_hints[:8])
+        )
     model["cluster_cutoff"] = float(cluster_cutoff)
     return model
 

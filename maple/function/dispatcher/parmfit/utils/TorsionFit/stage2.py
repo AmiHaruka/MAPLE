@@ -8,7 +8,7 @@ import numpy as np
 from scipy.optimize import minimize
 
 from .stage1 import _FITTED_TERM_MAX_K, _merge_template_and_frozen_terms
-from ..readparm import CorrectionParameterSet, FourierTerm
+from ..readparm import RefinementParameterSet, FourierTerm
 from .records import (
     TorsionGlobalProblem,
     TorsionObjectiveEvaluation,
@@ -226,7 +226,7 @@ def _stage2_cached_mm_values(
     cos_coeff, sin_coeff = _coefficients_from_delta(problem, vector)
     return cache.constant_rel + (cache.cos_basis @ cos_coeff) + (cache.sin_basis @ sin_coeff)
 
-def _paramset_from_delta(problem: TorsionGlobalProblem, delta_vector: np.ndarray) -> CorrectionParameterSet:
+def _paramset_from_delta(problem: TorsionGlobalProblem, delta_vector: np.ndarray) -> RefinementParameterSet:
     k_caps = _stage2_k_caps(problem, delta_vector, np.ones(len(problem.term_paths), dtype=bool))
     capped_vector = _stage2_project_vector_to_k_caps(problem, delta_vector, k_caps)
     k_values, phase_values = _split_global_vector(problem, capped_vector)
@@ -289,7 +289,7 @@ def _paramset_from_delta(problem: TorsionGlobalProblem, delta_vector: np.ndarray
 
     return replace(problem.stage0_paramset, dihedrals=dihedrals)
 
-def apply_global_delta(problem: TorsionGlobalProblem, delta_vector: np.ndarray) -> CorrectionParameterSet:
+def apply_global_delta(problem: TorsionGlobalProblem, delta_vector: np.ndarray) -> RefinementParameterSet:
     return _paramset_from_delta(problem, np.asarray(delta_vector, dtype=float))
 
 

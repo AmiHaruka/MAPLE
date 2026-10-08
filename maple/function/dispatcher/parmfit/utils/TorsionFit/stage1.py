@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from ..mechanics import build_mm_topology_cache, dihedral_radians, evaluate_mm_energy
-from ..readparm import CorrectionParameterSet, FourierTerm
+from ..readparm import RefinementParameterSet, FourierTerm
 from .config import TORSIONFIT_CANONICAL_PERIODS, TorsionFitParams
 from .spectral import DEFAULT_SPECTRAL_PERIODS, dominant_spectral_peaks, rank_shared_group_spectral_slots
 from .topology import _clone_terms
@@ -263,7 +263,7 @@ def _relative_profile(scan_data: TorsionScanData, total_values: np.ndarray) -> n
 
 def _paramset_relative_profile(
     scan_data: TorsionScanData,
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     *,
     topology_cache=None,
 ) -> np.ndarray:
@@ -790,8 +790,8 @@ def _build_fit_report(
     diagnostics: dict[str, tuple[int, int]] | None = None,
     topology_cache=None,
     *,
-    original_paramset: CorrectionParameterSet | None = None,
-    stage0_paramset: CorrectionParameterSet | None = None,
+    original_paramset: RefinementParameterSet | None = None,
+    stage0_paramset: RefinementParameterSet | None = None,
     mm_stage2_rel: np.ndarray | None = None,
     mm_orig_rel_override: np.ndarray | None = None,
     mm_stage0_rel_override: np.ndarray | None = None,

@@ -8,7 +8,7 @@ from typing import Callable
 import numpy as np
 
 from ..mechanics import build_mm_topology_cache, evaluate_mm_energy
-from ..readparm import CorrectionParameterSet, Improper
+from ..readparm import RefinementParameterSet, Improper
 from .topology import (
     _clone_terms,
     apply_fitted_improper,
@@ -27,15 +27,15 @@ from .ensemble import attach_stage2_extra_targets
 
 def fit_torsion_scan(
     scan_data: TorsionScanData,
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     torsion_bond: tuple[int, int],
     topology_cache=None,
     *,
     improper_target: Improper | None = None,
     radical: bool = False,
     params: TorsionFitParams | None = None,
-    original_paramset: CorrectionParameterSet | None = None,
-    stage0_paramset: CorrectionParameterSet | None = None,
+    original_paramset: RefinementParameterSet | None = None,
+    stage0_paramset: RefinementParameterSet | None = None,
     original_mm_rel_override: np.ndarray | None = None,
     mm_base_rel_override: np.ndarray | None = None,
     stage0_mm_rel_override: np.ndarray | None = None,
@@ -93,7 +93,7 @@ def fit_torsion_scan(
 
 def _stage2_fit_report_from_stage1(
     stage1_report: TorsionFitReport,
-    final_paramset: CorrectionParameterSet,
+    final_paramset: RefinementParameterSet,
     *,
     mm_stage2_rel: np.ndarray,
     topology_cache=None,
@@ -105,8 +105,8 @@ def _stage2_fit_report_from_stage1(
 
 def _fit_stage1_cycle(
     *,
-    current_paramset: CorrectionParameterSet,
-    original_paramset: CorrectionParameterSet,
+    current_paramset: RefinementParameterSet,
+    original_paramset: RefinementParameterSet,
     normalized_torsion_bonds: list[tuple[int, int]],
     scan_data_map,
     scan_mm_orig_rel_map,
@@ -115,7 +115,7 @@ def _fit_stage1_cycle(
     improper_targets: dict[tuple[int, int], Improper] | None = None,
     radical_centers: tuple[int, ...] = (),
     log_info: Callable[[list[str]], None] | None = None,
-) -> tuple[CorrectionParameterSet, list[TorsionFitReport], dict[str, object]]:
+) -> tuple[RefinementParameterSet, list[TorsionFitReport], dict[str, object]]:
     cache = build_mm_topology_cache(current_paramset)
     fit_reports: list[TorsionFitReport] = []
     stage1_paramset = deepcopy(current_paramset)
@@ -211,7 +211,7 @@ def _stage2_cycle_diagnostics(
 
 def _stage2_improper_report_from_stage1(
     stage1_report: TorsionFitReport,
-    final_paramset: CorrectionParameterSet,
+    final_paramset: RefinementParameterSet,
     scan_data: TorsionScanData,
     *,
     topology_cache=None,
@@ -230,15 +230,15 @@ def _stage2_improper_report_from_stage1(
 
 def _run_stage2_refinement(
     *,
-    stage1_paramset: CorrectionParameterSet,
+    stage1_paramset: RefinementParameterSet,
     fit_reports: list[TorsionFitReport],
     scan_data_map,
     params: TorsionFitParams,
-    current_paramset: CorrectionParameterSet,
+    current_paramset: RefinementParameterSet,
     ensemble_result: TorsionEnsembleResult | None = None,
     radical_centers: tuple[int, ...] = (),
     log_info: Callable[[list[str]], None] | None = None,
-) -> tuple[CorrectionParameterSet, list[TorsionFitReport], list, object, object, dict[str, object]]:
+) -> tuple[RefinementParameterSet, list[TorsionFitReport], list, object, object, dict[str, object]]:
     stage1_cache = build_mm_topology_cache(stage1_paramset)
     problem = build_global_torsion_problem(
         stage1_paramset,
@@ -304,14 +304,14 @@ def _run_stage2_refinement(
 
 def run_loss_mode(
     *,
-    base_paramset: CorrectionParameterSet,
+    base_paramset: RefinementParameterSet,
     torsion_bonds: list[tuple[int, int]] | tuple[tuple[int, int], ...],
     scan_data_map,
     scan_xyz_map,
     scan_mm_orig_rel_map=None,
     params: TorsionFitParams,
     topology_cache=None,
-    original_paramset: CorrectionParameterSet | None = None,
+    original_paramset: RefinementParameterSet | None = None,
     ensemble_result: TorsionEnsembleResult | None = None,
     improper_targets: dict[tuple[int, int], Improper] | None = None,
     radical_centers: tuple[int, ...] = (),

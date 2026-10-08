@@ -125,7 +125,7 @@ def _parse_int_entries(value) -> Optional[tuple[int, ...]]:
 def build_torsion_fit_params(paras: Optional[dict]) -> TorsionFitParams:
     root = as_tracked(paras)
     root.set_group("TorsionFit", "Torsion parameter fitting switches and scan controls")
-    for alias in ("corr", "correction", "parmfit"):
+    for alias in ("parmfit", "refinement"):
         if alias in root and isinstance(root[alias], dict):
             # Nested API payloads are plain dicts; wrap so the note-carrying get works.
             root = as_tracked(root[alias])

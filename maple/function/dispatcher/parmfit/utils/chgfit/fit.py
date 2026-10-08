@@ -13,6 +13,7 @@ from pathlib import Path
 import os
 import shutil
 import subprocess as sp
+import warnings
 
 import numpy as np
 
@@ -28,7 +29,7 @@ from ..mlip_tools import (
 )
 from ..model import flatten_model_atoms, infer_bond_pairs, model_to_atoms
 from ..mol2_tools import write_updated_mol2
-from ..readparm import CorrectionParameterSet, parse_mol2
+from ..readparm import RefinementParameterSet, parse_mol2
 from ..runtime import parmfit_workdir, parmfit_work_prefix
 from ..structure import get_resid_key
 from typing import Optional
@@ -264,9 +265,9 @@ def validated_charges(charges, atom_count: int) -> np.ndarray:
 
 
 def apply_atomic_charges(
-    parameter_set: CorrectionParameterSet,
+    parameter_set: RefinementParameterSet,
     charges,
-) -> CorrectionParameterSet:
+) -> RefinementParameterSet:
     """Return a parameter-set copy carrying the fitted atomic charges."""
     values = validated_charges(charges, len(parameter_set.mol2.atoms))
     updated = deepcopy(parameter_set)
@@ -376,7 +377,7 @@ def _fit_resp_charges(
         total_charge=total_charge,
         multiplicity=multiplicity,
         decision=config.qm,
-        title="MAPLE Correction RESP",
+        title="MAPLE RESP",
     )
     paths["gaussian_log"] = interface.run_gaussian(
         paths["gaussian_input"],
@@ -466,14 +467,16 @@ def fit_molecule_charges(
         method = "resp"
         detail = config.level
     elif method_key != "none":
+        active_calculator = getattr(atoms, "calc", None)
         try:
-            active_calculator = getattr(atoms, "calc", None)
-            canonical, calculator_class = resolve_charge_model_class(
+            resolved_model = resolve_charge_model_class(
                 raw_method,
                 device=getattr(active_calculator, "device", None),
                 output=output,
             )
         except ValueError:
+            resolved_model = None  # antechamber-only 方法（bcc/cm5/abcg2...），非错误
+        if resolved_model is None:
             charges, antechamber_mol2, stderr = run_antechamber_charge_method(
                 geometry_mol2,
                 workdir,
@@ -485,6 +488,7 @@ def fit_molecule_charges(
             method = "antechamber"
             detail = raw_method
         else:
+            canonical, calculator_class = resolved_model
             if "charges" not in tuple(
                 getattr(calculator_class, "implemented_properties", ())
             ):
@@ -704,11 +708,19 @@ def fit_multiconformer_charges(
         )
         files.update(resp_result.files)
         files.update(resp_result.resp_files)
+        actual_charge = float(charges[residue_indices].sum())
+        if abs(actual_charge - float(total_charge)) > 1.0e-3:
+            warnings.warn(
+                f"RESP residue charge {actual_charge:.6f} deviates from target "
+                f"{int(total_charge)} by more than 1e-3; check RESP constraint "
+                f"enforcement in {workflow} inputs.",
+                stacklevel=2,
+            )
         return ChargeFitResult(
             method="resp",
             charges=charges,
             target_charge=int(total_charge),
-            actual_charge=float(charges[residue_indices].sum()),
+            actual_charge=actual_charge,
             work_mol2=resp_result.files["mol2"],
             detail=config.level,
             files=files,
@@ -716,12 +728,14 @@ def fit_multiconformer_charges(
 
     active_calculator = getattr(source_atoms, "calc", None)
     try:
-        canonical, calculator_class = resolve_charge_model_class(
+        resolved_model = resolve_charge_model_class(
             raw_method,
             device=getattr(active_calculator, "device", None),
             output=output,
         )
     except ValueError:
+        resolved_model = None  # antechamber-only 方法（bcc/cm5/abcg2...），非错误
+    if resolved_model is None:
         charge_sets = []
         for label, model in conformers:
             workdir = parmfit_workdir(
@@ -750,6 +764,7 @@ def fit_multiconformer_charges(
         method = "antechamber"
         detail = raw_method
     else:
+        canonical, calculator_class = resolved_model
         charge_sets, canonical = run_mlip_charge_method(
             conformers,
             calculator_class=calculator_class,
@@ -1178,6 +1193,8 @@ def _write_multiconformer_resp_stage(
     include_iqopt: bool,
 ) -> None:
     n_models = len(models)
+    # resp 的 nmol=1 解析路径要求约束段紧跟原子列表；空行仅是多分子布局的分段符
+    section_gap = "\n" if n_models > 1 else ""
     handle.write("Resp charges for organic molecule\n \n &cntrl\n \n")
     handle.write(f" nmol = {n_models},\n")
     handle.write(" ihfree = 1,\n")
@@ -1195,7 +1212,7 @@ def _write_multiconformer_resp_stage(
             if atomic_number is None:
                 raise ValueError(f"Unsupported atomic element {atom['element']!r}.")
             handle.write(f"{atomic_number:5d}{ivary_blocks[model_index - 1][atom_index]:5d}\n")
-        handle.write("\n")
+        handle.write(section_gap)
 
     for model_index in range(1, n_models + 1):
         _write_group_constraint(

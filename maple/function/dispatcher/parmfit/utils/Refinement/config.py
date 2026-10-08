@@ -1,4 +1,4 @@
-"""Usage: parse user-facing correction parameters."""
+"""Usage: parse user-facing refinement parameters."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from ..TorsionFit import TorsionFitParams, build_torsion_fit_params
 SUPPORTED_BONDED_METHODS = ("mseminario", "seminario", "none")
 
 @dataclass
-class CorrectionConfig:
+class RefinementConfig:
     mol2: str = ""
     bonded: str = "mseminario"
     vib_scale: float = 1.0
@@ -28,15 +28,15 @@ class CorrectionConfig:
     scan_opt: LBFGSParams = field(default_factory=LBFGSParams)
 
 
-def build_correction_config(raw_params: Optional[dict]) -> CorrectionConfig:
+def build_refinement_config(raw_params: Optional[dict]) -> RefinementConfig:
     params = raw_params if isinstance(raw_params, dict) else {}
     nested = next(
-        (params[alias] for alias in ("parmfit", "corr", "correction") if alias in params and isinstance(params[alias], dict)),
+        (params[alias] for alias in ("parmfit", "refinement") if alias in params and isinstance(params[alias], dict)),
         None,
     )
     raw = as_tracked(nested if nested is not None else params)
-    raw.set_group("correction run", "Site composition, charge source and general correction settings")
-    config = CorrectionConfig()
+    raw.set_group("Refinement run", "Site composition, charge source and general refinement settings")
+    config = RefinementConfig()
     config.mol2 = raw.get("mol2", config.mol2)
     config.bonded = str(raw.get("bonded", config.bonded)).strip().lower()
     if config.bonded not in SUPPORTED_BONDED_METHODS:

@@ -19,7 +19,7 @@ from ..Seminario import apply_seminario
 from ..mSeminario import apply_mseminario
 from ..model import infer_bond_pairs, model_to_atoms, update_model_from_atoms
 from ..QMInterface import build_qm_reference_runner
-from ..readparm import CorrectionParameterSet, Improper, build_correction_paramset
+from ..readparm import RefinementParameterSet, Improper, build_refinement_paramset
 from ..runtime import (
     copy_thresholds,
     get_cartesian_hessian,
@@ -49,7 +49,7 @@ class NCAAWorkflowResult:
     identity: NCAAIdentity
     representative: NCAAConformer
     conformers: list[NCAAConformer]
-    paramset: CorrectionParameterSet
+    paramset: RefinementParameterSet
     torsion: TorsionWorkflowResult
     artifacts: NCAAArtifacts
     charge_result: ChargeFitResult
@@ -204,7 +204,7 @@ def _refine_ncaa_parameters(
     qm_runner=None,
     log_info: Callable[[list], None] | None = None,
     work_dir: str = "ncaa",
-) -> tuple[CorrectionParameterSet, TorsionWorkflowResult]:
+) -> tuple[RefinementParameterSet, TorsionWorkflowResult]:
     representative_atoms = model_to_atoms(
         representative_model,
         charge=representative_model.get("charge"),
@@ -221,7 +221,7 @@ def _refine_ncaa_parameters(
         # peptide-boundary cross terms it must carry never depend on whether
         # the bonded refinement runs.
         interface.patch_frcmod_crossterms(frcmod_path)
-        stage0_result = build_correction_paramset(
+        stage0_result = build_refinement_paramset(
             representative_atoms,
             typed_mol2_path,
             frcmod_path,

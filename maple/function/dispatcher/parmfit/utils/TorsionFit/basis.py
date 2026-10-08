@@ -7,7 +7,7 @@ from collections import OrderedDict, defaultdict
 import numpy as np
 
 from ..mechanics import build_mm_topology_cache, dihedral_radians, evaluate_mm_energy
-from ..readparm import CorrectionParameterSet, Improper
+from ..readparm import RefinementParameterSet, Improper
 from .topology import (
     _bond_type_map,
     _torsion_bond_dihedral_indices,
@@ -220,7 +220,7 @@ def _environment_atom_type(atom_type: str) -> str:
 
 
 def _torsion_atom_environment(
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     bond_types: dict[tuple[int, int], str],
     atom_types: dict[int, str],
     atom: int,
@@ -242,7 +242,7 @@ def _torsion_atom_environment(
 
 
 def _directed_torsion_environment_key(
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     bond_types: dict[tuple[int, int], str],
     atom_types: dict[int, str],
     atoms: tuple[int, int, int, int],
@@ -257,7 +257,7 @@ def _directed_torsion_environment_key(
 
 
 def _torsion_environment_key(
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     bond_types: dict[tuple[int, int], str],
     atom_types: dict[int, str],
     atoms: tuple[int, int, int, int],
@@ -270,7 +270,7 @@ def _torsion_environment_key(
 def _group_torsion_bond_dihedrals(
     dihedrals,
     *,
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     preserve_distinct_template_k: bool = False,
 ) -> tuple[TorsionSharedGroupSpec, ...]:
     bond_types = _bond_type_map(paramset)
@@ -369,7 +369,7 @@ def _group_slot_initial_values(dihedrals, group_specs: tuple[TorsionSharedGroupS
 
 def _global_basis_matrix(
     scan_data: TorsionScanData,
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     term_paths: tuple[tuple[int, int], ...],
 ) -> np.ndarray:
     n_points = len(scan_data.frames)
@@ -410,7 +410,7 @@ class _MMProfileCache:
 
     def __init__(
         self,
-        reference_paramset: CorrectionParameterSet,
+        reference_paramset: RefinementParameterSet,
         torsion_bonds,
         scan_map: dict[tuple[int, int], TorsionScanData],
         topology_cache=None,
@@ -483,7 +483,7 @@ class _MMProfileCache:
 
     def _improper_center_total(
         self,
-        paramset: CorrectionParameterSet,
+        paramset: RefinementParameterSet,
         scan_center: tuple[int, int],
         center: int,
     ) -> np.ndarray:
@@ -503,7 +503,7 @@ class _MMProfileCache:
 
     def _center_torsion_total(
         self,
-        paramset: CorrectionParameterSet,
+        paramset: RefinementParameterSet,
         scan_center: tuple[int, int],
         target_center: tuple[int, int],
     ) -> np.ndarray:
@@ -529,14 +529,14 @@ class _MMProfileCache:
 
     def center_torsion_rel(
         self,
-        paramset: CorrectionParameterSet,
+        paramset: RefinementParameterSet,
         scan_center: tuple[int, int],
         target_center: tuple[int, int],
     ) -> np.ndarray:
         scan_center = normalize_torsion_bond(scan_center)
         return self._relative(scan_center, self._center_torsion_total(paramset, scan_center, target_center))
 
-    def full_total(self, paramset: CorrectionParameterSet, scan_center: tuple[int, int]) -> np.ndarray:
+    def full_total(self, paramset: RefinementParameterSet, scan_center: tuple[int, int]) -> np.ndarray:
         scan_center = normalize_torsion_bond(scan_center)
         if scan_center not in self._base_total_by_scan:
             raise ValueError(f"No cached scan profile for torsion bond {scan_center}.")
@@ -545,13 +545,13 @@ class _MMProfileCache:
             total += self._center_torsion_total(paramset, scan_center, target_center)
         return total
 
-    def full_rel(self, paramset: CorrectionParameterSet, scan_center: tuple[int, int]) -> np.ndarray:
+    def full_rel(self, paramset: RefinementParameterSet, scan_center: tuple[int, int]) -> np.ndarray:
         scan_center = normalize_torsion_bond(scan_center)
         return self._relative(scan_center, self.full_total(paramset, scan_center))
 
     def center_zeroed_rel(
         self,
-        paramset: CorrectionParameterSet,
+        paramset: RefinementParameterSet,
         scan_center: tuple[int, int],
         target_center: tuple[int, int],
     ) -> np.ndarray:
@@ -566,7 +566,7 @@ class _MMProfileCache:
 
 def build_local_torsion_problem(
     scan_data: TorsionScanData,
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     torsion_bond: tuple[int, int],
     topology_cache=None,
     *,
@@ -684,7 +684,7 @@ def _build_improper_group_spec(target: Improper, *, radical: bool) -> TorsionSha
 
 def build_improper_local_problem(
     scan_data: TorsionScanData,
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     target: Improper,
     *,
     radical: bool = False,
@@ -740,13 +740,13 @@ def build_improper_local_problem(
 
 
 def build_global_torsion_problem(
-    stage0_paramset: CorrectionParameterSet,
+    stage0_paramset: RefinementParameterSet,
     torsion_bonds: list[tuple[int, int]] | tuple[tuple[int, int], ...],
     scan_map: dict[tuple[int, int], TorsionScanData],
     topology_cache=None,
     *,
     typed_shared: bool = False,
-    original_paramset: CorrectionParameterSet | None = None,
+    original_paramset: RefinementParameterSet | None = None,
     params: TorsionFitParams | None = None,
     stage_mm_rel_map: dict[tuple[int, int], np.ndarray] | None = None,
     radical_centers: tuple[int, ...] = (),
@@ -892,12 +892,12 @@ def build_global_torsion_problem(
 
 
 def _build_grouped_global_torsion_problem(
-    reference_paramset: CorrectionParameterSet,
+    reference_paramset: RefinementParameterSet,
     torsion_bonds: list[tuple[int, int]] | tuple[tuple[int, int], ...],
     scan_map: dict[tuple[int, int], TorsionScanData],
     topology_cache=None,
     *,
-    original_paramset: CorrectionParameterSet | None = None,
+    original_paramset: RefinementParameterSet | None = None,
     params: TorsionFitParams | None = None,
     stage_mm_rel_map: dict[tuple[int, int], np.ndarray] | None = None,
     radical_centers: tuple[int, ...] = (),

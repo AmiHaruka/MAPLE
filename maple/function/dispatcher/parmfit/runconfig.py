@@ -121,7 +121,7 @@ _KEY_NOTES = {
     "torsion_bonds": "empty = auto-detect (i-j); ';' separates per-residue groups; NCAA: residue-local 1-based (ACE/NME not counted)",
     "p_thresh": "refit when parmchk2 penalty exceeds (!!experimental!!)",
     "torsion_steps": "scan points per full torsion rotation",
-    "radical_center": "radical centers for improper fitting (!!experimental!!); NCAA: residue-local 1-based (same space as torsion_bonds); CORR: mol2 serial",
+    "radical_center": "radical centers for improper fitting (!!experimental!!); NCAA: residue-local 1-based (same space as torsion_bonds); Refinement: mol2 serial",
     "backend": "(lbfgs, cgws, cgbs)",
     "constraint_mode": "(fixinternals, projected)",
     "bond_constraints": "frozen bond pairs (i-j)",

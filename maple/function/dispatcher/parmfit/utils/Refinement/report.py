@@ -1,4 +1,4 @@
-"""Usage: format correction summaries and parameter change reports."""
+"""Usage: format refinement summaries and parameter change reports."""
 
 from __future__ import annotations
 
@@ -6,9 +6,9 @@ import os
 from math import degrees, isclose, sqrt
 from typing import Optional
 
-from ..readparm import Angle, Bond, CorrectionParameterSet, Dihedral, FourierTerm, Improper, Nonbond
-from .artifacts import CorrectionWorkflowResult
-from .config import CorrectionConfig
+from ..readparm import Angle, Bond, RefinementParameterSet, Dihedral, FourierTerm, Improper, Nonbond
+from .artifacts import RefinementWorkflowResult
+from .config import RefinementConfig
 
 
 SECTION_WIDTH = 108
@@ -29,8 +29,8 @@ def stage_lines(message: str) -> list[str]:
 
 
 def summary_lines(
-    config: CorrectionConfig,
-    parmset: CorrectionParameterSet,
+    config: RefinementConfig,
+    parmset: RefinementParameterSet,
     init_frcmod_path: str | None = None,
 ) -> list[str]:
     summary = {
@@ -49,7 +49,7 @@ def summary_lines(
     lines = [
         "\n",
         "=" * RESULT_WIDTH + "\n",
-        "Parmfit Correction Setup".center(RESULT_WIDTH) + "\n",
+        "Parmfit Refinement Setup".center(RESULT_WIDTH) + "\n",
         "=" * RESULT_WIDTH + "\n",
         f"Input mol2:        {_relative_path(config.mol2)}\n",
         f"Initial frcmod:    {_relative_path(init_frcmod_path) if init_frcmod_path else 'not generated'}\n",
@@ -111,8 +111,8 @@ def _torsion_ensemble_setup_line(torsion) -> str:
 
 def parameter_change_lines(
     title: str,
-    original_parmset: CorrectionParameterSet,
-    corrected_parmset: CorrectionParameterSet,
+    original_parmset: RefinementParameterSet,
+    refined_parmset: RefinementParameterSet,
     *,
     sections: tuple[str, ...],
 ) -> list[str]:
@@ -127,7 +127,7 @@ def parameter_change_lines(
     ]
     changed_sections = 0
     for section in sections:
-        section_lines = _section_change_lines(section, original_parmset, corrected_parmset)
+        section_lines = _section_change_lines(section, original_parmset, refined_parmset)
         if section_lines:
             changed_sections += 1
             lines.extend(section_lines)
@@ -137,18 +137,18 @@ def parameter_change_lines(
 
 
 def has_parameter_changes(
-    original_parmset: CorrectionParameterSet,
-    corrected_parmset: CorrectionParameterSet,
+    original_parmset: RefinementParameterSet,
+    refined_parmset: RefinementParameterSet,
     *,
     sections: tuple[str, ...],
 ) -> bool:
     return any(
-        _section_change_count(section, original_parmset, corrected_parmset) > 0
+        _section_change_count(section, original_parmset, refined_parmset) > 0
         for section in sections
     )
 
 
-def correction_result_lines(config: CorrectionConfig, result: CorrectionWorkflowResult) -> list[str]:
+def refinement_result_lines(config: RefinementConfig, result: RefinementWorkflowResult) -> list[str]:
     bonded_counts = _change_counts(result.init_parmset, result.stage0_parmset)
     torsion_counts = _change_counts(result.stage0_parmset, result.final_parmset)
     final_counts = torsion_counts
@@ -172,7 +172,7 @@ def correction_result_lines(config: CorrectionConfig, result: CorrectionWorkflow
     lines = [
         "\n",
         "=" * RESULT_WIDTH + "\n",
-        "PARMFIT CORRECTION RESULT".center(RESULT_WIDTH) + "\n",
+        "PARMFIT REFINEMENT RESULT".center(RESULT_WIDTH) + "\n",
         "=" * RESULT_WIDTH + "\n",
         "Status: completed\n",
         f"Input mol2: {_relative_path(config.mol2)}\n",
@@ -306,7 +306,7 @@ def _charge_result_lines(charge_result, final_mol2: str) -> list[str]:
     return lines
 
 
-def _torsion_refine_round_lines(config: CorrectionConfig, result: CorrectionWorkflowResult) -> list[str]:
+def _torsion_refine_round_lines(config: RefinementConfig, result: RefinementWorkflowResult) -> list[str]:
     stage0_label = (
         "initial parameters"
         if config.bonded == "none"
@@ -353,7 +353,7 @@ def _torsion_refine_round_lines(config: CorrectionConfig, result: CorrectionWork
     return lines
 
 
-def _stage2_debug_lines(config: CorrectionConfig, result: CorrectionWorkflowResult) -> list[str]:
+def _stage2_debug_lines(config: RefinementConfig, result: RefinementWorkflowResult) -> list[str]:
     if not getattr(config.torsion, "report_debug", False):
         return []
     if not result.torsion.refine_cycles:
@@ -392,7 +392,7 @@ def _stage2_debug_lines(config: CorrectionConfig, result: CorrectionWorkflowResu
     return lines
 
 
-def _torsion_energy_trace_lines(config: CorrectionConfig, result: CorrectionWorkflowResult) -> list[str]:
+def _torsion_energy_trace_lines(config: RefinementConfig, result: RefinementWorkflowResult) -> list[str]:
     lines = ["\n", "Torsion energy trace:\n"]
     if not config.torsion.enabled:
         return lines + ["  disabled by parmfit(torsionfit=false)\n"]
@@ -539,48 +539,48 @@ def _dedupe_warnings(warnings: list[str]) -> list[str]:
 
 def _section_change_lines(
     section: str,
-    original_parmset: CorrectionParameterSet,
-    corrected_parmset: CorrectionParameterSet,
+    original_parmset: RefinementParameterSet,
+    refined_parmset: RefinementParameterSet,
 ) -> list[str]:
     if section == "bonds":
-        return _bond_lines(original_parmset.bonds, corrected_parmset.bonds)
+        return _bond_lines(original_parmset.bonds, refined_parmset.bonds)
     if section == "angles":
-        return _angle_lines(original_parmset.angles, corrected_parmset.angles)
+        return _angle_lines(original_parmset.angles, refined_parmset.angles)
     if section == "dihedrals":
-        return _dihedral_lines(original_parmset.dihedrals, corrected_parmset.dihedrals)
+        return _dihedral_lines(original_parmset.dihedrals, refined_parmset.dihedrals)
     if section == "impropers":
-        return _improper_lines(original_parmset.impropers, corrected_parmset.impropers)
+        return _improper_lines(original_parmset.impropers, refined_parmset.impropers)
     if section == "nonbonds":
-        return _nonbond_lines(original_parmset.nonbonds, corrected_parmset.nonbonds)
-    raise ValueError(f"Unknown correction parameter section: {section}")
+        return _nonbond_lines(original_parmset.nonbonds, refined_parmset.nonbonds)
+    raise ValueError(f"Unknown refinement parameter section: {section}")
 
 
 def _change_counts(
-    original_parmset: CorrectionParameterSet,
-    corrected_parmset: CorrectionParameterSet,
+    original_parmset: RefinementParameterSet,
+    refined_parmset: RefinementParameterSet,
 ) -> dict[str, int]:
     return {
-        section: _section_change_count(section, original_parmset, corrected_parmset)
+        section: _section_change_count(section, original_parmset, refined_parmset)
         for section in ("bonds", "angles", "dihedrals", "impropers", "nonbonds")
     }
 
 
 def _section_change_count(
     section: str,
-    original_parmset: CorrectionParameterSet,
-    corrected_parmset: CorrectionParameterSet,
+    original_parmset: RefinementParameterSet,
+    refined_parmset: RefinementParameterSet,
 ) -> int:
     if section == "bonds":
-        return _bond_change_count(original_parmset.bonds, corrected_parmset.bonds)
+        return _bond_change_count(original_parmset.bonds, refined_parmset.bonds)
     if section == "angles":
-        return _angle_change_count(original_parmset.angles, corrected_parmset.angles)
+        return _angle_change_count(original_parmset.angles, refined_parmset.angles)
     if section == "dihedrals":
-        return _torsion_change_count(original_parmset.dihedrals, corrected_parmset.dihedrals)
+        return _torsion_change_count(original_parmset.dihedrals, refined_parmset.dihedrals)
     if section == "impropers":
-        return _improper_change_count(original_parmset.impropers, corrected_parmset.impropers)
+        return _improper_change_count(original_parmset.impropers, refined_parmset.impropers)
     if section == "nonbonds":
-        return _nonbond_change_count(original_parmset.nonbonds, corrected_parmset.nonbonds)
-    raise ValueError(f"Unknown correction parameter section: {section}")
+        return _nonbond_change_count(original_parmset.nonbonds, refined_parmset.nonbonds)
+    raise ValueError(f"Unknown refinement parameter section: {section}")
 
 
 def _bond_change_count(old_bonds: list[Bond], new_bonds: list[Bond]) -> int:
@@ -640,7 +640,7 @@ def _section_header(title: str) -> list[str]:
 def _validate_paired_lengths(name: str, old_items: list, new_items: list) -> None:
     if len(old_items) != len(new_items):
         raise ValueError(
-            f"Correction report cannot align {name}: {len(old_items)} original entries vs {len(new_items)} new entries."
+            f"Refinement report cannot align {name}: {len(old_items)} original entries vs {len(new_items)} new entries."
         )
 
 

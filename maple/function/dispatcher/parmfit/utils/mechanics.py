@@ -9,7 +9,7 @@ from math import cos, sqrt
 import numpy as np
 from ase import Atoms
 
-from .readparm import CorrectionParameterSet, Dihedral, Improper
+from .readparm import RefinementParameterSet, Dihedral, Improper
 
 
 COULOMB_KCAL_ANG_E2 = 332.05221729
@@ -121,7 +121,7 @@ def _total_from_terms(bond: float, angle: float, proper: float, improper: float,
     return bond + angle + proper + improper + vdw + elec
 
 
-def build_mm_topology_cache(paramset: CorrectionParameterSet) -> MMTopologyCache:
+def build_mm_topology_cache(paramset: RefinementParameterSet) -> MMTopologyCache:
     adjacency = paramset.mol2.adjacency
     excluded_12: set[tuple[int, int]] = set()
     excluded_13: set[tuple[int, int]] = set()
@@ -172,7 +172,7 @@ def build_mm_topology_cache(paramset: CorrectionParameterSet) -> MMTopologyCache
 
 def evaluate_mm_energy(
     atoms: Atoms,
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     topology_cache: MMTopologyCache | None = None,
     zero_proper_torsion_bond: tuple[int, int] | None = None,
     zero_improper_center: int | None = None,

@@ -11,7 +11,7 @@ import numpy as np
 from ase import Atoms
 
 from ..mechanics import build_mm_topology_cache, dihedral_radians, evaluate_mm_energy
-from ..readparm import CorrectionParameterSet
+from ..readparm import RefinementParameterSet
 from ..Scan import run_silent_scan
 from ..Scan.optimizer import CGBS, _get_potential_energy
 from ..runtime import copy_thresholds, parmfit_work_prefix, parmfit_workdir
@@ -440,7 +440,7 @@ def _filtered_scan_data(scan_data: TorsionScanData, keep_mask: np.ndarray) -> To
 
 def _filter_loss_mode_scan_points(
     scan_data: TorsionScanData,
-    original_paramset: CorrectionParameterSet,
+    original_paramset: RefinementParameterSet,
     torsion_bond: tuple[int, int],
     *,
     topology_cache=None,
@@ -471,8 +471,8 @@ def run_torsion_workflow(
     *,
     atoms: Atoms,
     output: str,
-    paramset: CorrectionParameterSet,
-    original_paramset: CorrectionParameterSet | None = None,
+    paramset: RefinementParameterSet,
+    original_paramset: RefinementParameterSet | None = None,
     params: TorsionFitParams,
     runtime: TorsionScanRuntime,
     torsion_bond_filter: Callable[[tuple[int, int]], bool] | None = None,

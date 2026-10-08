@@ -98,7 +98,7 @@ class CommandControl:
         "sp": set(),
         "irc": {"gs", "hpc", "eulerpc", "lqa"},
         "md": {"nve", "nvt", "npt"},
-        "parmfit": {"correction", "corr", "ncaa", "metalaa"},
+        "parmfit": {"refinement", "ncaa", "metalaa"},
     }
     GLOBAL_PARAMS = {
         "model",

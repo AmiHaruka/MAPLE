@@ -12,7 +12,7 @@ import numpy as np
 from ase import Atoms
 
 from ..mechanics import build_mm_topology_cache, dihedral_radians, evaluate_mm_energy
-from ..readparm import CorrectionParameterSet
+from ..readparm import RefinementParameterSet
 from ..runtime import copy_thresholds, get_potential_energy, parmfit_work_prefix
 from .config import TorsionFitParams
 from .records import TorsionEnsembleResult, TorsionGlobalProblem, TorsionObjectiveTarget
@@ -57,7 +57,7 @@ def _graph_side(adjacency: dict[int, set[int]], start: int, blocked: int) -> set
 
 
 def _rotation_mask(
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     dihedral_atoms: tuple[int, int, int, int],
     mobile_atoms: set[int] | None,
     atom_count: int,
@@ -69,17 +69,17 @@ def _rotation_mask(
     return [(index + 1) in side_atoms for index in range(atom_count)]
 
 
-def _is_hydrogen_atom(paramset: CorrectionParameterSet, atom_index: int) -> bool:
+def _is_hydrogen_atom(paramset: RefinementParameterSet, atom_index: int) -> bool:
     atom = paramset.mol2.atoms[int(atom_index) - 1]
     return atom.name.strip().upper().startswith("H") or atom.atom_type.strip().lower().startswith("h")
 
 
-def _is_terminal_h_side(paramset: CorrectionParameterSet, side_atoms: set[int]) -> bool:
+def _is_terminal_h_side(paramset: RefinementParameterSet, side_atoms: set[int]) -> bool:
     return len(side_atoms) == 1 and _is_hydrogen_atom(paramset, next(iter(side_atoms)))
 
 
 def _torsion_bond_rotor(
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     torsion_bond: tuple[int, int],
     mobile_atoms: set[int] | None,
 ) -> tuple[int, int, int, int] | None:
@@ -110,7 +110,7 @@ def _torsion_bond_rotor(
 
 
 def _eligible_rotors(
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     mobile_atoms: set[int] | None,
     atom_count: int,
 ) -> tuple[tuple[int, int, int, int], ...]:
@@ -185,7 +185,7 @@ def _trial_offset_maps(
 
 def _apply_trial_offsets(
     atoms: Atoms,
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     trial: dict[tuple[int, int, int, int], float],
     mobile_atoms: set[int] | None,
 ) -> Atoms:
@@ -237,7 +237,7 @@ def _rotate_masked_positions(
     return rotated
 
 
-def _minimum_nonbonded_distance(atoms: Atoms, paramset: CorrectionParameterSet) -> float:
+def _minimum_nonbonded_distance(atoms: Atoms, paramset: RefinementParameterSet) -> float:
     positions = np.asarray(atoms.get_positions(), dtype=float)
     bonded = {
         normalize_torsion_bond((int(bond.atom1), int(bond.atom2)))
@@ -284,7 +284,7 @@ def _rmsd_to_accepted(candidate: Atoms, accepted: list[Atoms], mobile_atoms: set
 def _passes_geometry_filters(
     reference: Atoms,
     candidate: Atoms,
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     mobile_atoms: set[int] | None,
     accepted: list[Atoms],
 ) -> bool:
@@ -300,7 +300,7 @@ def _passes_geometry_filters(
 def _passes_hard_geometry_filters(
     reference: Atoms,
     candidate: Atoms,
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     mobile_atoms: set[int] | None,
 ) -> bool:
     if _minimum_nonbonded_distance(candidate, paramset) < _ENSEMBLE_MIN_NONBONDED_DISTANCE:
@@ -336,7 +336,7 @@ def _ensemble_worker_count() -> int:
 def _screen_trials_with_mm(
     *,
     atoms: Atoms,
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     trials: list[tuple[tuple[int, int], dict[tuple[int, int, int, int], float]]],
     mobile_atoms: set[int] | None,
 ) -> list[_Candidate]:
@@ -361,7 +361,7 @@ def _select_low_mm_energy_diverse(
     candidates: list[_Candidate],
     *,
     atoms: Atoms,
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     mobile_atoms: set[int] | None,
     total_budget: int,
 ) -> list[_Candidate]:
@@ -436,7 +436,7 @@ def _scan_ref_mlip_kcal(scan_data_map, torsion_bond: tuple[int, int]) -> float:
 def build_torsion_local_ensemble(
     *,
     atoms: Atoms,
-    paramset: CorrectionParameterSet,
+    paramset: RefinementParameterSet,
     torsion_bonds,
     scan_data_map,
     params: TorsionFitParams,

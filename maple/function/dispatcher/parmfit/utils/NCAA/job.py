@@ -111,7 +111,7 @@ class NCAA(JobABC):
             final_config = config
             for index, residue in enumerate(residues):
                 tag = f"{residue['resname'].upper()}{residue['resseq']}"
-                rn = rns[index] if index < len(rns) else tag
+                rn = rns[index] if index < len(rns) else residue["resname"].upper()
                 mult = multis[index] if index < len(multis) else 1
                 torsion = config.torsion
                 if config.torsion_bonds_per_residue is not None:

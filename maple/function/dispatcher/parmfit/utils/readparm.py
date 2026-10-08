@@ -137,7 +137,7 @@ class FrcmodDB:
 
 
 @dataclass
-class CorrectionParameterSet:
+class RefinementParameterSet:
     mol2: Mol2Topology
     frcmod: FrcmodDB
     bonds: list[Bond]
@@ -163,7 +163,7 @@ def _canonical_angle(atom_types: tuple[str, str, str]) -> tuple[str, str, str]:
 
 
 def parse_mol2(path: str) -> Mol2Topology:
-    """Parse the minimal mol2 fields needed by correction parmfit."""
+    """Parse the minimal mol2 fields needed by refinement parmfit."""
     atoms: list[Mol2Atom] = []
     bonds: list[Mol2Bond] = []
     section: str | None = None
@@ -409,14 +409,14 @@ def _match_improper(
     return terms
 
 
-def build_correction_paramset(
+def build_refinement_paramset(
     atoms: Atoms,
     mol2_path: str,
     frcmod_path: str,
     p_thresh: float = 30.0,
     torsion_enabled: bool = False,
-) -> CorrectionParameterSet:
-    """Build correction-mode parmfit instances from inp atoms, mol2 topology, and frcmod templates."""
+) -> RefinementParameterSet:
+    """Build refinement-mode parmfit instances from inp atoms, mol2 topology, and frcmod templates."""
     mol2 = parse_mol2(mol2_path)
     frcmod = parse_frcmod(frcmod_path)
 
@@ -507,7 +507,7 @@ def build_correction_paramset(
             )
         )
 
-    return CorrectionParameterSet(
+    return RefinementParameterSet(
         mol2=mol2,
         frcmod=frcmod,
         bonds=bonds,

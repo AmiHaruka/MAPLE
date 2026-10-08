@@ -149,7 +149,13 @@ def write_gaussian_input(
             if torsion_angle_deg is None:
                 raise ValueError("torsion_angle_deg is required when torsion is provided.")
             a, b, c, d = (int(value) for value in torsion)
-            handle.write(f"D {a:d} {b:d} {c:d} {d:d} {float(torsion_angle_deg):.6f} F\n")
+            # Freeze at the CURRENT value: the frame geometry already sits at
+            # the scan target. A stated value ("D i j k l <value> F") does
+            # NOT bind for dihedrals -- verified on a stiff rotor (choi001
+            # OH, 5.9 kcal/mol barrier): same-branch values of 9.98/89.98
+            # deg still let every frame free-optimize to a planar well,
+            # while this value-less form held drift to 0.00 deg.
+            handle.write(f"D {a:d} {b:d} {c:d} {d:d} F\n")
         for index in frozen:
             handle.write(f"X {index + 1:d} F\n")
         if torsion is not None or frozen:
