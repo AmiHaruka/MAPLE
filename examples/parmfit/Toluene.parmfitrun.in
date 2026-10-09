@@ -4,7 +4,7 @@
 
 # Refinement run
 # Site composition, charge source and general refinement settings
-# input mol2 with GAFF2 atom types
+# input mol2 with GAFF2 atom types (omit to auto-generate via antechamber with zero charges; chg_fit then defaults to abcg2)
 mol2                     = toluene_ff.mol2
 # (mseminario, seminario, none)
 bonded                   = mseminario
@@ -33,7 +33,7 @@ qm_compare               = false
 
 # charge fitting
 # Charge fitting method, level and RESP backend
-# (none, resp, MLIP models e.g. aimnet2, antechamber methods e.g. abcg2/bcc)
+# (none, resp, MLIP models e.g. aimnet2, antechamber methods e.g. abcg2/bcc; defaults to abcg2 when mol2= is auto-generated)
 chg_fit                  = none
 # charge level METHOD/BASIS (engine syntax)
 chg_level                = HF/6-31G(d)

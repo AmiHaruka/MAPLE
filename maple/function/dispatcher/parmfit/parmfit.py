@@ -45,6 +45,7 @@ class Parmfit(JobABC):
             elif self.method.lower() == "refinement":
                 # Old setting
                 #self._apply_cmo(use_oxy=False, info_fallback=True)
+                self._prepare_refinement_mol2()
                 from .utils.Refinement import Refinement
 
                 parmfit = Refinement(output=self.output, atoms=self.atoms, params=self.params)
@@ -119,12 +120,8 @@ class Parmfit(JobABC):
 
     def _normalize_paths(self) -> None:
         if self.method == "refinement":
-            mol2_path = self.params.get("mol2")
-            if not mol2_path:
-                raise ValueError(
-                    "parmfit(method=refinement) requires the 'mol2' input file."
-            )
-            self._resolve_input_file("mol2")
+            if self.params.get("mol2"):
+                self._resolve_input_file("mol2")
             return
 
         if self.method in ("ncaa", "metalaa"):
@@ -132,4 +129,40 @@ class Parmfit(JobABC):
             if not pdb_path:
                 raise ValueError("parmfit(method=ncaa/metalaa) requires a PDB block: PDB <path>.")
             self._resolve_input_file("pdb")
+
+    def _prepare_refinement_mol2(self) -> None:
+        """Auto-generate the GAFF2 mol2 via antechamber when mol2= is not given."""
+        if self.params.get("mol2"):
+            return
+        if str(self.params.get("chg_fit", "none")).strip().lower() in ("", "none"):
+            self.params["chg_fit"] = "abcg2"
+        from ase.io import write as ase_write
+
+        from .utils.interface import run_antechamber
+        from .utils.runtime import parmfit_output_dir
+
+        workdir = parmfit_output_dir(self.output)
+        stem = os.path.splitext(os.path.basename(self.output))[0]
+        ase_write(os.path.join(workdir, "ante.pdb"), self.atoms)
+        charge_file = os.path.join(workdir, "ante.chg")
+        with open(charge_file, "w", encoding="utf-8") as handle:
+            for _ in self.atoms:
+                handle.write("0.000000\n")
+
+        run_antechamber(
+            "ante.pdb",
+            {
+                "residue_name": "LIG",
+                "net_charge": int(self.atoms.info.get("charge", 0)),
+                "multiplicity": int(self.atoms.info.get("mult", 1)),
+            },
+            workdir,
+            input_format="pdb",
+            output_format="mol2",
+            charge_mode="rc",
+            charge_file=charge_file,
+        )
+        mol2_path = os.path.join(workdir, f"{stem}_ff.mol2")
+        os.replace(os.path.join(workdir, "LIG.mol2"), mol2_path)
+        self.params["mol2"] = mol2_path
 

@@ -3,11 +3,15 @@
 # This file is itself a valid parmfit config and can be referenced via input=.
 # residues declared for the NCAA flow (built, then folded or frozen)
 ncaa_resids              = HIF89
+# extra altloc selectors
+keep                     = 
+# residues force-added to the site
+add_resid                = 
 
 # NCAA run
 # Non-standard amino acid declaration and residue building
 # 1:1 with ncaa_resids
-ncaa_charges             = 0
+ncaa_charges             = -2
 # 1:1 with ncaa_resids; keep within 3 characters (PDB limit)
 ncaa_resnames            = HF1
 # multiplicity for the NCAA QM jobs
@@ -20,13 +24,13 @@ wat_ff                   = tip3p
 bonded                   = mseminario
 # frequency scaling for Seminario constants
 vib_scale                = 1.0
-# empty = auto-detect (i-j); ';' separates per-residue groups
+# empty = auto-detect (i-j); ';' separates per-residue groups; NCAA: residue-local 1-based (ACE/NME not counted)
 torsion_bonds            = 
 
 # TorsionFit
 # Torsion parameter fitting switches and scan controls
 torsionfit               = false
-# radical centers for improper fitting (!!experimental!!)
+# radical centers for improper fitting (!!experimental!!); NCAA: residue-local 1-based (same space as torsion_bonds); Refinement: mol2 serial
 radical_center           = 
 # refit when parmchk2 penalty exceeds (!!experimental!!)
 p_thresh                 = 30.0
@@ -66,7 +70,7 @@ qm_compare               = false
 
 # charge fitting
 # Charge fitting method, level and RESP backend
-# (none, resp, MLIP models e.g. aimnet2, antechamber methods e.g. abcg2/bcc)
+# (none, resp, MLIP models e.g. aimnet2, antechamber methods e.g. abcg2/bcc; defaults to abcg2 when mol2= is auto-generated)
 chg_fit                  = resp
 # charge level METHOD/BASIS (engine syntax)
 chg_level                = HF/6-31G(d)
@@ -78,7 +82,3 @@ resp_backend             = gaussian
 opt_max_iter             = 256
 # max MLIP optimization step (Angstrom)
 opt_max_step             = 0.2
-# extra altloc selectors
-keep                     = 
-# residues force-added to the site
-add_resid                = 

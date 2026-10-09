@@ -78,7 +78,14 @@ def build_residue_parameters(
     if has_backbone:
         prev_residue, next_residue = find_prev_next_peptide_residues(structure, residue)
         model = build_capped_ncaa_model(residue, rn, prev_residue=prev_residue, next_residue=next_residue)
-        frozen_indices = build_ncaa_sidechain_relax_indices(model)
+        # FixAtoms freezes the given 0-based indices: freeze the ACE/NME caps
+        # and the backbone, relax the sidechain. build_ncaa_sidechain_relax_
+        # indices returns a 1-based relax set, not a freeze set.
+        sidechain_relax = set(build_ncaa_sidechain_relax_indices(model))
+        atom_count = sum(len(residue["atoms"]) for residue in model["residues"])
+        frozen_indices = tuple(
+            index - 1 for index in range(1, atom_count + 1) if index not in sidechain_relax
+        )
     else:
         from ..structure import copy_residue
 

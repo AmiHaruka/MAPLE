@@ -41,12 +41,12 @@ Target: _89:HIF (protein)
   PDB residue templates: matched=516, backbone_only=1, unmatched=0
     non-standard (matched backbone only): _89:HIF (target)
     template overrides (renamed): _10:CYM (CYX->CYM), _74:CYM (CYX->CYM)
-  PDB target charge: _89:HIF = 0 (from your input)
+  PDB target charge: _89:HIF = -2 (from your input)
   [NCAA] MLIP model preparation + reference optimization ...
   NCAA target selector: HIF89
   residue name: HF1
   chirality: L
-  net charge / spin multiplicity: 0 1
+  net charge / spin multiplicity: -2 1
   protein ff: ff14SB
   bonded refinement: mseminario
   charge fitting: resp
@@ -68,11 +68,11 @@ Target: _89:HIF
 Residue name: HF1
 Chirality: L
 Protein ff: ff14SB
-Res charge/spin-multi: 0 1
+Res charge/spin-multi: -2 1
 Charge fitting: resp
 Charge level: HF/6-31G(d)
-Target charge: 0
-Actual charge: 0.00000100
+Target charge: -2
+Actual charge: -2.00000400
 Charge MOL2: MaDA_work/ncaa/HIF89/MaDA_capped.mol2
 
 Main products:
@@ -82,10 +82,10 @@ Main products:
   tleap input:    MaDA_work/MaDA_ncaa_tleap.in
 
 Stage timing:
-  charge fitting                   12m 53s
-  Hessian + mSeminario              1m 19s
-  model preparation + reference        47s
-  tleap validation                      6s
+  charge fitting                   10m 53s
+  model preparation + reference     4m 38s
+  Hessian + mSeminario              4m 03s
+  tleap validation                      7s
   AmberTools template build             0s
   final export                          0s
 
@@ -95,7 +95,7 @@ Next step:
 
 Tleap status:
   Errors: 0
-  Warnings: 3
+  Warnings: 4
   Notes: 0
 
 Warnings:
@@ -104,23 +104,23 @@ Warnings:
 
 
 
-Program started: 2026-09-23 04:35:56
+Program started: 2026-10-09 08:23:50
 
 ======================================================================
                       TIMING SUMMARY
 ======================================================================
-Input Reading.......................................   1.139 s  (   0.1 %)
-  Settings Parsing....................................   1.137 s  (  99.9 %)
-  Coordinate Section Parsing..........................   0.001 s  (   0.0 %)
-  Post-Processing Expansion...........................   0.000 s  (   0.0 %)
-MLP Initialization..................................  10.063 s  (   1.1 %)
-Job Dispatching..................................... 907.531 s  (  98.8 %)
-  Parmfit optimization................................ 907.529 s  ( 100.0 %)
-    Parmfit NCAA........................................ 907.471 s  ( 100.0 %)
+Input Reading.......................................   0.021 s  (   0.0 %)
+  Settings Parsing....................................   0.016 s  (  78.7 %)
+  Coordinate Section Parsing..........................   0.002 s  (   9.2 %)
+  Post-Processing Expansion...........................   0.000 s  (   0.1 %)
+MLP Initialization..................................  26.293 s  (   2.2 %)
+Job Dispatching..................................... 1188.613 s  (  97.8 %)
+  Parmfit optimization................................ 1188.609 s  ( 100.0 %)
+    Parmfit NCAA........................................ 1188.413 s  ( 100.0 %)
 ======================================================================
-Total wall time: 918.732 s
-Total CPU time: 142.572 s
+Total wall time: 1214.928 s
+Total CPU time: 561.873 s
 ======================================================================
 
-Program ended: 2026-09-23 04:51:15
-TOTAL RUN TIME: 0 days 0 hours 15 minutes 18 seconds 731 msec
+Program ended: 2026-10-09 08:44:05
+TOTAL RUN TIME: 0 days 0 hours 20 minutes 14 seconds 927 msec

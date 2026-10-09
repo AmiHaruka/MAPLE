@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from collections import defaultdict
 from dataclasses import dataclass, field
 from itertools import combinations
@@ -11,6 +12,7 @@ from pathlib import Path
 import numpy as np
 
 from ..amber_templates import required_template_leaprcs
+from ..context import find_prev_next_peptide_residues
 from ..ionparams import infer_ion_frcmod_name
 from ..model import copy_structure_subset, flatten_model_atoms, infer_bond_pairs, rebuild_model_index, write_model_pdb
 from ..chgfit import lookup_standard_atom_entry, lookup_standard_residue_entry, write_resp_mol2
@@ -1231,6 +1233,7 @@ def _peptide_reconnect_commands(
     site_model: dict,
     site_typing: MetalSiteTyping,
     resid_by_key: dict[tuple[str, int, str], int],
+    folded_peptide_keys: list = (),
 ) -> list[str]:
     lines: list[str] = []
     seen: set[str] = set()
@@ -1240,6 +1243,15 @@ def _peptide_reconnect_commands(
             continue
         prev_key = residue.get("_prev_peptide_key")
         next_key = residue.get("_next_peptide_key")
+        if prev_key is not None:
+            line = f"bond {_tleap_ref(prev_key, 'C', resid_by_key)} {_tleap_ref(residue_key, 'N', resid_by_key)}\n"
+            _append_unique(lines, seen, line)
+        if next_key is not None:
+            line = f"bond {_tleap_ref(residue_key, 'C', resid_by_key)} {_tleap_ref(next_key, 'N', resid_by_key)}\n"
+            _append_unique(lines, seen, line)
+    # Folded (non-site) residues get no auto-connection from loadmol2: emit
+    # both peptide sides unless the site-side neighbor already did.
+    for residue_key, prev_key, next_key in folded_peptide_keys:
         if prev_key is not None:
             line = f"bond {_tleap_ref(prev_key, 'C', resid_by_key)} {_tleap_ref(residue_key, 'N', resid_by_key)}\n"
             _append_unique(lines, seen, line)
@@ -1280,6 +1292,7 @@ def _build_tleap_lines(
     wat_ff: str,
     resid_by_key: dict[tuple[str, int, str], int],
     pro_ff: str = "ff14SB",
+    folded_peptide_keys: list = (),
 ) -> list[str]:
     lines: list[str] = [
         f"source leaprc.protein.{pro_ff}\n",
@@ -1297,7 +1310,7 @@ def _build_tleap_lines(
     for frcmod in site_typing.ion_frcmods:
         lines.append(f"loadamberparams {frcmod}\n")
     for frcmod in site_typing.ncaa_frcmods:
-        lines.append(f"loadamberparams {frcmod}\n")
+        lines.append(f"loadamberparams {os.path.basename(frcmod)}\n")
     lines.append(f"loadamberparams {os.path.basename(artifacts.files['frcmod'])}\n")
     external_residues = [
         get_resid_label(residue)
@@ -1309,7 +1322,7 @@ def _build_tleap_lines(
         lines.append("# Load matching ligand/NCAA templates before loadpdb for these residues.\n")
     lines.append(f"mol = loadpdb {os.path.basename(artifacts.files['tleap_pdb'])}\n")
     lines.extend(_metal_donor_bond_commands(site_model, resid_by_key))
-    lines.extend(_peptide_reconnect_commands(site_model, site_typing, resid_by_key))
+    lines.extend(_peptide_reconnect_commands(site_model, site_typing, resid_by_key, folded_peptide_keys))
     lines.extend(_disulfide_bond_commands(structure, resid_by_key))
     base = os.path.splitext(os.path.basename(artifacts.files["tleap_input"]))[0]
     lines.append(f"savepdb mol {base}_dry.pdb\n")
@@ -1373,12 +1386,24 @@ def write_site_model_files(
     site_residue_keys = {get_resid_key(residue) for residue in site_model["residues"]}
     output_dir = os.path.dirname(artifacts.files["frcmod"])
     folded_builds = {**artifacts.ncaa_builds, **artifacts.lig_builds}
+    folded_peptide_keys: list[tuple[tuple[str, int, str], tuple[str, int, str] | None, tuple[str, int, str] | None]] = []
     for residue_key, build in folded_builds.items():
         if residue_key in site_residue_keys:
             continue
         residue = next((item for item in structure["residues"] if get_resid_key(item) == residue_key), None)
         if residue is None:
             continue
+        # loadmol2 units carry no HEAD/TAIL connect atoms, so tleap never
+        # auto-bonds a folded residue to its chain neighbors: both peptide
+        # sides must be emitted as explicit bond commands (the site-side
+        # neighbor usually covers its own side; the dedup in
+        # _peptide_reconnect_commands absorbs the overlap).
+        prev_residue, next_residue = find_prev_next_peptide_residues(structure, residue)
+        folded_peptide_keys.append((
+            residue_key,
+            get_resid_key(prev_residue) if prev_residue is not None else None,
+            get_resid_key(next_residue) if next_residue is not None else None,
+        ))
         export_residue = copy_residue(residue, resname=build["rn"])
         for atom in export_residue["atoms"]:
             if atom["name"] in build["atom_types"]:
@@ -1390,7 +1415,11 @@ def write_site_model_files(
         write_resp_mol2(mol2_path, fold_model, infer_bond_pairs(fold_model))
         site_typing.mol2_files[build["rn"]] = mol2_path
         site_typing.residue_names[residue_key] = build["rn"]
-        site_typing.ncaa_frcmods.append(build["frcmod_path"])
+        # The build frcmod lives in the per-residue workdir; mirror it next to
+        # the tleap script so the script can reference it by bare filename.
+        folded_frcmod_path = os.path.join(output_dir, f"{build['rn']}.frcmod")
+        shutil.copyfile(build["frcmod_path"], folded_frcmod_path)
+        site_typing.ncaa_frcmods.append(folded_frcmod_path)
 
     site_bond_pairs = _export_bond_pairs(site_model)
     write_resp_mol2(
@@ -1410,6 +1439,7 @@ def write_site_model_files(
         wat_ff=wat_ff,
         resid_by_key=resid_by_key,
         pro_ff=pro_ff,
+        folded_peptide_keys=folded_peptide_keys,
     )
     with open(artifacts.files["tleap_input"], "w", encoding="utf-8") as handle:
         handle.writelines(tleap_lines)
