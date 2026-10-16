@@ -30,50 +30,41 @@ _COMMON_MODEL_OPTION_KEYS = {'module', 'model_path', 'hessian'}
 # External users add backends via input-header `module=` or the
 # MAPLE_CALCULATOR_PLUGINS env var; this dict is for shipped backends only.
 _BUILTIN_NAME_TO_MODULE = {
-    'ani2x': 'maple.function.calculator.ani._ani_calculator',
     'ani1x': 'maple.function.calculator.ani._ani_calculator',
     'ani1ccx': 'maple.function.calculator.ani._ani_calculator',
+    'ani2x': 'maple.function.calculator.ani._ani_calculator',
     'ani1xnr': 'maple.function.calculator.ani._ani_calculator',
+    'ani2xr': 'maple.function.calculator.ani._ani_calculator',
+    'ani2dr': 'maple.function.calculator.ani._ani_calculator',
+    'snn-ani2xr': 'maple.function.calculator.ani._ani_calculator',
+    'ani-mbis': 'maple.function.calculator.ani._ani_calculator',
     'aimnet2': 'maple.function.calculator.aimnet._aimnet2_calculator',
-    'aimnet2nse': 'maple.function.calculator.aimnet._aimnet2_calculator',
-    'maceoff23s': 'maple.function.calculator.mace._mace_calculator',
-    'maceoff23m': 'maple.function.calculator.mace._mace_calculator',
-    'maceoff23l': 'maple.function.calculator.mace._mace_calculator',
-    'egret': 'maple.function.calculator.mace._mace_calculator',
-    'maceomol': 'maple.function.calculator.mace._mace_general_calculator',
-    'macepols': 'maple.function.calculator.mace._macepol_calculator',
-    'macepolm': 'maple.function.calculator.mace._macepol_calculator',
-    'macepoll': 'maple.function.calculator.mace._macepol_calculator',
-    'fennol': 'maple.function.calculator.fennol._fennol_calculator',
-    'fennix-bio1s': 'maple.function.calculator.fennol._fennol_calculator',
-    'fennix-bio1m': 'maple.function.calculator.fennol._fennol_calculator',
+    'aimnet2-nse': 'maple.function.calculator.aimnet._aimnet2_calculator',
+    'aimnet2-rxn': 'maple.function.calculator.aimnet._aimnet2_calculator',
+    'aimnet2-pd': 'maple.function.calculator.aimnet._aimnet2_calculator',
+    'aimnet2-b973c': 'maple.function.calculator.aimnet._aimnet2_calculator',
+    'aimnet2-2025': 'maple.function.calculator.aimnet._aimnet2_calculator',
+    'mace-off-23s': 'maple.function.calculator.mace._mace_calculator',
+    'mace-off-23m': 'maple.function.calculator.mace._mace_calculator',
+    'mace-off-23l': 'maple.function.calculator.mace._mace_calculator',
+    'mace-off-23bm': 'maple.function.calculator.mace._mace_calculator',
+    'mace-off-24m': 'maple.function.calculator.mace._mace_calculator',
+    'mace-les-off': 'maple.function.calculator.mace._mace_calculator',
+    'egret-1': 'maple.function.calculator.mace._mace_calculator',
+    'egret-1e': 'maple.function.calculator.mace._mace_calculator',
+    'egret-1m': 'maple.function.calculator.mace._mace_calculator',
+    'egret-1s': 'maple.function.calculator.mace._mace_calculator',
+    'egret-1t': 'maple.function.calculator.mace._mace_calculator',
+    'mace-omol-0': 'maple.function.calculator.mace._mace_general_calculator',
+    'mace-polar-1s': 'maple.function.calculator.mace._macepol_calculator',
+    'mace-polar-1m': 'maple.function.calculator.mace._macepol_calculator',
+    'mace-polar-1l': 'maple.function.calculator.mace._macepol_calculator',
+    'fennix-bio-1s': 'maple.function.calculator.fennol._fennol_calculator',
+    'fennix-bio-1m': 'maple.function.calculator.fennol._fennol_calculator',
     'uma': 'maple.function.calculator.uma._uma_calculator',
 }
 
-
 _plugins_loaded_from_env = False
-
-
-def _compact_model_name(name: str) -> str:
-    return (
-        str(name)
-        .strip()
-        .lower()
-        .replace('_', '')
-        .replace('-', '')
-        .replace(' ', '')
-        .replace('(', '')
-        .replace(')', '')
-    )
-
-
-_BUILTIN_ALIAS_TO_NAME = {
-    _compact_model_name(name): name for name in _BUILTIN_NAME_TO_MODULE
-}
-
-
-def _builtin_canonical_name(name: str) -> Optional[str]:
-    return _BUILTIN_ALIAS_TO_NAME.get(_compact_model_name(name))
 
 
 def _model_download_url(filename: str) -> str:
@@ -90,7 +81,7 @@ def _normalize_model_options(model_options: Optional[dict]) -> dict:
         key = str(raw_key).strip().lower()
         if raw_value is None:
             value = None
-        elif key in {'hessian', 'coulomb_method', 'inference', 'task', 'size'}:
+        elif key in {'hessian', 'lr', 'dtype', 'inference', 'task', 'size'}:
             value = str(raw_value).strip().lower()
         elif key in {'module', 'model_path', 'checkpoint_path'}:
             value = str(raw_value).strip()
@@ -190,10 +181,7 @@ class SetCalculator:
         if module_override:
             import_calculator_plugin(str(module_override))
         else:
-            builtin_name = _builtin_canonical_name(normalized)
             builtin_module = _BUILTIN_NAME_TO_MODULE.get(normalized)
-            if builtin_module is None and builtin_name is not None:
-                builtin_module = _BUILTIN_NAME_TO_MODULE.get(builtin_name)
             if builtin_module is not None:
                 importlib.import_module(builtin_module)
 
@@ -203,18 +191,6 @@ class SetCalculator:
             return cls
         except KeyError:
             pass
-
-        builtin_name = _builtin_canonical_name(normalized)
-        if builtin_name is not None and builtin_name != normalized:
-            builtin_module = _BUILTIN_NAME_TO_MODULE.get(builtin_name)
-            if builtin_module is not None:
-                importlib.import_module(builtin_module)
-            try:
-                cls = get_registered_calculator(builtin_name)
-                self.model = builtin_name
-                return cls
-            except KeyError:
-                pass
 
         raise ValueError(f"Unsupported model: '{name}'.")
 
@@ -235,33 +211,12 @@ class SetCalculator:
                     f'Supported modes: {supported_text}'
                 )
 
-        coulomb_method = self.model_options.get('coulomb_method')
-        supported_coulomb = getattr(cls, 'SUPPORTED_COULOMB_METHODS', None)
-        if coulomb_method is not None and supported_coulomb is not None:
-            if coulomb_method not in supported_coulomb:
-                supported_text = ', '.join(sorted(supported_coulomb))
-                if coulomb_method == 'ewald':
-                    raise NotImplementedError(
-                        "AIMNet2 coulomb_method='ewald' requires validated PBC/cell/MIC support; "
-                        f"use one of: {supported_text}."
-                    )
-                raise ValueError(
-                    f"Model '{self.model}' does not support coulomb_method='{coulomb_method}'. "
-                    f'Supported methods: {supported_text}'
-                )
-
         if self.atoms is not None:
             has_charge = self.atoms.info.get('charge', 0) != 0
             has_mult = self.atoms.info.get('mult', 1) != 1
             if (has_charge or has_mult) and not cls.SUPPORTS_CHARGE_MULT:
-                self.log_info(
-                    [
-                        f"\n [WARNING] Model '{self.model}' does not support charge/multiplicity.\n",
-                        f"           charge={self.atoms.info.get('charge', 0)}, ",
-                        f"mult={self.atoms.info.get('mult', 1)} will be IGNORED.\n",
-                        '           Models with charge/mult support: aimnet2, aimnet2nse, uma, macepols/m/l\n',
-                    ]
-                )
+                raise ValueError(f"Model '{self.model}' has no charge/multiplicity conditioning; "
+                                 "use charge=0 and mult=1.")
 
         if self.d4:
             import inspect

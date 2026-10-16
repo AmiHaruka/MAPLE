@@ -65,10 +65,11 @@ These are **not** bugs; they are flagged so nobody "fixes" them blindly.
   project decision. The cost is a second copy of the unit/solvent logic; if UMA
   is ever brought under the protocol, factor `_finalize_results`' body into a
   free function both can call.
-- **`aimnet/_aimnet2_batch_calculator.py`** is deliberately out of the protocol
-  (see its module docstring). It is consumed only by `BatchLBFGS`, exposes
-  `get_ef_gpu`/`get_efh_gpu` rather than `calculate`, and converts units itself
-  (`/EH2EV`). Leave it self-contained until a batch-path retrofit.
+- The historical **`aimnet/_aimnet2_batch_calculator.py`** exposed
+  `get_ef_gpu`/`get_efh_gpu` and owned optimizer coordinate buffers. It has been
+  replaced by `calculate_batch`; BatchLBFGS and BatchPRFO now own coordinates,
+  padding and optimizer state. Their dispatcher routes and independent member
+  outputs are covered by the [integration tests and record](model/ORIGNAL/docs/function_docs/dispatcher-batch.md).
 
 ---
 
