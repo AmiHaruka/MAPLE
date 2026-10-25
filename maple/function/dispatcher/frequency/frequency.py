@@ -14,7 +14,7 @@ from dataclasses import dataclass, fields
 from typing import Tuple, Optional, Dict, Tuple as Tup, Literal
 from ase import Atoms
 from ..jobABC import JobABC
-from maple.function.calculator._batch import calculate_batch, hessian_one
+from maple.function.calculator._batch import calculate_batch, hessian_single
 from maple.function.utility import Molecules
 
 from maple.function.timer import timer
@@ -324,7 +324,7 @@ class FrequencyBase(JobABC):
             calc = self.atoms.calc
             if calc is None or not hasattr(calc, "get_hessian"):
                 raise RuntimeError("Atom calculator must implement get_hessian method")
-            hessian = hessian_one(calc, self.atoms, self.batch_size)
+            hessian = hessian_single(calc, self.atoms, self.batch_size)
 
         # Convert to numpy array defensively.
         if _TORCH_OK and isinstance(hessian, torch.Tensor):

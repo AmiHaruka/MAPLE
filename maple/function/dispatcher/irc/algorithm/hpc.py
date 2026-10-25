@@ -30,7 +30,7 @@ from maple.function.read.filereader.pdb_reader import write_pdb_trajectory
 from maple.function.calculator._inputs import _state
 
 from .logger import log_info, log_error
-from maple.function.calculator._batch import energy_forces_one, hessian_one
+from maple.function.calculator._batch import energy_forces_single, hessian_single
 
 # =============================== Utilities ===============================
 BOHR_TO_ANG = 0.529177210903
@@ -389,7 +389,7 @@ class HPC:
         )
 
         # Reference TS energy
-        E_ts, F_ts_cart = energy_forces_one(self.atoms.calc, self.atoms)
+        E_ts, F_ts_cart = energy_forces_single(self.atoms.calc, self.atoms)
 
         # Store original TS Cartesian positions, reused for both directions
         R_ts_cart = self.atoms.get_positions().copy().reshape(-1)
@@ -460,7 +460,7 @@ class HPC:
         Assumes atoms.calc implements get_hessian(atoms) and returns 3N x 3N
         or shape (1, 3N, 3N).
         """
-        H = hessian_one(self.atoms.calc, self.atoms, self.p.batch_size)
+        H = hessian_single(self.atoms.calc, self.atoms, self.p.batch_size)
         H = to_f64(H)
         if H.ndim == 3 and H.shape[0] == 1:
             H = H[0]
@@ -477,7 +477,7 @@ class HPC:
         """
         q_cart = self._cart_from_mw(q_mw)
         self.atoms.set_positions(q_cart.reshape(-1, 3))
-        E, F_cart = energy_forces_one(self.atoms.calc, self.atoms)
+        E, F_cart = energy_forces_single(self.atoms.calc, self.atoms)
         return E, to_f64(F_cart).reshape(-1)
 
     def _gradient_mw_from_forces(self, F_cart: np.ndarray) -> np.ndarray:

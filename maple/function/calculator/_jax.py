@@ -14,8 +14,13 @@ def load_model(model_path, device='cpu', *, require_vjp=False):
     platform = 'cuda' if name.startswith('cuda') else 'cpu'
     if platform not in model.platforms:
         raise ValueError(f'JAX export does not support platform {platform!r}: {model_path}')
-    if require_vjp and not model.has_vjp():
-        raise ValueError(f'JAX export requires a saved first VJP: {model_path}')
+    derivative = model
+    for order in range(int(require_vjp)):
+        if not derivative.has_vjp():
+            name = 'first' if order == 0 else 'second'
+            raise ValueError(f'JAX export requires a saved {name} VJP: {model_path}')
+        if order + 1 < int(require_vjp):
+            derivative = derivative.vjp()
     backend = 'gpu' if platform == 'cuda' else 'cpu'
     index = int(name.split(':')[1]) if ':' in name else 0
     return model, jax.devices(backend)[index]
@@ -46,10 +51,10 @@ def compile_strain(forward, *, position_key, cell_key, energy_key, batch_key=Non
     return jax.jit(jax.value_and_grad(strained_energy, argnums=1, has_aux=True))
 
 
-def array_properties(energy, members, properties, *, forces=None,
+def array_properties(energy, members, properties, *, forces=None, charges=None, dipole=None,
                      strain_gradient=None, volume=None, source_unit='eV'):
     """Split native arrays by member; E/F/virial use Hartree, stress eV/Å³."""
-    unknown = set(properties) - {'energy', 'free_energy', 'forces', 'stress', 'virial'}
+    unknown = set(properties) - {'energy', 'free_energy', 'forces', 'charges', 'dipole', 'stress', 'virial'}
     if unknown:
         raise NotImplementedError(f'Unsupported array properties: {sorted(unknown)}')
     result = {}
@@ -58,15 +63,20 @@ def array_properties(energy, members, properties, *, forces=None,
         for name in ('energy', 'free_energy'):
             if name in properties:
                 result[name] = values
-    if 'forces' in properties:
-        if forces is None:
-            raise NotImplementedError('No forces array supplied')
-        array = np.asarray(forces, dtype=float)
-        if array.ndim == 3:
-            result['forces'] = [array[i, :len(atoms)].copy() for i, atoms in enumerate(members)]
-        else:
-            offsets = np.cumsum([0, *map(len, members)])
-            result['forces'] = [array[offsets[i]:offsets[i + 1]].copy() for i in range(len(members))]
+    for name, values, dense_rank in (('forces', forces, 3), ('charges', charges, 2)):
+        if name in properties:
+            if values is None:
+                raise NotImplementedError(f'No {name} array supplied')
+            array = np.asarray(values, dtype=float)
+            if array.ndim == dense_rank:
+                result[name] = [array[i, :len(atoms)].copy() for i, atoms in enumerate(members)]
+            else:
+                offsets = np.cumsum([0, *map(len, members)])
+                result[name] = [array[offsets[i]:offsets[i + 1]].copy() for i in range(len(members))]
+    if 'dipole' in properties:
+        if dipole is None:
+            raise NotImplementedError('No dipole array supplied')
+        result['dipole'] = np.asarray(dipole, dtype=float)[:len(members)].copy()
     if set(properties) & {'stress', 'virial'}:
         if strain_gradient is None:
             raise NotImplementedError('No strain derivative supplied')
@@ -79,6 +89,17 @@ def array_properties(energy, members, properties, *, forces=None,
         if 'virial' in properties:
             result['virial'] = -derivative
     return _convert_properties(result, source_unit=source_unit)
+
+
+def compile_forces(forward, *, position_key, energy_key, force_key='forces'):
+    """Differentiate complete energy and retain the same call's native outputs."""
+    def result(data):
+        def energy(coordinates):
+            output = forward({**data, position_key: coordinates})
+            return output[energy_key].sum(), output
+        (_, output), gradient = jax.value_and_grad(energy, has_aux=True)(data[position_key])
+        return {**output, force_key: -gradient}
+    return jax.jit(result)
 
 
 def compile_hvp(forward, *, position_key, force_key):

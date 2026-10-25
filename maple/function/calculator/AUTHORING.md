@@ -26,7 +26,7 @@ have to inherit `CalcABC`. UMA, for example, extends third-party
   force adjustments. Other calculation errors propagate. `CalcABC.get_hvp` raises
   `NotImplementedError` by default — there is **no** shared autograd default,
   because the forward shape differs per backend. ANI, AIMNet2, the MACE
-  calculators and exported FENNIX implement it through their own native inputs.
+  calculators, NequIP/Allegro, exported FENNIX, GRACE and SO3LR implement it through their own native inputs.
 - `calculate_batch(self, atoms_list, properties=None, batch_size=None)` —
   `CalcABC` supplies ordered grouping, chunking and sequential fallback.
   Energy is `[B]`; forces, charges and Hessians are per-member lists; fixed
@@ -72,22 +72,63 @@ the calculator's shared foundation; native packing stays outside `CalcABC`.
 Adapter-selected periodic-cell checks run in `_validate_geometry`, before
 neighbor construction and device transfer, within the existing geometry pass.
 
-ANI, AIMNet2 and the three MACE calculators use `_torch.py` for artifact loading,
+ANI, AIMNet2, the three MACE calculators and NequIP/Allegro use `_torch.py` for artifact loading,
 derivatives and Tensor result splitting. MACE constructors handle their buffer
-dtype conversion. FENNIX uses `_jax.py` for standard export loading, saved-VJP
+dtype conversion. Each family constructor sets its default Hessian mode;
+framework loaders leave the calculator's choice unchanged.
+`NequIPCalculator` loads the five `allegro-fm-*` / `nequip-*-cosmo` /
+`nequip-t3-gas` PTs without a whole-model dtype conversion. Inputs are FP32;
+the Allegro-FM radial parameters and buffers retain their native FP64 values.
+Only default/explicit FP32 is accepted. `prepare_nequip` binds the PT's original
+`pos`/`atom_types`/`ptr` or `num_atoms` graph layout using its element table,
+cutoff and `input_fields`. F/stress/virial use the PT's native switches, with
+no second coordinate/cell strain in the calculator. For H/HVP the wrapper's
+`training=True` retains the force derivative graph; every module stays in eval
+mode, including the native inference scale/shift. These models require
+Q=0/M=1 and expose no public charge/dipole head or extra dispersion option.
+Install a same-name PT in `model/` or pass `model_path`; HF revision is unchanged.
+Torch property tools reuse valid differentiable native forces as `gradient=-F`
+for H/HVP when their layout matches the coordinate tensor. Otherwise complete
+energy AD remains the existing path. Native atomic tensors stay on-device
+until a public array property is requested; H-only does not convert forces.
+FENNIX uses `_jax.py` for standard export loading, saved-VJP
 derivatives, compiled coordinate/cell strain and native array result splitting;
 family code binds native fields and model calls. `compile_strain` accepts field
 names, and `array_properties` accepts already computed arrays without calling
 the model. Property results reuse base unit conversion. `_jax_inputs.py` retains BIO1 preprocessing.
-`CalcABC` does not import either backend at module load.
+`_tensorflow.py` provides standard frozen GraphDef loading, explicit CPU/CUDA
+placement, XLA request compilation, HVP/Hessian, coordinate/cell strain and
+array result splitting. Native fields are bound by family code; the tools do
+not import Torch, JAX or TensorPotential. GRACE calculators bind the qualified
+GraphDef ports, rebuild differentiable bond vectors, and use native E/F.
+`CalcABC` does not import these backends at module load.
 `_batch.py` supplies the existing multi-structure composition behind
 `calculate_batch`; algorithm iteration and task scheduling stay with consumers.
+
+Family code determines the physical meaning of native outputs. For example,
+ANI binds `atomic_charges` and SO3LR binds `partial_charges` to public `charges`;
+SO3LR binds `dipole_vec` to `dipole`. Internal latent charges remain internal.
+Torch `tensor_properties` uses a native dipole first. Its private
+`dipole_from_charges=True` option explicitly enables the existing nonperiodic
+`sum(q_i * r_i)` fallback; the five Torch adapters retain that choice. Without
+a native dipole, periodic members still fail, as do members without physical
+atomic charges. No model or calculator capability attribute is added.
+
+JAX and TensorFlow `array_properties` accept already computed `charges` and
+`dipole` arrays, alongside energy, forces and strain derivatives. They select
+only requested fields, split flat or dense atomic arrays by member and remove
+padding. They do not infer charges or dipoles. Charges and dipoles retain their
+native units through the base conversion. Torch keeps its runtime autograd
+flow; JAX and TensorFlow retain their bound, compiled derivative functions.
 
 Torch loading requires boolean `supports_native_batch` and
 `supports_native_pbc_batch` fields in the PT. Concrete calculators read those
 fields in `_calculate_batch`; they do not copy them onto the calculator.
 JAX loading checks the export's target platforms and, with `require_vjp=True`,
-its saved first VJP. FENNIX requests that VJP for its validated derivative paths.
+its saved first VJP. FENNIX requests that VJP for its validated derivative paths;
+SO3LR requests `require_vjp=2` because its complete-energy force is differentiated
+again. `compile_forces` differentiates a bound complete-energy function while
+retaining that call's native outputs.
 Standard `model.call` checks input trees, dtypes and shape constraints.
 
 `CalcABC._calculate_batch` returns `NotImplemented` by default. Concrete methods
@@ -123,6 +164,46 @@ Native `.fnx` weights are offline export sources; the custom checkpoint runtime
 and generic `fennol` model entry have been removed. `ORIGNAL` is the user's
 personal wrapper-export maintenance directory and is outside the runtime
 dependency graph.
+
+GRACE supports `grace-off-{1,2}{s,m,l}` using local `.pb` GraphDefs. Each graph
+contains its element map, cutoff, precision and native gas/periodic batch fields.
+The calculator keeps the graph's member energy and native force semantics;
+member stress/virial come from simultaneous coordinate/cell strain. GraphDef
+output bindings belong to the adapter and require no build-report JSON.
+
+SO3LR uses `so3lr.jax` and its complete model implementation in `so3lr/_model.py`.
+That module combines the graph's real-space energy with pure JAX reciprocal,
+self and background terms. The calculator binds this complete model call;
+shared `_jax` tools remain model-independent. Workbench uses the same complete
+model implementation while its original native reference remains independent.
+`lr=auto/cutoff/ewald/pme` retains the qualified physical settings: gas auto
+uses the 1000 Å cutoff route; full-3D periodic auto uses PME with 12 Å real
+space, smearing 4 Å, spacing 2 Å and four interpolation nodes. All energy
+derivatives include the complete real/reciprocal energy, self and background
+terms. Native partial charges and dipole are exposed as `charges` (e) and
+`dipole` (e Å); dipole retains the native coordinate-origin convention.
+Gas and full-3D periodic batches use one real-space model call. Periodic
+Ewald/PME members have independent structure factors or FFT meshes, self and
+background terms. `_batch_key` groups reciprocal calls by grid shape; different
+cells within a group retain their own live coordinate/cell derivatives.
+
+Both adapters retain native dummy atoms/graphs and masks. Input capacities
+grow by the existing 1.05 convention on overflow, separately by member count
+and boundary mode; neighbors are rebuilt at every geometry. SO3LR additionally
+binds its LR route and reciprocal-grid shape before JIT/differentiation.
+CPU/CUDA placement uses the existing `device` option, with artifact precision
+preserved. TensorFlow/JAX libraries remain optional and are imported only by
+the selected family. The existing TS HVP Tensor bridge imports Torch on demand.
+No HuggingFace revision is changed: new models use the local runtime files or
+an explicit `model_path` until separately uploaded and verified.
+
+For mixed TensorFlow/Torch processes, the installed CUDA libraries must be
+consistent. On the development host, a TF-first import otherwise resolves
+system CUDA 12.3 before Torch 2.8/cu128. Prepending the existing maple environment's
+`site-packages/nvidia/{cuda_runtime,nvjitlink,cudnn}/lib` directories to
+`LD_LIBRARY_PATH` resolves both the CUDA-runtime and nvJitLink symbols; no package
+change is required. TensorFlow GPU memory growth and JAX preallocation settings
+remain process configuration when sharing a device with other applications.
 
 ## Minimum runnable subclass
 
@@ -360,4 +441,4 @@ surface is duck-typed by design.
 
 ### Workflow Hessian consumers
 
-`_batch.hessian_one(calc, atoms, batch_size=None)` retains the existing `get_hessian(atoms)` protocol and sends explicitly chunked numerical Hessians through `calculate_batch`. The numeric branch retains calculator PBC/solvent guards even when every atom is fixed. Freq accepts a supplied Hessian for analysis without another model call; IRC retains each method's existing propagation sequence. Output helpers consume supplied E/F and resolve electronic-state metadata through `_inputs._state` without inference.
+`_batch.hessian_single(calc, atoms, batch_size=None)` retains the existing `get_hessian(atoms)` protocol and sends explicitly chunked numerical Hessians through `calculate_batch`. The numeric branch retains calculator PBC/solvent guards even when every atom is fixed. Freq accepts a supplied Hessian for analysis without another model call; IRC retains each method's existing propagation sequence. Output helpers consume supplied E/F and resolve electronic-state metadata through `_inputs._state` without inference.

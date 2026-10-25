@@ -5,7 +5,7 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 from ase import Atoms
-from maple.function.calculator._batch import energy_forces_one
+from maple.function.calculator._batch import energy_forces_single
 
 from ._common import (
     compute_metrics,
@@ -77,7 +77,7 @@ class RFO(JobABC):
         iteration = 0
 
         # initial energy/forces
-        E, F = energy_forces_one(atoms.calc, atoms)
+        E, F = energy_forces_single(atoms.calc, atoms)
         write_xyz(opt_traj_file, [atoms.copy()], energies=[float(E)], forces=[F])
 
         self.results = {'atoms': atoms, 'energy': E, 'forces': F,
@@ -111,7 +111,7 @@ class RFO(JobABC):
 
             # Evaluate actual energy and forces at trial
             try:
-                E_new, F_new = energy_forces_one(atoms.calc, atoms)
+                E_new, F_new = energy_forces_single(atoms.calc, atoms)
             except Exception:
                 atoms.set_positions(X)
                 raise

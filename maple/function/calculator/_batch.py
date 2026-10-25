@@ -18,7 +18,7 @@ def _apply_constraints(atoms, energy, forces=None):
     return energy, forces
 
 
-def energy_forces_one(calc, atoms, force_consistent=True):
+def energy_forces_single(calc, atoms, force_consistent=True):
     name = 'free_energy' if force_consistent else 'energy'
     calc.calculate(atoms, properties=[name, 'forces'])
     return _apply_constraints(atoms, float(calc.results[name]), calc.results['forces'])
@@ -50,7 +50,7 @@ def energy_forces_images(images, batch_size=None, force_consistent=True):
     return energies, forces
 
 
-def hvp_one(calc, atoms, n, delta=0.005, batch_size=None):
+def hvp_single(calc, atoms, n, delta=0.005, batch_size=None):
     """Return Hn, forces and energy at the center; FD uses three structures."""
     native = getattr(calc, 'get_hvp', None)
     # ASE constraints can add energy and project forces outside the model graph.
@@ -72,7 +72,7 @@ def hvp_one(calc, atoms, n, delta=0.005, batch_size=None):
     return Hn, forces[2].reshape(-1), float(energies[2])
 
 
-def hessian_one(calc, atoms, batch_size=None):
+def hessian_single(calc, atoms, batch_size=None):
     """Keep the calculator getter; chunk explicitly requested force differences."""
     if batch_size is not None and getattr(calc, 'hessian', None) == 'numerical':
         return calculate_batch(calc, [atoms], ['hessian'], batch_size)['hessian'][0]
@@ -80,6 +80,10 @@ def hessian_one(calc, atoms, batch_size=None):
 
 
 def _oom(error):
+    import sys
+    tensorflow = sys.modules.get('tensorflow')
+    if tensorflow is not None and isinstance(error, tensorflow.errors.ResourceExhaustedError):
+        return any(marker in str(error).lower() for marker in ('out of memory', 'oom when allocating'))
     return isinstance(error, MemoryError) or (isinstance(error, RuntimeError) and any(
         marker in str(error).lower() for marker in (
             'cuda out of memory', 'cuda error: out of memory',

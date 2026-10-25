@@ -42,6 +42,7 @@ class ANICalculator(CalcABC):
         super().__init__()
         path = model_path or Path(__file__).resolve().parents[1] / 'model' / (model + '.pt')
         _torch.load_model(self, path, device, dtype)
+        self.hessian = 'analytic'
         self.model_name, self.overwrite, self.d4 = model, overwrite, d4
         if d4 and getattr(self.model, 'model_name', model) == 'ani2dr':
             raise ValueError('ani2dr already contains native dispersion; extra D4 is unsupported')
@@ -103,7 +104,8 @@ class ANICalculator(CalcABC):
             return _torch.tensor_properties(output['energy'], positions, atoms_list, properties,
                                             outputs=output, source_unit=self.MODEL_ENERGY_UNIT,
                                             strain=strain, volume=volume,
-                                            single=vector is not None, vector=vector)
+                                            single=vector is not None, vector=vector,
+                                            dipole_from_charges=True)
 
     def _batch_key(self, atoms):
         if atoms.pbc.any():

@@ -231,6 +231,26 @@ def prepare_aimnet(systems, *, device="cpu", dtype=None, supported_species=None,
         result["nbmat" + suffix], result["shifts" + suffix] = neighbors, shifts
     return result
 
+def prepare_nequip(systems, atomic_numbers, cutoff, *, device="cpu", dtype=None, input_fields):
+    import torch
+    dtype = torch.float32 if dtype is None else dtype
+    _validate_geometry(systems)
+    states = [_state(atoms) for atoms in systems]
+    if any(q != 0 or spin != 1 for q, spin in states):
+        raise ValueError("this model has no charge/multiplicity conditioning; require Q=0, M=1")
+    graph = prepare_graphs(systems, atomic_numbers, cutoff, device=device, dtype=dtype, states=states)
+    atom_types = graph['node_attrs'].argmax(dim=-1)
+    data = {'pos': graph['positions'], 'edge_index': graph['edge_index'],
+            'batch': graph['batch']}
+    if 'num_atoms' in input_fields:
+        data.update(atom_types=atom_types, num_atoms=graph['ptr'][1:] - graph['ptr'][:-1])
+    else:
+        data.update(atom_types=atom_types[:, None], ptr=graph['ptr'])
+    if bool(graph['pbc'].any()):
+        data.update(cell=graph['cell'], edge_cell_shift=graph['unit_shifts'])
+    return data
+
+
 def prepare_mace(systems, atomic_numbers, cutoff, *, device="cpu", dtype=None,
                  head_index=0, state_names=(), state_offsets=(), state_classes=(), unconditioned=True,
                  full_pbc=False, min_volume=None):

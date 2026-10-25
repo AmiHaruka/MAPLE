@@ -6,7 +6,7 @@ from ase import Atoms
 from ..jobABC import JobABC
 from maple.function.timer import timer
 from maple.function.calculator._batch import (
-    calculate_batch, energy_forces_one, _apply_constraints,
+    calculate_batch, energy_forces_single, _apply_constraints,
 )
 
 @dataclass
@@ -38,7 +38,7 @@ class SinglePoint(JobABC):
         with timer("Single Point Energy Calculation"):
             forces = None
             if self.verbose >= 1:
-                energy, forces = energy_forces_one(self.atoms.calc, self.atoms, force_consistent=False)
+                energy, forces = energy_forces_single(self.atoms.calc, self.atoms, force_consistent=False)
             else:
                 energy = self.atoms.get_potential_energy()
             self.results = {'energy': energy}

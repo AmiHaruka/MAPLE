@@ -23,7 +23,6 @@ def load_model(calc, path, device, dtype=None):
         if requested != native and parameter.dtype == native:
             parameter.data = parameter.data.to(requested)
     calc.dtype = requested
-    calc.hessian = 'analytic'
     return native
 
 
@@ -41,7 +40,7 @@ def _grad(value, variables, *, create_graph=False, retain_graph=False):
     return tuple(torch.zeros_like(v) if g is None else g for g, v in zip(gradients, variables))
 
 
-def _native_atomic(tensor, positions, members, *, vector=False):
+def _native_atomic(tensor, positions, members, *, vector=False, as_tensor=False):
     if not isinstance(tensor, torch.Tensor):
         return None
     if not vector and tensor.dim() == positions.dim() and tensor.shape[-1] == 1:
@@ -58,7 +57,7 @@ def _native_atomic(tensor, positions, members, *, vector=False):
             return None
     if not bool(torch.isfinite(tensor).all()):
         return None
-    return _atomic_values(tensor, members, dense=positions.dim() == 3)
+    return tensor if as_tensor else _atomic_values(tensor, members, dense=positions.dim() == 3)
 
 def _native_system(tensor, members, shape):
     if not isinstance(tensor, torch.Tensor):
@@ -141,7 +140,8 @@ def prepare_derivatives(coordinates, members, properties, *, batch=None):
 
 @torch.enable_grad()
 def tensor_properties(energy, positions, members, properties, *, outputs=None,
-                      source_unit="eV", strain=None, volume=None, single=False, vector=None):
+                      source_unit="eV", strain=None, volume=None, single=False, vector=None,
+                      dipole_from_charges=False):
     """Resolve physical properties from an existing forward; E/F/H/Hv use Hartree."""
     outputs = {} if outputs is None else outputs
     second = derivative_order(properties) == 2
@@ -149,20 +149,26 @@ def tensor_properties(energy, positions, members, properties, *, outputs=None,
     if energy.numel() != len(members) or not bool(torch.isfinite(energy).all()):
         raise ValueError("script energy output must contain one value per system")
     native_force, native_stress, native_virial = None, None, None
-    if "forces" in properties:
-        native_force = _native_atomic(outputs.get("forces"), positions, members, vector=True)
+    force = outputs.get("forces")
+    if "forces" in properties or (second and isinstance(force, torch.Tensor) and force.requires_grad):
+        native_force = _native_atomic(force, positions, members, vector=True, as_tensor=True)
     if "stress" in properties:
         native_stress = _native_system(outputs.get("stress"), members, (3, 3))
     if "virial" in properties:
         native_virial = _native_system(outputs.get("virial"), members, (3, 3))
     gradient, strain_gradient = None, None
-    need_position_gradient = second or ("forces" in properties and native_force is None)
+    # A retained native force graph already supplies the complete energy gradient.
+    if (second and native_force is not None and native_force.requires_grad
+            and native_force.shape == positions.shape):
+        gradient = -native_force
+    need_position_gradient = gradient is None and (second or ("forces" in properties and native_force is None))
     need_strain_gradient = (("stress" in properties and native_stress is None)
                             or ("virial" in properties and native_virial is None))
     if need_position_gradient or need_strain_gradient:
         variables = (positions,) if strain is None else (positions, strain)
         gradients = _grad(energy.sum(), variables, create_graph=second, retain_graph=second)
-        gradient = gradients[0]
+        if gradient is None:
+            gradient = gradients[0]
         if strain is not None:
             strain_gradient = gradients[1]
     results = {}
@@ -173,8 +179,8 @@ def tensor_properties(energy, positions, members, properties, *, outputs=None,
             if name in properties:
                 results[name] = result
     if "forces" in properties:
-        values = native_force if native_force is not None else _atomic_values(
-            -gradient, members, dense=positions.dim() == 3)
+        values = _atomic_values(native_force if native_force is not None else -gradient,
+                                members, dense=positions.dim() == 3)
         results["forces"] = values[0] if single else values
     if "charges" in properties:
         values = _native_atomic(outputs.get("charges"), positions, members)
@@ -184,6 +190,8 @@ def tensor_properties(energy, positions, members, properties, *, outputs=None,
     if "dipole" in properties:
         values = _native_system(outputs.get("dipole"), members, (3,))
         if values is None:
+            if not dipole_from_charges:
+                raise NotImplementedError("this script has no dipole output")
             if any(atoms.pbc.any() for atoms in members):
                 raise NotImplementedError('Periodic dipole requires a native model output')
             charges = _native_atomic(outputs.get("charges"), positions, members)

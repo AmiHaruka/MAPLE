@@ -384,8 +384,8 @@ class Dimer(JobABC):
         return "\n".join(lines) + "\n"
 
     def _get_hvp(self, n):
-        from maple.function.calculator._batch import hvp_one
-        Hn, forces, energy = hvp_one(self.atoms.calc, self.atoms, n,
+        from maple.function.calculator._batch import hvp_single
+        Hn, forces, energy = hvp_single(self.atoms.calc, self.atoms, n,
                                     self.params.delta, self.params.batch_size)
         device = getattr(self.atoms.calc, 'device', 'cpu')
         return tuple(torch.as_tensor(value, dtype=torch.float64, device=device).reshape(-1)

@@ -42,6 +42,18 @@ class CommandControl:
         'mace-polar-1l',
         'fennix-bio-1s',
         'fennix-bio-1m',
+        'grace-off-1s',
+        'grace-off-1m',
+        'grace-off-1l',
+        'grace-off-2s',
+        'grace-off-2m',
+        'grace-off-2l',
+        'so3lr',
+        'allegro-fm-256',
+        'allegro-fm-512',
+        'nequip-t3-cosmo',
+        'nequip-t123-cosmo',
+        'nequip-t3-gas',
         'uma',
     }
 

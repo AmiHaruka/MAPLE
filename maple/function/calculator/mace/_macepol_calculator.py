@@ -51,6 +51,7 @@ class MACEPolCalculator(CalcABC):
         super().__init__()
         path = model_path or Path(__file__).resolve().parents[1] / 'model' / (model + '.pt')
         native_dtype = _torch.load_model(self, path, device, dtype)
+        self.hessian = 'analytic'
         if self.dtype != native_dtype:
             self.model.to(dtype=self.dtype)
         self.model_name = model
@@ -89,7 +90,8 @@ class MACEPolCalculator(CalcABC):
             return _torch.tensor_properties(output['energy'], positions, atoms_list, properties,
                                             outputs=output, source_unit=self.MODEL_ENERGY_UNIT,
                                             strain=strain, volume=volume,
-                                            single=vector is not None, vector=vector)
+                                            single=vector is not None, vector=vector,
+                                            dipole_from_charges=True)
 
     def _batch_key(self, atoms):
         return tuple(atoms.pbc)

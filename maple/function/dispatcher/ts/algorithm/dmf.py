@@ -25,7 +25,7 @@ import cyipopt
 import numpy as np
 from ase import Atoms
 from maple.function.calculator._inputs import _state
-from maple.function.calculator._batch import energy_forces_images, energy_forces_one
+from maple.function.calculator._batch import energy_forces_images, energy_forces_single
 from ase.calculators.calculator import Calculator, PropertyNotImplementedError
 from ase.calculators.mixing import SumCalculator
 from ase.data import covalent_radii
@@ -901,7 +901,7 @@ class DMF(JobABC):
         ts_atoms = mxflx.images[0].copy()
         ts_atoms.set_positions(ts_pos)
         ts_atoms.calc = base_calc
-        E_ts, F_ts = energy_forces_one(base_calc, ts_atoms, force_consistent=False)
+        E_ts, F_ts = energy_forces_single(base_calc, ts_atoms, force_consistent=False)
         maxF_ts = float(np.max(np.linalg.norm(F_ts, axis=1)))
 
         # Path energies are internal eV in the core; convert back to Hartree for MAPLE output.

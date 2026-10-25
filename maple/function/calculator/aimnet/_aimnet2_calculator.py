@@ -41,6 +41,7 @@ class AIMNet2Calculator(CalcABC):
         super().__init__()
         path = model_path or Path(__file__).resolve().parents[1] / 'model' / (model + '.pt')
         _torch.load_model(self, path, device, dtype)
+        self.hessian = 'analytic'
         self.model_name = model
         self.lr, self.lr_cutoff = str(lr).lower(), float(lr_cutoff)
         _inputs.validate_lr(self.lr, self.lr_cutoff)
@@ -108,7 +109,8 @@ class AIMNet2Calculator(CalcABC):
             return _torch.tensor_properties(output['energy'], positions, atoms_list, properties,
                                             outputs=output, source_unit=self.MODEL_ENERGY_UNIT,
                                             strain=strain, volume=volume,
-                                            single=vector is not None, vector=vector)
+                                            single=vector is not None, vector=vector,
+                                            dipole_from_charges=True)
 
     def calculate(self, atoms=None, properties=None, system_changes=all_changes):
         properties = self._normalize_properties(properties)

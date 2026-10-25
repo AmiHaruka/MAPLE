@@ -25,7 +25,7 @@ from typing import List, Tuple, Optional
 import numpy as np
 from ase import Atoms
 from maple.function.calculator._inputs import _state
-from maple.function.calculator._batch import energy_forces_one, energy_forces_images
+from maple.function.calculator._batch import energy_forces_single, energy_forces_images
 
 # You already have these utilities / mixins in your codebase:
 from .logger import log_info
@@ -462,7 +462,7 @@ class GSM(JobABC):
 
         def energy_and_grad(xvec):
             img.set_positions(xvec.reshape(-1,3))
-            E, F = energy_forces_one(img.calc, img)
+            E, F = energy_forces_single(img.calc, img)
             F = project_out_rigidbody_forces(F, xvec.reshape(-1,3), masses).reshape(-1)
             g = -F
             g = proj_perp(g)
@@ -506,7 +506,7 @@ class GSM(JobABC):
 
             # quick check at predicted point
             pos  = to_numpy_f64(trial.get_positions())
-            E_pred, Fraw = energy_forces_one(trial.calc, trial)
+            E_pred, Fraw = energy_forces_single(trial.calc, trial)
             Frb  = project_out_rigidbody_forces(Fraw, pos, masses_last).reshape(-1)
             tau3N = np.tile(dir3.reshape(1,3), (len(trial),1)).reshape(-1)
             F_perp = Frb - float(np.dot(Frb, tau3N)) * tau3N

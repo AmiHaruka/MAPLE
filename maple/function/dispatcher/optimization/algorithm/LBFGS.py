@@ -5,7 +5,7 @@ from typing import List, Optional
 
 import numpy as np
 from ase import Atoms
-from maple.function.calculator._batch import energy_forces_one
+from maple.function.calculator._batch import energy_forces_single
 
 from ._common import compute_metrics, is_converged, write_xyz
 from ...jobABC import JobABC
@@ -165,7 +165,7 @@ class LBFGS(JobABC):
         atoms = self.atoms
         iteration = 0
         r = atoms.get_positions()
-        e, f = energy_forces_one(atoms.calc, atoms)
+        e, f = energy_forces_single(atoms.calc, atoms)
         write_xyz(opt_traj_file, [atoms.copy()], energies=[e], forces=[f])
 
         self.results = {'atoms': atoms, 'energy': e, 'forces': f,
@@ -181,7 +181,7 @@ class LBFGS(JobABC):
 
             r = atoms.get_positions()
             try:
-                e, f = energy_forces_one(atoms.calc, atoms)
+                e, f = energy_forces_single(atoms.calc, atoms)
             except Exception:
                 atoms.set_positions(r_old)
                 raise

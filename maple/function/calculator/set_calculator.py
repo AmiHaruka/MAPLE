@@ -61,6 +61,18 @@ _BUILTIN_NAME_TO_MODULE = {
     'mace-polar-1l': 'maple.function.calculator.mace._macepol_calculator',
     'fennix-bio-1s': 'maple.function.calculator.fennol._fennol_calculator',
     'fennix-bio-1m': 'maple.function.calculator.fennol._fennol_calculator',
+    'grace-off-1s': 'maple.function.calculator.grace._grace_calculator',
+    'grace-off-1m': 'maple.function.calculator.grace._grace_calculator',
+    'grace-off-1l': 'maple.function.calculator.grace._grace_calculator',
+    'grace-off-2s': 'maple.function.calculator.grace._grace_calculator',
+    'grace-off-2m': 'maple.function.calculator.grace._grace_calculator',
+    'grace-off-2l': 'maple.function.calculator.grace._grace_calculator',
+    'so3lr': 'maple.function.calculator.so3lr._so3lr_calculator',
+    'allegro-fm-256': 'maple.function.calculator.nequip._nequip_calculator',
+    'allegro-fm-512': 'maple.function.calculator.nequip._nequip_calculator',
+    'nequip-t3-cosmo': 'maple.function.calculator.nequip._nequip_calculator',
+    'nequip-t123-cosmo': 'maple.function.calculator.nequip._nequip_calculator',
+    'nequip-t3-gas': 'maple.function.calculator.nequip._nequip_calculator',
     'uma': 'maple.function.calculator.uma._uma_calculator',
 }
 

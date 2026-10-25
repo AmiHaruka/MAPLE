@@ -17,7 +17,7 @@ from typing import Optional, Tuple, List
 import numpy as np
 from ase import Atoms
 from maple.function.calculator._inputs import _state
-from maple.function.calculator._batch import energy_forces_one
+from maple.function.calculator._batch import energy_forces_single
 
 from .logger import log_info
 from ...jobABC import JobABC
@@ -706,7 +706,7 @@ class PRFO(JobABC):
 
         H_work = None
         
-        E_old, F_cart = energy_forces_one(atoms.calc, atoms)
+        E_old, F_cart = energy_forces_single(atoms.calc, atoms)
         self.results = {'atoms': atoms, 'energy': E_old, 'forces': F_cart,
                         'iterations': 0, 'converged': False}
 
@@ -799,7 +799,7 @@ class PRFO(JobABC):
                 
                 # New energy
                 try:
-                    E_new, F_new = energy_forces_one(atoms.calc, atoms)
+                    E_new, F_new = energy_forces_single(atoms.calc, atoms)
                 except Exception:
                     atoms.set_positions(X)
                     raise

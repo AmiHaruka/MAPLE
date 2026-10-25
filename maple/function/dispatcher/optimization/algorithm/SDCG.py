@@ -25,7 +25,7 @@ from typing import List, Optional
 
 import numpy as np
 from ase import Atoms
-from maple.function.calculator._batch import energy_forces_one
+from maple.function.calculator._batch import energy_forces_single
 
 from ._common import compute_metrics, is_converged, write_xyz
 from .DIIS import DIISAccelerator, DIISParams
@@ -437,7 +437,7 @@ class SDCG(JobABC):
         atoms = self.atoms
 
         # Get initial state
-        energy, forces = energy_forces_one(atoms.calc, atoms)
+        energy, forces = energy_forces_single(atoms.calc, atoms)
         write_xyz(opt_traj_file, [atoms.copy()], energies=[energy], forces=[forces])
 
         # Auto cg_switch_fmax: 0.5 * initial max force
@@ -484,7 +484,7 @@ class SDCG(JobABC):
                 atoms.set_positions(saved_positions + step)
 
                 try:
-                    new_energy, new_forces = energy_forces_one(atoms.calc, atoms)
+                    new_energy, new_forces = energy_forces_single(atoms.calc, atoms)
                 except Exception:
                     atoms.set_positions(saved_positions)
                     raise
@@ -515,7 +515,7 @@ class SDCG(JobABC):
                 atoms.set_positions(atoms.get_positions() + step)
 
                 try:
-                    energy, forces = energy_forces_one(atoms.calc, atoms)
+                    energy, forces = energy_forces_single(atoms.calc, atoms)
                 except Exception:
                     atoms.set_positions(saved_positions)
                     raise
